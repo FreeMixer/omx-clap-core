@@ -4,12 +4,21 @@ CC ?= gcc
 # program name
 PROG = omx-clap-host
 
-# mod-host checkout that provides libmod-host-plumbing.a and its headers
+PKG_CONFIG ?= pkg-config
+
+# mod-host plumbing library: pkg-config when it is installed, a mod-host checkout otherwise
+ifeq ($(shell $(PKG_CONFIG) --exists mod-host-plumbing && echo true), true)
+PLUMBING_CFLAGS = $(shell $(PKG_CONFIG) --cflags mod-host-plumbing)
+PLUMBING_LIBS = $(shell $(PKG_CONFIG) --libs mod-host-plumbing)
+else
 MOD_HOST_DIR ?= ../wt-mod-host-clap
 PLUMBING_LIB = $(MOD_HOST_DIR)/libmod-host-plumbing.a
+PLUMBING_CFLAGS = -I$(MOD_HOST_DIR)/src
+PLUMBING_LIBS = $(PLUMBING_LIB)
+endif
 
 # CLAP headers: pkg-config when clap-devel is installed, CLAP_CFLAGS=-I<dir> otherwise
-CLAP_CFLAGS ?= $(shell pkg-config --cflags clap 2>/dev/null)
+CLAP_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags clap 2>/dev/null)
 
 # plugin the test loads
 CLAP_TEST_PLUGIN ?= ../openmixer/packages/omx-plugins/bin/omx-delay.clap
@@ -26,10 +35,10 @@ else
 endif
 
 # libraries
-LIBS = $(shell pkg-config --libs jack) -ldl -lpthread -lm
+LIBS = $(shell $(PKG_CONFIG) --libs jack) -ldl -lpthread -lm
 
 # include paths
-INCS = -I$(MOD_HOST_DIR)/src $(CLAP_CFLAGS) $(shell pkg-config --cflags jack)
+INCS = $(PLUMBING_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack)
 
 LDFLAGS += -Wl,--no-undefined
 
@@ -42,10 +51,12 @@ all: $(PROG)
 
 # linking rule
 $(PROG): $(OBJ) $(PLUMBING_LIB)
-	$(CC) $(OBJ) $(PLUMBING_LIB) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(OBJ) $(PLUMBING_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
+ifneq ($(PLUMBING_LIB),)
 $(PLUMBING_LIB):
 	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-plumbing.a
+endif
 
 # meta-rule to generate the object files
 %.o: %.c

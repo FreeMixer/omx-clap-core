@@ -13,10 +13,12 @@ adds the CLAP side only.
 Building
 --------
 
-    make MOD_HOST_DIR=<mod-host checkout> [CLAP_CFLAGS=-I<clap headers>]
+    make [MOD_HOST_DIR=<mod-host checkout>] [CLAP_CFLAGS=-I<clap headers>]
 
-`MOD_HOST_DIR` must hold a mod-host tree built with its plumbing library
-(`make libmod-host-plumbing.a` there). The CLAP headers come from
+The plumbing library comes from `pkg-config mod-host-plumbing` when it is
+installed (mod-host's `make install`, or the mod-host-devel package).
+Otherwise `MOD_HOST_DIR` must hold a mod-host tree, where
+`libmod-host-plumbing.a` is built if missing. The CLAP headers come from
 `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
