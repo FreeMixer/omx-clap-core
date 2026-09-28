@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,6 +71,7 @@ typedef struct EFFECT_T {
     jack_port_t *input_ports[CLAP_HOST_MAX_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_MAX_CHANNELS];
     clap_instance_t *clap;
+    uint32_t latency_published;
 } effect_t;
 
 
@@ -201,6 +203,58 @@ static int process(jack_nframes_t nframes, void *arg)
     return 0;
 }
 
+/* the plugin's latency on top of what reaches the ports of the other direction */
+static void latency(jack_latency_callback_mode_t mode, void *arg)
+{
+    effect_t *effect = arg;
+    jack_port_t **from, **to;
+    jack_latency_range_t range, total;
+    uint32_t c, from_count, to_count;
+
+    if (!effect->clap)
+        return;
+
+    if (mode == JackCaptureLatency)
+    {
+        from = effect->input_ports;
+        from_count = effect->clap->input_channels;
+        to = effect->output_ports;
+        to_count = effect->clap->output_channels;
+    }
+    else
+    {
+        from = effect->output_ports;
+        from_count = effect->clap->output_channels;
+        to = effect->input_ports;
+        to_count = effect->clap->input_channels;
+    }
+
+    total.min = UINT32_MAX;
+    total.max = 0;
+    for (c = 0; c < from_count; c++)
+    {
+        jack_port_get_latency_range(from[c], mode, &range);
+        if (range.min < total.min)
+            total.min = range.min;
+        if (range.max > total.max)
+            total.max = range.max;
+    }
+    if (total.min == UINT32_MAX)
+        total.min = 0;
+
+    total.min += effect->latency_published;
+    total.max += effect->latency_published;
+    for (c = 0; c < to_count; c++)
+        jack_port_set_latency_range(to[c], mode, &total);
+}
+
+/* control thread: the figure the latency callback answers with, and a recompute so the graph asks */
+static void publish_latency(effect_t *effect)
+{
+    effect->latency_published = effect->clap->latency_frames;
+    jack_recompute_total_latencies(effect->jack_client);
+}
+
 /* jack stops the process cycle while this runs, so the control thread can take the audio thread's place */
 static int buffer_size(jack_nframes_t nframes, void *arg)
 {
@@ -329,6 +383,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
     jack_set_thread_init_callback(effect->jack_client, jack_thread_init, effect);
     jack_set_process_callback(effect->jack_client, process, effect);
     jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
+    jack_set_latency_callback(effect->jack_client, latency, effect);
 
     error = clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client));
     if (error != SUCCESS)
@@ -341,6 +396,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
         error = ERR_JACK_CLIENT_ACTIVATION;
         goto error;
     }
+    publish_latency(effect);
 
     return instance;
 
@@ -496,6 +552,13 @@ void effects_idle(void)
     int i;
 
     for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)
-        if (instance_exist(i))
-            clap_host_idle(g_effects[i].clap);
+    {
+        effect_t *effect = &g_effects[i];
+
+        if (!instance_exist(i))
+            continue;
+        clap_host_idle(effect->clap);
+        if (effect->clap->latency_frames != effect->latency_published)
+            publish_latency(effect);
+    }
 }
