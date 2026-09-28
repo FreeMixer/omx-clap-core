@@ -60,6 +60,7 @@
 */
 
 static volatile int running;
+static volatile int quitting;
 
 static const host_backend_t g_clap_backend = {
     effects_add,
@@ -144,14 +145,21 @@ static void help_cb(proto_t *proto)
     fflush(stdout);
 }
 
+/* the reply goes out after this returns; the loop ends on the idle call that follows it */
 static void quit_cb(proto_t *proto)
 {
     protocol_response("resp 0", proto);
+    quitting = 1;
+}
 
-    protocol_remove_commands();
-    socket_finish();
-    effects_finish();
-    exit(EXIT_SUCCESS);
+static void idle_cb(void)
+{
+    effects_idle();
+    if (quitting)
+    {
+        running = 0;
+        socket_finish();
+    }
 }
 
 static void term_signal(int sig)
@@ -180,7 +188,7 @@ static int host_init(int socket_port, int feedback_port)
         return -1;
 
     socket_set_receive_cb(protocol_parse);
-    socket_set_idle_cb(effects_idle);
+    socket_set_idle_cb(idle_cb);
     return 0;
 }
 
