@@ -1,3 +1,4 @@
 *.o
 omx-clap-host
 tests/clap_host_test
+tests/fake.clap

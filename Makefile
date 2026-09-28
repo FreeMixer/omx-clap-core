@@ -72,11 +72,14 @@ install:
 
 # clean rule
 clean:
-	@rm -f src/*.o $(PROG) tests/clap_host_test
+	@rm -f src/*.o $(PROG) tests/clap_host_test tests/fake.clap
 
-# the CLAP lifecycle against a plugin, no jack needed
-test: tests/clap_host_test
-	./tests/clap_host_test $(CLAP_TEST_PLUGIN)
+# the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
+test: tests/clap_host_test tests/fake.clap
+	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap)
 
 tests/clap_host_test: tests/clap_host_test.c src/clap_host.c
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $^ -ldl -lpthread -lm
+
+tests/fake.clap: tests/fake_plugin.c
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<

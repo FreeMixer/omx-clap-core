@@ -20,7 +20,9 @@
 /* The CLAP lifecycle against a real plugin, on this thread, no jack:
  * open, activate, parameters by id, a tone through process, state to a
  * file and back into a second instance, close. Written for omx-delay.clap
- * (parameter 0 = time in ms, 2 = mix, 5 = its own bypass). */
+ * (parameter 0 = time in ms, 2 = mix, 5 = its own bypass). A second
+ * argument names tests/fake.clap, whose layouts the host must refuse with
+ * the reason on stderr, and whose passthrough reports a latency. */
 
 #include <math.h>
 #include <stdio.h>
@@ -38,6 +40,13 @@
 #define PARAM_TIME_MS   0
 #define PARAM_MIX       2
 #define PARAM_BYPASS    5
+
+#define FAKE_WIDE           "org.omx-clap-host.test.wide"
+#define FAKE_SIDECHAIN      "org.omx-clap-host.test.sidechain"
+#define FAKE_NOTES          "org.omx-clap-host.test.notes"
+#define FAKE_PASSTHROUGH    "org.omx-clap-host.test.passthrough"
+#define FAKE_LATENCY        64
+#define FAKE_LATENCY_NEXT   128
 
 static int g_failures;
 
@@ -63,9 +72,69 @@ static int all_finite(const float *buffer, uint32_t nframes)
     return 1;
 }
 
+/* open must fail with -102 and print the reason */
+static void check_refused(const char *path, const char *id, const char *reason)
+{
+    clap_instance_t *instance = NULL;
+    char log_file[] = "/tmp/clap_host_test_XXXXXX";
+    char captured[512];
+    int fd, saved, ret;
+    ssize_t n;
+
+    fd = mkstemp(log_file);
+    fflush(stderr);
+    saved = dup(STDERR_FILENO);
+    dup2(fd, STDERR_FILENO);
+    ret = clap_host_open(path, id, &instance);
+    fflush(stderr);
+    dup2(saved, STDERR_FILENO);
+    close(saved);
+
+    lseek(fd, 0, SEEK_SET);
+    n = read(fd, captured, sizeof(captured) - 1);
+    captured[n > 0 ? n : 0] = '\0';
+    close(fd);
+    unlink(log_file);
+
+    CHECK(ret == ERR_LV2_INSTANTIATION && instance == NULL, "%s refused with %i", id, ret);
+    CHECK(strstr(captured, reason) != NULL, "%s names the reason \"%s\" (stderr: %s)", id, reason,
+          n > 0 ? captured : "(nothing)");
+    if (instance)
+        clap_host_close(instance);
+}
+
+static void fake_plugin_checks(const char *path)
+{
+    clap_instance_t *instance = NULL;
+    double value;
+
+    CHECK(CLAP_HOST_MAX_CHANNELS == 2, "CLAP_HOST_MAX_CHANNELS is %i", CLAP_HOST_MAX_CHANNELS);
+    check_refused(path, FAKE_WIDE, "main port has 4 channels");
+    check_refused(path, FAKE_SIDECHAIN, "1 sidechain/aux ports");
+    check_refused(path, FAKE_NOTES, "note input");
+    CHECK(clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", clap_host_binaries_open());
+
+    CHECK(clap_host_open(path, FAKE_PASSTHROUGH, &instance) == SUCCESS && instance != NULL, "open %s", FAKE_PASSTHROUGH);
+    if (!instance)
+        return;
+    CHECK(instance->latency != NULL, "latency extension");
+    CHECK(clap_host_activate(instance, SAMPLE_RATE, BLOCK) == SUCCESS, "activate");
+    CHECK(instance->latency_frames == FAKE_LATENCY, "latency %u frames read at activate", instance->latency_frames);
+
+    CHECK(clap_host_param_set(instance, 0, FAKE_LATENCY_NEXT) == SUCCESS, "param_set 0 = %i while idle", FAKE_LATENCY_NEXT);
+    CHECK(clap_host_param_get(instance, 0, &value) == SUCCESS && value == FAKE_LATENCY_NEXT, "param_get 0 = %g", value);
+    clap_host_idle(instance);
+    CHECK(atomic_load(&instance->restart_requested) == 0 && instance->active, "the restart it asked for ran on idle");
+    CHECK(instance->latency_frames == FAKE_LATENCY_NEXT, "latency %u frames after the change", instance->latency_frames);
+
+    clap_host_close(instance);
+    CHECK(clap_host_binaries_open() == 0, "fake binary closed");
+}
+
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : NULL;
+    const char *fake_path = argc > 2 ? argv[2] : NULL;
     clap_instance_t *first = NULL, *second = NULL;
     float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
     const float *inputs[2] = { in_l, in_r };
@@ -155,6 +224,9 @@ int main(int argc, char **argv)
     if (second)
         clap_host_close(second);
     CHECK(clap_host_binaries_open() == 0, "binary closed after the last instance");
+
+    if (fake_path)
+        fake_plugin_checks(fake_path);
 
     printf("%s\n", g_failures == 0 ? "clap host test ok" : "clap host test FAILED");
     return g_failures == 0 ? 0 : 1;

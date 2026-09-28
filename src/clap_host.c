@@ -358,8 +358,8 @@ static int descriptor_has_feature(const clap_plugin_descriptor_t *desc, const ch
     return 0;
 }
 
-/* one main input and one main output, nothing else */
-static int read_topology(clap_instance_t *instance)
+/* one main input and one main output, mono or stereo, nothing else; the reason when not */
+static int read_topology(clap_instance_t *instance, char *reason, size_t reason_size)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
     uint32_t main_inputs = 0, main_outputs = 0, others = 0;
@@ -368,7 +368,10 @@ static int read_topology(clap_instance_t *instance)
     int dir;
 
     if (!ports)
+    {
+        snprintf(reason, reason_size, "no audio-ports extension");
         return -1;
+    }
 
     for (dir = 0; dir < 2; dir++)
     {
@@ -378,14 +381,20 @@ static int read_topology(clap_instance_t *instance)
         {
             memset(&info, 0, sizeof(info));
             if (!ports->get(instance->plugin, i, is_input, &info))
+            {
+                snprintf(reason, reason_size, "%s port %u unreadable", is_input ? "input" : "output", i);
                 return -1;
+            }
             if (!(info.flags & CLAP_AUDIO_PORT_IS_MAIN))
             {
                 others++;
                 continue;
             }
             if (info.channel_count == 0 || info.channel_count > CLAP_HOST_MAX_CHANNELS)
+            {
+                snprintf(reason, reason_size, "main port has %u channels", info.channel_count);
                 return -1;
+            }
             if (is_input)
             {
                 instance->input_channels = info.channel_count;
@@ -399,10 +408,21 @@ static int read_topology(clap_instance_t *instance)
         }
     }
 
-    if (main_inputs != 1 || main_outputs != 1 || others != 0)
+    if (others != 0)
+    {
+        snprintf(reason, reason_size, "%u sidechain/aux ports", others);
         return -1;
+    }
+    if (main_inputs != 1 || main_outputs != 1)
+    {
+        snprintf(reason, reason_size, "%u main inputs, %u main outputs", main_inputs, main_outputs);
+        return -1;
+    }
     if (instance->note_ports && instance->note_ports->count(instance->plugin, true) > 0)
+    {
+        snprintf(reason, reason_size, "note input");
         return -1;
+    }
     return 0;
 }
 
@@ -676,6 +696,7 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
     clap_binary_t *binary;
     const clap_plugin_descriptor_t *desc = NULL;
     clap_instance_t *instance;
+    char reason[64];
     uint32_t count, i;
 
     *out = NULL;
@@ -742,9 +763,9 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
     if (!instance->preset_load)
         instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
 
-    if (read_topology(instance) != 0)
+    if (read_topology(instance, reason, sizeof(reason)) != 0)
     {
-        fprintf(stderr, "unsupported port layout in %s\n", id);
+        fprintf(stderr, "%s: unsupported port layout: %s\n", id, reason);
         instance->plugin->destroy(instance->plugin);
         binary_unref(binary);
         free(instance);

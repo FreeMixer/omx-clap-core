@@ -47,7 +47,7 @@
 
 #define CLAP_HOST_PARAM_QUEUE_DEPTH     256     // power of two
 #define CLAP_HOST_EVENTS_PER_CYCLE      64
-#define CLAP_HOST_MAX_CHANNELS          8
+#define CLAP_HOST_MAX_CHANNELS          2
 #define CLAP_HOST_STATE_MAX             (1024 * 1024)
 #define CLAP_HOST_LOG_SIZE              256
 
