@@ -26,27 +26,42 @@ else
 endif
 
 # libraries
-LIBS = -ldl -lpthread -lm
+LIBS = $(shell pkg-config --libs jack) -ldl -lpthread -lm
 
 # include paths
-INCS = -I$(MOD_HOST_DIR)/src $(CLAP_CFLAGS)
+INCS = -I$(MOD_HOST_DIR)/src $(CLAP_CFLAGS) $(shell pkg-config --cflags jack)
 
 LDFLAGS += -Wl,--no-undefined
 
 # source and object files
-SRC = src/clap_host.c
+SRC = src/main.c src/effects.c src/clap_host.c
 OBJ = $(SRC:.c=.o)
 
 # default build
-all: tests/clap_host_test
+all: $(PROG)
+
+# linking rule
+$(PROG): $(OBJ) $(PLUMBING_LIB)
+	$(CC) $(OBJ) $(PLUMBING_LIB) $(LDFLAGS) $(LIBS) -o $@
+
+$(PLUMBING_LIB):
+	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-plumbing.a
 
 # meta-rule to generate the object files
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 
+# install rule
+PREFIX = /usr/local
+BINDIR = $(PREFIX)/bin
+
+install:
+	install -d $(DESTDIR)$(BINDIR)
+	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)
+
 # clean rule
 clean:
-	@rm -f src/*.o tests/clap_host_test
+	@rm -f src/*.o $(PROG) tests/clap_host_test
 
 # the CLAP lifecycle against a plugin, no jack needed
 test: tests/clap_host_test
