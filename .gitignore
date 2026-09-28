@@ -2,3 +2,4 @@
 omx-clap-host
 tests/clap_host_test
 tests/fake.clap
+tests/jack_latency_probe

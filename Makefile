@@ -72,7 +72,7 @@ install:
 
 # clean rule
 clean:
-	@rm -f src/*.o $(PROG) tests/clap_host_test tests/fake.clap
+	@rm -f src/*.o $(PROG) tests/clap_host_test tests/fake.clap tests/jack_latency_probe
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
 test: tests/clap_host_test tests/fake.clap
@@ -83,3 +83,10 @@ tests/clap_host_test: tests/clap_host_test.c src/clap_host.c
 
 tests/fake.clap: tests/fake_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+
+# the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
+test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
+	CLAP_TEST_PLUGIN=$(CLAP_TEST_PLUGIN) ./tests/jack_e2e.sh
+
+tests/jack_latency_probe: tests/jack_latency_probe.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
