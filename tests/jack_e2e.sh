@@ -45,13 +45,16 @@ state_dir=$runtime/state
 export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH=$runtime/pulse
 unset DBUS_SESSION_BUS_ADDRESS
 pids=()
+# pid 1 of the namespace: every process in it dies with this script, the trap only makes it orderly
 cleanup() {
     exec 3>&- 2>/dev/null
     for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
+    kill -TERM -- -1 2>/dev/null
     wait 2>/dev/null
     rm -rf "$runtime"
 }
 trap cleanup EXIT
+[ "$$" = 1 ]; step $? "pid 1 of a private pid namespace"
 
 ip link set lo up
 
