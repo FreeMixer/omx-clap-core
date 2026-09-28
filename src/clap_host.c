@@ -48,6 +48,7 @@
 
 #define RESTART_TIMEOUT_US      200000
 #define RESTART_POLL_US         1000
+#define QUEUE_SETTLE_US         50000
 
 
 /*
@@ -65,6 +66,13 @@ struct CLAP_BINARY_T {
     uint32_t refs;
     clap_binary_t *next;
 };
+
+/* what the control thread displaces while it holds the audio role */
+typedef struct ROLE_T {
+    uint32_t state;
+    pthread_t thread;
+    int held;
+} role_t;
 
 typedef struct STREAM_T {
     uint8_t *buffer;
@@ -517,28 +525,86 @@ static void drain_events(clap_instance_t *instance)
         atomic_fetch_add_explicit(&instance->events_delivered, n, memory_order_relaxed);
 }
 
+/* the control thread stands in for the audio thread: a cycle that arrives meanwhile passes the input through,
+ * one already running is waited for */
+static role_t take_role(clap_instance_t *instance)
+{
+    role_t role;
+    uint32_t state = atomic_load(&instance->run_state);
+    unsigned waited = 0;
+
+    while (state != CLAP_HOST_IDLE && state != CLAP_HOST_STOPPED && state != CLAP_HOST_HELD
+           && !atomic_compare_exchange_weak(&instance->run_state, &state, CLAP_HOST_HELD))
+        ;
+    while (atomic_load(&instance->in_cycle) && waited < RESTART_TIMEOUT_US)
+    {
+        usleep(RESTART_POLL_US);
+        waited += RESTART_POLL_US;
+    }
+
+    role.state = state;
+    role.thread = instance->audio_thread;
+    role.held = instance->audio_role_held;
+    instance->audio_thread = pthread_self();
+    instance->audio_role_held = 1;
+    return role;
+}
+
+static void release_role(clap_instance_t *instance, const role_t *role, uint32_t state)
+{
+    uint32_t held = CLAP_HOST_HELD;
+
+    instance->audio_thread = role->thread;
+    instance->audio_role_held = role->held;
+    atomic_compare_exchange_strong(&instance->run_state, &held, state);
+}
+
+static int queue_pending(const clap_instance_t *instance)
+{
+    return atomic_load(&instance->queue.tail) != atomic_load(&instance->queue.head);
+}
+
 /* the queued writes reach the plugin through params.flush when no cycle runs them */
 static void flush_events(clap_instance_t *instance)
 {
+    role_t role;
+
     if (!instance->params || !instance->params->flush)
         return;
 
-    instance->audio_thread = pthread_self();
-    instance->audio_role_held = 1;
-    while (atomic_load(&instance->queue.tail) != atomic_load(&instance->queue.head))
+    role = take_role(instance);
+    while (queue_pending(instance))
     {
         drain_events(instance);
         instance->params->flush(instance->plugin, &instance->in_events, &instance->out_events);
         instance->events_count = 0;
     }
-    instance->audio_role_held = 0;
+    release_role(instance, &role, role.state);
+}
+
+/* a write waits for the next cycle; when none comes (a client nothing drives), the control thread delivers it */
+static void settle_queue(clap_instance_t *instance)
+{
+    const uint32_t runs = atomic_load(&instance->runs);
+    unsigned waited = 0;
+
+    while (queue_pending(instance) && waited < QUEUE_SETTLE_US)
+    {
+        usleep(RESTART_POLL_US);
+        waited += RESTART_POLL_US;
+    }
+    if (queue_pending(instance) && atomic_load(&instance->runs) == runs)
+        flush_events(instance);
 }
 
 static int push_or_flush(clap_instance_t *instance, clap_id id, double value, void *cookie)
 {
+    uint32_t state;
+
     if (queue_push(&instance->queue, id, value, cookie) != 0)
         return ERR_INVALID_OPERATION;
-    if (atomic_load(&instance->run_state) == CLAP_HOST_IDLE)
+    state = atomic_load(&instance->run_state);
+    if (state == CLAP_HOST_IDLE || state == CLAP_HOST_ARMED)
         flush_events(instance);
     return SUCCESS;
 }
@@ -677,7 +743,14 @@ static int wait_stopped(clap_instance_t *instance)
     while (atomic_load(&instance->run_state) == CLAP_HOST_STOPPING)
     {
         if (waited >= RESTART_TIMEOUT_US)
-            return -1;
+        {
+            // no cycle came to stop it
+            role_t role = take_role(instance);
+            if (role.state == CLAP_HOST_STOPPING && instance->plugin->stop_processing)
+                instance->plugin->stop_processing(instance->plugin);
+            release_role(instance, &role, CLAP_HOST_STOPPED);
+            return 0;
+        }
         usleep(RESTART_POLL_US);
         waited += RESTART_POLL_US;
     }
@@ -935,6 +1008,7 @@ int clap_host_param_get(clap_instance_t *instance, clap_id id, double *value)
 
     if (param_info(instance, id, &info) != 0 || (info.flags & CLAP_PARAM_IS_HIDDEN))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
+    settle_queue(instance);
     if (!instance->params->get_value(instance->plugin, id, value))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
     return SUCCESS;
@@ -965,6 +1039,7 @@ int clap_host_state_save(clap_instance_t *instance, const char *filename)
     if (!instance->state)
         return ERR_INVALID_OPERATION;
 
+    settle_queue(instance);
     stream.buffer = malloc(stream.capacity);
     if (!instance->state->save(instance->plugin, &ostream) || stream.overflow)
     {
@@ -1034,29 +1109,32 @@ void clap_host_idle(clap_instance_t *instance)
 
     if (atomic_exchange(&instance->restart_requested, 0) && instance->active)
         clap_host_restart(instance, instance->max_frames);
+
+    settle_queue(instance);
 }
 
-void clap_host_run(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
+static void run_cycle(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
 {
     uint32_t state = atomic_load_explicit(&instance->run_state, memory_order_acquire);
     uint32_t c;
     int want_wet;
 
-    if (state == CLAP_HOST_ARMED)
+    if (state == CLAP_HOST_ARMED && atomic_compare_exchange_strong(&instance->run_state, &state, CLAP_HOST_PROCESSING))
     {
         if (!instance->plugin->start_processing || instance->plugin->start_processing(instance->plugin))
             state = CLAP_HOST_PROCESSING;
         else
+        {
             state = CLAP_HOST_STOPPED;
-        atomic_store_explicit(&instance->run_state, state, memory_order_release);
+            atomic_store_explicit(&instance->run_state, state, memory_order_release);
+        }
     }
 
-    if (state == CLAP_HOST_STOPPING)
+    if (state == CLAP_HOST_STOPPING && atomic_compare_exchange_strong(&instance->run_state, &state, CLAP_HOST_STOPPED))
     {
         if (instance->plugin->stop_processing)
             instance->plugin->stop_processing(instance->plugin);
         state = CLAP_HOST_STOPPED;
-        atomic_store_explicit(&instance->run_state, state, memory_order_release);
     }
 
     if (state != CLAP_HOST_PROCESSING || nframes > instance->max_frames)
@@ -1091,6 +1169,14 @@ void clap_host_run(clap_instance_t *instance, const float *const *inputs, float 
     }
 
     deliver(instance, inputs, outputs, nframes, want_wet);
+}
+
+/* a cycle marks itself so the control thread taking the audio role waits for it */
+void clap_host_run(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
+{
+    atomic_store(&instance->in_cycle, 1);
+    run_cycle(instance, inputs, outputs, nframes);
+    atomic_store(&instance->in_cycle, 0);
 }
 
 void clap_host_denormals_off(void)

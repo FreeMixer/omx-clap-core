@@ -176,6 +176,7 @@ int main(int argc, char **argv)
 
     CHECK(clap_host_param_set(first, PARAM_MIX, 1.0) == SUCCESS, "param_set %u = 1.0", PARAM_MIX);
     CHECK(clap_host_param_set(first, PARAM_TIME_MS, 5.0) == SUCCESS, "param_set %u = 5.0", PARAM_TIME_MS);
+    CHECK(clap_host_param_get(first, PARAM_MIX, &value) == SUCCESS && value == 1.0, "param_get %u = %g before any cycle ran", PARAM_MIX, value);
 
     for (b = 0; b < BLOCKS; b++)
     {
@@ -200,6 +201,17 @@ int main(int argc, char **argv)
     CHECK(clap_host_param_get(first, PARAM_MIX, &value) == SUCCESS && value == 1.0, "param_get %u = %g", PARAM_MIX, value);
     CHECK(clap_host_param_get(first, PARAM_TIME_MS, &value) == SUCCESS && value == 5.0, "param_get %u = %g", PARAM_TIME_MS, value);
 
+    clap_host_idle(first);
+    CHECK(clap_host_param_set(first, PARAM_TIME_MS, 7.0) == SUCCESS, "param_set %u = 7.0 while processing", PARAM_TIME_MS);
+    CHECK(clap_host_param_get(first, PARAM_TIME_MS, &value) == SUCCESS && value == 7.0, "param_get %u = %g with no cycle running", PARAM_TIME_MS, value);
+    fill_tone(in_l, BLOCK, 0);
+    memcpy(in_r, in_l, sizeof(in_l));
+    clap_host_run(first, inputs, outputs, BLOCK);
+    CHECK(atomic_load(&first->run_state) == CLAP_HOST_PROCESSING && atomic_load(&first->runs) == BLOCKS + 1, "the next cycle processes again (state %u, %u runs)",
+          atomic_load(&first->run_state), atomic_load(&first->runs));
+    CHECK(atomic_load(&first->events_delivered) == 3, "%u parameter events delivered", atomic_load(&first->events_delivered));
+    CHECK(atomic_load(&first->thread_violations) == 0, "%u thread-check violations", atomic_load(&first->thread_violations));
+
     fd = mkstemp(state_file);
     CHECK(fd >= 0, "state file %s", state_file);
     if (fd >= 0)
@@ -214,7 +226,7 @@ int main(int argc, char **argv)
         CHECK(clap_host_param_get(second, PARAM_MIX, &value) == SUCCESS && value != 1.0, "second instance starts at its default (%g)", value);
         CHECK(clap_host_state_load(second, state_file) == SUCCESS, "state_load into the second instance");
         CHECK(clap_host_param_get(second, PARAM_MIX, &value) == SUCCESS && value == 1.0, "second instance param %u = %g after load", PARAM_MIX, value);
-        CHECK(clap_host_param_get(second, PARAM_TIME_MS, &value) == SUCCESS && value == 5.0, "second instance param %u = %g after load", PARAM_TIME_MS, value);
+        CHECK(clap_host_param_get(second, PARAM_TIME_MS, &value) == SUCCESS && value == 7.0, "second instance param %u = %g after load", PARAM_TIME_MS, value);
     }
     unlink(state_file);
 

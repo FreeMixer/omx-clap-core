@@ -64,7 +64,8 @@ enum {
     CLAP_HOST_ARMED,
     CLAP_HOST_PROCESSING,
     CLAP_HOST_STOPPING,
-    CLAP_HOST_STOPPED
+    CLAP_HOST_STOPPED,
+    CLAP_HOST_HELD       // the control thread stands in for the audio thread; a cycle passes the input through
 };
 
 typedef struct CLAP_PARAM_RECORD_T {
@@ -124,6 +125,7 @@ typedef struct CLAP_INSTANCE_T {
     int audio_role_held;
 
     _Atomic uint32_t run_state;
+    _Atomic uint32_t in_cycle;
     _Atomic uint32_t bypass;
     int rendered_wet;
     uint32_t latency_frames;
