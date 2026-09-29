@@ -79,6 +79,10 @@ clean:
 test: tests/clap_host_test tests/fake.clap
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap)
 
+# the same without omx-delay.clap: only the fake plugin's checks
+test-fake: tests/clap_host_test tests/fake.clap
+	./tests/clap_host_test - $(abspath tests/fake.clap)
+
 tests/clap_host_test: tests/clap_host_test.c src/clap_host.c
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $^ -ldl -lpthread -lm
 

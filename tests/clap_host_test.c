@@ -131,6 +131,12 @@ static void fake_plugin_checks(const char *path)
     CHECK(clap_host_binaries_open() == 0, "fake binary closed");
 }
 
+static int report(void)
+{
+    printf("%s\n", g_failures == 0 ? "clap host test ok" : "clap host test FAILED");
+    return g_failures == 0 ? 0 : 1;
+}
+
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : NULL;
@@ -148,8 +154,18 @@ int main(int argc, char **argv)
 
     if (!path)
     {
-        fprintf(stderr, "usage: %s <plugin.clap>\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap]\n", argv[0]);
         return 2;
+    }
+    if (strcmp(path, "-") == 0)
+    {
+        if (!fake_path)
+        {
+            fprintf(stderr, "%s: '-' needs the fake plugin\n", argv[0]);
+            return 2;
+        }
+        fake_plugin_checks(fake_path);
+        return report();
     }
 
     CHECK(clap_host_open(path, PLUGIN_ID, &first) == SUCCESS && first != NULL, "open %s#%s", path, PLUGIN_ID);
@@ -240,6 +256,5 @@ int main(int argc, char **argv)
     if (fake_path)
         fake_plugin_checks(fake_path);
 
-    printf("%s\n", g_failures == 0 ? "clap host test ok" : "clap host test FAILED");
-    return g_failures == 0 ? 0 : 1;
+    return report();
 }
