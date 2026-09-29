@@ -6,7 +6,8 @@
 # side against the input it passed through. Runs in a PipeWire of its own
 # like jack_e2e.sh; exit 0 only when every comparison held.
 #
-# MOD_HOST:         the fork's mod-host (default ../wt-mod-host-clap/mod-host)
+# MOD_HOST:         the fork's mod-host (default ../wt-mod-host-clap/mod-host); a tree build has no
+#                   rpath, so its directory is put on LD_LIBRARY_PATH for libmod-host-plumbing.so.0
 # CLAP_TEST_PLUGIN: omx-delay.clap (default ../openmixer/packages/omx-plugins/bin/omx-delay.clap)
 # LV2_DIR:          the directory holding omx-delay.lv2 (default: the .clap's directory)
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
@@ -79,13 +80,21 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
 
-LV2_PATH=$lv2_dir "$mod_host" -n -p $port_lv2 >"$runtime/mod-host.log" 2>&1 &
+LV2_PATH=$lv2_dir LD_LIBRARY_PATH=$(dirname "$mod_host")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH} \
+    "$mod_host" -n -p $port_lv2 >"$runtime/mod-host.log" 2>&1 &
 pids+=($!)
 "$host" -n -p $port_clap >"$runtime/clap-host.log" 2>&1 &
 pids+=($!)
 for _ in $(seq 100); do grep -q "ready" "$runtime/mod-host.log" && grep -q "ready" "$runtime/clap-host.log" && break; sleep 0.1; done
-grep -q "ready" "$runtime/mod-host.log"; step $? "mod-host ready on port $port_lv2"
-grep -q "ready" "$runtime/clap-host.log"; step $? "omx-clap-host ready on port $port_clap"
+for h in mod-host clap-host; do
+    if ! grep -q "ready" "$runtime/$h.log"; then
+        step 1 "$h ready"
+        sed 's/^/     '"$h"': /' "$runtime/$h.log"
+        exit 2
+    fi
+done
+step 0 "mod-host ready on port $port_lv2 (lv2 bundles from $lv2_dir)"
+step 0 "omx-clap-host ready on port $port_clap"
 
 exec 3<>"/dev/tcp/127.0.0.1/$port_lv2"
 exec 4<>"/dev/tcp/127.0.0.1/$port_clap"
