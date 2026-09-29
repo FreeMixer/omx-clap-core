@@ -6,16 +6,16 @@ PROG = omx-clap-host
 
 PKG_CONFIG ?= pkg-config
 
-# mod-host plumbing library: pkg-config when it is installed, a mod-host checkout otherwise
-ifeq ($(shell $(PKG_CONFIG) --exists mod-host-plumbing && echo true), true)
-PLUMBING_CFLAGS = $(shell $(PKG_CONFIG) --cflags mod-host-plumbing)
-PLUMBING_LIBS = $(shell $(PKG_CONFIG) --libs mod-host-plumbing)
+# mod-host protocol library: pkg-config when it is installed, a mod-host checkout otherwise
+ifeq ($(shell $(PKG_CONFIG) --exists mod-host-protocol && echo true), true)
+PROTOCOL_CFLAGS = $(shell $(PKG_CONFIG) --cflags mod-host-protocol)
+PROTOCOL_LIBS = $(shell $(PKG_CONFIG) --libs mod-host-protocol)
 else
 MOD_HOST_DIR ?= ../wt-mod-host-clap
-PLUMBING_LIB = $(MOD_HOST_DIR)/libmod-host-plumbing.so
-PLUMBING_CFLAGS = -I$(MOD_HOST_DIR)/src
+PROTOCOL_LIB = $(MOD_HOST_DIR)/libmod-host-protocol.so
+PROTOCOL_CFLAGS = -I$(MOD_HOST_DIR)/src
 # the checkout's library is not installed: the binary finds it there through its rpath
-PLUMBING_LIBS = -L$(MOD_HOST_DIR) -lmod-host-plumbing -Wl,-rpath,$(abspath $(MOD_HOST_DIR))
+PROTOCOL_LIBS = -L$(MOD_HOST_DIR) -lmod-host-protocol -Wl,-rpath,$(abspath $(MOD_HOST_DIR))
 endif
 
 # CLAP headers: pkg-config when clap-devel is installed, CLAP_CFLAGS=-I<dir> otherwise
@@ -39,7 +39,7 @@ endif
 LIBS = $(shell $(PKG_CONFIG) --libs jack) -ldl -lpthread -lm
 
 # include paths
-INCS = $(PLUMBING_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack)
+INCS = $(PROTOCOL_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack)
 
 LDFLAGS += -Wl,--no-undefined
 
@@ -51,12 +51,12 @@ OBJ = $(SRC:.c=.o)
 all: $(PROG)
 
 # linking rule
-$(PROG): $(OBJ) $(PLUMBING_LIB)
-	$(CC) $(OBJ) $(PLUMBING_LIBS) $(LDFLAGS) $(LIBS) -o $@
+$(PROG): $(OBJ) $(PROTOCOL_LIB)
+	$(CC) $(OBJ) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
-ifneq ($(PLUMBING_LIB),)
-$(PLUMBING_LIB):
-	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-plumbing.so
+ifneq ($(PROTOCOL_LIB),)
+$(PROTOCOL_LIB):
+	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
 endif
 
 # meta-rule to generate the object files

@@ -7,7 +7,7 @@
 # like jack_e2e.sh; exit 0 only when every comparison held.
 #
 # MOD_HOST:         the fork's mod-host (default ../wt-mod-host-clap/mod-host); a tree build has no
-#                   rpath, so its directory is put on LD_LIBRARY_PATH for libmod-host-plumbing.so.0
+#                   rpath, so its directory is put on LD_LIBRARY_PATH for libmod-host-protocol.so.0
 # CLAP_TEST_PLUGIN: omx-delay.clap (default ../openmixer/packages/omx-plugins/bin/omx-delay.clap)
 # LV2_DIR:          the directory holding omx-delay.lv2 (default: the .clap's directory)
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)

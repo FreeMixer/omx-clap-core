@@ -1,7 +1,7 @@
 name: build-rpm
 
 # Builds the mod-host RPMs from linuxnow/mod-host with the audinux spec, installs them
-# in the build container, then builds this tree's RPM against the installed plumbing
+# in the build container, then builds this tree's RPM against the installed protocol
 # library. Artifacts only: nothing is signed or published. Run by hand; never on push
 # or tags.
 
@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       mod_host_ref:
-        description: 'linuxnow/mod-host ref to build the plumbing library from'
+        description: 'linuxnow/mod-host ref to build the protocol library from'
         required: true
         default: 'plumbing-lib'
       spec_ref:
@@ -65,11 +65,11 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE/mod-host"
           mod-host/utils/build-rpm.sh mod-host fedora-spec/moddevices rpms
 
-      - name: Install mod-host and mod-host-devel in the container
+      - name: Install mod-host and mod-host-protocol-devel in the container
         run: |
           set -euo pipefail
-          dnf install -y rpms/mod-host-[0-9]*.rpm rpms/mod-host-devel-*.rpm
-          echo "mod-host-plumbing $(pkg-config --modversion mod-host-plumbing)"
+          dnf install -y rpms/mod-host-[0-9]*.rpm rpms/mod-host-protocol-devel-*.rpm
+          echo "mod-host-protocol $(pkg-config --modversion mod-host-protocol)"
 
       - name: Build the omx-clap-host RPM
         run: |
@@ -103,7 +103,7 @@ jobs:
             cp "$rpm" rpms/
           done < "$top/built.txt"
 
-      - name: The packaged binary loads the installed plumbing library
+      - name: The packaged binary loads the installed protocol library
         run: |
           set -euo pipefail
           root="$(mktemp -d)"
@@ -111,8 +111,8 @@ jobs:
             (cd "$root" && rpm2cpio "$GITHUB_WORKSPACE/$rpm" | cpio -id --quiet)
           done
           ldd "$root/usr/bin/omx-clap-host" | tee /tmp/ldd.txt
-          grep -q 'libmod-host-plumbing\.so\.0 => /' /tmp/ldd.txt || {
-            echo "::error::omx-clap-host does not resolve libmod-host-plumbing.so.0"
+          grep -q 'libmod-host-protocol\.so\.0 => /' /tmp/ldd.txt || {
+            echo "::error::omx-clap-host does not resolve libmod-host-protocol.so.0"
             exit 1
           }
 
