@@ -41,6 +41,7 @@ step() {
         echo "FAIL $2"
         failures=$((failures + 1))
         ps -o pid,stat,wchan:16,etimes,cmd --no-headers 2>/dev/null | sed 's/^/     /'
+        tail -5 "$runtime/host.log" 2>/dev/null | sed 's/^/     host: /'
     fi
 }
 # nothing the graph answers may hang the run: 10 s and the step fails
