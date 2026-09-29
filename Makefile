@@ -73,7 +73,7 @@ install:
 
 # clean rule
 clean:
-	@rm -f src/*.o $(PROG) tests/clap_host_test tests/fake.clap tests/jack_latency_probe
+	@rm -f src/*.o $(PROG) tests/clap_host_test tests/fake.clap tests/jack_latency_probe tests/jack_identity
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
 test: tests/clap_host_test tests/fake.clap
@@ -95,3 +95,10 @@ test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
 
 tests/jack_latency_probe: tests/jack_latency_probe.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
+
+# the LV2 twin through mod-host against the CLAP twin through this host, bit for bit, in a PipeWire of its own
+test-identity: $(PROG) tests/jack_identity
+	CLAP_TEST_PLUGIN=$(CLAP_TEST_PLUGIN) ./tests/clap_lv2_identity.sh
+
+tests/jack_identity: tests/jack_identity.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
