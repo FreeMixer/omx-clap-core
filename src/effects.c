@@ -252,6 +252,7 @@ static void latency(jack_latency_callback_mode_t mode, void *arg)
 static void publish_latency(effect_t *effect)
 {
     effect->latency_published = effect->clap->latency_frames;
+    fprintf(stderr, "effect_%i: latency %u frames\n", effect->instance, effect->latency_published);
     jack_recompute_total_latencies(effect->jack_client);
 }
 
