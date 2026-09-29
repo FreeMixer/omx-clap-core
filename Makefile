@@ -12,9 +12,10 @@ PLUMBING_CFLAGS = $(shell $(PKG_CONFIG) --cflags mod-host-plumbing)
 PLUMBING_LIBS = $(shell $(PKG_CONFIG) --libs mod-host-plumbing)
 else
 MOD_HOST_DIR ?= ../wt-mod-host-clap
-PLUMBING_LIB = $(MOD_HOST_DIR)/libmod-host-plumbing.a
+PLUMBING_LIB = $(MOD_HOST_DIR)/libmod-host-plumbing.so
 PLUMBING_CFLAGS = -I$(MOD_HOST_DIR)/src
-PLUMBING_LIBS = $(PLUMBING_LIB)
+# the checkout's library is not installed: the binary finds it there through its rpath
+PLUMBING_LIBS = -L$(MOD_HOST_DIR) -lmod-host-plumbing -Wl,-rpath,$(abspath $(MOD_HOST_DIR))
 endif
 
 # CLAP headers: pkg-config when clap-devel is installed, CLAP_CFLAGS=-I<dir> otherwise
@@ -55,7 +56,7 @@ $(PROG): $(OBJ) $(PLUMBING_LIB)
 
 ifneq ($(PLUMBING_LIB),)
 $(PLUMBING_LIB):
-	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-plumbing.a
+	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-plumbing.so
 endif
 
 # meta-rule to generate the object files
