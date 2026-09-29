@@ -84,6 +84,11 @@ jobs:
           sed -e "s/^Version:.*/Version: $version/" -e "s/^Release: *\([0-9]*\)%{?dist}/Release: \1.git$short%{?dist}/" \
             omx/packaging/omx-clap-host.spec > "$spec"
           grep -E '^(Version|Release):' "$spec"
+          # the changelog names the version and release this build carries
+          release="$(sed -n 's/^Release: *\(.*\)%{?dist}$/\1/p' "$spec")"
+          printf '* %s Pau Aliagas <linuxnow@gmail.com> - %s-%s\n- build of commit %s\n\n' \
+            "$(LC_ALL=C date +'%a %b %d %Y')" "$version" "$release" "$short" > "$top/changelog"
+          sed -i "/^%changelog/r $top/changelog" "$spec"
           git -C omx archive --prefix="omx-clap-host-$version/" HEAD | gzip > "$top/SOURCES/omx-clap-host-$version.tar.gz"
           dnf builddep -y "$spec"
           rpmbuild --define "_topdir $top" -bb "$spec"
