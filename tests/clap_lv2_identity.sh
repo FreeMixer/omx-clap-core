@@ -120,6 +120,19 @@ link() {
     run pw-link "$1" "$2" 2>/dev/null
     step $? "link $1 -> $2"
 }
+# an effect's ports as the graph names them (mod-host uses the LV2 symbols), in registration order
+effect_ports() {
+    run pw-link "-$2" 2>/dev/null | grep "^$1:" | head -2
+}
+link_effect() {
+    local client=$1 sink=$2 ins outs
+    ins=$(effect_ports "$client" i)
+    outs=$(effect_ports "$client" o)
+    [ "$(echo "$ins" | grep -c .)" = 2 ] && [ -n "$outs" ]
+    step $? "$client ports: $(echo $ins) / $(echo $outs)"
+    for p in $ins; do link identity-src:out "$p"; done
+    link "$(echo "$outs" | head -1)" "$sink"
+}
 sample_at() {
     od -A n -t f4 -j "$(( $2 * 4 ))" -N 4 "$1" | tr -d ' '
 }
@@ -143,12 +156,8 @@ run_pass() {
     for _ in $(seq 50); do grep -q "^ready" "$runtime/$name.out" && break; sleep 0.1; done
     ready=$(grep "^ready" "$runtime/$name.out")
     [ -n "$ready" ]; step $? "$name: feeder $ready"
-    link identity-src:out effect_0:in_1
-    link identity-src:out effect_0:in_2
-    link identity-src:out effect_1:in_1
-    link identity-src:out effect_1:in_2
-    link effect_0:out_1 identity-rec:a
-    link effect_1:out_1 identity-rec:b
+    link_effect effect_0 identity-rec:a
+    link_effect effect_1 identity-rec:b
     echo go >&5
     run tail --pid=$! -f /dev/null
     wait $!
