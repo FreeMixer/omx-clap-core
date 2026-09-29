@@ -1,0 +1,98 @@
+.TH OMX\-CLAP\-HOST 1 "September 2026" "omx-clap-host 0.1.0" "User Commands"
+.SH NAME
+omx\-clap\-host \- CLAP plugin host for JACK, driven over mod\-host's socket protocol
+.SH SYNOPSIS
+.B omx\-clap\-host
+.RB [ \-n ]
+.RB [ \-v ]
+.RB [ \-p
+.IR port ]
+.RB [ \-f
+.IR port ]
+.br
+.B omx\-clap\-host
+.RB { \-V | \-h }
+.SH DESCRIPTION
+.B omx\-clap\-host
+loads CLAP plugins and runs each instance as a JACK client named
+.BI effect_ N
+with one port per channel of the plugin's main audio pair,
+.BI in_ k
+and
+.BI out_ k
+from 1, exactly as
+.BR mod\-host (1)
+lays out an LV2 plugin. It is controlled over the same socket, with the
+same line protocol and the same replies as mod\-host, from mod\-host's
+plumbing library, so a controller that speaks to mod\-host can speak to
+this host unchanged.
+.PP
+A plugin is admitted with exactly one main audio input and one main audio
+output, each mono or stereo. A sidechain, an auxiliary port, a wider main
+port or a note input is refused at
+.B add
+with
+.B resp \-102
+and the reason on standard error.
+.PP
+The plugin's latency is published on its JACK ports and republished when
+the plugin changes it. Bypass is the host's own one\-block crossfade to the
+dry input; the plugin's own bypass parameter is never written.
+.SH OPTIONS
+.TP
+.BR \-n ", " \-\-nofork
+Run in the foreground instead of forking.
+.TP
+.BR \-v ", " \-\-verbose
+Print every command and reply; implies
+.BR \-n .
+.TP
+.BI \-p " port" "\fR, \fB\-\-socket\-port=" port
+Listen for commands on this TCP port (default 5555).
+.TP
+.BI \-f " port" "\fR, \fB\-\-feedback\-port=" port
+Send feedback on this TCP port (default none).
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print the usage and exit.
+.SH PROTOCOL
+Commands are mod\-host's, one per message, terminated by a NUL byte, and
+answered with
+.B resp
+.I code
+using mod\-host's codes:
+.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " preset_load ", "
+.BR state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " help ", " quit .
+A plugin is named
+.BI clap: path # plugin\-id
+and a parameter by its decimal CLAP id;
+.B :bypass
+reads and writes the bypass. Every other mod\-host command answers
+.BR "resp \-902" .
+The README of the source distribution lists each command with its
+arguments.
+.SH FILES
+.TP
+.IB dir /effect_ N .clapstate
+The state of instance
+.I N
+written by
+.BI "state_save " dir
+and read back by
+.BR state_load ,
+one blob per instance, beside mod\-host's
+.BI effect\- N
+directories when both hosts share
+.IR dir .
+.TP
+.I /tmp/omx\-clap\-host.pid
+The pid of the forked host.
+.SH SEE ALSO
+.BR mod\-host (1),
+.BR jackd (1),
+.BR pw\-link (1)
+.SH AUTHOR
+Pau Aliagas <linuxnow@gmail.com>

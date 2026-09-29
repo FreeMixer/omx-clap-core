@@ -66,10 +66,15 @@ endif
 # install rule
 PREFIX = /usr/local
 BINDIR = $(PREFIX)/bin
+MANDIR = $(PREFIX)/share/man/man1
 
-install:
+install: install_man
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)
+
+install_man:
+	install -d $(DESTDIR)$(MANDIR)
+	install -m 644 doc/*.1 $(DESTDIR)$(MANDIR)
 
 # clean rule
 clean:
