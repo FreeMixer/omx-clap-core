@@ -228,6 +228,27 @@ int main(int argc, char **argv)
     CHECK(atomic_load(&first->events_delivered) == 3, "%u parameter events delivered", atomic_load(&first->events_delivered));
     CHECK(atomic_load(&first->thread_violations) == 0, "%u thread-check violations", atomic_load(&first->thread_violations));
 
+    /* bypass is the host's one-block crossfade to the dry input, the plugin's own bypass parameter untouched */
+    CHECK(clap_host_bypass(first, 1) == SUCCESS, "bypass 1");
+    fill_tone(in_l, BLOCK, BLOCK);
+    memcpy(in_r, in_l, sizeof(in_l));
+    clap_host_run(first, inputs, outputs, BLOCK);
+    CHECK(memcmp(out_l, in_l, sizeof(in_l)) != 0, "the block after bypass fades from wet (out[0] = %g, in[0] = %g)", (double)out_l[0], (double)in_l[0]);
+    fill_tone(in_l, BLOCK, 2 * BLOCK);
+    memcpy(in_r, in_l, sizeof(in_l));
+    clap_host_run(first, inputs, outputs, BLOCK);
+    CHECK(memcmp(out_l, in_l, sizeof(in_l)) == 0 && memcmp(out_r, in_r, sizeof(in_r)) == 0, "steady bypass: output bit-identical to the input");
+    CHECK(atomic_load(&first->runs) == BLOCKS + 2, "the plugin idles under a steady bypass (%u runs)", atomic_load(&first->runs));
+    CHECK(clap_host_param_get(first, PARAM_BYPASS, &value) == SUCCESS && value == 0.0, "the plugin's own bypass parameter stays %g", value);
+    CHECK(clap_host_bypassed(first) == 1, ":bypass reads 1");
+    CHECK(clap_host_bypass(first, 0) == SUCCESS, "bypass 0");
+    fill_tone(in_l, BLOCK, 3 * BLOCK);
+    memcpy(in_r, in_l, sizeof(in_l));
+    clap_host_run(first, inputs, outputs, BLOCK);
+    CHECK(out_l[0] == in_l[0] && memcmp(out_l, in_l, sizeof(in_l)) != 0, "the block after unbypass fades from dry (out[0] = %g)", (double)out_l[0]);
+    CHECK(atomic_load(&first->runs) == BLOCKS + 3, "the plugin runs again (%u runs)", atomic_load(&first->runs));
+    CHECK(clap_host_bypassed(first) == 0, ":bypass reads 0");
+
     fd = mkstemp(state_file);
     CHECK(fd >= 0, "state file %s", state_file);
     if (fd >= 0)

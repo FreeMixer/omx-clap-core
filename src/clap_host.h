@@ -98,11 +98,8 @@ typedef struct CLAP_INSTANCE_T {
     uint32_t input_channels;
     uint32_t output_channels;
 
-    // the plugin's own bypass parameter, CLAP_INVALID_ID when it has none
+    // the plugin's own bypass parameter, CLAP_INVALID_ID when it has none: refused to param_set, never written
     clap_id bypass_param;
-    void *bypass_cookie;
-    double bypass_off;
-    double bypass_on;
 
     double sample_rate;
     uint32_t max_frames;

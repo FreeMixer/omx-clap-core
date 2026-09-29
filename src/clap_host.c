@@ -467,9 +467,6 @@ static void find_bypass_param(clap_instance_t *instance)
         if (instance->params->get_info(instance->plugin, i, &info) && (info.flags & CLAP_PARAM_IS_BYPASS))
         {
             instance->bypass_param = info.id;
-            instance->bypass_cookie = info.cookie;
-            instance->bypass_off = info.min_value;
-            instance->bypass_on = info.max_value;
             return;
         }
     }
@@ -1014,14 +1011,11 @@ int clap_host_param_get(clap_instance_t *instance, clap_id id, double *value)
     return SUCCESS;
 }
 
+/* the host's own bypass: one crossfade to the dry input on the next cycle, then the plugin idles */
 int clap_host_bypass(clap_instance_t *instance, int value)
 {
     atomic_store(&instance->bypass, value ? 1 : 0);
-
-    if (instance->bypass_param == CLAP_INVALID_ID)
-        return SUCCESS;
-    return push_or_flush(instance, instance->bypass_param, value ? instance->bypass_on : instance->bypass_off,
-                         instance->bypass_cookie);
+    return SUCCESS;
 }
 
 int clap_host_bypassed(clap_instance_t *instance)
@@ -1146,15 +1140,12 @@ static void run_cycle(clap_instance_t *instance, const float *const *inputs, flo
         return;
     }
 
-    want_wet = instance->bypass_param != CLAP_INVALID_ID || atomic_load_explicit(&instance->bypass, memory_order_acquire) == 0;
+    want_wet = atomic_load_explicit(&instance->bypass, memory_order_acquire) == 0;
 
     if (!want_wet && !instance->rendered_wet)
     {
-        // steady bypass: the plugin keeps running on silence so a delay line does not pause
-        for (c = 0; c < instance->input_channels; c++)
-            memset(instance->input_buffers[c], 0, sizeof(float) * nframes);
+        // steady bypass: the plugin idles, the input passes through untouched
         pass_dry(instance, inputs, outputs, nframes);
-        process_cycle(instance, nframes);
         return;
     }
 
