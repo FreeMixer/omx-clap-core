@@ -10,14 +10,14 @@ Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
-BuildRequires: pkgconfig(mod-host-plumbing)
+BuildRequires: pkgconfig(mod-host-protocol)
 BuildRequires: clap-devel
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 
 %description
 omx-clap-host runs CLAP plugins as JACK clients and is controlled like
 mod-host: the same socket, the same line protocol and the same command
-replies, from mod-host's plumbing library. Each plugin instance is a JACK
+replies, from mod-host's protocol library. Each plugin instance is a JACK
 client with its own ports.
 
 %prep

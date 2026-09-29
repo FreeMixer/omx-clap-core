@@ -7,7 +7,7 @@ ports `in_<k>` and `out_<k>`, exactly as mod-host lays out an LV2 plugin,
 so a controller that speaks to mod-host can speak to this host unchanged.
 
 The socket server, the line protocol and the command dispatch are
-mod-host's own, linked from its `libmod-host-plumbing.so.0`; this project
+mod-host's own, linked from its `libmod-host-protocol.so.0`; this project
 adds the CLAP side only.
 
 Building
@@ -15,9 +15,9 @@ Building
 
     make [MOD_HOST_DIR=<mod-host checkout>] [CLAP_CFLAGS=-I<clap headers>]
 
-The plumbing is mod-host's `libmod-host-plumbing.so.0`, linked as a shared
-library: from `pkg-config mod-host-plumbing` when it is installed
-(mod-host's `make install-lib`, or the mod-host-plumbing-devel package),
+The protocol is mod-host's `libmod-host-protocol.so.0`, linked as a shared
+library: from `pkg-config mod-host-protocol` when it is installed
+(mod-host's `make install-lib`, or the mod-host-protocol-devel package),
 otherwise from `MOD_HOST_DIR`, a mod-host tree where the library is built
 if missing and whose path becomes the binary's rpath. The CLAP headers
 come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
