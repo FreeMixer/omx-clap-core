@@ -75,40 +75,6 @@ static const host_backend_t g_clap_backend = {
     effects_disconnect,
 };
 
-/* mod-host commands this host has no plugin-side answer to */
-static const char *const g_unsupported_commands[] = {
-    EFFECT_PRESET_SAVE,
-    EFFECT_PRESET_SHOW,
-    EFFECT_PARAM_MON,
-    EFFECT_PATCH_GET,
-    EFFECT_PATCH_SET,
-    EFFECT_LICENSEE,
-    EFFECT_SET_BPM,
-    EFFECT_SET_BPB,
-    MONITOR_ADDR_SET,
-    MONITOR_OUTPUT,
-    MONITOR_MIDI_PROGRAM,
-    MIDI_LEARN,
-    MIDI_MAP,
-    MIDI_UNMAP,
-    CC_MAP,
-    CC_VALUE_SET,
-    CC_UNMAP,
-    CV_MAP,
-    CV_UNMAP,
-    HMI_MAP,
-    HMI_UNMAP,
-    BUNDLE_ADD,
-    BUNDLE_REMOVE,
-    STATE_TMPDIR,
-    FEATURE_ENABLE,
-    TRANSPORT,
-    TRANSPORT_SYNC,
-    SHOW_EXTERNAL_UI,
-    OUTPUT_DATA_READY,
-    NULL
-};
-
 static const char g_help_msg[] =
     "add clap:<path>#<plugin_id> <instance_number> [client_name]\n"
     "remove <instance_number>\n"
@@ -172,11 +138,8 @@ static void term_signal(int sig)
 
 static int host_init(int socket_port, int feedback_port)
 {
-    const char *const *command;
-
     host_dispatch_register(&g_clap_backend);
-    for (command = g_unsupported_commands; *command; command++)
-        protocol_add_command(*command, host_dispatch_unsupported_cb);
+    host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command(HELP, help_cb);
     protocol_add_command(QUIT, quit_cb);
