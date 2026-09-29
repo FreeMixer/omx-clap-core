@@ -31,7 +31,7 @@
 #include <unistd.h>
 
 #include "../src/clap_host.h"
-#include "../src/host-errors.h"
+#include "host-errors.h"
 
 #define PLUGIN_ID       "org.freemixer.openmixer.delay"
 #define SAMPLE_RATE     48000.0
