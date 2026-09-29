@@ -7,7 +7,7 @@ ports `in_<k>` and `out_<k>`, exactly as mod-host lays out an LV2 plugin,
 so a controller that speaks to mod-host can speak to this host unchanged.
 
 The socket server, the line protocol and the command dispatch are
-mod-host's own, linked from its `libmod-host-plumbing.so`; this project
+mod-host's own, linked from its `libmod-host-plumbing.so.0`; this project
 adds the CLAP side only.
 
 Building
@@ -15,12 +15,12 @@ Building
 
     make [MOD_HOST_DIR=<mod-host checkout>] [CLAP_CFLAGS=-I<clap headers>]
 
-The plumbing library comes from `pkg-config mod-host-plumbing` when it is
-installed (mod-host's `make install`, or the mod-host-devel package).
-Otherwise `MOD_HOST_DIR` must hold a mod-host tree, where
-`libmod-host-plumbing.so` is built if missing; the binary then finds it
-there through its rpath. The CLAP headers come from
-`pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
+The plumbing is mod-host's `libmod-host-plumbing.so.0`, linked as a shared
+library: from `pkg-config mod-host-plumbing` when it is installed
+(mod-host's `make install-lib`, or the mod-host-plumbing-devel package),
+otherwise from `MOD_HOST_DIR`, a mod-host tree where the library is built
+if missing and whose path becomes the binary's rpath. The CLAP headers
+come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
@@ -34,6 +34,16 @@ runs `tests/jack_e2e.sh`: the host over jack inside a PipeWire of its own
 (a private user, net and pid namespace, its own runtime dir, torn down on
 exit), every command over the socket and the graph read back after each
 one. The PipeWire of the session that runs it is never touched.
+
+    make test-identity MOD_HOST=<mod-host> CLAP_TEST_PLUGIN=<omx-delay>.clap [LV2_DIR=<dir with omx-delay.lv2>]
+
+runs `tests/clap_lv2_identity.sh` in the same kind of namespace: the LV2
+twin of omx-delay through mod-host and the CLAP twin through this host,
+the same parameters on both, one deterministic input fed to both from
+the same cycles by `tests/jack_identity`, the outputs compared bit for
+bit with `cmp`; then both bypassed, compared again and the CLAP side
+compared to its input. It prints the sample counts and, on a difference,
+the first differing sample.
 
 Running
 -------
@@ -64,6 +74,23 @@ Commands
 and writes the bypass like mod-host's pseudo port. `state_save` writes one
 `<dir>/effect_<N>.clapstate` per instance. Every other mod-host command
 answers `resp -902`.
+
+A parameter write is an event on the plugin's next process cycle. When no
+cycle comes (a client nothing is linked to gets none from PipeWire), the
+host delivers it itself through the plugin's `params.flush` on the control
+thread, so `param_get`, `state_save` and the plugin always see the last
+value written.
+
+Bypass
+------
+
+`bypass <N> 1` is the host's own: on the next cycle the output crossfades
+from the plugin's output to the dry input over that one block, with gains
+`1 - i/n` and `i/n`, and from then on the input passes through untouched
+while the plugin idles. `bypass <N> 0` crossfades back and the plugin
+runs again. The plugin's own bypass parameter, when it declares one, is
+never written and is refused to `param_set`; `param_get <N> :bypass`
+answers the commanded value.
 
 Replies are mod-host's: `resp <code>`, with mod-host's error codes.
 
