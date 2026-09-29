@@ -25,6 +25,7 @@
  * the reason on stderr, and whose passthrough reports a latency. */
 
 #include <math.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,13 @@ static void fill_tone(float *buffer, uint32_t nframes, uint32_t offset)
     uint32_t i;
     for (i = 0; i < nframes; i++)
         buffer[i] = 0.5f * sinf(2.0f * (float)M_PI * 1000.0f * (float)(offset + i) / (float)SAMPLE_RATE);
+}
+
+static double now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
 }
 
 static int all_finite(const float *buffer, uint32_t nframes)
@@ -146,6 +154,7 @@ int main(int argc, char **argv)
     const float *inputs[2] = { in_l, in_r };
     float *outputs[2] = { out_l, out_r };
     float max_diff = 0.0f;
+    double elapsed;
     int finite = 1;
     uint32_t b, i;
     double value;
@@ -219,7 +228,14 @@ int main(int argc, char **argv)
 
     clap_host_idle(first);
     CHECK(clap_host_param_set(first, PARAM_TIME_MS, 7.0) == SUCCESS, "param_set %u = 7.0 while processing", PARAM_TIME_MS);
+    elapsed = now_ms();
     CHECK(clap_host_param_get(first, PARAM_TIME_MS, &value) == SUCCESS && value == 7.0, "param_get %u = %g with no cycle running", PARAM_TIME_MS, value);
+    elapsed = now_ms() - elapsed;
+    CHECK(elapsed < 100.0, "answered in %.1f ms with no cycle coming", elapsed);
+    elapsed = now_ms();
+    clap_host_idle(first);
+    elapsed = now_ms() - elapsed;
+    CHECK(elapsed < 100.0, "the idle tick returns in %.1f ms with no cycle coming", elapsed);
     fill_tone(in_l, BLOCK, 0);
     memcpy(in_r, in_l, sizeof(in_l));
     clap_host_run(first, inputs, outputs, BLOCK);

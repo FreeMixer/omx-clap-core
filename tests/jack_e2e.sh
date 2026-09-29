@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
 # omx-clap-host over jack, end to end, in a PipeWire of its own: the script
-# re-runs itself in a private user, net and pid namespace, starts pipewire and
-# wireplumber on a private runtime dir, then drives the host over its socket
+# re-runs itself in a private user, net, pid and mount namespace with its own
+# /proc, starts pipewire on a private runtime dir (no session manager: nodes,
+# ports, links and the dummy driver are the daemon's own), then drives the
+# host over its socket
 # and reads the graph back after every command. Exit 0 only when every step
 # held; each step is printed. Nothing here touches the PipeWire of the session
 # that runs it.
@@ -27,17 +29,23 @@ if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     done
     plugin=$(readlink -f "$plugin")
     JACK_E2E_INSIDE=1 CLAP_TEST_PLUGIN=$plugin OMX_CLAP_HOST=$host JACK_E2E_PORT=$port \
-        exec unshare --user --map-root-user --net --pid --fork "$0" "$@"
+        exec unshare --user --map-root-user --net --pid --fork --mount-proc "$0" "$@"
 fi
 
 failures=0
+# a step that fails names what was alive and where it waited
 step() {
     if [ "$1" -eq 0 ]; then
         echo "ok   $2"
     else
         echo "FAIL $2"
         failures=$((failures + 1))
+        ps -o pid,stat,wchan:16,etimes,cmd --no-headers 2>/dev/null | sed 's/^/     /'
     fi
+}
+# nothing the graph answers may hang the run: 10 s and the step fails
+run() {
+    timeout 10 "$@"
 }
 
 runtime=$(mktemp -d /tmp/omx-clap-host-e2e.XXXXXX)
@@ -51,7 +59,7 @@ cleanup() {
     for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
     kill -TERM -- -1 2>/dev/null
     wait 2>/dev/null
-    rm -rf "$runtime"
+    rm -rf "${runtime:?}"
 }
 trap cleanup EXIT
 [ "$$" = 1 ]; step $? "pid 1 of a private pid namespace"
@@ -62,10 +70,7 @@ pipewire >"$runtime/pw.log" 2>&1 &
 pids+=($!)
 for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
-wireplumber >"$runtime/wp.log" 2>&1 &
-pids+=($!)
-sleep 1
-step $? "private pipewire on $runtime"
+step 0 "private pipewire on $runtime"
 
 "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pids+=($!)
@@ -86,13 +91,13 @@ expect() {
     step $? "$1 -> $reply"
 }
 ports() {
-    pw-link -i 2>/dev/null; pw-link -o 2>/dev/null
+    run pw-link -i 2>/dev/null; run pw-link -o 2>/dev/null
 }
 graph_has() {
     ports | grep -q -x -F "$1"
 }
 nodes() {
-    pw-dump 2>/dev/null | grep -c "\"node.name\": \"$1\""
+    run pw-dump 2>/dev/null | grep -c "\"node.name\": \"$1\""
 }
 
 expect "add clap:$plugin#org.freemixer.openmixer.delay 0" "resp 0"
@@ -126,13 +131,13 @@ grep -q "main port has 4 channels" "$runtime/host.log"; step $? "the wide plugin
 
 expect "add clap:$fake#org.omx-clap-host.test.passthrough 1" "resp 1"
 sleep 0.5
-latency=$("$probe" effect_1:out_1 capture)
+latency=$(run "$probe" effect_1:out_1 capture)
 [ "$latency" = "64 64" ]; step $? "effect_1:out_1 capture latency $latency (plugin reports 64)"
-latency=$("$probe" effect_1:in_1 playback)
+latency=$(run "$probe" effect_1:in_1 playback)
 [ "$latency" = "64 64" ]; step $? "effect_1:in_1 playback latency $latency"
 expect "param_set 1 0 200" "resp 0"
 sleep 0.5
-latency=$("$probe" effect_1:out_1 capture)
+latency=$(run "$probe" effect_1:out_1 capture)
 [ "$latency" = "200 200" ]; step $? "effect_1:out_1 capture latency $latency after the plugin changed it"
 
 expect "remove 0" "resp 0"
@@ -143,7 +148,7 @@ expect "remove 1" "resp 0"
 expect "remove 0" "resp -3"
 expect "quit" "resp 0"
 sleep 0.3
-! kill -0 "${pids[2]}" 2>/dev/null; step $? "host exited on quit"
+! kill -0 "${pids[1]}" 2>/dev/null; step $? "host exited on quit"
 [ "$(nodes effect_1)" -eq 0 ] && [ "$(nodes omx-clap-host)" -eq 0 ]; step $? "no host node left in the private graph"
 
 if [ "$failures" -eq 0 ]; then
