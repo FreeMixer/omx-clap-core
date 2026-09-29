@@ -1,0 +1,119 @@
+name: build-rpm
+
+# Builds the mod-host RPMs from linuxnow/mod-host with the audinux spec, installs them
+# in the build container, then builds this tree's RPM against the installed plumbing
+# library. Artifacts only: nothing is signed or published. Run by hand; never on push
+# or tags.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mod_host_ref:
+        description: 'linuxnow/mod-host ref to build the plumbing library from'
+        required: true
+        default: 'plumbing-lib'
+      spec_ref:
+        description: 'linuxnow/fedora-spec ref holding moddevices/mod-host.spec'
+        required: true
+        default: 'mod-host-plumbing-lib'
+      fedora:
+        description: 'Fedora release of the build container'
+        required: true
+        default: '44'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: omx-clap-host RPMs (fc${{ inputs.fedora }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    container:
+      image: fedora:${{ inputs.fedora }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # pipewire's jack first: mod-host's builddep would otherwise pull jack-audio-connection-kit-devel,
+      # which conflicts with the one this spec asks for
+      - name: Install the build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins patch tar gzip cpio binutils \
+            findutils pipewire-jack-audio-connection-kit-devel
+
+      - uses: actions/checkout@v4
+        with:
+          path: omx
+          fetch-depth: 0 # the version is the last tag, 0.1.0 before the first
+
+      - uses: actions/checkout@v4
+        with:
+          repository: linuxnow/mod-host
+          ref: ${{ inputs.mod_host_ref }}
+          path: mod-host
+
+      - uses: actions/checkout@v4
+        with:
+          repository: linuxnow/fedora-spec
+          ref: ${{ inputs.spec_ref }}
+          path: fedora-spec
+          sparse-checkout: moddevices
+
+      - name: Build the mod-host RPMs
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/mod-host"
+          mod-host/utils/build-rpm.sh mod-host fedora-spec/moddevices rpms
+
+      - name: Install mod-host and mod-host-devel in the container
+        run: |
+          set -euo pipefail
+          dnf install -y rpms/mod-host-[0-9]*.rpm rpms/mod-host-devel-*.rpm
+          echo "mod-host-plumbing $(pkg-config --modversion mod-host-plumbing)"
+
+      - name: Build the omx-clap-host RPM
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/omx"
+          top="$(mktemp -d)"
+          spec="$top/SPECS/omx-clap-host.spec"
+          mkdir -p "$top/SOURCES" "$top/SPECS" "$top/RPMS"
+          version="$( (git -C omx describe --tags --abbrev=0 2>/dev/null || true) | sed 's/^v//')"
+          version="${version:-0.1.0}"
+          short="$(git -C omx rev-parse --short HEAD)"
+          sed -e "s/^Version:.*/Version: $version/" -e "s/^Release: *\([0-9]*\)%{?dist}/Release: \1.git$short%{?dist}/" \
+            omx/packaging/omx-clap-host.spec > "$spec"
+          grep -E '^(Version|Release):' "$spec"
+          git -C omx archive --prefix="omx-clap-host-$version/" HEAD | gzip > "$top/SOURCES/omx-clap-host-$version.tar.gz"
+          dnf builddep -y "$spec"
+          rpmbuild --define "_topdir $top" -bb "$spec"
+          find "$top/RPMS" -name '*.rpm' | sort > "$top/built.txt"
+          if [ ! -s "$top/built.txt" ]; then
+            echo "::error::no omx-clap-host RPM was produced"
+            exit 1
+          fi
+          while read -r rpm; do
+            echo "== $(basename "$rpm")"
+            rpm -qlp "$rpm"
+            cp "$rpm" rpms/
+          done < "$top/built.txt"
+
+      - name: The packaged binary loads the installed plumbing library
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          for rpm in rpms/omx-clap-host-[0-9]*.rpm; do
+            (cd "$root" && rpm2cpio "$GITHUB_WORKSPACE/$rpm" | cpio -id --quiet)
+          done
+          ldd "$root/usr/bin/omx-clap-host" | tee /tmp/ldd.txt
+          grep -q 'libmod-host-plumbing\.so\.0 => /' /tmp/ldd.txt || {
+            echo "::error::omx-clap-host does not resolve libmod-host-plumbing.so.0"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-rpms-fc${{ inputs.fedora }}
+          path: rpms/*.rpm
+          if-no-files-found: error
+          retention-days: 30
