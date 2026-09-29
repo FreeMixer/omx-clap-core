@@ -51,7 +51,6 @@
 
 #define PID_FILE        "/tmp/omx-clap-host.pid"
 #define VERSION         "0.1.0"
-#define IDLE_INTERVAL_MS 20
 
 
 /*
@@ -153,7 +152,6 @@ static int host_init(int socket_port, int feedback_port)
 
     socket_set_receive_cb(protocol_parse);
     socket_set_idle_cb(idle_cb);
-    socket_set_idle_interval(IDLE_INTERVAL_MS);
     return 0;
 }
 
