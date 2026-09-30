@@ -91,16 +91,18 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: omx-clap-host-rpms-fc44
-          path: rpms/omx-clap-host-*.rpm
+          path: rpms/omx-clap-host-[0-9]*.rpm
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 7
 
       - uses: actions/upload-artifact@v4
         with:
           name: mod-host-rpms-fc44
-          path: mod-host-rpms/*.rpm
+          path: |
+            mod-host-rpms/mod-host-[0-9]*.rpm
+            mod-host-rpms/mod-host-protocol-devel-*.rpm
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
       - uses: actions/upload-artifact@v4
         with:
