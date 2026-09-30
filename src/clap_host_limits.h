@@ -3,11 +3,11 @@
 /*
  * GENERATED — DO NOT EDIT BY HAND.
  * Produced by openmixer's `node harness/contract-limits-gen.mjs --clap-host-limits <file>` from
- * HOSTED_STAGE_LIMITS (packages/core/src/hosted-stage-limits.ts), OMX_CLAP_HOST_EXTENSIONS
- * (packages/plugin-qualify/src/hosting-suitability.ts) and CLAP_CORE_REFUSALS
- * (packages/declarations/src/index.ts). Committed here because this repository builds without
- * that tree; openmixer's contract-limits-generated ratchet requires it byte-identical to a fresh
- * render. Change a number there, regenerate, commit the result here.
+ * HOSTED_STAGE_LIMITS (packages/core/src/hosted-stage-limits.ts), OMX_CLAP_HOST_EXTENSIONS and
+ * CLAP_CORE_REFUSALS over HOSTING_CODE (packages/plugin-qualify/src/hosting-suitability.ts).
+ * Committed here because this repository builds without that tree; openmixer's
+ * contract-limits-generated ratchet requires it byte-identical to a fresh render. Change a number
+ * there, regenerate, commit the result here.
  */
 
 #include <stddef.h>
