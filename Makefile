@@ -86,7 +86,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -f src/*.o $(PROG) $(SCAN_PROG) tests/clap_host_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/jack_latency_probe tests/jack_identity
+	@rm -f src/*.o $(PROG) $(SCAN_PROG) tests/clap_host_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_identity
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
 test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan
@@ -122,6 +122,13 @@ test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
 
 tests/jack_latency_probe: tests/jack_latency_probe.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
+
+# an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
+test-jack-synth: $(PROG) tests/fake_synth.clap tests/jack_synth_probe
+	./tests/jack_synth_e2e.sh
+
+tests/jack_synth_probe: tests/jack_synth_probe.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
 
 # the LV2 twin through mod-host against the CLAP twin through this host, bit for bit, in a PipeWire of its own
 test-identity: $(PROG) tests/jack_identity
