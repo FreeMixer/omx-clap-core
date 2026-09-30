@@ -53,11 +53,13 @@ jobs:
           echo "They stay in the Makefile for the desk: make test-jack test-identity CLAP_TEST_PLUGIN=<omx-delay.clap>."
 
   rpm:
-    name: RPMs (fc44)
+    name: RPMs (fc44), installed in a clean root
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
       image: fedora:44
+      # the clean root gets a /proc and a /dev of its own
+      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install the build tools
         run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip pipewire-jack-audio-connection-kit-devel
@@ -88,63 +90,37 @@ jobs:
       - name: Build the fake plugins the smoke test scans
         run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
 
-      - uses: actions/upload-artifact@v4
+      - uses: ./.github/actions/install-clean
         with:
-          name: omx-clap-host-rpms-fc44
-          path: rpms/omx-clap-host-[0-9]*.rpm
-          if-no-files-found: error
-          retention-days: 7
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mod-host-rpms-fc44
-          path: |
+          rpms: |
             mod-host-rpms/mod-host-[0-9]*.rpm
-            mod-host-rpms/mod-host-protocol-devel-*.rpm
-          if-no-files-found: error
-          retention-days: 1
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: fake-plugins
-          path: tests/*.clap
-          if-no-files-found: error
-          retention-days: 1
-
-  smoke:
-    name: install and run the RPMs in a clean container
-    needs: rpm
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container:
-      image: fedora:44
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: in
-
-      - name: Install
-        run: |
-          set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False in/mod-host-rpms-fc44/mod-host-[0-9]*.rpm \
-            in/omx-clap-host-rpms-fc44/omx-clap-host-[0-9]*.x86_64.rpm
+            rpms/omx-clap-host-[0-9]*.x86_64.rpm
 
       - name: The host reports the version of its package and resolves its libraries
         run: |
           set -euo pipefail
-          version=$(rpm -q --qf '%{VERSION}' omx-clap-host)
-          omx-clap-host -V | tee v.txt
+          version=$(chroot /tmp/clean-root rpm -q --qf '%{VERSION}' omx-clap-host)
+          chroot /tmp/clean-root omx-clap-host -V | tee v.txt
           grep -q "version: $version\$" v.txt
-          ldd /usr/bin/omx-clap-host | tee ldd.txt
+          chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |
           set -euo pipefail
-          omx-clap-scan in/fake-plugins/fake.clap | tee scan.txt
+          mkdir -p /tmp/clean-root/smoke
+          cp tests/fake.clap tests/fake_synth.clap tests/crash.clap /tmp/clean-root/smoke/
+          chroot /tmp/clean-root omx-clap-scan /smoke/fake.clap | tee scan.txt
           test -s scan.txt
-          omx-clap-scan --json in/fake-plugins/fake_synth.clap | tee scan.json
+          chroot /tmp/clean-root omx-clap-scan --json /smoke/fake_synth.clap | tee scan.json
           grep -q '"scanner":"omx-clap-scan"' scan.json
-          omx-clap-scan in/fake-plugins/crash.clap | tee crash.txt || true
+          chroot /tmp/clean-root omx-clap-scan /smoke/crash.clap | tee crash.txt || true
           grep -q "crashed with signal 6" crash.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-rpms-fc44
+          path: rpms/omx-clap-host-[0-9]*.rpm
+          if-no-files-found: error
+          retention-days: 7
