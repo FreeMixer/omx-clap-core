@@ -221,6 +221,9 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number and string the core reads, generated from the
   declarations of the program that owns the numbers and committed here; never edited by hand.
+- `omx_clap_ext.h`: the openmixer vendor extensions a plugin serves through `get_extension`,
+  `org.openmixer.meters/1` and `org.openmixer.declaration/1`, as exact C structures. Header only:
+  the library exports nothing for them.
 
 What a host differs in is a configuration, set once per process with
 `omx_clap_host_configure()` and otherwise the defaults:
