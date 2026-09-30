@@ -1,8 +1,8 @@
 name: ci
 
 # The tests that need no audio server run on every push and pull request, then the RPMs are built as
-# artifacts and installed in a clean container. Nothing is signed or published here: release-rpm.yml is
-# a release and is dispatched by hand.
+# artifacts, on both architectures, and installed in a clean container. Nothing is signed or published
+# here: release-rpm.yml is a release, run from a version tag, and its dry run is the last job.
 
 on:
   pull_request:
@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - uses: ./.github/actions/mod-host-protocol
+      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@main
 
       - name: Build
         run: make
@@ -53,9 +53,13 @@ jobs:
           echo "They stay in the Makefile for the desk: make test-jack test-identity CLAP_TEST_PLUGIN=<omx-delay.clap>."
 
   rpm:
-    name: RPMs (fc44), installed in a clean root
-    runs-on: ubuntu-latest
+    name: RPMs (fc44, ${{ matrix.arch }}), installed in a clean root
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
     container:
       image: fedora:44
       # the clean root gets a /proc and a /dev of its own
@@ -68,14 +72,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: ./.github/actions/mod-host-rpms
+      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@main
 
-      - uses: ./.github/actions/build-rpm
+      - uses: FreeMixer/.github/.github/actions/build-rpm@main
 
       - name: Check the file lists
         run: |
           set -euo pipefail
-          for rpm in rpms/omx-clap-host-[0-9]*.x86_64.rpm; do
+          for rpm in rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
             rpm -qp --qf '[%{FILEMODES:perms} %{FILENAMES}\n]' "$rpm" | grep -v -e '^d' -e '/\.build-id/' | cut -d' ' -f2 | sort > files.txt
             printf '%s\n' /usr/bin/omx-clap-host /usr/bin/omx-clap-scan \
@@ -90,11 +94,11 @@ jobs:
       - name: Build the fake plugins the smoke test scans
         run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
 
-      - uses: ./.github/actions/install-clean
+      - uses: FreeMixer/.github/.github/actions/install-clean@main
         with:
           rpms: |
             mod-host-rpms/mod-host-[0-9]*.rpm
-            rpms/omx-clap-host-[0-9]*.x86_64.rpm
+            rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
 
       - name: The host reports the version of its package and resolves its libraries
         run: |
@@ -120,7 +124,18 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: omx-clap-host-rpms-fc44
+          name: omx-clap-host-rpms-fc44-${{ matrix.arch }}
           path: rpms/omx-clap-host-[0-9]*.rpm
           if-no-files-found: error
           retention-days: 7
+
+  # The release workflow as a tag would run it, publishing nothing: both architectures build through the
+  # shared workflow and an unsigned tree is assembled. The caller grants what the called workflow may ask
+  # for; its publish and release steps do not run here.
+  release-dry-run:
+    name: release workflow, dry run
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-rpm.yml
+    with:
+      publish: false
