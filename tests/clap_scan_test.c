@@ -144,9 +144,9 @@ static void broken_checks(const char *scan, const char *fake, const char *crash,
     snprintf(path, sizeof(path), "%s/sub", dir);
     mkdir(path, 0755);
     snprintf(path, sizeof(path), "%s/a_crash.clap", dir);
-    symlink(crash, path);
+    CHECK(symlink(crash, path) == 0, "a_crash.clap links to the crashing plugin");
     snprintf(path, sizeof(path), "%s/sub/z_fake.clap", dir);
-    symlink(fake, path);
+    CHECK(symlink(fake, path) == 0, "sub/z_fake.clap links to the fake plugin");
     snprintf(path, sizeof(path), "%s/notes.txt", dir);
     file = fopen(path, "w");
     fclose(file);
