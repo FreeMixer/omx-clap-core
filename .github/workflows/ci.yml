@@ -99,7 +99,7 @@ jobs:
       - name: The host reports the version of its package and resolves its libraries
         run: |
           set -euo pipefail
-          version=$(chroot /tmp/clean-root rpm -q --qf '%{VERSION}' omx-clap-host)
+          version=$(rpm --root /tmp/clean-root -q --qf '%{VERSION}' omx-clap-host)
           chroot /tmp/clean-root omx-clap-host -V | tee v.txt
           grep -q "version: $version\$" v.txt
           chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
