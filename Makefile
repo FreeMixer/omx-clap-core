@@ -1,8 +1,9 @@
 # compiler
 CC ?= gcc
 
-# program name
+# program names
 PROG = omx-clap-host
+SCAN_PROG = omx-clap-scan
 
 PKG_CONFIG ?= pkg-config
 
@@ -47,8 +48,12 @@ LDFLAGS += -Wl,--no-undefined
 SRC = src/main.c src/effects.c src/clap_host.c
 OBJ = $(SRC:.c=.o)
 
+# the scanner shares the plugin loading with the host and needs neither jack nor the protocol library
+SCAN_SRC = src/scan.c src/clap_host.c
+SCAN_OBJ = $(SCAN_SRC:.c=.o)
+
 # default build
-all: $(PROG)
+all: $(PROG) $(SCAN_PROG)
 
 # linking rule
 $(PROG): $(OBJ) $(PROTOCOL_LIB)
@@ -58,6 +63,9 @@ ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
 	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
 endif
+
+$(SCAN_PROG): $(SCAN_OBJ)
+	$(CC) $(SCAN_OBJ) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
 %.o: %.c
@@ -70,7 +78,7 @@ MANDIR = $(PREFIX)/share/man/man1
 
 install: install_man
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 755 $(PROG) $(DESTDIR)$(BINDIR)
+	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
 
 install_man:
 	install -d $(DESTDIR)$(MANDIR)
@@ -78,21 +86,32 @@ install_man:
 
 # clean rule
 clean:
-	@rm -f src/*.o $(PROG) tests/clap_host_test tests/fake.clap tests/jack_latency_probe tests/jack_identity
+	@rm -f src/*.o $(PROG) $(SCAN_PROG) tests/clap_host_test tests/clap_scan_test tests/fake.clap tests/crash.clap tests/jack_latency_probe tests/jack_identity
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: tests/clap_host_test tests/fake.clap
+test: tests/clap_host_test tests/fake.clap test-scan
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap)
 
+# the scanner against the fake plugin, one that crashes, a broken file, a directory walk and omx-delay.clap
+test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap
+	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN)
+
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap
+test-fake: tests/clap_host_test tests/fake.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap
 	./tests/clap_host_test - $(abspath tests/fake.clap)
+	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap)
 
 tests/clap_host_test: tests/clap_host_test.c src/clap_host.c
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $^ -ldl -lpthread -lm
 
 tests/fake.clap: tests/fake_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+
+tests/crash.clap: tests/crash_plugin.c
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+
+tests/clap_scan_test: tests/clap_scan_test.c
+	$(CC) $(CFLAGS) -Werror -o $@ $<
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
 test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
