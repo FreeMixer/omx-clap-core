@@ -145,7 +145,7 @@ struct omx_hosted_param_queue
 *           THE DSP WORDS THE CORE SPELLS
 *
 * libomx-clap-core cannot include a DSP library of its own: each word below is the arithmetic of the word of the same
-* meaning in the console's primitives library, and the console proves it bit-identical with a test of its own.
+* meaning in the caller's DSP library, and a caller that has one proves it bit-identical with a test of its own.
 ************************************************************************************************************************
 */
 

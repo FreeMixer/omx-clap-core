@@ -18,7 +18,7 @@
  */
 
 /* The core as a program outside this tree sees it: compiled against the installed headers, linked to libomx-clap-core.so
- * alone and configured as nothing but the console's defaults. It shows what the isolated host's configuration turns off:
+ * alone and configured as nothing but the defaults. It shows what the isolated host's configuration turns off:
  * the clamp, the scan for non-finite output with its strike, the warm-up and the restart after it, and the refusal of a
  * note input and of an instrument. Argument 1 is tests/fake.clap, argument 2 tests/fake_synth.clap. */
 
@@ -73,7 +73,7 @@ int main(int argc, char **argv)
     config.size = 4;
     CHECK(omx_clap_host_configure(&config) == -1, "and one too short to name a host");
 
-    // the console refuses what the isolated host admits
+    // the defaults refuse what the isolated host admits
     check_refused(argv[1], FAKE_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
     check_refused(argv[2], SYNTH, CLAP_HOST_CODE_NOT_AUDIO_EFFECT);
     check_refused(argv[1], FAKE_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
@@ -85,7 +85,7 @@ int main(int argc, char **argv)
     CHECK(open_ok(argv[1], FAKE_PASSTHROUGH, &instance, why), "open %s", FAKE_PASSTHROUGH);
     if (!instance)
         return report("core link test ok");
-    CHECK(strcmp(instance->host.name, "openmixer") == 0, "the plugin is told it is in %s", instance->host.name);
+    CHECK(strcmp(instance->host.name, "omx-clap-core") == 0, "the plugin is told it is in %s", instance->host.name);
     CHECK(omx_clap_host_activate(instance, SAMPLE_RATE, BLOCK, why) == 0, "activate");
     CHECK(omx_clap_host_param_read(instance, FAKE_PARAM_ACTIVATIONS, &value) == 0 && value == 2.0, "the warm-up restarted the plugin: activated %g times", value);
     CHECK(omx_clap_host_param_read(instance, FAKE_PARAM_PROCESS_CALLS, &value) == 0 && value == CLAP_HOST_WARMUP_BLOCKS, "the warm-up ran %g blocks", value);

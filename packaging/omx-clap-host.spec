@@ -26,8 +26,8 @@ Summary: The CLAP hosting core of omx-clap-host, as a shared library
 License: GPL-3.0-or-later
 
 %description -n omx-clap-core
-The library omx-clap-host and the console's in-process CLAP host both run
-plugins on: the control thread that loads, judges, activates and warms a CLAP
+The library omx-clap-host and a program that hosts CLAP plugins in its own
+process both run plugins on: the control thread that loads, judges, activates and warms a CLAP
 plugin up and owns its parameters and state, and the RT body that runs its
 process() on the caller's thread. It names no JACK and no socket.
 

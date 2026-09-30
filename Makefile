@@ -167,7 +167,7 @@ abi-check: abi-stage
 	sh tests/abi-check.sh build/abi/usr/lib/$(CORE_FILE) build/abi/usr/include $(ABI_BASELINE)
 
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
-# and linked by that alone, with the console's defaults; the export list and the libraries it names are read off the file
+# and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
 	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"

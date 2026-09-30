@@ -26,7 +26,7 @@ come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
 builds `libomx-clap-core.so.0`, checks its exports and the libraries it needs
 (`tests/exports.sh`), links `tests/core_link_test.c` to the installed library
-and runs it with the console's defaults, and runs the lifecycle test against a plugin without jack, and against
+and runs it with the defaults, and runs the lifecycle test against a plugin without jack, and against
 `tests/fake.clap`, a plugin built for the test that carries the port
 layouts the host refuses and a passthrough with a latency, and against
 `tests/fake_synth.clap`, a synth whose notes are exact to the sample.
@@ -206,7 +206,7 @@ The core library
 The CLAP hosting core, everything that runs a plugin except the jack plumbing and
 the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.0`, so that
 a program that hosts CLAP plugins in its own process runs the same core. omx-clap-host
-and omx-clap-scan link it; the openmixer console's in-process host links the same file.
+and omx-clap-scan link it; a program that hosts plugins in its own process links the same file.
 
     make install-lib [PREFIX=/usr LIBDIR=/usr/lib64]
 
@@ -220,10 +220,10 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   `struct omx_clap_stage` and `struct omx_clap_instance` is therefore part of the ABI.
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number and string the core reads, generated from the
-  console's declarations and committed here; never edited by hand.
+  declarations of the program that owns the numbers and committed here; never edited by hand.
 
 What a host differs in is a configuration, set once per process with
-`omx_clap_host_configure()` and otherwise the console's defaults:
+`omx_clap_host_configure()` and otherwise the defaults:
 
 | setting | defaults | omx-clap-host |
 |---|---|---|
@@ -232,7 +232,7 @@ What a host differs in is a configuration, set once per process with
 | warm-up before publish, restart after | on | off |
 | note inputs and instruments | refused | admitted |
 | `clap.preset-load` host extension | not offered | offered |
-| host name, vendor | openmixer, FreeMixer | omx-clap-host, Pau Aliagas |
+| host name, vendor, url | omx-clap-core, Pau Aliagas | omx-clap-host, Pau Aliagas |
 
 The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core0`
 and `libomx-clap-core-dev` (deb), built from the same tag as omx-clap-host, which

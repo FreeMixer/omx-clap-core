@@ -470,7 +470,7 @@ static void state_filename(char *buffer, size_t size, const char *dir, int insta
 ************************************************************************************************************************
 */
 
-/* what this host differs in from the console: mod-host clamps and scans nothing, a plugin is live on jack_activate, an
+/* what this host differs in from the defaults: mod-host clamps and scans nothing, a plugin is live on jack_activate, an
  * instrument takes MIDI, and the plugin is told which host it is in */
 static int configure_core(void)
 {

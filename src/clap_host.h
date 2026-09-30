@@ -28,7 +28,7 @@
 * sees only the stage, through omx_clap_run. Functions return 0 or -1, and name a refusal by the hosting code of
 * clap_host_limits.h in `why`.
 *
-* The library is configured once per process (omx_clap_host_configure) and otherwise runs the console's defaults. A
+* The library is configured once per process (omx_clap_host_configure) and otherwise runs the defaults. A
 * consumer is compiled against the headers of the library it runs with: OMX_CLAP_CORE_ABI is checked at configure.
 *
 ************************************************************************************************************************
@@ -78,7 +78,7 @@
 ************************************************************************************************************************
 */
 
-/* What a host differs in from the console's defaults, set once per process. The strings must outlive the process's use. */
+/* What a host differs in from the defaults, set once per process. The strings must outlive the process's use. */
 struct omx_clap_host_config
 {
     uint32_t abi;               // OMX_CLAP_CORE_ABI of the header the caller was compiled against
@@ -189,7 +189,8 @@ struct omx_clap_instance
 ************************************************************************************************************************
 */
 
-/* The console's defaults: clamp, scan, warm-up on, note inputs refused, the declared extensions only, named openmixer. Fills
+/* The defaults: clamp, scan and warm-up on, note inputs refused, the declared extensions only, the host named for the
+ * library. Fills
  * `abi` and `size` too: start from it. */
 OMX_CLAP_EXPORT void omx_clap_host_config_default(struct omx_clap_host_config *config);
 
