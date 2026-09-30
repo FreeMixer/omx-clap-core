@@ -1,0 +1,153 @@
+name: ci
+
+# The tests that need no audio server run on every push and pull request, then the RPMs are built as
+# artifacts and installed in a clean container. Nothing is signed or published here: release-rpm.yml is
+# a release and is dispatched by hand.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: fedora:44
+      # the jack tests run the host in a user, net, pid and mount namespace of its own
+      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+    steps:
+      - name: Install the build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False git gcc make pkgconf-pkg-config clap-devel \
+            pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
+
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/mod-host-protocol
+
+      - name: Build
+        run: make
+
+      - name: Test the plugin lifecycle and the scanner against the fake plugins
+        run: make test-fake
+
+      # The host over jack with an instrument, in a PipeWire of its own. It needs a private user
+      # namespace with its own /proc; a runner that refuses one cannot run it, and the step says so.
+      - name: Test an instrument over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-synth
+          else
+            echo "::warning::test-jack-synth SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      - name: Name what this job does not run
+        run: |
+          echo "test-jack and test-identity are NOT run here: they load omx-delay.clap, which is built in the console's tree."
+          echo "They stay in the Makefile for the desk: make test-jack test-identity CLAP_TEST_PLUGIN=<omx-delay.clap>."
+
+  rpm:
+    name: RPMs (fc44)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: fedora:44
+    steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip pipewire-jack-audio-connection-kit-devel
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/mod-host-rpms
+
+      - name: Build the RPMs
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          dnf builddep -y packaging/omx-clap-host.spec
+          packaging/build-rpm.sh rpms
+
+      - name: Check the file lists
+        run: |
+          set -euo pipefail
+          for rpm in rpms/omx-clap-host-[0-9]*.x86_64.rpm; do
+            rpm -qlp "$rpm" | tee files.txt
+            printf '%s\n' /usr/bin/omx-clap-host /usr/bin/omx-clap-scan \
+              /usr/share/man/man1/omx-clap-host.1.gz /usr/share/man/man1/omx-clap-scan.1.gz \
+              /usr/share/doc/omx-clap-host/README.md /usr/share/licenses/omx-clap-host/COPYING | sort > expected.txt
+            sort -o files.txt files.txt
+            diff -u expected.txt files.txt
+            rpm -qp --requires "$rpm" | tee requires.txt
+            grep -q 'libmod-host-protocol.so.0' requires.txt
+          done
+          ls rpms/omx-clap-host-*.src.rpm
+
+      - name: Build the fake plugins the smoke test scans
+        run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-rpms-fc44
+          path: rpms/omx-clap-host-*.rpm
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mod-host-rpms-fc44
+          path: mod-host-rpms/*.rpm
+          if-no-files-found: error
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fake-plugins
+          path: tests/*.clap
+          if-no-files-found: error
+          retention-days: 1
+
+  smoke:
+    name: install and run the RPMs in a clean container
+    needs: rpm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: fedora:44
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: in
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False in/mod-host-rpms-fc44/mod-host-[0-9]*.rpm \
+            in/omx-clap-host-rpms-fc44/omx-clap-host-[0-9]*.x86_64.rpm
+
+      - name: The host reports the version of its package and resolves its libraries
+        run: |
+          set -euo pipefail
+          version=$(rpm -q --qf '%{VERSION}' omx-clap-host)
+          omx-clap-host -V | tee v.txt
+          grep -q "version: $version\$" v.txt
+          ldd /usr/bin/omx-clap-host | tee ldd.txt
+          ! grep -q 'not found' ldd.txt
+          grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+
+      - name: The scanner lists the fake plugins and survives the one that crashes
+        run: |
+          set -euo pipefail
+          omx-clap-scan in/fake-plugins/fake.clap | tee scan.txt
+          test -s scan.txt
+          omx-clap-scan --json in/fake-plugins/fake_synth.clap | tee scan.json
+          grep -q '"scanner":"omx-clap-scan"' scan.json
+          omx-clap-scan in/fake-plugins/crash.clap || echo "the scanner exited $? on crash.clap, as a failed file"
+          test -e /usr/share/man/man1/omx-clap-scan.1.gz
