@@ -24,7 +24,9 @@ come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
-runs the lifecycle test against a plugin without jack, and against
+builds `libomx-clap-core.so.0`, checks its exports and the libraries it needs
+(`tests/exports.sh`), links `tests/core_link_test.c` to the installed library
+and runs it with the console's defaults, and runs the lifecycle test against a plugin without jack, and against
 `tests/fake.clap`, a plugin built for the test that carries the port
 layouts the host refuses and a passthrough with a latency, and against
 `tests/fake_synth.clap`, a synth whose notes are exact to the sample.
@@ -197,3 +199,49 @@ initialised keeps its descriptor and gets an `"error"`, and a plugin that
 crashes or hangs (30 s) takes only its own file's entry: each file is
 scanned in a child process and the scan goes on. The exit status is 0 when
 at least one path could be read, 1 when none could.
+
+The core library
+----------------
+
+The CLAP hosting core, everything that runs a plugin except the jack plumbing and
+the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.0`, so that
+a program that hosts CLAP plugins in its own process runs the same core. omx-clap-host
+and omx-clap-scan link it; the openmixer console's in-process host links the same file.
+
+    make install-lib [PREFIX=/usr LIBDIR=/usr/lib64]
+
+installs the library, `omx-clap-core.pc`, the headers under
+`include/omx-clap-host/` and the export list. `pkg-config --cflags --libs
+omx-clap-core` builds a program against it; `tests/core_link_test.c` is one, linked
+to the `.so` alone. The library names no jack, no socket and no protocol library.
+
+- `hosted_stage.h`, `clap_stage.h`: the RT body, inline, so the caller's own RT thread
+  runs it without a call through the library. The layout of `struct omx_hosted_stage`,
+  `struct omx_clap_stage` and `struct omx_clap_instance` is therefore part of the ABI.
+- `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
+- `clap_host_limits.h`: every number and string the core reads, generated from the
+  console's declarations and committed here; never edited by hand.
+
+What a host differs in is a configuration, set once per process with
+`omx_clap_host_configure()` and otherwise the console's defaults:
+
+| setting | defaults | omx-clap-host |
+|---|---|---|
+| clamp at +24 dBFS | on | off |
+| non-finite scan and strike | on | off |
+| warm-up before publish, restart after | on | off |
+| note inputs and instruments | refused | admitted |
+| `clap.preset-load` host extension | not offered | offered |
+| host name, vendor | openmixer, FreeMixer | omx-clap-host, Pau Aliagas |
+
+The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core0`
+and `libomx-clap-core-dev` (deb), built from the same tag as omx-clap-host, which
+depends on the library.
+
+The version rule: a field is only ever appended to a structure and a function only
+added, and that is a new minor (`0.1.0` to `0.2.0`, the soname unchanged); a field or a
+function removed, moved or changed is a new soname major (`libomx-clap-core.so.1`, a new
+package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.0.abi`,
+the baseline of the last release, with libabigail's `abidiff`, and CI runs it on every
+push and before every release. A release commit records its own baseline with `make
+abi-baseline` and commits `abi/`.

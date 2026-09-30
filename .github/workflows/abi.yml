@@ -1,0 +1,36 @@
+name: abi
+
+# libomx-clap-core.so.0 compared with the baseline of its last release (abi/libomx-clap-core.so.0.abi): tests/abi-check.sh
+# reads the rule off the report. Called by ci.yml on every push and pull request and by release.yml before anything is built.
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  abi:
+    name: ABI of libomx-clap-core against its baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: fedora:44
+    steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False git gcc make pkgconf-pkg-config clap-devel libabigail
+
+      - uses: actions/checkout@v4
+
+      - name: Compare the build with the baseline
+        run: make abi-check
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: libomx-clap-core-abi
+          path: |
+            build/new.abi
+            build/abidiff.txt
+          if-no-files-found: ignore
+          retention-days: 14
