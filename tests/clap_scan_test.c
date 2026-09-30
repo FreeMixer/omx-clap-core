@@ -22,6 +22,7 @@
  * path that can't be read. Arguments: omx-clap-scan, fake.clap, crash.clap
  * and optionally omx-delay.clap (parameter 0 = time, 5 = its bypass). */
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -102,6 +103,19 @@ static void fake_checks(const char *scan, const char *fake, char *out)
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
     CHECK(count(out, "\"latency\":64") == 4, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
     CHECK(!has(out, "\"error\""), "no error on a clean file");
+}
+
+/* a bare file name is a file in the working directory, not a library on the loader's path */
+static void relative_checks(const char *scan, const char *fake, char *out)
+{
+    char dir[512];
+    const char *slash = strrchr(fake, '/');
+    int status;
+
+    snprintf(dir, sizeof(dir), "%.*s", (int)(slash - fake), fake);
+    status = run(out, "cd %s && %s --json %s", dir, scan, slash + 1);
+    CHECK(status == 0, "a bare file name: exit 0 (%i)", status);
+    CHECK(has(out, "test.passthrough") && !has(out, "\"error\""), "found in the working directory");
 }
 
 static void broken_checks(const char *scan, const char *fake, const char *crash, char *out)
@@ -205,20 +219,27 @@ static void delay_checks(const char *scan, const char *delay, char *out)
 int main(int argc, char **argv)
 {
     char *out;
+    char scan[PATH_MAX];
 
     if (argc < 4)
     {
         fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> [omx-delay.clap]\n", argv[0]);
         return 2;
     }
+    if (!realpath(argv[1], scan))
+    {
+        fprintf(stderr, "%s: no scanner at %s\n", argv[0], argv[1]);
+        return 2;
+    }
     out = malloc(BUFFER_SIZE);
 
-    fake_checks(argv[1], argv[2], out);
-    broken_checks(argv[1], argv[2], argv[3], out);
-    unreadable_checks(argv[1], argv[2], out);
-    text_checks(argv[1], argv[2], out);
+    fake_checks(scan, argv[2], out);
+    relative_checks(scan, argv[2], out);
+    broken_checks(scan, argv[2], argv[3], out);
+    unreadable_checks(scan, argv[2], out);
+    text_checks(scan, argv[2], out);
     if (argc > 4 && strcmp(argv[4], "-") != 0)
-        delay_checks(argv[1], argv[4], out);
+        delay_checks(scan, argv[4], out);
 
     printf("%s\n", g_failures == 0 ? "clap scan test ok" : "clap scan test FAILED");
     free(out);

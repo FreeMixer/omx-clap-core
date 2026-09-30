@@ -406,7 +406,7 @@ static void put_plugin(FILE *out, clap_binary_t *binary, const clap_plugin_descr
 /* one file's entry, written from the child */
 static void put_file(FILE *out, const char *path)
 {
-    char reason[REASON_SIZE];
+    char reason[REASON_SIZE], local[PATH_MAX];
     clap_binary_t *binary;
     uint32_t count, i;
     int first = 1;
@@ -423,7 +423,11 @@ static void put_file(FILE *out, const char *path)
         fputc('\n', out);
     }
 
-    binary = clap_host_binary_open(path, reason, sizeof(reason));
+    /* dlopen searches the library path for a name with no slash, and the file is here */
+    if (!strchr(path, '/') && snprintf(local, sizeof(local), "./%s", path) < (int)sizeof(local))
+        binary = clap_host_binary_open(local, reason, sizeof(reason));
+    else
+        binary = clap_host_binary_open(path, reason, sizeof(reason));
     if (!binary)
     {
         if (g_json)
