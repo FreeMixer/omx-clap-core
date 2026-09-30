@@ -1,0 +1,124 @@
+name: release-rpm
+
+# Signs omx-clap-host and publishes it into the FreeMixer/omx-rpms dnf tree.
+#
+# workflow_dispatch ONLY: publishing a package is a release, a human decision, never a side effect of a
+# commit or a tag push. The tag input names the release. The default dispatch is a dry run: it builds and
+# assembles an UNSIGNED tree as an artifact and pushes nothing, because unsigned metadata pushed to the
+# channel would have clients trust it.
+#
+# Only this repository's own RPMs are published: mod-host and its protocol library are built here to
+# satisfy BuildRequires and are not part of the release.
+#
+# Secrets read (repository secrets of this repository):
+#   RPM_GPG_KEY          the signing key, armored; its fingerprint must match the public key dnf is pointed at
+#   RPM_GPG_PASSPHRASE   its passphrase
+#   REPO_PUBLISH_TOKEN   fine-grained token, contents write on FreeMixer/omx-rpms only
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build (must exist and match v[0-9]*, e.g. v0.1.0)'
+        required: true
+      sign:
+        description: 'Sign and push to the channel. false assembles an unsigned tree as an artifact and publishes nothing.'
+        type: boolean
+        default: false
+
+concurrency:
+  # serialises this workflow's own dispatches; other repositories publish into the same tree and no
+  # group can reach them, see .github/actions/publish-rpms
+  group: release-rpm
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build the release RPMs (fc44)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: fedora:44
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      # a work marker becoming the published version cannot be undone: rpm has no downgrade
+      - name: Refuse a tag that is not a release tag
+        run: |
+          case "$RELEASE_TAG" in
+            v[0-9]*) echo "release tag: $RELEASE_TAG" ;;
+            *) echo "::error::'$RELEASE_TAG' does not match v[0-9]*"; exit 1 ;;
+          esac
+
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip pipewire-jack-audio-connection-kit-devel
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: ./.github/actions/mod-host-rpms
+
+      - name: Build the RPMs
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          dnf builddep -y packaging/omx-clap-host.spec
+          packaging/build-rpm.sh -t "$RELEASE_TAG" rpms
+
+      - name: Refuse an empty build
+        run: |
+          find rpms -name '*.rpm' | sort | tee built.txt
+          test -s built.txt || { echo "::error::no RPM was produced"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-release-rpms
+          path: rpms/*.rpm
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: sign and publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: fedora:44
+    steps:
+      # the workflow's own commit carries the publish action, the tag carries the product
+      - name: Install git for the checkout
+        run: dnf install -y --setopt=install_weak_deps=False git
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: omx-clap-host-release-rpms
+          path: collected
+
+      - uses: ./.github/actions/publish-rpms
+        with:
+          rpm-dir: collected
+          tag: ${{ inputs.tag }}
+          sign: ${{ inputs.sign }}
+          gpg-key: ${{ secrets.RPM_GPG_KEY }}
+          gpg-passphrase: ${{ secrets.RPM_GPG_PASSPHRASE }}
+          publish-token: ${{ secrets.REPO_PUBLISH_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        if: inputs.sign != true
+        with:
+          name: omx-clap-host-unsigned-tree
+          path: build/repo/**
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Report a dry run honestly
+        if: inputs.sign != true
+        run: echo "::warning::sign=false: a dry run, nothing was published. The unsigned tree is attached to this run."
