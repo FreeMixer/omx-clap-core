@@ -26,7 +26,8 @@ come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
 runs the lifecycle test against a plugin without jack, and against
 `tests/fake.clap`, a plugin built for the test that carries the port
-layouts the host refuses and a passthrough with a latency.
+layouts the host refuses and a passthrough with a latency, and against
+`tests/fake_synth.clap`, a synth whose notes are exact to the sample.
 
     make test-jack CLAP_TEST_PLUGIN=<omx-delay>.clap
 
@@ -34,6 +35,14 @@ runs `tests/jack_e2e.sh`: the host over jack inside a PipeWire of its own
 (a private user, net and pid namespace, its own runtime dir, torn down on
 exit), every command over the socket and the graph read back after each
 one. The PipeWire of the session that runs it is never touched.
+
+    make test-jack-synth
+
+runs `tests/jack_synth_e2e.sh` in the same kind of namespace: the host with
+`tests/fake_synth.clap`, MIDI played into `effect_<N>:midi_in` by
+`tests/jack_synth_probe`, the level that comes out of `out_<k>` measured
+before the note, at two velocities and after the note off, and the layouts
+the host refuses.
 
     make test-identity MOD_HOST=<mod-host> CLAP_TEST_PLUGIN=<omx-delay>.clap [LV2_DIR=<dir with omx-delay.lv2>]
 
@@ -103,14 +112,40 @@ Replies are mod-host's: `resp <code>`, with mod-host's error codes.
 Port layout
 -----------
 
-A plugin is admitted with exactly one main audio input and one main audio
-output, each mono or stereo; every channel of the main pair is one jack
-port. A sidechain, an auxiliary port, a main port wider than stereo or a
-note input is refused at `add` with `resp -102` and the reason on
-stderr: `<id>: unsupported port layout: main port has 4 channels`,
-`1 sidechain/aux ports`, `note input`. A sidechain is not fed silence,
-because a plugin behaving on a silent sidechain is not the plugin the
-same core gives in-process.
+A plugin is admitted with exactly one main audio output, mono or stereo,
+and one main audio input of the same kind; every channel of the main pair
+is one jack port. A plugin with a note input, an instrument, may have no
+audio input: it then has `out_<k>` only.
+
+A plugin with one CLAP note input port gets one jack MIDI input port on its
+client, `effect_<N>:midi_in`. The host reads its jack events on the audio
+thread and hands them to the plugin in the same cycle, on the frame they
+arrived on, in the dialect the note port prefers:
+
+- CLAP: a note on (`0x9n`, velocity above 0) and a note off (`0x8n`, or a
+  note on with velocity 0) become `CLAP_EVENT_NOTE_ON` and
+  `CLAP_EVENT_NOTE_OFF` with the key, the channel, the velocity as
+  `v / 127` and no note id. Nothing else is passed: a controller, pitch
+  bend or program change is dropped.
+- MIDI: every channel message of one to three bytes becomes a
+  `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
+
+A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_CYCLE`); the surplus is
+counted and dropped. Nothing is allocated or locked on the audio thread.
+
+A sidechain, an auxiliary port, a main port wider than stereo, a second
+note input, a note input that reads neither the CLAP nor the MIDI dialect,
+or no audio input and no note input is refused at `add` with `resp -102`
+and the reason on stderr: `<id>: unsupported port layout: main port has 4
+channels`, `1 sidechain/aux ports`, `2 note inputs`, `note input reads
+neither the CLAP nor the MIDI dialect`, `0 main inputs, 1 main outputs`. A
+sidechain is not fed silence, because a plugin behaving on a silent
+sidechain is not the plugin the same core gives in-process. A plugin is
+admitted with the `audio-effect` or the `instrument` feature and refused
+with neither.
+
+`bypass <N> 1` on an instrument fades its output to silence over one block
+and then leaves the plugin idle: notes that arrive meanwhile are dropped.
 
 Latency
 -------

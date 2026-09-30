@@ -40,6 +40,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <jack/jack.h>
+#include <jack/midiport.h>
 
 #include "effects.h"
 #include "clap_host.h"
@@ -54,6 +55,7 @@
 #define REMOVE_ALL              (-1)
 #define URI_SCHEME              "clap:"
 #define BYPASS_PORT_SYMBOL      ":bypass"
+#define MIDI_PORT_NAME          "midi_in"
 #define STATE_FILE_SUFFIX       ".clapstate"
 #define INSTANCE_IS_VALID(id)   ((id) >= 0 && (id) < MAX_INSTANCES)
 #define REQUESTED_CLIENT_NAME_BUF_SIZE  256
@@ -70,6 +72,7 @@ typedef struct EFFECT_T {
     jack_client_t *jack_client;
     jack_port_t *input_ports[CLAP_HOST_MAX_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_MAX_CHANNELS];
+    jack_port_t *midi_port;
     clap_instance_t *clap;
     uint32_t latency_published;
 } effect_t;
@@ -193,6 +196,18 @@ static int process(jack_nframes_t nframes, void *arg)
 
     if (!effect || !effect->clap)
         return 0;
+
+    if (effect->midi_port)
+    {
+        void *midi = jack_port_get_buffer(effect->midi_port, nframes);
+        jack_nframes_t count = jack_midi_get_event_count(midi);
+        jack_midi_event_t event;
+        jack_nframes_t e;
+
+        for (e = 0; e < count; e++)
+            if (jack_midi_event_get(&event, midi, e) == 0)
+                clap_host_midi_in(effect->clap, event.time, event.buffer, event.size);
+    }
 
     for (c = 0; c < effect->clap->input_channels; c++)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
@@ -375,6 +390,16 @@ int effects_add(const char *uri, int instance, const char *client_name)
         snprintf(port_name, sizeof(port_name), "out_%u", c + 1);
         effect->output_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
         if (!effect->output_ports[c])
+        {
+            error = ERR_JACK_PORT_REGISTER;
+            goto error;
+        }
+    }
+
+    if (effect->clap->note_inputs)
+    {
+        effect->midi_port = jack_port_register(effect->jack_client, MIDI_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0);
+        if (!effect->midi_port)
         {
             error = ERR_JACK_PORT_REGISTER;
             goto error;

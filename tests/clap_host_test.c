@@ -22,7 +22,9 @@
  * file and back into a second instance, close. Written for omx-delay.clap
  * (parameter 0 = time in ms, 2 = mix, 5 = its own bypass). A second
  * argument names tests/fake.clap, whose layouts the host must refuse with
- * the reason on stderr, and whose passthrough reports a latency. */
+ * the reason on stderr, and whose passthrough reports a latency. A third
+ * argument names tests/fake_synth.clap: the instrument layouts the host
+ * admits and refuses, and the notes it makes from MIDI, to the sample. */
 
 #include <math.h>
 #include <time.h>
@@ -46,6 +48,13 @@
 #define FAKE_SIDECHAIN      "org.omx-clap-host.test.sidechain"
 #define FAKE_NOTES          "org.omx-clap-host.test.notes"
 #define FAKE_PASSTHROUGH    "org.omx-clap-host.test.passthrough"
+#define SYNTH               "org.omx-clap-host.test.synth"
+#define SYNTH_MIDI          "org.omx-clap-host.test.synth-midi"
+#define SYNTH_AUX           "org.omx-clap-host.test.synth-aux"
+#define SYNTH_WIDE          "org.omx-clap-host.test.synth-wide"
+#define SYNTH_NOTES         "org.omx-clap-host.test.synth-notes"
+#define SYNTH_MPE           "org.omx-clap-host.test.synth-mpe"
+#define SILENT              "org.omx-clap-host.test.silent"
 #define FAKE_LATENCY        64
 #define FAKE_LATENCY_NEXT   128
 
@@ -119,8 +128,16 @@ static void fake_plugin_checks(const char *path)
     CHECK(CLAP_HOST_MAX_CHANNELS == 2, "CLAP_HOST_MAX_CHANNELS is %i", CLAP_HOST_MAX_CHANNELS);
     check_refused(path, FAKE_WIDE, "main port has 4 channels");
     check_refused(path, FAKE_SIDECHAIN, "1 sidechain/aux ports");
-    check_refused(path, FAKE_NOTES, "note input");
     CHECK(clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", clap_host_binaries_open());
+
+    CHECK(clap_host_open(path, FAKE_NOTES, &instance) == SUCCESS && instance != NULL, "open %s: a note input is admitted", FAKE_NOTES);
+    if (instance)
+    {
+        CHECK(instance->note_inputs == 1 && instance->note_dialect == CLAP_NOTE_DIALECT_CLAP, "one note input, fed the CLAP dialect");
+        CHECK(instance->input_channels == 2 && instance->output_channels == 2, "and the effect's audio pair is kept (%u in, %u out)",
+              instance->input_channels, instance->output_channels);
+        clap_host_close(instance);
+    }
 
     CHECK(clap_host_open(path, FAKE_PASSTHROUGH, &instance) == SUCCESS && instance != NULL, "open %s", FAKE_PASSTHROUGH);
     if (!instance)
@@ -139,6 +156,158 @@ static void fake_plugin_checks(const char *path)
     CHECK(clap_host_binaries_open() == 0, "fake binary closed");
 }
 
+/* one block of a synth on this thread: the MIDI messages first, at the frames given, then the cycle */
+typedef struct MIDI_AT_T {
+    uint32_t time;
+    uint8_t data[3];
+    uint8_t size;
+} midi_at_t;
+
+static void run_block(clap_instance_t *instance, const midi_at_t *messages, uint32_t count, float *out_l, float *out_r)
+{
+    float *outputs[2] = { out_l, out_r };
+    uint32_t i;
+
+    for (i = 0; i < count; i++)
+        clap_host_midi_in(instance, messages[i].time, messages[i].data, messages[i].size);
+    clap_host_run(instance, NULL, outputs, BLOCK);
+}
+
+static float sine_at(double velocity, int key, uint32_t age)
+{
+    const double hz = 440.0 * pow(2.0, ((double)key - 69.0) / 12.0);
+    return (float)(velocity * sin(2.0 * M_PI * hz * (double)age / SAMPLE_RATE));
+}
+
+/* the samples in [from, to) are the synth's sine, `age` frames in when `from` is, within float rounding */
+static int is_sine(const float *buffer, uint32_t from, uint32_t to, double velocity, int key, uint32_t age)
+{
+    uint32_t i;
+
+    for (i = from; i < to; i++)
+        if (fabsf(buffer[i] - sine_at(velocity, key, age + i - from)) > 1e-6f)
+            return 0;
+    return 1;
+}
+
+static int is_silent(const float *buffer, uint32_t from, uint32_t to)
+{
+    uint32_t i;
+
+    for (i = from; i < to; i++)
+        if (buffer[i] != 0.0f)
+            return 0;
+    return 1;
+}
+
+static clap_instance_t *open_synth(const char *path, const char *id, uint32_t outputs, uint32_t dialect)
+{
+    clap_instance_t *instance = NULL;
+    float prime_l[BLOCK], prime_r[BLOCK];
+
+    CHECK(clap_host_open(path, id, &instance) == SUCCESS && instance != NULL, "open %s", id);
+    if (!instance)
+        return NULL;
+    CHECK(instance->input_channels == 0 && instance->output_channels == outputs, "no main input, %u output channels (%u, %u)",
+          outputs, instance->input_channels, instance->output_channels);
+    CHECK(instance->note_inputs == 1 && instance->note_dialect == dialect, "one note input, dialect %u (%u, %u)", dialect,
+          instance->note_inputs, instance->note_dialect);
+    CHECK(clap_host_activate(instance, SAMPLE_RATE, BLOCK) == SUCCESS, "activate %s", id);
+    clap_host_set_audio_thread(instance, pthread_self());
+    clap_host_arm(instance);
+    /* the first cycle after arming fades the plugin in over the block, as it does for an effect */
+    run_block(instance, NULL, 0, prime_l, prime_r);
+    return instance;
+}
+
+/* the same notes through either dialect make the same samples: on at frame 100, off at frame 50 of the next block */
+static void synth_notes_checks(const char *path, const char *id, uint32_t outputs, uint32_t dialect)
+{
+    static const midi_at_t on[] = { { 100, { 0x90, 69, 100 }, 3 } };
+    static const midi_at_t off[] = { { 50, { 0x80, 69, 64 }, 3 } };
+    const double velocity = 100.0 / 127.0;
+    float out_l[BLOCK], out_r[BLOCK];
+    clap_instance_t *synth = open_synth(path, id, outputs, dialect);
+
+    if (!synth)
+        return;
+    run_block(synth, NULL, 0, out_l, out_r);
+    CHECK(is_silent(out_l, 0, BLOCK), "%s: silence before a note", id);
+    run_block(synth, on, 1, out_l, out_r);
+    CHECK(is_silent(out_l, 0, 100), "%s: silent up to the frame the note on arrived on", id);
+    CHECK(is_sine(out_l, 100, BLOCK, velocity, 69, 0), "%s: the sine starts on frame 100, phase 0, amplitude %.4f", id, velocity);
+    CHECK(outputs == 1 || is_sine(out_r, 100, BLOCK, velocity, 69, 0), "%s: on every output channel", id);
+    run_block(synth, off, 1, out_l, out_r);
+    CHECK(is_sine(out_l, 0, 50, velocity, 69, BLOCK - 100), "%s: the note sounds up to the frame of the note off", id);
+    CHECK(is_silent(out_l, 50, BLOCK), "%s: silence from the note off on", id);
+    run_block(synth, NULL, 0, out_l, out_r);
+    CHECK(is_silent(out_l, 0, BLOCK), "%s: and stays silent", id);
+    CHECK(atomic_load(&synth->notes_delivered) == 2 && atomic_load(&synth->notes_dropped) == 0, "%s: two notes delivered, none dropped (%u, %u)", id,
+          atomic_load(&synth->notes_delivered), atomic_load(&synth->notes_dropped));
+    CHECK(atomic_load(&synth->process_errors) == 0 && atomic_load(&synth->thread_violations) == 0, "%s: no process error, no thread violation", id);
+    clap_host_close(synth);
+}
+
+static void synth_checks(const char *path)
+{
+    static const midi_at_t running_off[] = { { 10, { 0x90, 69, 127 }, 3 }, { 20, { 0x90, 60, 0 }, 3 }, { 40, { 0x90, 69, 0 }, 3 } };
+    static const midi_at_t others[] = { { 0, { 0xb0, 1, 64 }, 3 }, { 1, { 0xe0, 0, 64 }, 3 }, { 2, { 0xc0, 5, 0 }, 2 }, { 3, { 0xf8, 0, 0 }, 1 } };
+    static const midi_at_t held[] = { { 0, { 0x90, 69, 127 }, 3 } };
+    midi_at_t flood[CLAP_HOST_NOTES_PER_CYCLE + 44];
+    float out_l[BLOCK], out_r[BLOCK];
+    clap_instance_t *synth;
+    uint32_t i;
+
+    check_refused(path, SYNTH_AUX, "1 sidechain/aux ports");
+    check_refused(path, SYNTH_WIDE, "main port has 4 channels");
+    check_refused(path, SYNTH_NOTES, "2 note inputs");
+    check_refused(path, SYNTH_MPE, "neither the CLAP nor the MIDI dialect");
+    check_refused(path, SILENT, "0 main inputs, 1 main outputs");
+    CHECK(clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", clap_host_binaries_open());
+
+    synth_notes_checks(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
+    synth_notes_checks(path, SYNTH_MIDI, 1, CLAP_NOTE_DIALECT_MIDI);
+
+    synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
+    if (!synth)
+        return;
+    run_block(synth, running_off, 3, out_l, out_r);
+    CHECK(is_sine(out_l, 10, 40, 1.0, 69, 0) && is_silent(out_l, 40, BLOCK), "a note on with velocity 0 is a note off, of its own key only");
+    for (i = 0; i < sizeof(others) / sizeof(others[0]); i++)
+        clap_host_midi_in(synth, others[i].time, others[i].data, others[i].size);
+    clap_host_run(synth, NULL, (float *[]){ out_l, out_r }, BLOCK);
+    CHECK(atomic_load(&synth->notes_delivered) == 3, "controllers, bend, program change and clock are not notes to a CLAP-dialect input (%u delivered)",
+          atomic_load(&synth->notes_delivered));
+
+    /* the bypass is silence for a plugin with nothing to pass through: one block of fade, then the plugin idles */
+    run_block(synth, held, 1, out_l, out_r);
+    CHECK(clap_host_bypass(synth, 1) == SUCCESS, "bypass 1");
+    run_block(synth, NULL, 0, out_l, out_r);
+    CHECK(!is_silent(out_l, 0, BLOCK) && out_l[BLOCK - 1] != 0.0f, "the block after bypass fades from the note (out[%u] = %g)", BLOCK - 1, (double)out_l[BLOCK - 1]);
+    run_block(synth, NULL, 0, out_l, out_r);
+    CHECK(is_silent(out_l, 0, BLOCK) && is_silent(out_r, 0, BLOCK), "steady bypass: silence");
+    CHECK(clap_host_bypass(synth, 0) == SUCCESS, "bypass 0");
+    clap_host_close(synth);
+
+    /* more messages than a cycle takes: the surplus is counted, never written past the array */
+    synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
+    if (!synth)
+        return;
+    for (i = 0; i < CLAP_HOST_NOTES_PER_CYCLE + 44; i++)
+    {
+        flood[i].time = i % BLOCK;
+        flood[i].data[0] = 0x90;
+        flood[i].data[1] = 69;
+        flood[i].data[2] = 100;
+        flood[i].size = 3;
+    }
+    run_block(synth, flood, CLAP_HOST_NOTES_PER_CYCLE + 44, out_l, out_r);
+    CHECK(atomic_load(&synth->notes_delivered) == CLAP_HOST_NOTES_PER_CYCLE && atomic_load(&synth->notes_dropped) == 44,
+          "%u messages: %u delivered, %u dropped", CLAP_HOST_NOTES_PER_CYCLE + 44, atomic_load(&synth->notes_delivered), atomic_load(&synth->notes_dropped));
+    clap_host_close(synth);
+    CHECK(clap_host_binaries_open() == 0, "synth binary closed");
+}
+
 static int report(void)
 {
     printf("%s\n", g_failures == 0 ? "clap host test ok" : "clap host test FAILED");
@@ -149,6 +318,7 @@ int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : NULL;
     const char *fake_path = argc > 2 ? argv[2] : NULL;
+    const char *synth_path = argc > 3 ? argv[3] : NULL;
     clap_instance_t *first = NULL, *second = NULL;
     float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
     const float *inputs[2] = { in_l, in_r };
@@ -163,7 +333,7 @@ int main(int argc, char **argv)
 
     if (!path)
     {
-        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap]\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap [fake_synth.clap]]\n", argv[0]);
         return 2;
     }
     if (strcmp(path, "-") == 0)
@@ -174,6 +344,8 @@ int main(int argc, char **argv)
             return 2;
         }
         fake_plugin_checks(fake_path);
+        if (synth_path)
+            synth_checks(synth_path);
         return report();
     }
 
@@ -292,6 +464,8 @@ int main(int argc, char **argv)
 
     if (fake_path)
         fake_plugin_checks(fake_path);
+    if (synth_path)
+        synth_checks(synth_path);
 
     return report();
 }

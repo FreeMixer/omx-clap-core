@@ -27,9 +27,17 @@ same line protocol and the same replies as mod\-host, from mod\-host's
 protocol library, so a controller that speaks to mod\-host can speak to
 this host unchanged.
 .PP
-A plugin is admitted with exactly one main audio input and one main audio
-output, each mono or stereo. A sidechain, an auxiliary port, a wider main
-port or a note input is refused at
+A plugin is admitted with exactly one main audio output, mono or stereo,
+and one main audio input of the same kind. A plugin with a note input, an
+instrument, may have no audio input at all. A plugin with one note input
+gets a JACK MIDI input port,
+.BR midi_in ,
+on its client:
+note on and note off arrive as CLAP note events, or as MIDI events when the
+input prefers that dialect, on the frame they arrived on. Controllers, pitch
+bend, program change and system messages reach only an input that reads MIDI
+events. A sidechain, an auxiliary port, a wider main port, a second note
+input or a note input read in neither dialect is refused at
 .B add
 with
 .B resp \-102
@@ -37,7 +45,7 @@ and the reason on standard error.
 .PP
 The plugin's latency is published on its JACK ports and republished when
 the plugin changes it. Bypass is the host's own one\-block crossfade to the
-dry input; the plugin's own bypass parameter is never written.
+dry input, or to silence for an instrument; the plugin's own bypass parameter is never written.
 .SH OPTIONS
 .TP
 .BR \-n ", " \-\-nofork
