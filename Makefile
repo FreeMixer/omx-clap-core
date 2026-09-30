@@ -47,6 +47,8 @@ endif
 
 # where the programs find the core: the build tree's, unless a package builds them for the system's
 RPATH ?= -Wl,-rpath,$(CURDIR)
+# the programs a test runs find the core in the build tree even when a package built them without an rpath
+export LD_LIBRARY_PATH := $(CURDIR)$(if $(LD_LIBRARY_PATH),:$(LD_LIBRARY_PATH))
 CORE_LINK = -L. -l$(CORE) $(RPATH)
 CORE_LINK_TEST = -L. -l$(CORE) -Wl,-rpath,$(CURDIR)
 
