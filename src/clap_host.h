@@ -82,6 +82,7 @@
 struct omx_clap_host_config
 {
     uint32_t abi;               // OMX_CLAP_CORE_ABI of the header the caller was compiled against
+    uint32_t size;              // sizeof of this structure as the caller was compiled: a field appended later is the default to it
     int clamp;                  // clamp the plugin's output at CLAP_HOST_CLAMP_DBFS
     int nonfinite;              // scan the output for non-finite samples and strike the stage on them
     int warmup;                 // warm the plugin up before publish and restart it after
@@ -188,7 +189,8 @@ struct omx_clap_instance
 ************************************************************************************************************************
 */
 
-/* The console's defaults: clamp, scan, warm-up on, note inputs refused, the declared extensions only, named openmixer. */
+/* The console's defaults: clamp, scan, warm-up on, note inputs refused, the declared extensions only, named openmixer. Fills
+ * `abi` and `size` too: start from it. */
 OMX_CLAP_EXPORT void omx_clap_host_config_default(struct omx_clap_host_config *config);
 
 /* Set the process's configuration, once, before the first binary is opened. -1: the ABI differs, a binary is open

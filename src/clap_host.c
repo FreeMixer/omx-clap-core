@@ -106,7 +106,7 @@ static struct omx_clap_binary *g_binaries;
 /* the console's defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
 {
-    OMX_CLAP_CORE_ABI, 1, 1, 1, 0, 0, "openmixer", "FreeMixer", "https://github.com/FreeMixer/openmixer", "0"
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "openmixer", "FreeMixer", "https://github.com/FreeMixer/openmixer", "0"
 };
 static int g_configured;
 static int g_sealed;        // a binary was opened: the configuration can no longer change
@@ -822,7 +822,7 @@ void omx_clap_host_config_default(struct omx_clap_host_config *config)
 {
     static const struct omx_clap_host_config defaults =
     {
-        OMX_CLAP_CORE_ABI, 1, 1, 1, 0, 0, "openmixer", "FreeMixer", "https://github.com/FreeMixer/openmixer", "0"
+        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "openmixer", "FreeMixer", "https://github.com/FreeMixer/openmixer", "0"
     };
 
     *config = defaults;
@@ -830,11 +830,19 @@ void omx_clap_host_config_default(struct omx_clap_host_config *config)
 
 int omx_clap_host_configure(const struct omx_clap_host_config *config)
 {
-    if (!config || config->abi != OMX_CLAP_CORE_ABI || g_configured || g_sealed)
+    struct omx_clap_host_config merged;
+
+    if (!config || config->abi != OMX_CLAP_CORE_ABI || config->size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
         return -1;
-    if (!config->name || !config->vendor || !config->url || !config->version)
+    if (g_configured || g_sealed)
         return -1;
-    g_config = *config;
+    // a caller built against an older header has fewer fields: the rest are the defaults'
+    omx_clap_host_config_default(&merged);
+    memcpy(&merged, config, config->size < sizeof(merged) ? config->size : sizeof(merged));
+    merged.size = sizeof(merged);
+    if (!merged.name || !merged.vendor || !merged.url || !merged.version)
+        return -1;
+    g_config = merged;
     g_configured = 1;
     return 0;
 }

@@ -48,12 +48,13 @@ endif
 # where the programs find the core: the build tree's, unless a package builds them for the system's
 RPATH ?= -Wl,-rpath,$(CURDIR)
 CORE_LINK = -L. -l$(CORE) $(RPATH)
+CORE_LINK_TEST = -L. -l$(CORE) -Wl,-rpath,$(CURDIR)
 
 # libraries
-LIBS = $(shell $(PKG_CONFIG) --libs jack) -ldl -lpthread -lm
+LIBS = $(shell $(PKG_CONFIG) --libs jack 2>/dev/null) -ldl -lpthread -lm
 
 # include paths
-INCS = $(PROTOCOL_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack)
+INCS = $(PROTOCOL_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack 2>/dev/null)
 
 LDFLAGS += -Wl,--no-undefined
 
@@ -148,7 +149,23 @@ test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PRO
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
-	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK) -lpthread -lm
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
+# the ABI: abidw records what the library exports and the types its public headers reach, abidiff compares a build with the
+# baseline of the last release. An addition is a compatible change and a new minor; a removal or a change is a new soname major.
+ABI_BASELINE = abi/$(CORE_SONAME).abi
+
+abi-stage: $(CORE_SO)
+	rm -rf build/abi
+	$(MAKE) install-lib DESTDIR=$(CURDIR)/build/abi PREFIX=/usr LIBDIR=/usr/lib
+
+# record the baseline: the release commit does this and commits abi/
+abi-baseline: abi-stage
+	mkdir -p abi
+	abidw --headers-dir build/abi/usr/include --out-file $(ABI_BASELINE) build/abi/usr/lib/$(CORE_FILE)
+
+abi-check: abi-stage
+	sh tests/abi-check.sh build/abi/usr/lib/$(CORE_FILE) build/abi/usr/include $(ABI_BASELINE)
 
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the console's defaults; the export list and the libraries it names are read off the file

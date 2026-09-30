@@ -66,8 +66,12 @@ int main(int argc, char **argv)
     omx_clap_host_config_default(&config);
     CHECK(config.clamp && config.nonfinite && config.warmup && !config.note_inputs && !config.preset_load,
           "the defaults: clamp, scan and warm-up on, note inputs refused, no preset-load");
+    CHECK(config.abi == OMX_CLAP_CORE_ABI && config.size == sizeof(config), "and they say which ABI and how large they are (%u, %u)", config.abi, config.size);
     config.abi++;
     CHECK(omx_clap_host_configure(&config) == -1, "a configuration made for another ABI is refused");
+    config.abi--;
+    config.size = 4;
+    CHECK(omx_clap_host_configure(&config) == -1, "and one too short to name a host");
 
     // the console refuses what the isolated host admits
     check_refused(argv[1], FAKE_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
