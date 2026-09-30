@@ -1,0 +1,42 @@
+name: release
+
+# A version tag builds the RPMs and the DEBs, for x86_64/amd64 and aarch64/arm64, signs them, publishes them
+# into the rpm/ and deb/ trees of the FreeMixer Pages repository and attaches the RPMs to the GitHub release.
+# Anything else, a manual run from a branch or the dry run of ci.yml, builds and assembles unsigned trees and
+# publishes nothing. Everything is in FreeMixer/.github; the secrets are the organisation's.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Sign and publish; only a run on a tag publishes'
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  rpm:
+    uses: FreeMixer/.github/.github/workflows/build-rpm.yml@main
+    with:
+      package-name: omx-clap-host
+      publish: ${{ github.event_name == 'push' || inputs.publish == true }}
+    secrets: inherit
+
+  # after the RPMs: both publish into one tree, and a push that loses a race is refused
+  deb:
+    needs: rpm
+    if: ${{ !cancelled() }}
+    uses: FreeMixer/.github/.github/workflows/build-deb.yml@main
+    with:
+      package-name: omx-clap-host
+      publish: ${{ github.event_name == 'push' || inputs.publish == true }}
+    secrets: inherit

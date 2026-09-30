@@ -1,0 +1,235 @@
+name: ci
+
+# The tests that need no audio server run on every push and pull request, then the RPMs are built as
+# artifacts, on both architectures, and installed in a clean container. Nothing is signed or published
+# here: release.yml is a release, run from a version tag, and its dry run is the last job.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: fedora:44
+      # the jack tests run the host in a user, net, pid and mount namespace of its own
+      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
+    steps:
+      - name: Install the build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 pkgconf-pkg-config clap-devel \
+            pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
+
+      - uses: actions/checkout@v4
+
+      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@main
+
+      - name: Build
+        run: make
+
+      - name: Test the plugin lifecycle and the scanner against the fake plugins
+        run: make test-fake
+
+      # The host over jack with an instrument, in a PipeWire of its own. It needs a private user
+      # namespace with its own /proc; a runner that refuses one cannot run it, and the step says so.
+      - name: Test an instrument over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-synth
+          else
+            echo "::warning::test-jack-synth SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      - name: Name what this job does not run
+        run: |
+          echo "test-jack and test-identity are NOT run here: they load omx-delay.clap, which is built in the console's tree."
+          echo "They stay in the Makefile for the desk: make test-jack test-identity CLAP_TEST_PLUGIN=<omx-delay.clap>."
+
+  rpm:
+    name: RPMs (fc44, ${{ matrix.arch }}), installed in a clean root
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    container:
+      image: fedora:44
+      # the clean root gets a /proc and a /dev of its own
+      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
+    steps:
+      - name: Install the build tools
+        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip pipewire-jack-audio-connection-kit-devel
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@main
+
+      - uses: FreeMixer/.github/.github/actions/build-rpm@main
+
+      - name: Check the file lists
+        run: |
+          set -euo pipefail
+          for rpm in rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm; do
+            rpm -qlp "$rpm"
+            rpm -qp --qf '[%{FILEMODES:perms} %{FILENAMES}\n]' "$rpm" | grep -v -e '^d' -e '/\.build-id/' | cut -d' ' -f2 | sort > files.txt
+            printf '%s\n' /usr/bin/omx-clap-host /usr/bin/omx-clap-scan \
+              /usr/share/man/man1/omx-clap-host.1.gz /usr/share/man/man1/omx-clap-scan.1.gz \
+              /usr/share/doc/omx-clap-host/README.md /usr/share/licenses/omx-clap-host/COPYING | sort > expected.txt
+            diff -u expected.txt files.txt
+            rpm -qp --requires "$rpm" | tee requires.txt
+            grep -q 'libmod-host-protocol.so.0' requires.txt
+          done
+          ls rpms/omx-clap-host-*.src.rpm
+
+      - name: Build the fake plugins the smoke test scans
+        run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
+
+      - uses: FreeMixer/.github/.github/actions/install-clean@main
+        with:
+          rpms: |
+            mod-host-rpms/mod-host-[0-9]*.rpm
+            rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
+
+      - name: The host reports the version of its package and resolves its libraries
+        run: |
+          set -euo pipefail
+          version=$(rpm --root /tmp/clean-root -q --qf '%{VERSION}' omx-clap-host)
+          chroot /tmp/clean-root omx-clap-host -V | tee v.txt
+          grep -q "version: $version\$" v.txt
+          chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
+          ! grep -q 'not found' ldd.txt
+          grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+
+      - name: The scanner lists the fake plugins and survives the one that crashes
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/clean-root/smoke
+          cp tests/fake.clap tests/fake_synth.clap tests/crash.clap /tmp/clean-root/smoke/
+          chroot /tmp/clean-root omx-clap-scan /smoke/fake.clap | tee scan.txt
+          test -s scan.txt
+          chroot /tmp/clean-root omx-clap-scan --json /smoke/fake_synth.clap | tee scan.json
+          grep -q '"scanner":"omx-clap-scan"' scan.json
+          chroot /tmp/clean-root omx-clap-scan /smoke/crash.clap | tee crash.txt || true
+          grep -q "crashed with signal 6" crash.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-rpms-fc44-${{ matrix.arch }}
+          path: rpms/omx-clap-host-[0-9]*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  deb:
+    name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), built and linted
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [bookworm, trixie]
+        arch: [amd64, arm64]
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: debian:${{ matrix.suite }}
+    steps:
+      - name: Install the build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ca-certificates git dpkg-dev debhelper build-essential lintian
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: FreeMixer/.github/.github/actions/deb-deps@main
+
+      - uses: FreeMixer/.github/.github/actions/build-deb@main
+
+      # what the smoke test runs the installed package against, built here for the architecture
+      - name: Build the smoke test fixtures
+        run: |
+          set -euo pipefail
+          make tests/fake.clap tests/fake_synth.clap tests/crash.clap
+          mkdir -p smoke
+          cp tests/fake.clap tests/fake_synth.clap tests/crash.clap smoke/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-ci-debs-${{ matrix.suite }}-${{ matrix.arch }}
+          path: |
+            debs/*.deb
+            dep-debs/libmod-host-protocol0_*.deb
+            smoke
+          if-no-files-found: error
+          retention-days: 1
+
+  deb-smoke:
+    name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), installed in a clean container
+    needs: deb
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [bookworm, trixie]
+        arch: [amd64, arm64]
+    # nothing but the distribution: a dependency the package forgot to declare is missing here
+    defaults:
+      run:
+        shell: bash
+    container:
+      image: debian:${{ matrix.suite }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: omx-clap-host-ci-debs-${{ matrix.suite }}-${{ matrix.arch }}
+
+      - name: Install the package with its dependencies from the distribution
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./dep-debs/libmod-host-protocol0_*.deb 
+          dpkg -s libmod-host-protocol0 | grep '^Status: install ok installed'
+
+      - name: The host reports the version of its package and resolves its libraries
+        run: |
+          set -euo pipefail
+          version=$(dpkg-query -W -f='${Version}' omx-clap-host)
+          omx-clap-host -V | tee v.txt
+          grep -q "version: ${version%%~*}\$" v.txt
+          ldd /usr/bin/omx-clap-host | tee ldd.txt
+          ! grep -q 'not found' ldd.txt
+          grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+
+      - name: The scanner lists the fake plugins and survives the one that crashes
+        run: |
+          set -euo pipefail
+          omx-clap-scan smoke/fake.clap | tee scan.txt
+          test -s scan.txt
+          omx-clap-scan --json smoke/fake_synth.clap | tee scan.json
+          grep -q '"scanner":"omx-clap-scan"' scan.json
+          omx-clap-scan smoke/crash.clap | tee crash.txt || true
+          grep -q "crashed with signal 6" crash.txt
+
+  # The release workflow as a tag would run it, publishing nothing: both architectures build through the
+  # shared workflow and an unsigned tree is assembled. The caller grants what the called workflow may ask
+  # for; its publish and release steps do not run here.
+  release-dry-run:
+    name: release workflow, dry run
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      publish: false

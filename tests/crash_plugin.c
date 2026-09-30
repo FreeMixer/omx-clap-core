@@ -17,14 +17,17 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
-/* A .clap whose entry point takes the process down, for the scanner's test */
+/* A .clap whose entry point takes the process down, for the scanner's test. The crash is deliberate and
+ * leaves no core dump and no coredumpctl entry: the process is made non-dumpable first. */
 
 #include <stdlib.h>
+#include <sys/prctl.h>
 #include <clap/clap.h>
 
 static bool entry_init(const char *path)
 {
     (void)path;
+    prctl(PR_SET_DUMPABLE, 0);
     abort();
 }
 
