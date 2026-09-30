@@ -65,6 +65,7 @@ int effects_state_save(const char *dir);
 int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);
 int effects_disconnect(const char *portA, const char *portB);
+int effects_monitor_output(int effect_id, const char *symbol);
 float effects_jack_cpu_load(void);
 void effects_idle(void);
 

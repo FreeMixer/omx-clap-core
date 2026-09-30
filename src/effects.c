@@ -31,7 +31,9 @@
 */
 
 #include <errno.h>
+#include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -41,9 +43,12 @@
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
+#include <clap/ext/draft/gain-adjustment-metering.h>
 
 #include "effects.h"
 #include "clap_host.h"
+#include "omx_clap_ext.h"
+#include "host-dispatch.h"
 
 
 /*
@@ -63,12 +68,31 @@
 // a write waits for the next cycle this long before the control thread delivers it itself
 #define QUEUE_SETTLE_US         50000
 
+// the output the gain adjustment of clap.gain-adjustment-metering answers to
+#define GAIN_ADJUSTMENT_SYMBOL  "gain_adjustment_metering"
+#define METER_CHANNELS_MAX      64
+#define OUTPUT_SYMBOL_SIZE      (CLAP_NAME_SIZE + 16)
+
 
 /*
 ************************************************************************************************************************
 *           LOCAL DATA TYPES
 ************************************************************************************************************************
 */
+
+/* one value a plugin reports, answered to by its symbol: a channel of an org.openmixer.meters/1 meter, or the gain
+ * adjustment of clap.gain-adjustment-metering/0 */
+typedef struct OUTPUT_T {
+    char symbol[OUTPUT_SYMBOL_SIZE];
+    char name[CLAP_NAME_SIZE];  // the meter's, for a refusal to name
+    int gain_adjustment;        // the standard value, not a meter
+    clap_id meter;
+    uint32_t channel;
+    uint32_t channels;          // the meter's: what read fills
+    int monitored;
+    int notified;               // a value went out since monitor_output
+    float value;                // the last value that went out
+} output_t;
 
 typedef struct EFFECT_T {
     int instance;
@@ -78,6 +102,11 @@ typedef struct EFFECT_T {
     jack_port_t *midi_port;
     struct omx_clap_instance *clap;
     uint32_t latency_published;
+    const omx_clap_plugin_meters_t *meters;
+    const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
+    _Atomic uint32_t gain_adjustment_bits;  // the float the audio thread published after its last cycle
+    output_t *outputs;
+    uint32_t outputs_count;
 } effect_t;
 
 
@@ -190,12 +219,25 @@ static void jack_thread_init(void *arg)
         omx_clap_host_set_audio_thread(effect->clap, pthread_self());
 }
 
+/* audio thread, right after the cycle: get() is [audio-thread] and reads the block process() just ran. A cycle that did
+ * not call process() publishes 0, what the extension answers for a plugin that is not processing. */
+static void publish_gain_adjustment(effect_t *effect, uint32_t runs_before)
+{
+    float value = 0.0f;
+    uint32_t bits;
+
+    if (atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed) != runs_before)
+        value = (float)effect->gain_adjustment->get(effect->clap->plugin);
+    memcpy(&bits, &value, sizeof(bits));
+    atomic_store_explicit(&effect->gain_adjustment_bits, bits, memory_order_relaxed);
+}
+
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
     const float *inputs[CLAP_HOST_MAIN_PORT_CHANNELS];
     float *outputs[CLAP_HOST_MAIN_PORT_CHANNELS];
-    uint32_t c;
+    uint32_t c, runs = 0;
 
     if (!effect || !effect->clap)
         return 0;
@@ -217,7 +259,11 @@ static int process(jack_nframes_t nframes, void *arg)
     for (c = 0; c < effect->clap->channels; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
 
+    if (effect->gain_adjustment)
+        runs = atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed);
     omx_clap_run_io(&effect->clap->stage, inputs, outputs, nframes);
+    if (effect->gain_adjustment)
+        publish_gain_adjustment(effect, runs);
     return 0;
 }
 
@@ -299,6 +345,7 @@ static void instance_free(effect_t *effect)
         omx_clap_host_stop(effect->clap);
         omx_clap_host_close(effect->clap);
     }
+    free(effect->outputs);
     memset(effect, 0, sizeof(effect_t));
 }
 
@@ -458,6 +505,181 @@ static int parse_param_id(const char *control_symbol, clap_id *id)
     return 0;
 }
 
+/* the symbol an output answers to: the name with every character outside [A-Za-z0-9_] mapped to '_', a '_' before a
+ * leading digit, and _<channel> from 0 when the meter has more than one channel (`channel` -1 when it has one) */
+static void output_symbol(char *symbol, size_t size, const char *name, int channel)
+{
+    size_t i, n = 0;
+
+    if (name[0] >= '0' && name[0] <= '9')
+        symbol[n++] = '_';
+    for (i = 0; name[i] != '\0' && n + 1 < size; i++)
+    {
+        const char c = name[i];
+        const int keep = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+
+        symbol[n++] = keep ? c : '_';
+    }
+    symbol[n] = '\0';
+    if (channel >= 0)
+        snprintf(symbol + n, size - n, "_%d", channel);
+}
+
+/* whatever else answers to `symbol` on this instance: a parameter, by its id or :bypass, or an output derived already */
+static int symbol_owner(const effect_t *effect, const char *symbol, char *owner, size_t size)
+{
+    clap_id id;
+    uint32_t i;
+
+    if (strcmp(symbol, BYPASS_PORT_SYMBOL) == 0 ||
+        (parse_param_id(symbol, &id) == 0 && omx_clap_host_param_readable(effect->clap, id)))
+    {
+        snprintf(owner, size, "parameter %s", symbol);
+        return 1;
+    }
+    for (i = 0; i < effect->outputs_count; i++)
+    {
+        const output_t *output = &effect->outputs[i];
+
+        if (strcmp(output->symbol, symbol) != 0)
+            continue;
+        if (output->gain_adjustment)
+            snprintf(owner, size, "the gain adjustment");
+        else
+            snprintf(owner, size, "meter %u \"%s\" channel %u", output->meter, output->name, output->channel);
+        return 1;
+    }
+    return 0;
+}
+
+static int output_add(effect_t *effect, const char *name, int gain_adjustment, clap_id meter, uint32_t channel, uint32_t channels)
+{
+    char symbol[OUTPUT_SYMBOL_SIZE], owner[CLAP_NAME_SIZE + 64];
+    output_t *outputs, *output;
+
+    if (gain_adjustment)
+        snprintf(symbol, sizeof(symbol), "%s", GAIN_ADJUSTMENT_SYMBOL);
+    else
+        output_symbol(symbol, sizeof(symbol), name, channels > 1 ? (int)channel : -1);
+
+    if (symbol_owner(effect, symbol, owner, sizeof(owner)))
+    {
+        if (gain_adjustment)
+            fprintf(stderr, "%s: the gain adjustment derives %s, the symbol of %s\n", effect->clap->desc->id, symbol, owner);
+        else
+            fprintf(stderr, "%s: meter %u \"%s\" channel %u derives %s, the symbol of %s\n",
+                    effect->clap->desc->id, meter, name, channel, symbol, owner);
+        return -1;
+    }
+
+    outputs = realloc(effect->outputs, (effect->outputs_count + 1) * sizeof(output_t));
+    if (!outputs)
+        return -1;
+    effect->outputs = outputs;
+    output = &outputs[effect->outputs_count++];
+    memset(output, 0, sizeof(output_t));
+    memcpy(output->symbol, symbol, sizeof(symbol));
+    snprintf(output->name, sizeof(output->name), "%s", name);
+    output->gain_adjustment = gain_adjustment;
+    output->meter = meter;
+    output->channel = channel;
+    output->channels = channels;
+    return 0;
+}
+
+/* control thread, at load: the plugin's org.openmixer.meters/1, else its clap.gain-adjustment-metering/0, each value an
+ * output symbol. A meter that can't be read or a symbol that is taken refuses the plugin. */
+static int outputs_build(effect_t *effect)
+{
+    const clap_plugin_t *plugin = effect->clap->plugin;
+    const omx_clap_plugin_meters_t *meters = plugin->get_extension(plugin, OMX_CLAP_EXT_METERS);
+    const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
+    omx_clap_meter_info_t info;
+    uint32_t count, i, c;
+
+    if (meters && meters->count && meters->get_info && meters->read)
+    {
+        effect->meters = meters;
+        count = meters->count(plugin);
+        for (i = 0; i < count; i++)
+        {
+            memset(&info, 0, sizeof(info));
+            if (!meters->get_info(plugin, i, &info))
+            {
+                fprintf(stderr, "%s: meter %u has no info\n", effect->clap->desc->id, i);
+                return -1;
+            }
+            info.name[sizeof(info.name) - 1] = '\0';
+            if (info.name[0] == '\0' || info.channel_count == 0 || info.channel_count > METER_CHANNELS_MAX)
+            {
+                fprintf(stderr, "%s: meter %u \"%s\" has %u channels\n", effect->clap->desc->id, info.id, info.name, info.channel_count);
+                return -1;
+            }
+            for (c = 0; c < info.channel_count; c++)
+                if (output_add(effect, info.name, 0, info.id, c, info.channel_count) != 0)
+                    return -1;
+        }
+        return 0;
+    }
+
+    gain_adjustment = plugin->get_extension(plugin, CLAP_EXT_GAIN_ADJUSTMENT_METERING);
+    if (gain_adjustment && gain_adjustment->get)
+    {
+        if (output_add(effect, GAIN_ADJUSTMENT_SYMBOL, 1, CLAP_INVALID_ID, 0, 1) != 0)
+            return -1;
+        effect->gain_adjustment = gain_adjustment;
+    }
+    return 0;
+}
+
+static int floats_differ(float a, float b)
+{
+    return fabsf(a - b) >= FLT_EPSILON;
+}
+
+/* control thread, at the idle rate: each monitored output whose value moved, and the first value of one just monitored,
+ * goes out as output_set on the feedback socket; a move is mod-host's for an output port, FLT_EPSILON or more */
+static void outputs_notify(effect_t *effect)
+{
+    float values[METER_CHANNELS_MAX];
+    clap_id read_meter = CLAP_INVALID_ID;
+    int read = 0, have = 0;
+    uint32_t i;
+
+    for (i = 0; i < effect->outputs_count; i++)
+    {
+        output_t *output = &effect->outputs[i];
+        float value;
+
+        if (!output->monitored)
+            continue;
+        if (output->gain_adjustment)
+        {
+            const uint32_t bits = atomic_load_explicit(&effect->gain_adjustment_bits, memory_order_relaxed);
+
+            memcpy(&value, &bits, sizeof(value));
+        }
+        else
+        {
+            if (!read || output->meter != read_meter)
+            {
+                read = 1;
+                read_meter = output->meter;
+                have = effect->meters->read(effect->clap->plugin, output->meter, values, output->channels);
+            }
+            if (!have)
+                continue;
+            value = values[output->channel];
+        }
+        if (output->notified && !floats_differ(output->value, value))
+            continue;
+        if (host_dispatch_output_set(effect->instance, output->symbol, value) < 0)
+            continue;
+        output->value = value;
+        output->notified = 1;
+    }
+}
+
 static void state_filename(char *buffer, size_t size, const char *dir, int instance)
 {
     snprintf(buffer, size, "%s/effect_%i%s", dir, instance, STATE_FILE_SUFFIX);
@@ -544,6 +766,11 @@ int effects_add(const char *uri, int instance, const char *client_name)
     error = open_clap(path, id, &effect->clap);
     if (error != SUCCESS)
         goto error;
+    if (outputs_build(effect) != 0)
+    {
+        error = ERR_LV2_INSTANTIATION;
+        goto error;
+    }
 
     for (c = 0; c < effect->clap->in_channels; c++)
     {
@@ -765,5 +992,31 @@ void effects_idle(void)
         clap_idle(effect->clap);
         if (omx_clap_host_latency(effect->clap) != effect->latency_published)
             publish_latency(effect);
+        outputs_notify(effect);
     }
+}
+
+/* monitor_output: 0 once `symbol` is monitored, its first value going out with the next idle call */
+int effects_monitor_output(int effect_id, const char *symbol)
+{
+    effect_t *effect;
+    uint32_t i;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    for (i = 0; i < effect->outputs_count; i++)
+    {
+        output_t *output = &effect->outputs[i];
+
+        if (strcmp(output->symbol, symbol) != 0)
+            continue;
+        if (!output->monitored)
+        {
+            output->monitored = 1;
+            output->notified = 0;
+        }
+        return SUCCESS;
+    }
+    return ERR_LV2_INVALID_PARAM_SYMBOL;
 }

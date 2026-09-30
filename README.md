@@ -46,6 +46,15 @@ runs `tests/jack_synth_e2e.sh` in the same kind of namespace: the host with
 before the note, at two velocities and after the note off, and the layouts
 the host refuses.
 
+    make test-jack-meters
+
+runs `tests/jack_meters_e2e.sh` in the same kind of namespace: the host with
+`tests/fake_compressor.clap` fed a constant input by `tests/jack_meter_source`,
+`monitor_output` on every symbol its meters derive and on some they don't,
+the `output_set` lines of the feedback socket against the values the input
+makes, the standard gain adjustment alone and bypassed, and the plugin whose
+meters clash refused.
+
     make test-identity MOD_HOST=<mod-host> CLAP_TEST_PLUGIN=<omx-delay>.clap [LV2_DIR=<dir with omx-delay.lv2>]
 
 runs `tests/clap_lv2_identity.sh` in the same kind of namespace: the LV2
@@ -78,6 +87,7 @@ Commands
     bypass <instance_number> <bypass_value>
     param_set <instance_number> <param_id> <param_value>
     param_get <instance_number> <param_id>
+    monitor_output <instance_number> <output_symbol>
     preset_load <instance_number> <preset_file>
     state_save <dir>
     state_load <dir>
@@ -97,6 +107,26 @@ cycle comes (a client nothing is linked to gets none from PipeWire), the
 host delivers it itself through the plugin's `params.flush` on the control
 thread, so `param_get`, `state_save` and the plugin always see the last
 value written.
+
+Meters
+------
+
+A plugin's meters are output symbols, as an LV2 plugin's output ports are
+to mod-host: `monitor_output <N> <symbol>` answers `resp 1` for a symbol
+the plugin has and `resp 0` for any other, and from then on the feedback
+socket (`-f`) carries `output_set <N> <symbol> <value>` with the value at
+once and again whenever it moves, at most every 20 ms, never from the
+audio thread.
+
+The host asks each plugin for `org.openmixer.meters/1` (`omx_clap_ext.h`)
+first and, when it has none, for `clap.gain-adjustment-metering/0`. A
+meter's symbol is its name with every character outside `[A-Za-z0-9_]`
+turned into `_` and a `_` before a leading digit; a meter of more than
+one channel has one symbol per channel, `<symbol>_<channel>` from 0. The
+standard gain adjustment is `gain_adjustment_metering`, read on the audio
+thread right after the plugin's `process()`; a cycle that does not call
+it, bypassed, reads 0. A plugin whose meters derive a symbol twice, or one
+a parameter answers to, is refused, and the host names both.
 
 Bypass
 ------
@@ -221,6 +251,9 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number and string the core reads, generated from the
   declarations of the program that owns the numbers and committed here; never edited by hand.
+- `omx_clap_ext.h`: the openmixer vendor extensions a plugin serves through `get_extension`,
+  `org.openmixer.meters/1` and `org.openmixer.declaration/1`, as exact C structures. Header only:
+  the library exports nothing for them.
 
 What a host differs in is a configuration, set once per process with
 `omx_clap_host_configure()` and otherwise the defaults:

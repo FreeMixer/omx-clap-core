@@ -12,7 +12,7 @@ CORE_VERSION = 0.1.0
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h
+CORE_HEADERS = src/clap_host.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h
 CORE_MAP = src/omx-clap-core.map
 
 PKG_CONFIG ?= pkg-config
@@ -130,7 +130,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_identity
+	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity
 
 -include $(wildcard src/*.d)
 
@@ -187,6 +187,9 @@ tests/fake.clap: tests/fake_plugin.c
 tests/fake_synth.clap: tests/fake_synth.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
 
+tests/fake_compressor.clap: tests/fake_compressor.c src/omx_clap_ext.h
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
+
 tests/crash.clap: tests/crash_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
 
@@ -206,6 +209,14 @@ test-jack-synth: $(PROG) tests/fake_synth.clap tests/jack_synth_probe
 
 tests/jack_synth_probe: tests/jack_synth_probe.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
+
+# the meters over jack in the same kind of namespace: monitor_output on each derived symbol and the output_set lines the
+# feedback socket carries, a constant input fed by jack_meter_source
+test-jack-meters: $(PROG) tests/fake_compressor.clap tests/fake.clap tests/jack_meter_source
+	./tests/jack_meters_e2e.sh
+
+tests/jack_meter_source: tests/jack_meter_source.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
 
 # the LV2 twin through mod-host against the CLAP twin through this host, bit for bit, in a PipeWire of its own
 test-identity: $(PROG) tests/jack_identity
