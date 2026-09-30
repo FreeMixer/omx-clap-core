@@ -60,6 +60,9 @@
 #define INSTANCE_IS_VALID(id)   ((id) >= 0 && (id) < MAX_INSTANCES)
 #define REQUESTED_CLIENT_NAME_BUF_SIZE  256
 
+// a write waits for the next cycle this long before the control thread delivers it itself
+#define QUEUE_SETTLE_US         50000
+
 
 /*
 ************************************************************************************************************************
@@ -70,10 +73,10 @@
 typedef struct EFFECT_T {
     int instance;
     jack_client_t *jack_client;
-    jack_port_t *input_ports[CLAP_HOST_MAX_CHANNELS];
-    jack_port_t *output_ports[CLAP_HOST_MAX_CHANNELS];
+    jack_port_t *input_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
+    jack_port_t *output_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
     jack_port_t *midi_port;
-    clap_instance_t *clap;
+    struct omx_clap_instance *clap;
     uint32_t latency_published;
 } effect_t;
 
@@ -182,16 +185,16 @@ static void jack_thread_init(void *arg)
 {
     effect_t *effect = arg;
 
-    clap_host_denormals_off();
+    omx_hosted_denormals_off();
     if (effect && effect->clap)
-        clap_host_set_audio_thread(effect->clap, pthread_self());
+        omx_clap_host_set_audio_thread(effect->clap, pthread_self());
 }
 
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
-    const float *inputs[CLAP_HOST_MAX_CHANNELS];
-    float *outputs[CLAP_HOST_MAX_CHANNELS];
+    const float *inputs[CLAP_HOST_MAIN_PORT_CHANNELS];
+    float *outputs[CLAP_HOST_MAIN_PORT_CHANNELS];
     uint32_t c;
 
     if (!effect || !effect->clap)
@@ -206,15 +209,15 @@ static int process(jack_nframes_t nframes, void *arg)
 
         for (e = 0; e < count; e++)
             if (jack_midi_event_get(&event, midi, e) == 0)
-                clap_host_midi_in(effect->clap, event.time, event.buffer, event.size);
+                omx_clap_note_in(&effect->clap->stage, event.time, event.buffer, event.size);
     }
 
-    for (c = 0; c < effect->clap->input_channels; c++)
+    for (c = 0; c < effect->clap->in_channels; c++)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
-    for (c = 0; c < effect->clap->output_channels; c++)
+    for (c = 0; c < effect->clap->channels; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
 
-    clap_host_run(effect->clap, inputs, outputs, nframes);
+    omx_clap_run_io(&effect->clap->stage, inputs, outputs, nframes);
     return 0;
 }
 
@@ -232,16 +235,16 @@ static void latency(jack_latency_callback_mode_t mode, void *arg)
     if (mode == JackCaptureLatency)
     {
         from = effect->input_ports;
-        from_count = effect->clap->input_channels;
+        from_count = effect->clap->in_channels;
         to = effect->output_ports;
-        to_count = effect->clap->output_channels;
+        to_count = effect->clap->channels;
     }
     else
     {
         from = effect->output_ports;
-        from_count = effect->clap->output_channels;
+        from_count = effect->clap->channels;
         to = effect->input_ports;
-        to_count = effect->clap->input_channels;
+        to_count = effect->clap->in_channels;
     }
 
     total.min = UINT32_MAX;
@@ -266,7 +269,7 @@ static void latency(jack_latency_callback_mode_t mode, void *arg)
 /* control thread: the figure the latency callback answers with, and a recompute so the graph asks */
 static void publish_latency(effect_t *effect)
 {
-    effect->latency_published = effect->clap->latency_frames;
+    effect->latency_published = omx_clap_host_latency(effect->clap);
     fprintf(stderr, "effect_%i: latency %u frames\n", effect->instance, effect->latency_published);
     jack_recompute_total_latencies(effect->jack_client);
 }
@@ -276,26 +279,169 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
 
-    if (effect && effect->clap && effect->clap->active && nframes > effect->clap->max_frames)
+    if (effect && effect->clap && effect->clap->active && nframes > effect->clap->max_block)
     {
-        clap_host_stop(effect->clap);
-        clap_host_deactivate(effect->clap);
-        if (clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes) == SUCCESS)
-            clap_host_arm(effect->clap);
+        omx_clap_host_stop(effect->clap);
+        omx_clap_host_deactivate(effect->clap);
+        if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes, NULL) == 0)
+            omx_clap_host_arm(effect->clap);
     }
     return 0;
 }
 
 static void instance_free(effect_t *effect)
 {
-    if (effect->clap)
-    {
-        clap_host_stop(effect->clap);
-        clap_host_close(effect->clap);
-    }
+    // the client goes first: no cycle can run the stage while the plugin is stopped and destroyed
     if (effect->jack_client)
         jack_client_close(effect->jack_client);
+    if (effect->clap)
+    {
+        omx_clap_host_stop(effect->clap);
+        omx_clap_host_close(effect->clap);
+    }
     memset(effect, 0, sizeof(effect_t));
+}
+
+/* the file and the plugin in it, then the core's judgment of the layout: a file or an id that isn't there is an invalid
+ * URI, anything the core refuses an instantiation error, with its hosting code on stderr */
+static int open_clap(const char *path, const char *id, struct omx_clap_instance **clap)
+{
+    struct omx_clap_binary *binary;
+    char reason[256], why[OMX_CLAP_WHY_MAX];
+    uint32_t count, i;
+    int ret;
+
+    binary = omx_clap_host_binary_open(path, reason, sizeof(reason));
+    if (!binary)
+    {
+        fprintf(stderr, "%s\n", reason);
+        return ERR_LV2_INVALID_URI;
+    }
+    count = omx_clap_host_binary_count(binary);
+    for (i = 0; i < count; i++)
+    {
+        const clap_plugin_descriptor_t *desc = omx_clap_host_binary_descriptor(binary, i);
+
+        if (desc && desc->id && strcmp(desc->id, id) == 0)
+            break;
+    }
+    if (i == count)
+    {
+        fprintf(stderr, "no plugin %s in %s\n", id, path);
+        omx_clap_host_binary_close(binary);
+        return ERR_LV2_INVALID_URI;
+    }
+    ret = omx_clap_host_open(path, id, clap, why);
+    omx_clap_host_binary_close(binary);
+    if (ret != 0)
+    {
+        fprintf(stderr, "%s: %s\n", id, why);
+        return ERR_LV2_INSTANTIATION;
+    }
+    return SUCCESS;
+}
+
+/* a write on a plugin no cycle drains yet reaches it through params.flush; one a cycle runs waits for the cycle */
+static int clap_param_set(struct omx_clap_instance *clap, clap_id id, double value)
+{
+    struct omx_clap_param_row row;
+    uint32_t state;
+
+    if (omx_clap_host_param_row_of(clap, id, &row) != 0)
+        return ERR_LV2_INVALID_PARAM_SYMBOL;
+    if (value < row.min)
+        value = row.min;
+    else if (value > row.max)
+        value = row.max;
+    if (omx_clap_host_param_write(clap, id, value) != 0)
+        return ERR_INVALID_OPERATION;
+    state = atomic_load(&clap->stage.state);
+    if (state == OMX_CLAP_IDLE || state == OMX_CLAP_ARMED)
+        omx_clap_host_param_deliver(clap);
+    return SUCCESS;
+}
+
+static int clap_param_get(struct omx_clap_instance *clap, clap_id id, double *value)
+{
+    if (!omx_clap_host_param_readable(clap, id))
+        return ERR_LV2_INVALID_PARAM_SYMBOL;
+    omx_clap_host_settle(clap, QUEUE_SETTLE_US);
+    if (omx_clap_host_param_read(clap, id, value) != 0)
+        return ERR_LV2_INVALID_PARAM_SYMBOL;
+    return SUCCESS;
+}
+
+static int clap_state_save(struct omx_clap_instance *clap, const char *filename)
+{
+    size_t length = 0;
+    uint8_t *buffer;
+    FILE *file;
+    int ok;
+
+    if (!clap->state)
+        return ERR_INVALID_OPERATION;
+
+    omx_clap_host_settle(clap, QUEUE_SETTLE_US);
+    buffer = malloc(CLAP_HOST_STATE_MAX_BYTES);
+    if (!buffer || omx_clap_host_state_save(clap, buffer, CLAP_HOST_STATE_MAX_BYTES, &length) != 0)
+    {
+        free(buffer);
+        return ERR_LV2_CANT_LOAD_STATE;
+    }
+
+    file = fopen(filename, "wb");
+    if (!file)
+    {
+        free(buffer);
+        return ERR_LV2_CANT_LOAD_STATE;
+    }
+    ok = fwrite(buffer, 1, length, file) == length;
+    ok = fclose(file) == 0 && ok;
+    free(buffer);
+    return ok ? SUCCESS : ERR_LV2_CANT_LOAD_STATE;
+}
+
+static int clap_state_load(struct omx_clap_instance *clap, const char *filename)
+{
+    size_t length;
+    uint8_t *buffer;
+    FILE *file;
+    int ok;
+
+    if (!clap->state)
+        return ERR_INVALID_OPERATION;
+
+    file = fopen(filename, "rb");
+    if (!file)
+        return ERR_LV2_CANT_LOAD_STATE;
+
+    buffer = malloc(CLAP_HOST_STATE_MAX_BYTES);
+    if (!buffer)
+    {
+        fclose(file);
+        return ERR_LV2_CANT_LOAD_STATE;
+    }
+    length = fread(buffer, 1, CLAP_HOST_STATE_MAX_BYTES, file);
+    ok = !ferror(file) && length < CLAP_HOST_STATE_MAX_BYTES;
+    fclose(file);
+
+    if (ok)
+        ok = omx_clap_host_state_load(clap, buffer, length) == 0;
+    free(buffer);
+    return ok ? SUCCESS : ERR_LV2_CANT_LOAD_STATE;
+}
+
+/* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle took */
+static void clap_idle(struct omx_clap_instance *clap)
+{
+    const int restart = omx_clap_host_tick(clap);
+    const char *log = omx_clap_host_log_take(clap);
+
+    if (log)
+        fprintf(stderr, "%s: %s\n", clap->desc->id, log);
+    if (restart && clap->active)
+        omx_clap_host_restart(clap);
+    omx_clap_host_settle(clap, QUEUE_SETTLE_US);
 }
 
 static int parse_param_id(const char *control_symbol, clap_id *id)
@@ -324,8 +470,31 @@ static void state_filename(char *buffer, size_t size, const char *dir, int insta
 ************************************************************************************************************************
 */
 
+/* what this host differs in from the defaults: mod-host clamps and scans nothing, a plugin is live on jack_activate, an
+ * instrument takes MIDI, and the plugin is told which host it is in */
+static int configure_core(void)
+{
+    struct omx_clap_host_config config;
+
+    omx_clap_host_config_default(&config);
+    config.clamp = 0;
+    config.nonfinite = 0;
+    config.warmup = 0;
+    config.note_inputs = 1;
+    config.preset_load = 1;
+    config.name = "omx-clap-host";
+    config.vendor = "Pau Aliagas";
+    config.url = "";
+    return omx_clap_host_configure(&config);
+}
+
 int effects_init(void)
 {
+    if (configure_core() != 0)
+    {
+        fprintf(stderr, "can't configure the clap core\n");
+        return ERR_INSTANCE_INVALID;
+    }
     g_jack_global_client = jack_client_open("omx-clap-host", JackNoStartServer, NULL);
     if (!g_jack_global_client)
     {
@@ -348,6 +517,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
 {
     char path[PATH_MAX];
     char port_name[32];
+    char why[OMX_CLAP_WHY_MAX];
     const char *id;
     effect_t *effect;
     uint32_t c;
@@ -371,11 +541,11 @@ int effects_add(const char *uri, int instance, const char *client_name)
         return ERR_JACK_CLIENT_CREATION;
     }
 
-    error = clap_host_open(path, id, &effect->clap);
+    error = open_clap(path, id, &effect->clap);
     if (error != SUCCESS)
         goto error;
 
-    for (c = 0; c < effect->clap->input_channels; c++)
+    for (c = 0; c < effect->clap->in_channels; c++)
     {
         snprintf(port_name, sizeof(port_name), "in_%u", c + 1);
         effect->input_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
@@ -385,7 +555,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
             goto error;
         }
     }
-    for (c = 0; c < effect->clap->output_channels; c++)
+    for (c = 0; c < effect->clap->channels; c++)
     {
         snprintf(port_name, sizeof(port_name), "out_%u", c + 1);
         effect->output_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
@@ -411,10 +581,13 @@ int effects_add(const char *uri, int instance, const char *client_name)
     jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
     jack_set_latency_callback(effect->jack_client, latency, effect);
 
-    error = clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client));
-    if (error != SUCCESS)
+    if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
+    {
+        fprintf(stderr, "%s: %s\n", id, why);
+        error = ERR_LV2_INSTANTIATION;
         goto error;
-    clap_host_arm(effect->clap);
+    }
+    omx_clap_host_arm(effect->clap);
 
     if (jack_activate(effect->jack_client) != 0)
     {
@@ -466,7 +639,8 @@ int effects_bypass(int effect_id, int value)
 {
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    return clap_host_bypass(g_effects[effect_id].clap, value);
+    omx_clap_host_bypass(g_effects[effect_id].clap, value);
+    return SUCCESS;
 }
 
 int effects_set_parameter(int effect_id, const char *control_symbol, float value)
@@ -476,10 +650,13 @@ int effects_set_parameter(int effect_id, const char *control_symbol, float value
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
     if (strcmp(control_symbol, BYPASS_PORT_SYMBOL) == 0)
-        return clap_host_bypass(g_effects[effect_id].clap, value > 0.5f);
+    {
+        omx_clap_host_bypass(g_effects[effect_id].clap, value > 0.5f);
+        return SUCCESS;
+    }
     if (parse_param_id(control_symbol, &id) != 0)
         return ERR_LV2_INVALID_PARAM_SYMBOL;
-    return clap_host_param_set(g_effects[effect_id].clap, id, value);
+    return clap_param_set(g_effects[effect_id].clap, id, value);
 }
 
 int effects_get_parameter(int effect_id, const char *control_symbol, float *value)
@@ -492,13 +669,13 @@ int effects_get_parameter(int effect_id, const char *control_symbol, float *valu
         return ERR_INSTANCE_NON_EXISTS;
     if (strcmp(control_symbol, BYPASS_PORT_SYMBOL) == 0)
     {
-        *value = clap_host_bypassed(g_effects[effect_id].clap) ? 1.0f : 0.0f;
+        *value = omx_clap_host_bypassed(g_effects[effect_id].clap) ? 1.0f : 0.0f;
         return SUCCESS;
     }
     if (parse_param_id(control_symbol, &id) != 0)
         return ERR_LV2_INVALID_PARAM_SYMBOL;
 
-    ret = clap_host_param_get(g_effects[effect_id].clap, id, &v);
+    ret = clap_param_get(g_effects[effect_id].clap, id, &v);
     if (ret == SUCCESS)
         *value = (float)v;
     return ret;
@@ -508,7 +685,9 @@ int effects_preset_load(int effect_id, const char *location)
 {
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    return clap_host_preset_load(g_effects[effect_id].clap, location);
+    if (!g_effects[effect_id].clap->preset_load)
+        return ERR_INVALID_OPERATION;
+    return omx_clap_host_preset_load(g_effects[effect_id].clap, location) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
 }
 
 int effects_state_save(const char *dir)
@@ -524,7 +703,7 @@ int effects_state_save(const char *dir)
         if (!instance_exist(i))
             continue;
         state_filename(filename, sizeof(filename), dir, i);
-        ret = clap_host_state_save(g_effects[i].clap, filename);
+        ret = clap_state_save(g_effects[i].clap, filename);
         if (ret == ERR_INVALID_OPERATION)
             unlink(filename);
         else if (ret != SUCCESS)
@@ -545,7 +724,7 @@ int effects_state_load(const char *dir)
         state_filename(filename, sizeof(filename), dir, i);
         if (access(filename, F_OK) != 0)
             continue;
-        ret = clap_host_state_load(g_effects[i].clap, filename);
+        ret = clap_state_load(g_effects[i].clap, filename);
         if (ret != SUCCESS)
             error = ret;
     }
@@ -583,8 +762,8 @@ void effects_idle(void)
 
         if (!instance_exist(i))
             continue;
-        clap_host_idle(effect->clap);
-        if (effect->clap->latency_frames != effect->latency_published)
+        clap_idle(effect->clap);
+        if (omx_clap_host_latency(effect->clap) != effect->latency_published)
             publish_latency(effect);
     }
 }

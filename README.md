@@ -24,7 +24,9 @@ come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
-runs the lifecycle test against a plugin without jack, and against
+builds `libomx-clap-core.so.0`, checks its exports and the libraries it needs
+(`tests/exports.sh`), links `tests/core_link_test.c` to the installed library
+and runs it with the defaults, and runs the lifecycle test against a plugin without jack, and against
 `tests/fake.clap`, a plugin built for the test that carries the port
 layouts the host refuses and a passthrough with a latency, and against
 `tests/fake_synth.clap`, a synth whose notes are exact to the sample.
@@ -130,19 +132,20 @@ arrived on, in the dialect the note port prefers:
 - MIDI: every channel message of one to three bytes becomes a
   `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
 
-A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_CYCLE`); the surplus is
+A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`); the surplus is
 counted and dropped. Nothing is allocated or locked on the audio thread.
 
-A sidechain, an auxiliary port, a main port wider than stereo, a second
-note input, a note input that reads neither the CLAP nor the MIDI dialect,
-or no audio input and no note input is refused at `add` with `resp -102`
-and the reason on stderr: `<id>: unsupported port layout: main port has 4
-channels`, `1 sidechain/aux ports`, `2 note inputs`, `note input reads
-neither the CLAP nor the MIDI dialect`, `0 main inputs, 1 main outputs`. A
-sidechain is not fed silence, because a plugin behaving on a silent
-sidechain is not the plugin the same core gives in-process. A plugin is
-admitted with the `audio-effect` or the `instrument` feature and refused
-with neither.
+An extra audio input (a sidechain), a main port wider than stereo, a main
+pair of different widths, a second note input, a note input that reads
+neither the CLAP nor the MIDI dialect, or no audio input and no note input
+is refused at `add` with `resp -102` and the `hosting.*` code on stderr:
+`<id>: hosting.topology.extra-inputs-fed-silence`,
+`hosting.topology.wider-than-strip`, `hosting.clap.note-input`,
+`hosting.topology.no-audio-input`. A sidechain is not fed silence, because a
+plugin behaving on a silent sidechain is not the plugin the same core gives
+in-process. An extra audio output is admitted and left unconnected: the
+plugin is handed a scratch buffer for it. A plugin is admitted with the
+`audio-effect` or the `instrument` feature and refused with neither.
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
 and then leaves the plugin idle: notes that arrive meanwhile are dropped.
@@ -196,3 +199,49 @@ initialised keeps its descriptor and gets an `"error"`, and a plugin that
 crashes or hangs (30 s) takes only its own file's entry: each file is
 scanned in a child process and the scan goes on. The exit status is 0 when
 at least one path could be read, 1 when none could.
+
+The core library
+----------------
+
+The CLAP hosting core, everything that runs a plugin except the jack plumbing and
+the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.0`, so that
+a program that hosts CLAP plugins in its own process runs the same core. omx-clap-host
+and omx-clap-scan link it; a program that hosts plugins in its own process links the same file.
+
+    make install-lib [PREFIX=/usr LIBDIR=/usr/lib64]
+
+installs the library, `omx-clap-core.pc`, the headers under
+`include/omx-clap-host/` and the export list. `pkg-config --cflags --libs
+omx-clap-core` builds a program against it; `tests/core_link_test.c` is one, linked
+to the `.so` alone. The library names no jack, no socket and no protocol library.
+
+- `hosted_stage.h`, `clap_stage.h`: the RT body, inline, so the caller's own RT thread
+  runs it without a call through the library. The layout of `struct omx_hosted_stage`,
+  `struct omx_clap_stage` and `struct omx_clap_instance` is therefore part of the ABI.
+- `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
+- `clap_host_limits.h`: every number and string the core reads, generated from the
+  declarations of the program that owns the numbers and committed here; never edited by hand.
+
+What a host differs in is a configuration, set once per process with
+`omx_clap_host_configure()` and otherwise the defaults:
+
+| setting | defaults | omx-clap-host |
+|---|---|---|
+| clamp at +24 dBFS | on | off |
+| non-finite scan and strike | on | off |
+| warm-up before publish, restart after | on | off |
+| note inputs and instruments | refused | admitted |
+| `clap.preset-load` host extension | not offered | offered |
+| host name, vendor, url | omx-clap-core, Pau Aliagas | omx-clap-host, Pau Aliagas |
+
+The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core0`
+and `libomx-clap-core-dev` (deb), built from the same tag as omx-clap-host, which
+depends on the library.
+
+The version rule: a field is only ever appended to a structure and a function only
+added, and that is a new minor (`0.1.0` to `0.2.0`, the soname unchanged); a field or a
+function removed, moved or changed is a new soname major (`libomx-clap-core.so.1`, a new
+package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.0.abi`,
+the baseline of the last release, with libabigail's `abidiff`, and CI runs it on every
+push and before every release. A release commit records its own baseline with `make
+abi-baseline` and commits `abi/`.

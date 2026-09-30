@@ -1,0 +1,4 @@
+usr/include/omx-clap-host
+usr/lib/*/libomx-clap-core.so
+usr/lib/*/pkgconfig/omx-clap-core.pc
+usr/share/omx-clap-core

@@ -1,0 +1,52 @@
+/* the exports of libomx-clap-core.so.0: everything else is hidden */
+OMX_CLAP_CORE_0
+{
+  global:
+    omx_clap_core_version;
+    omx_clap_host_activate;
+    omx_clap_host_arm;
+    omx_clap_host_binaries_open;
+    omx_clap_host_binary_close;
+    omx_clap_host_binary_count;
+    omx_clap_host_binary_descriptor;
+    omx_clap_host_binary_open;
+    omx_clap_host_bypass;
+    omx_clap_host_bypassed;
+    omx_clap_host_close;
+    omx_clap_host_config_default;
+    omx_clap_host_configure;
+    omx_clap_host_create;
+    omx_clap_host_deactivate;
+    omx_clap_host_has_feature;
+    omx_clap_host_latency;
+    omx_clap_host_log_take;
+    omx_clap_host_open;
+    omx_clap_host_open_entry;
+    omx_clap_host_open_timed;
+    omx_clap_host_param_compare;
+    omx_clap_host_param_count;
+    omx_clap_host_param_deliver;
+    omx_clap_host_param_flush;
+    omx_clap_host_param_is_row;
+    omx_clap_host_param_read;
+    omx_clap_host_param_readable;
+    omx_clap_host_param_row;
+    omx_clap_host_param_row_of;
+    omx_clap_host_param_value;
+    omx_clap_host_param_write;
+    omx_clap_host_preset_load;
+    omx_clap_host_publish;
+    omx_clap_host_release_role;
+    omx_clap_host_restart;
+    omx_clap_host_set_audio_thread;
+    omx_clap_host_set_rate;
+    omx_clap_host_settle;
+    omx_clap_host_state_load;
+    omx_clap_host_state_save;
+    omx_clap_host_stop;
+    omx_clap_host_take_role;
+    omx_clap_host_tick;
+    omx_clap_host_unpublish;
+  local:
+    *;
+};

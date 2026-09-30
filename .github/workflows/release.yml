@@ -24,7 +24,12 @@ permissions:
   contents: write
 
 jobs:
+  # the library's ABI against the baseline of the last release, before any build minutes are spent
+  abi:
+    uses: ./.github/workflows/abi.yml
+
   rpm:
+    needs: abi
     uses: FreeMixer/.github/.github/workflows/build-rpm.yml@main
     with:
       package-name: omx-clap-host

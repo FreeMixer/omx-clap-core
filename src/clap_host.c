@@ -20,6 +20,13 @@
 /*
 ************************************************************************************************************************
 *
+* The control-thread host of libomx-clap-core (see clap_host.h for the contract).
+*
+* Threads, as CLAP assigns them: everything here is [main-thread] and runs on the control thread that opened the
+* instance, except the host callbacks a plugin may call from its audio thread ([thread-safe]: request_*, log,
+* params.request_flush), which touch only atomics and one lock-free message slot. A [main-thread] host callback reached
+* from anywhere but the control thread is counted as a thread-check violation and otherwise ignored.
+*
 ************************************************************************************************************************
 */
 
@@ -31,13 +38,15 @@
 */
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "clap_host.h"
-#include "host-errors.h"
 
 
 /*
@@ -46,9 +55,10 @@
 ************************************************************************************************************************
 */
 
-#define RESTART_TIMEOUT_US      200000
-#define RESTART_POLL_US         1000
-#define QUEUE_SETTLE_US         50000
+#define CORE_VERSION                    (0u * 10000u + 1u * 100u + 0u)
+
+// the warm-up runs at most this many frames a block, whatever the bounce holds
+#define WARMUP_BLOCK_FRAMES             128u
 
 
 /*
@@ -57,30 +67,32 @@
 ************************************************************************************************************************
 */
 
-/* one dlopen per file, shared by its instances */
-struct CLAP_BINARY_T {
+/* one dlopen per file, or one linked entry, shared by its instances */
+struct omx_clap_binary
+{
     char *path;
-    void *handle;
+    void *so;                   // NULL for a linked entry
     const clap_plugin_entry_t *entry;
     const clap_plugin_factory_t *factory;
     uint32_t refs;
-    clap_binary_t *next;
+    struct omx_clap_binary *next;
 };
 
-/* what the control thread displaces while it holds the audio role */
-typedef struct ROLE_T {
-    uint32_t state;
-    pthread_t thread;
-    int held;
-} role_t;
-
-typedef struct STREAM_T {
-    uint8_t *buffer;
-    size_t capacity;
-    size_t length;
-    size_t position;
+struct bounded_stream
+{
+    uint8_t *buf;
+    const uint8_t *in;
+    size_t cap, len, pos;
     int overflow;
-} stream_t;
+};
+
+struct timed_open
+{
+    const char *path, *id;
+    struct omx_clap_instance *out;
+    char why[OMX_CLAP_WHY_MAX];
+    int rc;
+};
 
 
 /*
@@ -89,71 +101,109 @@ typedef struct STREAM_T {
 ************************************************************************************************************************
 */
 
-static clap_binary_t *g_binaries;
+static struct omx_clap_binary *g_binaries;
+
+/* the defaults until a host configures the process */
+static struct omx_clap_host_config g_config =
+{
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-host", "0"
+};
+static int g_configured;
+static int g_sealed;        // a binary was opened: the configuration can no longer change
 
 
 /*
 ************************************************************************************************************************
-*           LOCAL FUNCTIONS
+*           LOCAL FUNCTIONS: THE BINARIES
 ************************************************************************************************************************
 */
 
-static clap_binary_t *binary_ref(const char *path, char *reason, size_t reason_size)
+static void why_set(char why[OMX_CLAP_WHY_MAX], const char *code)
 {
-    clap_binary_t *binary;
-    void *handle;
-    const clap_plugin_entry_t *entry;
+    if (why)
+        snprintf(why, OMX_CLAP_WHY_MAX, "%s", code);
+}
+
+/* Take `entry` (from a dlopen'd `so`, or linked in when `so` is NULL): version, init, factory. On refusal nothing
+ * stays loaded and `reason` says why. */
+static struct omx_clap_binary *binary_adopt(const char *path, void *so, const clap_plugin_entry_t *entry, char *reason, size_t reason_size)
+{
     const clap_plugin_factory_t *factory;
+    struct omx_clap_binary *binary;
 
-    for (binary = g_binaries; binary; binary = binary->next)
-    {
-        if (strcmp(binary->path, path) == 0)
-        {
-            binary->refs++;
-            return binary;
-        }
-    }
-
-    handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-    if (!handle)
-    {
-        snprintf(reason, reason_size, "can't open %s: %s", path, dlerror());
-        return NULL;
-    }
-
-    entry = dlsym(handle, "clap_entry");
     if (!entry || !clap_version_is_compatible(entry->clap_version) || !entry->init || !entry->init(path))
     {
         snprintf(reason, reason_size, "can't init %s", path);
-        dlclose(handle);
+        if (so)
+            dlclose(so);
         return NULL;
     }
-
-    factory = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+    factory = (const clap_plugin_factory_t *)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
     if (!factory)
     {
         snprintf(reason, reason_size, "no plugin factory in %s", path);
         entry->deinit();
-        dlclose(handle);
+        if (so)
+            dlclose(so);
         return NULL;
     }
-
-    binary = calloc(1, sizeof(clap_binary_t));
+    binary = calloc(1, sizeof(*binary));
     binary->path = strdup(path);
-    binary->handle = handle;
+    binary->so = so;
     binary->entry = entry;
     binary->factory = factory;
     binary->refs = 1;
     binary->next = g_binaries;
     g_binaries = binary;
+    g_sealed = 1;
     return binary;
 }
 
-static void binary_unref(clap_binary_t *binary)
+/* A foreign .clap: one dlopen per path. */
+static struct omx_clap_binary *binary_ref(const char *path, char *reason, size_t reason_size)
 {
-    clap_binary_t **link;
+    struct omx_clap_binary *binary;
+    void *so;
 
-    if (--binary->refs > 0)
+    for (binary = g_binaries; binary; binary = binary->next)
+    {
+        if (binary->so && strcmp(binary->path, path) == 0)
+        {
+            binary->refs++;
+            return binary;
+        }
+    }
+    so = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (!so)
+    {
+        snprintf(reason, reason_size, "can't open %s: %s", path, dlerror());
+        return NULL;
+    }
+    return binary_adopt(path, so, (const clap_plugin_entry_t *)dlsym(so, "clap_entry"), reason, reason_size);
+}
+
+/* A plugin linked into the process, keyed by its entry, never dlopen'd. init receives the descriptor id, the only
+ * "path" a linked plugin has. */
+static struct omx_clap_binary *binary_ref_entry(const clap_plugin_entry_t *entry, const char *id, char *reason, size_t reason_size)
+{
+    struct omx_clap_binary *binary;
+
+    for (binary = g_binaries; binary; binary = binary->next)
+    {
+        if (!binary->so && binary->entry == entry)
+        {
+            binary->refs++;
+            return binary;
+        }
+    }
+    return binary_adopt(id ? id : "", NULL, entry, reason, reason_size);
+}
+
+static void binary_unref(struct omx_clap_binary *binary)
+{
+    struct omx_clap_binary **link;
+
+    if (!binary || --binary->refs > 0)
         return;
 
     for (link = &g_binaries; *link; link = &(*link)->next)
@@ -166,74 +216,88 @@ static void binary_unref(clap_binary_t *binary)
     }
 
     binary->entry->deinit();
-    dlclose(binary->handle);
+    if (binary->so)
+        dlclose(binary->so);
     free(binary->path);
     free(binary);
 }
 
-static clap_instance_t *instance_of(const clap_host_t *host)
+
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: THE HOST OBJECT
+************************************************************************************************************************
+*/
+
+static struct omx_clap_instance *instance_of(const clap_host_t *host)
 {
-    return host->host_data;
+    return (struct omx_clap_instance *)host->host_data;
 }
 
-static int on_audio_thread(const clap_instance_t *instance)
+static int on_audio_role(const struct omx_clap_instance *in)
 {
-    return instance->audio_role_held && pthread_equal(pthread_self(), instance->audio_thread);
+    return in->audio_role_held && pthread_equal(pthread_self(), in->audio_thread);
 }
 
-/* a [main-thread] host call made from the audio thread is counted and ignored */
+/* A [main-thread] callback reached from anywhere but the control thread is a violation. */
 static int main_thread_call(const clap_host_t *host)
 {
-    clap_instance_t *instance = instance_of(host);
+    struct omx_clap_instance *in = instance_of(host);
 
-    if (on_audio_thread(instance))
+    if (pthread_equal(pthread_self(), in->main_thread) && !on_audio_role(in))
+        return 1;
+    atomic_fetch_add_explicit(&in->thread_violations, 1u, memory_order_relaxed);
+    return 0;
+}
+
+static void log_to_ring(struct omx_clap_instance *in, const char *msg)
+{
+    size_t i = 0;
+
+    // one lock-free slot, written by whoever logs, drained by the control thread's tick; a message that arrives before
+    // the drain replaces the last, and nothing is ever written on the RT beyond it
+    if (msg)
     {
-        atomic_fetch_add(&instance->thread_violations, 1);
-        return 0;
+        for (; i < sizeof(in->log_ring) - 1 && msg[i]; i++)
+            in->log_ring[i] = msg[i];
+        in->log_ring[i] = '\0';
     }
-    return 1;
+    atomic_store_explicit(&in->log_pending, 1u, memory_order_release);
 }
 
 static void host_log(const clap_host_t *host, clap_log_severity severity, const char *msg)
 {
-    clap_instance_t *instance = instance_of(host);
-    size_t i;
+    struct omx_clap_instance *in = instance_of(host);
 
     (void)severity;
-
-    if (msg)
-    {
-        for (i = 0; i < sizeof(instance->log_slot) - 1 && msg[i]; i++)
-            instance->log_slot[i] = msg[i];
-        instance->log_slot[i] = '\0';
-    }
-    atomic_store(&instance->log_pending, 1);
+    atomic_fetch_add_explicit(&in->log_calls, 1u, memory_order_relaxed);
+    log_to_ring(in, msg);
 }
 
 static bool host_is_main_thread(const clap_host_t *host)
 {
-    clap_instance_t *instance = instance_of(host);
+    struct omx_clap_instance *in = instance_of(host);
 
-    if (on_audio_thread(instance))
+    if (on_audio_role(in))
         return false;
-    return pthread_equal(pthread_self(), instance->main_thread);
+    return pthread_equal(pthread_self(), in->main_thread);
 }
 
 static bool host_is_audio_thread(const clap_host_t *host)
 {
-    return on_audio_thread(instance_of(host));
+    return on_audio_role(instance_of(host));
 }
 
 static void host_latency_changed(const clap_host_t *host)
 {
     if (main_thread_call(host))
-        atomic_store(&instance_of(host)->latency_changed, 1);
+        atomic_store_explicit(&instance_of(host)->latency_changed, 1u, memory_order_relaxed);
 }
 
 static void host_params_rescan(const clap_host_t *host, clap_param_rescan_flags flags)
 {
-    (void)flags;
-    main_thread_call(host);
+    if (main_thread_call(host))
+        atomic_fetch_or_explicit(&instance_of(host)->params_rescan_flags, (uint32_t)flags, memory_order_relaxed);
 }
 
 static void host_params_clear(const clap_host_t *host, clap_id id, clap_param_clear_flags flags)
@@ -245,41 +309,45 @@ static void host_params_clear(const clap_host_t *host, clap_id id, clap_param_cl
 
 static void host_params_request_flush(const clap_host_t *host)
 {
-    atomic_store(&instance_of(host)->flush_requested, 1);
+    atomic_store_explicit(&instance_of(host)->flush_requested, 1u, memory_order_relaxed);
 }
 
 static bool host_ports_is_rescan_flag_supported(const clap_host_t *host, uint32_t flag)
 {
     (void)host;
     (void)flag;
-    return false;
+    return false;   // a layout change is a new judgment: a restart into it, never live
 }
 
 static void host_ports_rescan(const clap_host_t *host, uint32_t flags)
 {
     (void)flags;
-    main_thread_call(host);
+    if (main_thread_call(host))
+        atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
 }
 
 static void host_state_mark_dirty(const clap_host_t *host)
 {
     if (main_thread_call(host))
-        atomic_store(&instance_of(host)->state_dirty, 1);
+        atomic_store_explicit(&instance_of(host)->state_dirty, 1u, memory_order_relaxed);
 }
 
-static void host_preset_on_error(const clap_host_t *host, uint32_t location_kind, const char *location,
-                                 const char *load_key, int32_t os_error, const char *msg)
+static void host_preset_on_error(const clap_host_t *host, uint32_t location_kind, const char *location, const char *load_key,
+                                 int32_t os_error, const char *msg)
 {
+    char text[CLAP_HOST_LOG_BYTES];
+
     (void)location_kind;
     (void)load_key;
     (void)os_error;
-
     if (main_thread_call(host))
-        fprintf(stderr, "preset %s: %s\n", location ? location : "", msg ? msg : "error");
+    {
+        snprintf(text, sizeof(text), "preset %s: %s", location ? location : "", msg ? msg : "error");
+        log_to_ring(instance_of(host), text);
+    }
 }
 
-static void host_preset_loaded(const clap_host_t *host, uint32_t location_kind, const char *location,
-                               const char *load_key)
+static void host_preset_loaded(const clap_host_t *host, uint32_t location_kind, const char *location, const char *load_key)
 {
     (void)location_kind;
     (void)location;
@@ -295,11 +363,23 @@ static const clap_host_audio_ports_t g_host_audio_ports = { host_ports_is_rescan
 static const clap_host_state_t g_host_state = { host_state_mark_dirty };
 static const clap_host_preset_load_t g_host_preset_load = { host_preset_on_error, host_preset_loaded };
 
+static const char *const g_extension_ids[] = CLAP_HOST_EXTENSIONS_INIT;
+
+/* only what the declared list offers, and the preset-load extension where the configuration adds it: a verdict
+ * promised no more */
 static const void *host_get_extension(const clap_host_t *host, const char *id)
 {
-    (void)host;
+    size_t i;
+    int declared = 0;
 
+    (void)host;
     if (!id)
+        return NULL;
+    if (g_config.preset_load && (!strcmp(id, CLAP_EXT_PRESET_LOAD) || !strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)))
+        return &g_host_preset_load;
+    for (i = 0; g_extension_ids[i]; i++)
+        declared |= strcmp(g_extension_ids[i], id) == 0;
+    if (!declared)
         return NULL;
     if (!strcmp(id, CLAP_EXT_LOG))
         return &g_host_log;
@@ -313,59 +393,175 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_audio_ports;
     if (!strcmp(id, CLAP_EXT_STATE))
         return &g_host_state;
-    if (!strcmp(id, CLAP_EXT_PRESET_LOAD) || !strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT))
-        return &g_host_preset_load;
     return NULL;
 }
 
 static void host_request_restart(const clap_host_t *host)
 {
-    atomic_store(&instance_of(host)->restart_requested, 1);
+    atomic_store_explicit(&instance_of(host)->restart_requested, 1u, memory_order_relaxed);
 }
 
 static void host_request_process(const clap_host_t *host)
 {
-    (void)host;
+    (void)host;     // a published plugin is always processed
 }
 
 static void host_request_callback(const clap_host_t *host)
 {
-    atomic_store(&instance_of(host)->callback_requested, 1);
+    atomic_store_explicit(&instance_of(host)->callback_requested, 1u, memory_order_relaxed);
 }
 
-static uint32_t notes_in_view(const clap_instance_t *instance)
+
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: OPEN AND THE PORTS
+************************************************************************************************************************
+*/
+
+/* the note input, when the plugin has one: how it is fed, the code when it can't be */
+static const char *read_note_input(struct omx_clap_instance *in)
 {
-    return atomic_load_explicit(&instance->notes_visible, memory_order_acquire) ? instance->notes_count : 0;
-}
+    const clap_plugin_note_ports_t *ports = in->note_ports;
+    clap_note_port_info_t info;
+    const uint32_t count = ports ? ports->count(in->plugin, true) : 0;
 
-/* the parameter events, then the notes of the cycle when the plugin is inside process() */
-static uint32_t in_events_size(const clap_input_events_t *list)
-{
-    const clap_instance_t *instance = list->ctx;
-
-    return instance->events_count + notes_in_view(instance);
-}
-
-static const clap_event_header_t *in_events_get(const clap_input_events_t *list, uint32_t index)
-{
-    clap_instance_t *instance = list->ctx;
-
-    if (index < instance->events_count)
-        return &instance->events[index].header;
-    index -= instance->events_count;
-    if (index >= notes_in_view(instance))
+    if (count == 0)
         return NULL;
-    return &instance->notes[index].header;
+    if (count > 1)
+        return CLAP_HOST_CODE_NOTE_INPUT;
+    memset(&info, 0, sizeof(info));
+    if (!ports->get(in->plugin, 0, true, &info))
+        return CLAP_HOST_CODE_NOTE_INPUT;
+    if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
+        in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
+    else if (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
+        in->note_dialect = CLAP_NOTE_DIALECT_CLAP;
+    else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI)
+        in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
+    else
+        return CLAP_HOST_CODE_NOTE_INPUT;
+    in->note_inputs = 1;
+    return NULL;
 }
 
-static bool out_events_try_push(const clap_output_events_t *list, const clap_event_header_t *event)
+/*
+ * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
+ * channels; an input besides those refused, an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each
+ * of 1 or 2 channels); where the configuration admits note inputs, one note input, and with it no main input at all (an
+ * instrument); otherwise no note input. Returns the hosting code that refuses, or NULL.
+ */
+static const char *read_topology(struct omx_clap_instance *in)
 {
-    (void)list;
-    (void)event;
-    return true;
+    const clap_plugin_audio_ports_t *ports = in->audio_ports;
+    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0, extra_in = 0;
+    const char *code;
+    int instrument;
+    int dir;
+
+    if (g_config.note_inputs)
+    {
+        code = read_note_input(in);
+        if (code)
+            return code;
+    }
+    instrument = g_config.note_inputs && in->note_inputs;
+
+    if (ports)
+    {
+        for (dir = 0; dir < 2; dir++)
+        {
+            const bool is_input = dir == 0;
+            const uint32_t count = ports->count(in->plugin, is_input);
+            uint32_t i;
+
+            for (i = 0; i < count; i++)
+            {
+                clap_audio_port_info_t info;
+
+                memset(&info, 0, sizeof(info));
+                if (!ports->get(in->plugin, i, is_input, &info))
+                    continue;
+                if (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
+                {
+                    if (is_input)
+                        main_in = info.channel_count, n_main_in++;
+                    else
+                        main_out = info.channel_count, n_main_out++;
+                }
+                else if (is_input)
+                {
+                    extra_in++;
+                }
+                else if (info.channel_count == 0 || info.channel_count > 2 || in->aux_outputs >= CLAP_HOST_AUX_OUTPUTS)
+                {
+                    return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+                }
+                else
+                {
+                    in->aux_channels[in->aux_outputs++] = info.channel_count;
+                }
+            }
+        }
+    }
+    if ((n_main_in == 0 || main_in == 0) && !instrument)
+        return CLAP_HOST_CODE_NO_AUDIO_INPUT;
+    if (n_main_out == 0 || main_out == 0)
+        return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
+    if (main_in > CLAP_HOST_MAIN_PORT_CHANNELS || main_out > CLAP_HOST_MAIN_PORT_CHANNELS || n_main_in > 1 || n_main_out > 1)
+        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+    if (n_main_in && main_in != main_out)
+        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+    if (extra_in > 0)
+        return CLAP_HOST_CODE_EXTRA_INPUTS;
+    if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
+        return CLAP_HOST_CODE_NOTE_INPUT;
+    in->channels = main_out;
+    in->in_channels = n_main_in ? main_in : 0;
+    return NULL;
 }
 
-static int descriptor_has_feature(const clap_plugin_descriptor_t *desc, const char *feature)
+/* Create the plugin of `desc`, init it and read its extensions, with no layout judged. Takes over the caller's reference
+ * on `bin`: a failure drops it. */
+static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descriptor_t *desc, struct omx_clap_instance **out)
+{
+    struct omx_clap_instance *in = calloc(1, sizeof(*in));
+
+    in->bin = bin;
+    in->desc = desc;
+    in->main_thread = pthread_self();
+    in->host.clap_version = (clap_version_t)CLAP_VERSION_INIT;
+    in->host.host_data = in;
+    in->host.name = g_config.name;
+    in->host.vendor = g_config.vendor;
+    in->host.url = g_config.url;
+    in->host.version = g_config.version;
+    in->host.get_extension = host_get_extension;
+    in->host.request_restart = host_request_restart;
+    in->host.request_process = host_request_process;
+    in->host.request_callback = host_request_callback;
+    in->plugin = bin->factory->create_plugin(bin->factory, &in->host, desc->id);
+    if (!in->plugin || !in->plugin->init(in->plugin))
+    {
+        if (in->plugin)
+            in->plugin->destroy(in->plugin);
+        binary_unref(bin);
+        free(in);
+        *out = NULL;
+        return -1;
+    }
+    in->params = in->plugin->get_extension(in->plugin, CLAP_EXT_PARAMS);
+    in->latency = in->plugin->get_extension(in->plugin, CLAP_EXT_LATENCY);
+    in->audio_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS);
+    in->note_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_NOTE_PORTS);
+    in->state = in->plugin->get_extension(in->plugin, CLAP_EXT_STATE);
+    in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD);
+    if (!in->preset_load)
+        in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
+    *out = in;
+    return 0;
+}
+
+int omx_clap_host_has_feature(const clap_plugin_descriptor_t *desc, const char *feature)
 {
     const char *const *f;
 
@@ -377,530 +573,21 @@ static int descriptor_has_feature(const clap_plugin_descriptor_t *desc, const ch
     return 0;
 }
 
-/* the note input, when the plugin has one: how it is fed, the reason when it can't be */
-static int read_note_input(clap_instance_t *instance, char *reason, size_t reason_size)
+/* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
+ * reference on `bin`. */
+static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
 {
-    const clap_plugin_note_ports_t *ports = instance->note_ports;
-    clap_note_port_info_t info;
-    uint32_t count = ports ? ports->count(instance->plugin, true) : 0;
-
-    if (count == 0)
-        return 0;
-    if (count > 1)
-    {
-        snprintf(reason, reason_size, "%u note inputs", count);
-        return -1;
-    }
-    memset(&info, 0, sizeof(info));
-    if (!ports->get(instance->plugin, 0, true, &info))
-    {
-        snprintf(reason, reason_size, "note input 0 unreadable");
-        return -1;
-    }
-    if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
-        instance->note_dialect = CLAP_NOTE_DIALECT_MIDI;
-    else if (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
-        instance->note_dialect = CLAP_NOTE_DIALECT_CLAP;
-    else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI)
-        instance->note_dialect = CLAP_NOTE_DIALECT_MIDI;
-    else
-    {
-        snprintf(reason, reason_size, "note input reads neither the CLAP nor the MIDI dialect");
-        return -1;
-    }
-    instance->note_inputs = 1;
-    return 0;
-}
-
-/* one main output, mono or stereo, and one main input of the same kind unless a note input feeds the plugin
- * instead; nothing else; the reason when not */
-static int read_topology(clap_instance_t *instance, char *reason, size_t reason_size)
-{
-    const clap_plugin_audio_ports_t *ports = instance->audio_ports;
-    uint32_t main_inputs = 0, main_outputs = 0, others = 0;
-    clap_audio_port_info_t info;
-    uint32_t count, i;
-    int dir;
-
-    if (!ports)
-    {
-        snprintf(reason, reason_size, "no audio-ports extension");
-        return -1;
-    }
-
-    for (dir = 0; dir < 2; dir++)
-    {
-        const bool is_input = dir == 0;
-        count = ports->count(instance->plugin, is_input);
-        for (i = 0; i < count; i++)
-        {
-            memset(&info, 0, sizeof(info));
-            if (!ports->get(instance->plugin, i, is_input, &info))
-            {
-                snprintf(reason, reason_size, "%s port %u unreadable", is_input ? "input" : "output", i);
-                return -1;
-            }
-            if (!(info.flags & CLAP_AUDIO_PORT_IS_MAIN))
-            {
-                others++;
-                continue;
-            }
-            if (info.channel_count == 0 || info.channel_count > CLAP_HOST_MAX_CHANNELS)
-            {
-                snprintf(reason, reason_size, "main port has %u channels", info.channel_count);
-                return -1;
-            }
-            if (is_input)
-            {
-                instance->input_channels = info.channel_count;
-                main_inputs++;
-            }
-            else
-            {
-                instance->output_channels = info.channel_count;
-                main_outputs++;
-            }
-        }
-    }
-
-    if (others != 0)
-    {
-        snprintf(reason, reason_size, "%u sidechain/aux ports", others);
-        return -1;
-    }
-    if (read_note_input(instance, reason, reason_size) != 0)
-        return -1;
-    if (main_outputs != 1 || main_inputs > 1 || (main_inputs == 0 && !instance->note_inputs))
-    {
-        snprintf(reason, reason_size, "%u main inputs, %u main outputs", main_inputs, main_outputs);
-        return -1;
-    }
-    return 0;
-}
-
-static int param_info(clap_instance_t *instance, clap_id id, clap_param_info_t *info)
-{
-    uint32_t count, i;
-
-    if (!instance->params)
-        return -1;
-
-    count = instance->params->count(instance->plugin);
-    for (i = 0; i < count; i++)
-    {
-        memset(info, 0, sizeof(*info));
-        if (instance->params->get_info(instance->plugin, i, info) && info->id == id)
-            return 0;
-    }
-    return -1;
-}
-
-static void find_bypass_param(clap_instance_t *instance)
-{
-    clap_param_info_t info;
-    uint32_t count, i;
-
-    instance->bypass_param = CLAP_INVALID_ID;
-    if (!instance->params)
-        return;
-
-    count = instance->params->count(instance->plugin);
-    for (i = 0; i < count; i++)
-    {
-        memset(&info, 0, sizeof(info));
-        if (instance->params->get_info(instance->plugin, i, &info) && (info.flags & CLAP_PARAM_IS_BYPASS))
-        {
-            instance->bypass_param = info.id;
-            return;
-        }
-    }
-}
-
-static int queue_push(clap_param_queue_t *queue, clap_id id, double value, void *cookie)
-{
-    const uint32_t tail = atomic_load_explicit(&queue->tail, memory_order_relaxed);
-    const uint32_t head = atomic_load_explicit(&queue->head, memory_order_acquire);
-    clap_param_record_t *record;
-
-    if (tail - head >= CLAP_HOST_PARAM_QUEUE_DEPTH)
-        return -1;
-
-    record = &queue->records[tail & (CLAP_HOST_PARAM_QUEUE_DEPTH - 1)];
-    record->id = id;
-    record->value = value;
-    record->cookie = cookie;
-    atomic_store_explicit(&queue->tail, tail + 1, memory_order_release);
-    return 0;
-}
-
-static void drain_events(clap_instance_t *instance)
-{
-    clap_param_queue_t *queue = &instance->queue;
-    uint32_t head = atomic_load_explicit(&queue->head, memory_order_relaxed);
-    const uint32_t tail = atomic_load_explicit(&queue->tail, memory_order_acquire);
-    uint32_t n = 0;
-
-    while (head != tail && n < CLAP_HOST_EVENTS_PER_CYCLE)
-    {
-        const clap_param_record_t *record = &queue->records[head & (CLAP_HOST_PARAM_QUEUE_DEPTH - 1)];
-        clap_event_param_value_t *event = &instance->events[n++].param;
-
-        event->header.size = sizeof(*event);
-        event->header.time = 0;
-        event->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-        event->header.type = CLAP_EVENT_PARAM_VALUE;
-        event->header.flags = 0;
-        event->param_id = record->id;
-        event->cookie = record->cookie;
-        event->note_id = -1;
-        event->port_index = -1;
-        event->channel = -1;
-        event->key = -1;
-        event->value = record->value;
-        head++;
-    }
-
-    atomic_store_explicit(&queue->head, head, memory_order_release);
-    instance->events_count = n;
-    if (n)
-        atomic_fetch_add_explicit(&instance->events_delivered, n, memory_order_relaxed);
-}
-
-/* the control thread stands in for the audio thread: a cycle that arrives meanwhile passes the input through,
- * one already running is waited for */
-static role_t take_role(clap_instance_t *instance)
-{
-    role_t role;
-    uint32_t state = atomic_load(&instance->run_state);
-    unsigned waited = 0;
-
-    while (state != CLAP_HOST_IDLE && state != CLAP_HOST_STOPPED && state != CLAP_HOST_HELD
-           && !atomic_compare_exchange_weak(&instance->run_state, &state, CLAP_HOST_HELD))
-        ;
-    while (atomic_load(&instance->in_cycle) && waited < RESTART_TIMEOUT_US)
-    {
-        usleep(RESTART_POLL_US);
-        waited += RESTART_POLL_US;
-    }
-
-    role.state = state;
-    role.thread = instance->audio_thread;
-    role.held = instance->audio_role_held;
-    instance->audio_thread = pthread_self();
-    instance->audio_role_held = 1;
-    return role;
-}
-
-static void release_role(clap_instance_t *instance, const role_t *role, uint32_t state)
-{
-    uint32_t held = CLAP_HOST_HELD;
-
-    instance->audio_thread = role->thread;
-    instance->audio_role_held = role->held;
-    atomic_compare_exchange_strong(&instance->run_state, &held, state);
-}
-
-static int queue_pending(const clap_instance_t *instance)
-{
-    return atomic_load(&instance->queue.tail) != atomic_load(&instance->queue.head);
-}
-
-/* the queued writes reach the plugin through params.flush when no cycle runs them */
-static void flush_events(clap_instance_t *instance)
-{
-    role_t role;
-
-    if (!instance->params || !instance->params->flush)
-        return;
-
-    role = take_role(instance);
-    while (queue_pending(instance))
-    {
-        drain_events(instance);
-        instance->params->flush(instance->plugin, &instance->in_events, &instance->out_events);
-        instance->events_count = 0;
-    }
-    release_role(instance, &role, role.state);
-}
-
-/* a write waits for the next cycle; when none comes (a client nothing drives), the control thread delivers it */
-static void settle_queue(clap_instance_t *instance)
-{
-    const uint32_t runs = atomic_load(&instance->runs);
-    unsigned waited = 0;
-
-    while (queue_pending(instance) && waited < QUEUE_SETTLE_US)
-    {
-        usleep(RESTART_POLL_US);
-        waited += RESTART_POLL_US;
-    }
-    if (queue_pending(instance) && atomic_load(&instance->runs) == runs)
-        flush_events(instance);
-}
-
-static int push_or_flush(clap_instance_t *instance, clap_id id, double value, void *cookie)
-{
-    uint32_t state;
-
-    if (queue_push(&instance->queue, id, value, cookie) != 0)
-        return ERR_INVALID_OPERATION;
-    state = atomic_load(&instance->run_state);
-    if (state == CLAP_HOST_IDLE || state == CLAP_HOST_ARMED)
-        flush_events(instance);
-    return SUCCESS;
-}
-
-static void free_buffers(clap_instance_t *instance)
-{
-    uint32_t c;
-
-    for (c = 0; c < CLAP_HOST_MAX_CHANNELS; c++)
-    {
-        free(instance->input_buffers[c]);
-        free(instance->output_buffers[c]);
-        instance->input_buffers[c] = NULL;
-        instance->output_buffers[c] = NULL;
-    }
-    free(instance->silence);
-    instance->silence = NULL;
-}
-
-static int64_t stream_write(const clap_ostream_t *stream, const void *data, uint64_t size)
-{
-    stream_t *s = stream->ctx;
-
-    if (s->length + size > s->capacity)
-    {
-        s->overflow = 1;
-        return -1;
-    }
-    memcpy(s->buffer + s->length, data, size);
-    s->length += size;
-    return (int64_t)size;
-}
-
-static int64_t stream_read(const clap_istream_t *stream, void *data, uint64_t size)
-{
-    stream_t *s = stream->ctx;
-    const size_t left = s->length - s->position;
-    const size_t n = size < left ? (size_t)size : left;
-
-    memcpy(data, s->buffer + s->position, n);
-    s->position += n;
-    return (int64_t)n;
-}
-
-static int process_cycle(clap_instance_t *instance, uint32_t nframes)
-{
-    clap_process_status status;
-    uint32_t c, i;
-    uint64_t mask;
-
-    drain_events(instance);
-    instance->audio_in.constant_mask = 0;
-    instance->audio_out.constant_mask = 0;
-    instance->process.steady_time = instance->steady_time;
-    instance->process.frames_count = nframes;
-
-    atomic_store_explicit(&instance->notes_visible, 1, memory_order_release);
-    status = instance->plugin->process(instance->plugin, &instance->process);
-    atomic_store_explicit(&instance->notes_visible, 0, memory_order_release);
-    clap_host_denormals_off();
-    atomic_fetch_add_explicit(&instance->notes_delivered, instance->notes_count, memory_order_relaxed);
-
-    instance->steady_time += nframes;
-    instance->events_count = 0;
-    atomic_fetch_add_explicit(&instance->runs, 1, memory_order_relaxed);
-
-    if (status == CLAP_PROCESS_ERROR)
-    {
-        atomic_fetch_add_explicit(&instance->process_errors, 1, memory_order_relaxed);
-        return 0;
-    }
-
-    // a constant output channel holds its value in sample 0 only
-    mask = instance->audio_out.constant_mask;
-    for (c = 0; mask && c < instance->output_channels; c++)
-    {
-        float *buffer = instance->output_buffers[c];
-        if (!(mask & ((uint64_t)1 << c)))
-            continue;
-        for (i = 1; i < nframes; i++)
-            buffer[i] = buffer[0];
-        atomic_fetch_add_explicit(&instance->constant_channels, 1, memory_order_relaxed);
-    }
-    return 1;
-}
-
-static void pass_dry(const clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
-{
-    uint32_t c;
-
-    for (c = 0; c < instance->output_channels; c++)
-    {
-        const uint32_t in = c < instance->input_channels ? c : instance->input_channels - 1;
-        if (!instance->input_channels)
-            memset(outputs[c], 0, sizeof(float) * nframes);
-        else if (outputs[c] != inputs[in])
-            memcpy(outputs[c], inputs[in], sizeof(float) * nframes);
-    }
-}
-
-static void crossfade(float *dst, const float *from, const float *to, uint32_t nframes)
-{
-    uint32_t i;
-
-    for (i = 0; i < nframes; i++)
-    {
-        const float gain = (float)i / (float)nframes;
-        dst[i] = from[i] + (to[i] - from[i]) * gain;
-    }
-}
-
-static void deliver(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes, int want_wet)
-{
-    uint32_t c;
-
-    for (c = 0; c < instance->output_channels; c++)
-    {
-        const uint32_t in = c < instance->input_channels ? c : instance->input_channels - 1;
-        const float *wet = instance->output_buffers[c];
-        const float *dry = instance->input_channels ? inputs[in] : instance->silence;
-
-        if (want_wet && instance->rendered_wet)
-            memcpy(outputs[c], wet, sizeof(float) * nframes);
-        else if (want_wet)
-            crossfade(outputs[c], dry, wet, nframes);
-        else
-            crossfade(outputs[c], wet, dry, nframes);
-    }
-    instance->rendered_wet = want_wet;
-}
-
-static int wait_stopped(clap_instance_t *instance)
-{
-    uint32_t expected = CLAP_HOST_PROCESSING;
-    unsigned waited = 0;
-
-    if (!atomic_compare_exchange_strong(&instance->run_state, &expected, CLAP_HOST_STOPPING))
-    {
-        expected = CLAP_HOST_ARMED;
-        atomic_compare_exchange_strong(&instance->run_state, &expected, CLAP_HOST_STOPPED);
-    }
-
-    while (atomic_load(&instance->run_state) == CLAP_HOST_STOPPING)
-    {
-        if (waited >= RESTART_TIMEOUT_US)
-        {
-            // no cycle came to stop it
-            role_t role = take_role(instance);
-            if (role.state == CLAP_HOST_STOPPING && instance->plugin->stop_processing)
-                instance->plugin->stop_processing(instance->plugin);
-            release_role(instance, &role, CLAP_HOST_STOPPED);
-            return 0;
-        }
-        usleep(RESTART_POLL_US);
-        waited += RESTART_POLL_US;
-    }
-    return 0;
-}
-
-
-/*
-************************************************************************************************************************
-*           GLOBAL FUNCTIONS
-************************************************************************************************************************
-*/
-
-clap_binary_t *clap_host_binary_open(const char *path, char *reason, size_t reason_size)
-{
-    return binary_ref(path, reason, reason_size);
-}
-
-void clap_host_binary_close(clap_binary_t *binary)
-{
-    binary_unref(binary);
-}
-
-uint32_t clap_host_binary_count(const clap_binary_t *binary)
-{
-    return binary->factory->get_plugin_count(binary->factory);
-}
-
-const clap_plugin_descriptor_t *clap_host_binary_descriptor(const clap_binary_t *binary, uint32_t index)
-{
-    return binary->factory->get_plugin_descriptor(binary->factory, index);
-}
-
-/* the instance holds a reference of its own on the binary until clap_host_close */
-int clap_host_create(clap_binary_t *binary, const clap_plugin_descriptor_t *desc, clap_instance_t **out)
-{
-    clap_instance_t *instance;
-
-    *out = NULL;
-
-    instance = calloc(1, sizeof(clap_instance_t));
-    instance->binary = binary;
-    instance->desc = desc;
-    instance->main_thread = pthread_self();
-    instance->host.clap_version = (clap_version_t)CLAP_VERSION_INIT;
-    instance->host.host_data = instance;
-    instance->host.name = "omx-clap-host";
-    instance->host.vendor = "Pau Aliagas";
-    instance->host.url = "";
-    instance->host.version = "0";
-    instance->host.get_extension = host_get_extension;
-    instance->host.request_restart = host_request_restart;
-    instance->host.request_process = host_request_process;
-    instance->host.request_callback = host_request_callback;
-
-    instance->plugin = binary->factory->create_plugin(binary->factory, &instance->host, desc->id);
-    if (!instance->plugin || !instance->plugin->init(instance->plugin))
-    {
-        fprintf(stderr, "can't init plugin %s\n", desc->id);
-        if (instance->plugin)
-            instance->plugin->destroy(instance->plugin);
-        free(instance);
-        return ERR_LV2_INSTANTIATION;
-    }
-    binary->refs++;
-
-    instance->params = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PARAMS);
-    instance->latency = instance->plugin->get_extension(instance->plugin, CLAP_EXT_LATENCY);
-    instance->audio_ports = instance->plugin->get_extension(instance->plugin, CLAP_EXT_AUDIO_PORTS);
-    instance->note_ports = instance->plugin->get_extension(instance->plugin, CLAP_EXT_NOTE_PORTS);
-    instance->state = instance->plugin->get_extension(instance->plugin, CLAP_EXT_STATE);
-    instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD);
-    if (!instance->preset_load)
-        instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
-
-    *out = instance;
-    return SUCCESS;
-}
-
-int clap_host_open(const char *path, const char *id, clap_instance_t **out)
-{
-    clap_binary_t *binary;
     const clap_plugin_descriptor_t *desc = NULL;
-    clap_instance_t *instance;
-    char reason[256];
-    uint32_t count, i;
-    int ret;
+    const uint32_t n = bin->factory->get_plugin_count(bin->factory);
+    struct omx_clap_instance *in;
+    const char *refused;
+    uint32_t rows, i;
 
-    *out = NULL;
-
-    binary = binary_ref(path, reason, sizeof(reason));
-    if (!binary)
+    for (i = 0; i < n; i++)
     {
-        fprintf(stderr, "%s\n", reason);
-        return ERR_LV2_INVALID_URI;
-    }
+        const clap_plugin_descriptor_t *d = bin->factory->get_plugin_descriptor(bin->factory, i);
 
-    count = binary->factory->get_plugin_count(binary->factory);
-    for (i = 0; i < count; i++)
-    {
-        const clap_plugin_descriptor_t *d = binary->factory->get_plugin_descriptor(binary->factory, i);
-        if (d && d->id && strcmp(d->id, id) == 0)
+        if (d && (id == NULL || (d->id && strcmp(d->id, id) == 0)))
         {
             desc = d;
             break;
@@ -908,164 +595,293 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
     }
     if (!desc)
     {
-        fprintf(stderr, "no plugin %s in %s\n", id, path);
-        binary_unref(binary);
-        return ERR_LV2_INVALID_URI;
+        binary_unref(bin);
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
     }
-    if (!descriptor_has_feature(desc, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT) && !descriptor_has_feature(desc, CLAP_PLUGIN_FEATURE_INSTRUMENT))
+    if (!omx_clap_host_has_feature(desc, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
+        && !(g_config.note_inputs && omx_clap_host_has_feature(desc, CLAP_PLUGIN_FEATURE_INSTRUMENT)))
     {
-        fprintf(stderr, "%s is neither an audio effect nor an instrument\n", id);
-        binary_unref(binary);
-        return ERR_LV2_INSTANTIATION;
+        binary_unref(bin);
+        why_set(why, CLAP_HOST_CODE_NOT_AUDIO_EFFECT);
+        return -1;
+    }
+    if (instance_create(bin, desc, &in) != 0)
+    {
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    refused = read_topology(in);
+    if (refused)
+    {
+        in->plugin->destroy(in->plugin);
+        binary_unref(bin);
+        free(in);
+        why_set(why, refused);
+        return -1;
+    }
+    rows = in->params ? in->params->count(in->plugin) : 0;
+    in->shadow_cap = rows;
+    in->shadow = rows ? calloc(rows, sizeof(*in->shadow)) : NULL;
+    *out = in;
+    if (why)
+        why[0] = '\0';
+    return 0;
+}
+
+static void *timed_open_run(void *arg)
+{
+    struct timed_open *t = arg;
+
+    t->rc = omx_clap_host_open(t->path, t->id, &t->out, t->why);
+    return NULL;
+}
+
+
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: THE BOUNCE AND THE ROLE
+************************************************************************************************************************
+*/
+
+/* Six buffers of max_block floats in one mapping with a guard page at each end: the scratch pair for the auxiliary
+ * outputs first, then the stage's four, the last of them flush against the guard page above, so the first sample
+ * written past a block faults here, in this mapping, and never lands in a foreign buffer. */
+static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
+{
+    const size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    const size_t used = (size_t)6 * max_block * sizeof(float);
+    const size_t body = (used + page - 1) / page * page;
+    const size_t length = body + 2 * page;
+    uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    struct omx_hosted_bounce bounce;
+    float *b;
+
+    if (map == MAP_FAILED)
+        return -1;
+    mprotect(map, page, PROT_NONE);
+    mprotect(map + page + body, page, PROT_NONE);
+    in->bounce_map = (float *)map;
+    in->bounce_map_len = length;
+    b = (float *)(map + page + (body - used));
+    in->rec_cap = CLAP_HOST_PARAM_QUEUE_DEPTH;
+    in->recs = calloc(in->rec_cap, sizeof(*in->recs));
+    in->max_block = max_block;
+    bounce.in_l = b + 2 * (size_t)max_block;
+    bounce.in_r = b + 3 * (size_t)max_block;
+    bounce.out_l = b + 4 * (size_t)max_block;
+    bounce.out_r = b + 5 * (size_t)max_block;
+    bounce.max_block = max_block;
+    if (omx_clap_stage_init(&in->stage, &bounce, in->recs, in->rec_cap) != 0)
+        return -1;
+    in->stage.h.guards = (g_config.clamp ? OMX_HOSTED_GUARD_CLAMP : 0u) | (g_config.nonfinite ? OMX_HOSTED_GUARD_NONFINITE : 0u);
+    in->stage.note_inputs = in->note_inputs;
+    in->stage.note_dialect = in->note_dialect;
+    return omx_clap_bind_aux(&in->stage, b, b + max_block, in->aux_outputs, in->aux_channels);
+}
+
+static void drop_bounce(struct omx_clap_instance *in)
+{
+    if (in->bounce_map)
+        munmap(in->bounce_map, in->bounce_map_len);
+    in->bounce_map = NULL;
+    free(in->recs);
+    in->recs = NULL;
+}
+
+static int bind_stage(struct omx_clap_instance *in)
+{
+    return omx_clap_bind_ports(&in->stage, in->plugin, in->in_channels, in->channels);
+}
+
+static void publish_latency(struct omx_clap_instance *in)
+{
+    omx_clap_publish_latency(&in->stage, in->latency ? in->latency->get(in->plugin) : 0u);
+}
+
+/* no cycle came to stop the stage: the control thread stops it in the cycle's place */
+static int wait_stopped(struct omx_clap_instance *in)
+{
+    uint32_t expected = OMX_CLAP_PROCESSING;
+    unsigned waited = 0;
+
+    if (!atomic_compare_exchange_strong(&in->stage.state, &expected, OMX_CLAP_STOPPING))
+    {
+        expected = OMX_CLAP_ARMED;
+        atomic_compare_exchange_strong(&in->stage.state, &expected, OMX_CLAP_STOPPED);
     }
 
-    ret = clap_host_create(binary, desc, &instance);
+    while (atomic_load(&in->stage.state) == OMX_CLAP_STOPPING)
+    {
+        if (waited >= CLAP_HOST_ROLE_TIMEOUT_US)
+        {
+            struct omx_clap_role role;
+
+            omx_clap_host_take_role(in, &role);
+            if (role.state == OMX_CLAP_STOPPING && in->plugin->stop_processing)
+                in->plugin->stop_processing(in->plugin);
+            omx_clap_host_release_role(in, &role, OMX_CLAP_STOPPED);
+            return 0;
+        }
+        usleep(CLAP_HOST_ROLE_POLL_US);
+        waited += CLAP_HOST_ROLE_POLL_US;
+    }
+    return 0;
+}
+
+
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: PARAMETERS AND STATE
+************************************************************************************************************************
+*/
+
+static int is_row(const clap_param_info_t *info)
+{
+    return !(info->flags & (CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY | CLAP_PARAM_IS_BYPASS));
+}
+
+static int info_of(struct omx_clap_instance *in, clap_id id, clap_param_info_t *info)
+{
+    uint32_t n, i;
+
+    if (!in->params)
+        return -1;
+    n = in->params->count(in->plugin);
+    for (i = 0; i < n; i++)
+    {
+        memset(info, 0, sizeof(*info));
+        if (in->params->get_info(in->plugin, i, info) && info->id == id)
+            return 0;
+    }
+    return -1;
+}
+
+static void row_of(const clap_param_info_t *info, struct omx_clap_param_row *row)
+{
+    memset(row, 0, sizeof(*row));
+    row->id = info->id;
+    snprintf(row->name, sizeof(row->name), "%s", info->name);
+    row->min = info->min_value;
+    row->max = info->max_value;
+    row->def = info->default_value;
+    row->stepped = (info->flags & CLAP_PARAM_IS_STEPPED) != 0;
+    row->enumerated = (info->flags & CLAP_PARAM_IS_ENUM) != 0;
+    row->cookie = info->cookie;
+}
+
+static struct omx_clap_shadow *shadow_of(struct omx_clap_instance *in, clap_id id, int make)
+{
+    struct omx_clap_shadow *s;
+    uint32_t i;
+
+    for (i = 0; i < in->shadow_n; i++)
+        if (in->shadow[i].id == id)
+            return &in->shadow[i];
+    if (!make || in->shadow_n >= in->shadow_cap)
+        return NULL;
+    s = &in->shadow[in->shadow_n++];
+    memset(s, 0, sizeof(*s));
+    s->id = id;
+    return s;
+}
+
+static int64_t ostream_write(const clap_ostream_t *stream, const void *data, uint64_t size)
+{
+    struct bounded_stream *b = stream->ctx;
+
+    if (b->len + size > b->cap)
+    {
+        b->overflow = 1;
+        return -1;
+    }
+    memcpy(b->buf + b->len, data, size);
+    b->len += size;
+    return (int64_t)size;
+}
+
+static int64_t istream_read(const clap_istream_t *stream, void *data, uint64_t size)
+{
+    struct bounded_stream *b = stream->ctx;
+    const size_t left = b->len - b->pos;
+    const size_t n = size < left ? (size_t)size : left;
+
+    memcpy(data, b->in + b->pos, n);
+    b->pos += n;
+    return (int64_t)n;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: CONFIGURATION
+************************************************************************************************************************
+*/
+
+void omx_clap_host_config_default(struct omx_clap_host_config *config)
+{
+    static const struct omx_clap_host_config defaults =
+    {
+        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-host", "0"
+    };
+
+    *config = defaults;
+}
+
+int omx_clap_host_configure(const struct omx_clap_host_config *config)
+{
+    struct omx_clap_host_config merged;
+
+    if (!config || config->abi != OMX_CLAP_CORE_ABI || config->size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
+        return -1;
+    if (g_configured || g_sealed)
+        return -1;
+    // a caller built against an older header has fewer fields: the rest are the defaults'
+    omx_clap_host_config_default(&merged);
+    memcpy(&merged, config, config->size < sizeof(merged) ? config->size : sizeof(merged));
+    merged.size = sizeof(merged);
+    if (!merged.name || !merged.vendor || !merged.url || !merged.version)
+        return -1;
+    g_config = merged;
+    g_configured = 1;
+    return 0;
+}
+
+uint32_t omx_clap_core_version(void)
+{
+    return CORE_VERSION;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: BINARIES, OPEN AND CLOSE
+************************************************************************************************************************
+*/
+
+struct omx_clap_binary *omx_clap_host_binary_open(const char *path, char *reason, size_t reason_size)
+{
+    return binary_ref(path, reason, reason_size);
+}
+
+void omx_clap_host_binary_close(struct omx_clap_binary *binary)
+{
     binary_unref(binary);
-    if (ret != SUCCESS)
-        return ret;
-
-    if (read_topology(instance, reason, sizeof(reason)) != 0)
-    {
-        fprintf(stderr, "%s: unsupported port layout: %s\n", id, reason);
-        clap_host_close(instance);
-        return ERR_LV2_INSTANTIATION;
-    }
-
-    find_bypass_param(instance);
-
-    instance->in_events.ctx = instance;
-    instance->in_events.size = in_events_size;
-    instance->in_events.get = in_events_get;
-    instance->out_events.ctx = instance;
-    instance->out_events.try_push = out_events_try_push;
-
-    *out = instance;
-    return SUCCESS;
 }
 
-int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t max_frames)
+uint32_t omx_clap_host_binary_count(const struct omx_clap_binary *binary)
 {
-    uint32_t c;
-
-    if (instance->active || max_frames == 0)
-        return ERR_INVALID_OPERATION;
-
-    for (c = 0; c < instance->input_channels; c++)
-        instance->input_buffers[c] = calloc(max_frames, sizeof(float));
-    for (c = 0; c < instance->output_channels; c++)
-        instance->output_buffers[c] = calloc(max_frames, sizeof(float));
-    instance->silence = calloc(max_frames, sizeof(float));
-
-    if (!instance->plugin->activate(instance->plugin, sample_rate, 1, max_frames))
-    {
-        free_buffers(instance);
-        return ERR_LV2_INSTANTIATION;
-    }
-
-    instance->active = 1;
-    instance->sample_rate = sample_rate;
-    instance->max_frames = max_frames;
-    instance->steady_time = 0;
-    instance->rendered_wet = 0;
-    instance->events_count = 0;
-    instance->notes_count = 0;
-
-    instance->audio_in.data32 = instance->input_buffers;
-    instance->audio_in.data64 = NULL;
-    instance->audio_in.channel_count = instance->input_channels;
-    instance->audio_in.latency = 0;
-    instance->audio_in.constant_mask = 0;
-    instance->audio_out.data32 = instance->output_buffers;
-    instance->audio_out.data64 = NULL;
-    instance->audio_out.channel_count = instance->output_channels;
-    instance->audio_out.latency = 0;
-    instance->audio_out.constant_mask = 0;
-
-    memset(&instance->process, 0, sizeof(instance->process));
-    instance->process.transport = NULL;
-    instance->process.audio_inputs = instance->input_channels ? &instance->audio_in : NULL;
-    instance->process.audio_outputs = &instance->audio_out;
-    instance->process.audio_inputs_count = instance->input_channels ? 1 : 0;
-    instance->process.audio_outputs_count = 1;
-    instance->process.in_events = &instance->in_events;
-    instance->process.out_events = &instance->out_events;
-
-    instance->latency_frames = instance->latency ? instance->latency->get(instance->plugin) : 0;
-    atomic_store(&instance->run_state, CLAP_HOST_IDLE);
-    return SUCCESS;
+    return binary->factory->get_plugin_count(binary->factory);
 }
 
-void clap_host_set_audio_thread(clap_instance_t *instance, pthread_t thread)
+const clap_plugin_descriptor_t *omx_clap_host_binary_descriptor(const struct omx_clap_binary *binary, uint32_t index)
 {
-    instance->audio_thread = thread;
-    instance->audio_role_held = 1;
+    return binary->factory->get_plugin_descriptor(binary->factory, index);
 }
 
-void clap_host_arm(clap_instance_t *instance)
+uint32_t omx_clap_host_binaries_open(void)
 {
-    atomic_store(&instance->run_state, CLAP_HOST_ARMED);
-}
-
-/* control thread, once no audio cycle can run anymore */
-void clap_host_stop(clap_instance_t *instance)
-{
-    const uint32_t state = atomic_load(&instance->run_state);
-
-    if (state == CLAP_HOST_PROCESSING || state == CLAP_HOST_STOPPING)
-    {
-        instance->audio_thread = pthread_self();
-        instance->audio_role_held = 1;
-        if (instance->plugin->stop_processing)
-            instance->plugin->stop_processing(instance->plugin);
-    }
-    instance->audio_role_held = 0;
-    instance->rendered_wet = 0;
-    atomic_store(&instance->run_state, CLAP_HOST_IDLE);
-}
-
-/* control thread, while audio cycles keep running: they pass the input through until the plugin is back */
-int clap_host_restart(clap_instance_t *instance, uint32_t max_frames)
-{
-    const double sample_rate = instance->sample_rate;
-    int ret;
-
-    if (!instance->active)
-        return ERR_INVALID_OPERATION;
-    if (wait_stopped(instance) != 0)
-        return ERR_INVALID_OPERATION;
-
-    clap_host_stop(instance);
-    clap_host_deactivate(instance);
-    ret = clap_host_activate(instance, sample_rate, max_frames);
-    if (ret != SUCCESS)
-        return ret;
-    clap_host_arm(instance);
-    return SUCCESS;
-}
-
-void clap_host_deactivate(clap_instance_t *instance)
-{
-    if (!instance->active)
-        return;
-    instance->plugin->deactivate(instance->plugin);
-    instance->active = 0;
-    free_buffers(instance);
-}
-
-void clap_host_close(clap_instance_t *instance)
-{
-    if (!instance)
-        return;
-    clap_host_stop(instance);
-    clap_host_deactivate(instance);
-    instance->plugin->destroy(instance->plugin);
-    binary_unref(instance->binary);
-    free(instance);
-}
-
-uint32_t clap_host_binaries_open(void)
-{
-    const clap_binary_t *binary;
+    const struct omx_clap_binary *binary;
     uint32_t n = 0;
 
     for (binary = g_binaries; binary; binary = binary->next)
@@ -1073,266 +889,549 @@ uint32_t clap_host_binaries_open(void)
     return n;
 }
 
-int clap_host_param_set(clap_instance_t *instance, clap_id id, double value)
+/* the instance holds a reference of its own on the binary until omx_clap_host_close */
+int omx_clap_host_create(struct omx_clap_binary *binary, const clap_plugin_descriptor_t *desc, struct omx_clap_instance **out)
 {
-    clap_param_info_t info;
-
-    if (param_info(instance, id, &info) != 0)
-        return ERR_LV2_INVALID_PARAM_SYMBOL;
-    if (info.flags & (CLAP_PARAM_IS_HIDDEN | CLAP_PARAM_IS_READONLY | CLAP_PARAM_IS_BYPASS))
-        return ERR_LV2_INVALID_PARAM_SYMBOL;
-
-    if (value < info.min_value)
-        value = info.min_value;
-    else if (value > info.max_value)
-        value = info.max_value;
-
-    return push_or_flush(instance, id, value, info.cookie);
+    *out = NULL;
+    binary->refs++;
+    return instance_create(binary, desc, out);
 }
 
-int clap_host_param_get(clap_instance_t *instance, clap_id id, double *value)
+int omx_clap_host_open(const char *path, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
 {
-    clap_param_info_t info;
+    struct omx_clap_binary *bin;
+    char reason[256];
 
-    if (param_info(instance, id, &info) != 0 || (info.flags & CLAP_PARAM_IS_HIDDEN))
-        return ERR_LV2_INVALID_PARAM_SYMBOL;
-    settle_queue(instance);
-    if (!instance->params->get_value(instance->plugin, id, value))
-        return ERR_LV2_INVALID_PARAM_SYMBOL;
-    return SUCCESS;
-}
-
-/* the host's own bypass: one crossfade to the dry input on the next cycle, then the plugin idles */
-int clap_host_bypass(clap_instance_t *instance, int value)
-{
-    atomic_store(&instance->bypass, value ? 1 : 0);
-    return SUCCESS;
-}
-
-int clap_host_bypassed(clap_instance_t *instance)
-{
-    return atomic_load(&instance->bypass) != 0;
-}
-
-int clap_host_state_save(clap_instance_t *instance, const char *filename)
-{
-    stream_t stream = { NULL, CLAP_HOST_STATE_MAX, 0, 0, 0 };
-    const clap_ostream_t ostream = { &stream, stream_write };
-    FILE *file;
-    int ok;
-
-    if (!instance->state)
-        return ERR_INVALID_OPERATION;
-
-    settle_queue(instance);
-    stream.buffer = malloc(stream.capacity);
-    if (!instance->state->save(instance->plugin, &ostream) || stream.overflow)
+    if (!path || !out)
+        return -1;
+    *out = NULL;
+    bin = binary_ref(path, reason, sizeof(reason));
+    if (!bin)
     {
-        free(stream.buffer);
-        return ERR_LV2_CANT_LOAD_STATE;
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    return open_from(bin, id, out, why);
+}
+
+int omx_clap_host_open_entry(const clap_plugin_entry_t *entry, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
+{
+    struct omx_clap_binary *bin;
+    char reason[256];
+
+    if (!entry || !out)
+        return -1;
+    *out = NULL;
+    bin = binary_ref_entry(entry, id, reason, sizeof(reason));
+    if (!bin)
+    {
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    return open_from(bin, id, out, why);
+}
+
+int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_ms, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
+{
+    struct timed_open *t = calloc(1, sizeof(*t));
+    struct timespec until;
+    pthread_t th;
+    int rc;
+
+    t->path = path;
+    t->id = id;
+    if (pthread_create(&th, NULL, timed_open_run, t) != 0)
+    {
+        free(t);
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    clock_gettime(CLOCK_REALTIME, &until);
+    until.tv_sec += timeout_ms / 1000u;
+    until.tv_nsec += (long)(timeout_ms % 1000u) * 1000000L;
+    if (until.tv_nsec >= 1000000000L)
+    {
+        until.tv_sec++;
+        until.tv_nsec -= 1000000000L;
+    }
+    if (pthread_timedjoin_np(th, NULL, &until) == ETIMEDOUT)
+    {
+        pthread_detach(th);     // abandoned: the worker keeps its own record and frees nothing shared
+        why_set(why, CLAP_HOST_CODE_CRASHED_LIVE);
+        *out = NULL;
+        return -1;
+    }
+    rc = t->rc;
+    *out = t->out;
+    if (t->out)
+        t->out->main_thread = pthread_self();   // the opener's control thread is the main thread
+    why_set(why, t->why);
+    free(t);
+    return rc;
+}
+
+void omx_clap_host_close(struct omx_clap_instance *in)
+{
+    if (!in)
+        return;
+    omx_clap_host_stop(in);
+    if (in->active)
+        omx_clap_host_deactivate(in);
+    in->plugin->destroy(in->plugin);
+    binary_unref(in->bin);
+    free(in->shadow);
+    free(in);
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: ACTIVATE, PUBLISH, UNPUBLISH, RESTART, RATE
+************************************************************************************************************************
+*/
+
+void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role *role)
+{
+    uint32_t state = atomic_load(&in->stage.state);
+    unsigned waited = 0;
+
+    // a stage that is not running is the control thread's already; a running or armed one is held, so the cycle that
+    // arrives meanwhile passes the lane through
+    while (state != OMX_CLAP_IDLE && state != OMX_CLAP_STOPPED && state != OMX_CLAP_HELD
+           && !atomic_compare_exchange_weak(&in->stage.state, &state, OMX_CLAP_HELD))
+        ;
+    while (atomic_load(&in->stage.in_cycle) && waited < CLAP_HOST_ROLE_TIMEOUT_US)
+    {
+        usleep(CLAP_HOST_ROLE_POLL_US);
+        waited += CLAP_HOST_ROLE_POLL_US;
     }
 
-    file = fopen(filename, "wb");
-    if (!file)
+    role->state = state;
+    role->thread = in->audio_thread;
+    role->held = in->audio_role_held;
+    in->audio_thread = pthread_self();
+    in->audio_role_held = 1;
+}
+
+void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_clap_role *role, uint32_t state)
+{
+    uint32_t held = OMX_CLAP_HELD;
+
+    in->audio_thread = role->thread;
+    in->audio_role_held = role->held;
+    atomic_compare_exchange_strong(&in->stage.state, &held, state);
+}
+
+int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
+{
+    struct omx_clap_role role;
+    uint32_t bad;
+
+    if (!in || in->active || max_block == 0)
+        return -1;
+    if (take_bounce(in, max_block) != 0)
     {
-        free(stream.buffer);
-        return ERR_LV2_CANT_LOAD_STATE;
+        drop_bounce(in);
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
     }
-    ok = fwrite(stream.buffer, 1, stream.length, file) == stream.length;
-    ok = fclose(file) == 0 && ok;
-    free(stream.buffer);
-    return ok ? SUCCESS : ERR_LV2_CANT_LOAD_STATE;
-}
-
-int clap_host_state_load(clap_instance_t *instance, const char *filename)
-{
-    stream_t stream = { NULL, CLAP_HOST_STATE_MAX, 0, 0, 0 };
-    const clap_istream_t istream = { &stream, stream_read };
-    FILE *file;
-    int ok;
-
-    if (!instance->state)
-        return ERR_INVALID_OPERATION;
-
-    file = fopen(filename, "rb");
-    if (!file)
-        return ERR_LV2_CANT_LOAD_STATE;
-
-    stream.buffer = malloc(stream.capacity);
-    stream.length = fread(stream.buffer, 1, stream.capacity, file);
-    ok = !ferror(file) && stream.length < stream.capacity;
-    fclose(file);
-
-    if (ok)
-        ok = instance->state->load(instance->plugin, &istream);
-    free(stream.buffer);
-    return ok ? SUCCESS : ERR_LV2_CANT_LOAD_STATE;
-}
-
-int clap_host_preset_load(clap_instance_t *instance, const char *location)
-{
-    if (!instance->preset_load)
-        return ERR_INVALID_OPERATION;
-    if (!instance->preset_load->from_location(instance->plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL))
-        return ERR_LV2_INVALID_PRESET_URI;
-    return SUCCESS;
-}
-
-void clap_host_idle(clap_instance_t *instance)
-{
-    if (atomic_exchange(&instance->callback_requested, 0) && instance->plugin->on_main_thread)
-        instance->plugin->on_main_thread(instance->plugin);
-
-    if (atomic_exchange(&instance->log_pending, 0))
-        fprintf(stderr, "%s: %s\n", instance->desc->id, instance->log_slot);
-
-    if (atomic_exchange(&instance->latency_changed, 0) && instance->active && instance->latency)
-        instance->latency_frames = instance->latency->get(instance->plugin);
-
-    if (atomic_exchange(&instance->flush_requested, 0) && atomic_load(&instance->run_state) == CLAP_HOST_IDLE)
-        flush_events(instance);
-
-    if (atomic_exchange(&instance->restart_requested, 0) && instance->active)
-        clap_host_restart(instance, instance->max_frames);
-
-    settle_queue(instance);
-}
-
-static void run_cycle(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
-{
-    uint32_t state = atomic_load_explicit(&instance->run_state, memory_order_acquire);
-    uint32_t c;
-    int want_wet;
-
-    if (state == CLAP_HOST_ARMED && atomic_compare_exchange_strong(&instance->run_state, &state, CLAP_HOST_PROCESSING))
+    omx_clap_set_bypass(&in->stage, in->bypass_wanted);
+    if (!in->plugin->activate(in->plugin, rate, 1, max_block))
     {
-        if (!instance->plugin->start_processing || instance->plugin->start_processing(instance->plugin))
-            state = CLAP_HOST_PROCESSING;
-        else
+        drop_bounce(in);
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    in->active = 1;
+    in->rate = rate;
+    if (bind_stage(in) != 0)
+    {
+        omx_clap_host_deactivate(in);
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    if (g_config.warmup)
+    {
+        omx_clap_host_take_role(in, &role);
+        bad = omx_clap_prime(&in->stage, max_block < WARMUP_BLOCK_FRAMES ? max_block : WARMUP_BLOCK_FRAMES);
+        omx_clap_host_release_role(in, &role, role.state);
+        if (bad != 0)
         {
-            state = CLAP_HOST_STOPPED;
-            atomic_store_explicit(&instance->run_state, state, memory_order_release);
+            omx_clap_host_deactivate(in);
+            why_set(why, bad == UINT32_MAX ? CLAP_HOST_CODE_HEADLESS_FAILED : CLAP_HOST_CODE_OUTPUT_NON_FINITE);
+            return -1;
         }
+        /*
+         * The restart after the warm-up. Its job is to fault in every page the first live block would touch: done. Its
+         * side effect is a plugin holding the warm-up's tail (the level half sits in a delay line longer than the silent
+         * half), and reset() is not enough to drop it: CLAP lets a plugin answer reset() with request_restart, so the
+         * one state every plugin defines as fresh is the one after activate. Deactivate and activate again, off the RT,
+         * and the first live block starts from it; a restart the plugin asked for during the warm-up is answered by this
+         * same cycle.
+         */
+        in->plugin->deactivate(in->plugin);
+        if (!in->plugin->activate(in->plugin, rate, 1, max_block))
+        {
+            in->active = 0;
+            drop_bounce(in);
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+            return -1;
+        }
+        if (bind_stage(in) != 0)
+        {
+            omx_clap_host_deactivate(in);
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+            return -1;
+        }
+        atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
     }
-
-    if (state == CLAP_HOST_STOPPING && atomic_compare_exchange_strong(&instance->run_state, &state, CLAP_HOST_STOPPED))
-    {
-        if (instance->plugin->stop_processing)
-            instance->plugin->stop_processing(instance->plugin);
-        state = CLAP_HOST_STOPPED;
-    }
-
-    if (state != CLAP_HOST_PROCESSING || nframes > instance->max_frames)
-    {
-        if (state == CLAP_HOST_PROCESSING)
-            atomic_fetch_add_explicit(&instance->oversize_cycles, 1, memory_order_relaxed);
-        pass_dry(instance, inputs, outputs, nframes);
-        instance->rendered_wet = 0;
-        return;
-    }
-
-    want_wet = atomic_load_explicit(&instance->bypass, memory_order_acquire) == 0;
-
-    if (!want_wet && !instance->rendered_wet)
-    {
-        // steady bypass: the plugin idles, the input passes through untouched
-        pass_dry(instance, inputs, outputs, nframes);
-        return;
-    }
-
-    for (c = 0; c < instance->input_channels; c++)
-        memcpy(instance->input_buffers[c], inputs[c], sizeof(float) * nframes);
-
-    if (!process_cycle(instance, nframes))
-    {
-        pass_dry(instance, inputs, outputs, nframes);
-        instance->rendered_wet = 0;
-        return;
-    }
-
-    deliver(instance, inputs, outputs, nframes, want_wet);
+    publish_latency(in);
+    if (why)
+        why[0] = '\0';
+    return 0;
 }
 
-static clap_host_event_t *note_slot(clap_instance_t *instance, uint32_t time, uint16_t type, uint32_t size)
+void omx_clap_host_publish(struct omx_clap_instance *in, pthread_t rt)
 {
-    clap_host_event_t *slot;
+    in->audio_thread = rt;
+    in->audio_role_held = 1;
+    omx_clap_arm(&in->stage);
+}
 
-    if (instance->notes_count >= CLAP_HOST_NOTES_PER_CYCLE)
+void omx_clap_host_set_audio_thread(struct omx_clap_instance *in, pthread_t thread)
+{
+    in->audio_thread = thread;
+    in->audio_role_held = 1;
+}
+
+void omx_clap_host_arm(struct omx_clap_instance *in)
+{
+    omx_clap_arm(&in->stage);
+}
+
+int omx_clap_host_unpublish(struct omx_clap_instance *in, unsigned poll_us, unsigned timeout_us)
+{
+    unsigned waited = 0;
+
+    omx_clap_request_stop(&in->stage);
+    while (!omx_clap_stopped(&in->stage))
     {
-        atomic_fetch_add_explicit(&instance->notes_dropped, 1, memory_order_relaxed);
-        return NULL;
+        if (waited >= timeout_us)
+            return -1;
+        usleep(poll_us);
+        waited += poll_us;
     }
-    slot = &instance->notes[instance->notes_count++];
-    memset(slot, 0, sizeof(*slot));
-    slot->header.size = size;
-    slot->header.time = time;
-    slot->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-    slot->header.type = type;
-    return slot;
+    in->audio_role_held = 0;
+    atomic_store_explicit(&in->stage.state, OMX_CLAP_IDLE, memory_order_release);
+    return 0;
 }
 
-/* audio thread, ahead of the cycle they belong to, in the order they arrived: one MIDI message of the note input
- * as the event the input's dialect wants; a plugin that reads only the CLAP dialect gets notes, and only notes */
-void clap_host_midi_in(clap_instance_t *instance, uint32_t time, const uint8_t *data, size_t size)
+void omx_clap_host_stop(struct omx_clap_instance *in)
 {
-    const uint8_t type = size ? data[0] & 0xf0 : 0;
-    const int16_t channel = size ? data[0] & 0x0f : 0;
-    clap_host_event_t *slot;
+    const uint32_t state = atomic_load(&in->stage.state);
 
-    if (!instance->note_inputs || size == 0 || size > 3 || data[0] < 0x80 || data[0] >= 0xf0)
+    if (!in->active)
         return;
-
-    if (instance->note_dialect == CLAP_NOTE_DIALECT_MIDI)
+    if (state == OMX_CLAP_PROCESSING || state == OMX_CLAP_STOPPING)
     {
-        slot = note_slot(instance, time, CLAP_EVENT_MIDI, sizeof(clap_event_midi_t));
-        if (!slot)
-            return;
-        slot->midi.data[0] = data[0];
-        slot->midi.data[1] = size > 1 ? data[1] : 0;
-        slot->midi.data[2] = size > 2 ? data[2] : 0;
-        return;
+        in->audio_thread = pthread_self();
+        in->audio_role_held = 1;
+        if (in->plugin->stop_processing)
+            in->plugin->stop_processing(in->plugin);
     }
-
-    if ((type != 0x80 && type != 0x90) || size != 3)
-        return;
-    slot = note_slot(instance, time, type == 0x90 && data[2] ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
-    if (!slot)
-        return;
-    slot->note.note_id = -1;
-    slot->note.port_index = 0;
-    slot->note.channel = channel;
-    slot->note.key = data[1];
-    slot->note.velocity = (double)data[2] / 127.0;
+    in->audio_role_held = 0;
+    atomic_store_explicit(&in->stage.h.rendered_wet, 0, memory_order_relaxed);
+    atomic_store(&in->stage.state, OMX_CLAP_IDLE);
 }
 
-/* a cycle marks itself so the control thread taking the audio role waits for it */
-void clap_host_run(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
+int omx_clap_host_restart(struct omx_clap_instance *in)
 {
-    atomic_store(&instance->in_cycle, 1);
-    run_cycle(instance, inputs, outputs, nframes);
-    instance->notes_count = 0;
-    atomic_store(&instance->in_cycle, 0);
+    const double rate = in->rate;
+    const uint32_t max_block = in->max_block;
+    const pthread_t thread = in->audio_thread;
+    const int held = in->audio_role_held;
+
+    if (!in->active)
+        return -1;
+    atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
+    if (wait_stopped(in) != 0)
+        return -1;
+    omx_clap_host_stop(in);
+    omx_clap_host_deactivate(in);
+    if (omx_clap_host_activate(in, rate, max_block, NULL) != 0)
+        return -1;
+    in->audio_thread = thread;
+    in->audio_role_held = held;
+    omx_clap_arm(&in->stage);
+    return 0;
 }
 
-void clap_host_denormals_off(void)
+void omx_clap_host_deactivate(struct omx_clap_instance *in)
 {
-#if defined(__i386__) || defined(__x86_64__)
-    unsigned int mxcsr = __builtin_ia32_stmxcsr();
-    __builtin_ia32_ldmxcsr(mxcsr | 0x8040);
-#elif defined(__aarch64__)
-    uint64_t cw;
-    __asm__ __volatile__ (
-        "mrs    %0, fpcr                            \n"
-        "orr    %0, %0, #0x1000000                  \n"
-        "msr    fpcr, %0                            \n"
-        "isb                                        \n"
-        : "=r"(cw) :: "memory");
-#elif defined(__arm__)
-    uint32_t cw;
-    __asm__ __volatile__ (
-        "vmrs   %0, fpscr                           \n"
-        "orr    %0, %0, #0x1000000                  \n"
-        "vmsr   fpscr, %0                           \n"
-        : "=r"(cw) :: "memory");
-#endif
+    uint32_t i;
+
+    if (!in || !in->active)
+        return;
+    in->plugin->deactivate(in->plugin);
+    in->active = 0;
+    drop_bounce(in);
+    memset(&in->stage, 0, sizeof(in->stage));
+    for (i = 0; i < in->shadow_n; i++)
+        in->shadow[i].valid = 0;
+    in->shadow_n = 0;
+}
+
+int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
+{
+    if (!in)
+        return -1;
+    if (in->active && !omx_clap_stopped(&in->stage))
+        return -1;      // unpublish first
+    omx_clap_host_deactivate(in);
+    return omx_clap_host_activate(in, rate, max_block, why);
+}
+
+uint32_t omx_clap_host_latency(const struct omx_clap_instance *in)
+{
+    return atomic_load_explicit(&in->stage.latency_frames, memory_order_relaxed);
+}
+
+void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
+{
+    in->bypass_wanted = on ? 1u : 0u;
+    omx_clap_set_bypass(&in->stage, on);
+}
+
+int omx_clap_host_bypassed(const struct omx_clap_instance *in)
+{
+    return in->bypass_wanted != 0;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: PARAMETERS
+************************************************************************************************************************
+*/
+
+uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
+{
+    uint32_t n, i, rows = 0;
+
+    if (!in->params)
+        return 0;
+    n = in->params->count(in->plugin);
+    for (i = 0; i < n; i++)
+    {
+        clap_param_info_t info;
+
+        memset(&info, 0, sizeof(info));
+        if (in->params->get_info(in->plugin, i, &info) && is_row(&info))
+            rows++;
+    }
+    return rows;
+}
+
+int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row)
+{
+    uint32_t n, i, seen = 0;
+
+    if (!in->params)
+        return -1;
+    n = in->params->count(in->plugin);
+    for (i = 0; i < n; i++)
+    {
+        clap_param_info_t info;
+
+        memset(&info, 0, sizeof(info));
+        if (!in->params->get_info(in->plugin, i, &info) || !is_row(&info))
+            continue;
+        if (seen++ != index)
+            continue;
+        row_of(&info, row);
+        return 0;
+    }
+    return -1;
+}
+
+int omx_clap_host_param_write(struct omx_clap_instance *in, clap_id id, double value)
+{
+    clap_param_info_t info;
+    struct omx_clap_shadow *s;
+
+    if (info_of(in, id, &info) != 0 || !is_row(&info))
+        return -1;
+    if (!in->active)
+        return -1;
+    if (omx_clap_param_push(&in->stage, id, value, info.cookie) != 0)
+        return -1;
+    s = shadow_of(in, id, 1);
+    if (s)
+    {
+        s->delivered = value;
+        s->cycle = atomic_load_explicit(&in->stage.h.runs, memory_order_relaxed);
+        s->valid = 1;
+    }
+    return 0;
+}
+
+int omx_clap_host_param_flush(struct omx_clap_instance *in)
+{
+    uint32_t st;
+
+    if (!in->active || !in->params)
+        return -1;
+    st = atomic_load_explicit(&in->stage.state, memory_order_acquire);
+    if (st != OMX_CLAP_IDLE && st != OMX_CLAP_STOPPED)
+        return -1;      // never while the RT drains
+    while (omx_clap_queue_pending(&in->stage.queue) > 0)
+    {
+        omx_clap_drain(&in->stage);
+        in->params->flush(in->plugin, &in->stage.in_events, &in->stage.out_events);
+        in->stage.n_events = 0;
+    }
+    return 0;
+}
+
+void omx_clap_host_param_deliver(struct omx_clap_instance *in)
+{
+    struct omx_clap_role role;
+
+    if (!in->active || !in->params || !in->params->flush)
+        return;
+    omx_clap_host_take_role(in, &role);
+    while (omx_clap_queue_pending(&in->stage.queue) > 0)
+    {
+        omx_clap_drain(&in->stage);
+        in->params->flush(in->plugin, &in->stage.in_events, &in->stage.out_events);
+        in->stage.n_events = 0;
+    }
+    omx_clap_host_release_role(in, &role, role.state);
+}
+
+void omx_clap_host_settle(struct omx_clap_instance *in, unsigned timeout_us)
+{
+    const uint32_t runs = atomic_load(&in->stage.h.runs);
+    unsigned waited = 0;
+
+    if (!in->active)
+        return;
+    while (omx_clap_queue_pending(&in->stage.queue) > 0 && waited < timeout_us)
+    {
+        usleep(CLAP_HOST_ROLE_POLL_US);
+        waited += CLAP_HOST_ROLE_POLL_US;
+    }
+    if (omx_clap_queue_pending(&in->stage.queue) > 0 && atomic_load(&in->stage.h.runs) == runs)
+        omx_clap_host_param_deliver(in);
+}
+
+int omx_clap_host_param_read(struct omx_clap_instance *in, clap_id id, double *value)
+{
+    if (!in->params || !value)
+        return -1;
+    return in->params->get_value(in->plugin, id, value) ? 0 : -1;
+}
+
+int omx_clap_host_param_is_row(struct omx_clap_instance *in, clap_id id)
+{
+    clap_param_info_t info;
+
+    return info_of(in, id, &info) == 0 && is_row(&info);
+}
+
+int omx_clap_host_param_readable(struct omx_clap_instance *in, clap_id id)
+{
+    clap_param_info_t info;
+
+    return info_of(in, id, &info) == 0 && !(info.flags & CLAP_PARAM_IS_HIDDEN);
+}
+
+int omx_clap_host_param_row_of(struct omx_clap_instance *in, clap_id id, struct omx_clap_param_row *row)
+{
+    clap_param_info_t info;
+
+    if (info_of(in, id, &info) != 0 || !is_row(&info))
+        return -1;
+    row_of(&info, row);
+    return 0;
+}
+
+int omx_clap_host_param_value(struct omx_clap_instance *in, clap_id id, double *value)
+{
+    const struct omx_clap_shadow *s = shadow_of(in, id, 0);
+
+    if (s && s->valid && atomic_load_explicit(&in->stage.h.runs, memory_order_relaxed) <= s->cycle)
+    {
+        *value = s->delivered;
+        return 0;
+    }
+    return omx_clap_host_param_read(in, id, value);
+}
+
+int omx_clap_host_param_compare(struct omx_clap_instance *in, clap_id id, double *applied)
+{
+    const struct omx_clap_shadow *s = shadow_of(in, id, 0);
+    double got;
+
+    if (!s || !s->valid || omx_clap_host_param_read(in, id, &got) != 0)
+        return -1;
+    if (applied)
+        *applied = got;
+    return got == s->delivered ? 1 : 0;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: STATE, PRESETS, THE TICK
+************************************************************************************************************************
+*/
+
+int omx_clap_host_state_save(struct omx_clap_instance *in, void *buf, size_t cap, size_t *len)
+{
+    struct bounded_stream b = { buf, NULL, cap, 0, 0, 0 };
+    const clap_ostream_t os = { &b, ostream_write };
+
+    if (!in->state || !buf || !len)
+        return -1;
+    if (!in->state->save(in->plugin, &os) || b.overflow)
+        return -1;
+    *len = b.len;
+    return 0;
+}
+
+int omx_clap_host_state_load(struct omx_clap_instance *in, const void *buf, size_t len)
+{
+    struct bounded_stream b = { NULL, buf, len, len, 0, 0 };
+    const clap_istream_t is = { &b, istream_read };
+
+    if (!in->state || !buf)
+        return -1;
+    return in->state->load(in->plugin, &is) ? 0 : -1;
+}
+
+int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location)
+{
+    if (!in->preset_load)
+        return -1;
+    return in->preset_load->from_location(in->plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL) ? 0 : -1;
+}
+
+int omx_clap_host_tick(struct omx_clap_instance *in)
+{
+    if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
+        in->plugin->on_main_thread(in->plugin);
+    if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))
+    {
+        snprintf(in->last_log, sizeof(in->last_log), "%s", in->log_ring);
+        atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
+    }
+    if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
+        publish_latency(in);
+    return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;
+}
+
+const char *omx_clap_host_log_take(struct omx_clap_instance *in)
+{
+    return atomic_exchange_explicit(&in->log_fresh, 0u, memory_order_acquire) ? in->last_log : NULL;
 }

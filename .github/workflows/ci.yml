@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Install the build tools
         run: |
-          dnf install -y --setopt=install_weak_deps=False git gcc make python3 pkgconf-pkg-config clap-devel \
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
             pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
 
       - uses: actions/checkout@v4
@@ -52,6 +52,12 @@ jobs:
           echo "test-jack and test-identity are NOT run here: they load omx-delay.clap, which is built in the console's tree."
           echo "They stay in the Makefile for the desk: make test-jack test-identity CLAP_TEST_PLUGIN=<omx-delay.clap>."
 
+  # The ABI of libomx-clap-core.so.0 against the baseline of the last release: an addition needs a new minor, a removal or a
+  # change needs a new soname major. Nothing here needs jack or the protocol library.
+  abi:
+    name: ABI of libomx-clap-core against its baseline
+    uses: ./.github/workflows/abi.yml
+
   rpm:
     name: RPMs (fc44, ${{ matrix.arch }}), installed in a clean root
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
@@ -66,7 +72,7 @@ jobs:
       options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install the build tools
-        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip pipewire-jack-audio-connection-kit-devel
+        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip diffutils pkgconf-pkg-config pipewire-jack-audio-connection-kit-devel
 
       - uses: actions/checkout@v4
         with:
@@ -79,17 +85,51 @@ jobs:
       - name: Check the file lists
         run: |
           set -euo pipefail
+          files() { rpm -qp --qf '[%{FILEMODES:perms} %{FILENAMES}\n]' "$1" | grep -v -e '^d' -e '/\.build-id/' | cut -d' ' -f2 | sort; }
           for rpm in rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
-            rpm -qp --qf '[%{FILEMODES:perms} %{FILENAMES}\n]' "$rpm" | grep -v -e '^d' -e '/\.build-id/' | cut -d' ' -f2 | sort > files.txt
+            files "$rpm" > files.txt
             printf '%s\n' /usr/bin/omx-clap-host /usr/bin/omx-clap-scan \
               /usr/share/man/man1/omx-clap-host.1.gz /usr/share/man/man1/omx-clap-scan.1.gz \
               /usr/share/doc/omx-clap-host/README.md /usr/share/licenses/omx-clap-host/COPYING | sort > expected.txt
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libmod-host-protocol.so.0' requires.txt
+            grep -q 'libomx-clap-core.so.0' requires.txt
+            grep -q 'omx-clap-core.* = ' requires.txt
+          done
+          for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
+            rpm -qlp "$rpm"
+            files "$rpm" > files.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' '/usr/lib*/libomx-clap-core.so.0.1.0' /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
+            diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
+            # the library names no jack and no protocol library
+            rpm -qp --requires "$rpm" | tee requires.txt
+            ! grep -q -e jack -e mod-host requires.txt
+          done
+          for rpm in rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm; do
+            rpm -qlp "$rpm"
+            files "$rpm" > files.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so' '/usr/lib*/pkgconfig/omx-clap-core.pc' /usr/include/omx-clap-host/clap_host.h \
+              /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
+              /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi | sort > expected.txt
+            diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done
           ls rpms/omx-clap-host-*.src.rpm
+
+      # a program outside this tree, built against the installed development package and run on the installed library
+      - name: A consumer builds against omx-clap-core-devel and runs on omx-clap-core
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm
+          make tests/fake.clap tests/fake_synth.clap
+          pkg-config --modversion omx-clap-core | tee v.txt
+          grep -q '^0.1.0$' v.txt
+          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
+          ldd /tmp/consumer | tee ldd.txt
+          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
+          grep -q 'core link test ok' consumer.txt
 
       - name: Build the fake plugins the smoke test scans
         run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
@@ -98,6 +138,7 @@ jobs:
         with:
           rpms: |
             mod-host-rpms/mod-host-[0-9]*.rpm
+            rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm
             rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
 
       - name: The host reports the version of its package and resolves its libraries
@@ -109,6 +150,7 @@ jobs:
           chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |
@@ -125,7 +167,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: omx-clap-host-rpms-fc44-${{ matrix.arch }}
-          path: rpms/omx-clap-host-[0-9]*.rpm
+          path: |
+            rpms/omx-clap-host-[0-9]*.rpm
+            rpms/omx-clap-core-[0-9]*.rpm
+            rpms/omx-clap-core-devel-[0-9]*.rpm
           if-no-files-found: error
           retention-days: 7
 
@@ -165,6 +210,20 @@ jobs:
           mkdir -p smoke
           cp tests/fake.clap tests/fake_synth.clap tests/crash.clap smoke/
 
+      # a program outside this tree, built against the installed development package and run on the installed library
+      - name: A consumer builds against libomx-clap-core-dev and runs on libomx-clap-core0
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends ./debs/libomx-clap-core0_*.deb ./debs/libomx-clap-core-dev_*.deb
+          pkg-config --modversion omx-clap-core | tee v.txt
+          grep -q '^0.1.0$' v.txt
+          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
+          ldd /tmp/consumer | tee ldd.txt
+          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
+          grep -q 'core link test ok' consumer.txt
+          dpkg -L libomx-clap-core-dev
+
       - uses: actions/upload-artifact@v4
         with:
           name: omx-clap-host-ci-debs-${{ matrix.suite }}-${{ matrix.arch }}
@@ -200,8 +259,9 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./dep-debs/libmod-host-protocol0_*.deb 
+          apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core0_*.deb ./dep-debs/libmod-host-protocol0_*.deb
           dpkg -s libmod-host-protocol0 | grep '^Status: install ok installed'
+          dpkg -s libomx-clap-core0 | grep '^Status: install ok installed'
 
       - name: The host reports the version of its package and resolves its libraries
         run: |
@@ -212,6 +272,7 @@ jobs:
           ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |
