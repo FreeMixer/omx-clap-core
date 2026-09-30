@@ -1,0 +1,25 @@
+Source: omx-clap-host
+Section: sound
+Priority: optional
+Maintainer: Pau Aliagas <linuxnow@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+               clap-headers,
+               libjack-jackd2-dev | libjack-dev,
+               libmod-host-protocol-dev,
+               pkgconf
+Standards-Version: 4.6.2
+Homepage: https://github.com/FreeMixer/omx-clap-host
+Rules-Requires-Root: no
+
+Package: omx-clap-host
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: CLAP plugin host for JACK, controlled over mod-host's socket protocol
+ omx-clap-host runs CLAP plugins as JACK clients and is controlled like
+ mod-host: the same socket, the same line protocol and the same command
+ replies, from mod-host's protocol library. Each plugin instance is a JACK
+ client with its own ports, and a MIDI input port for an instrument.
+ .
+ omx-clap-scan lists the plugins of a CLAP bundle, in a process of its own so
+ that a plugin that crashes on load is reported and does not take the caller
+ down.
