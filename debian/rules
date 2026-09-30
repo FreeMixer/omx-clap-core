@@ -2,11 +2,21 @@
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 
+include /usr/share/dpkg/architecture.mk
+
 %:
 	dh $@
 
+# the programs find the library where the package puts it, not in the build tree
+override_dh_auto_build:
+	dh_auto_build -- RPATH=
+
 override_dh_auto_install:
-	dh_auto_install -- PREFIX=/usr
+	dh_auto_install -- PREFIX=/usr LIBDIR=/usr/lib/$(DEB_HOST_MULTIARCH)
+
+# the soname is libomx-clap-core.so.0 and a compatible release only adds
+override_dh_makeshlibs:
+	dh_makeshlibs -V 'libomx-clap-core0 (>= 0.1.0)'
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
