@@ -148,6 +148,7 @@ jobs:
         with:
           rpms: |
             mod-host-rpms/mod-host-[0-9]*.rpm
+            mod-host-rpms/mod-host-protocol-[0-9]*.${{ matrix.arch }}.rpm
             rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm
             rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
 
