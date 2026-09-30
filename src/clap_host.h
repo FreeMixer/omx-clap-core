@@ -48,6 +48,7 @@
 
 #define CLAP_HOST_PARAM_QUEUE_DEPTH     256     // power of two
 #define CLAP_HOST_EVENTS_PER_CYCLE      64
+#define CLAP_HOST_NOTES_PER_CYCLE       256
 #define CLAP_HOST_MAX_CHANNELS          2
 #define CLAP_HOST_STATE_MAX             (1024 * 1024)
 #define CLAP_HOST_LOG_SIZE              256
@@ -82,6 +83,14 @@ typedef struct CLAP_PARAM_QUEUE_T {
     _Atomic uint32_t tail;
 } clap_param_queue_t;
 
+/* Every event the host hands the plugin */
+typedef union CLAP_HOST_EVENT_T {
+    clap_event_header_t header;
+    clap_event_param_value_t param;
+    clap_event_note_t note;
+    clap_event_midi_t midi;
+} clap_host_event_t;
+
 typedef struct CLAP_BINARY_T clap_binary_t;
 
 typedef struct CLAP_INSTANCE_T {
@@ -96,8 +105,13 @@ typedef struct CLAP_INSTANCE_T {
     const clap_plugin_preset_load_t *preset_load;
     clap_host_t host;
 
+    // 0 for an instrument
     uint32_t input_channels;
     uint32_t output_channels;
+
+    // one note input at most; the dialect the host feeds it, CLAP_NOTE_DIALECT_CLAP or CLAP_NOTE_DIALECT_MIDI
+    uint32_t note_inputs;
+    uint32_t note_dialect;
 
     // the plugin's own bypass parameter, CLAP_INVALID_ID when it has none: refused to param_set, never written
     clap_id bypass_param;
@@ -108,10 +122,15 @@ typedef struct CLAP_INSTANCE_T {
 
     float *input_buffers[CLAP_HOST_MAX_CHANNELS];
     float *output_buffers[CLAP_HOST_MAX_CHANNELS];
+    float *silence;
     clap_audio_buffer_t audio_in;
     clap_audio_buffer_t audio_out;
-    clap_event_param_value_t events[CLAP_HOST_EVENTS_PER_CYCLE];
+    clap_host_event_t events[CLAP_HOST_EVENTS_PER_CYCLE];
     uint32_t events_count;
+    // written by the audio thread ahead of a cycle, seen by the plugin only inside process()
+    clap_host_event_t notes[CLAP_HOST_NOTES_PER_CYCLE];
+    uint32_t notes_count;
+    _Atomic uint32_t notes_visible;
     clap_input_events_t in_events;
     clap_output_events_t out_events;
     clap_process_t process;
@@ -141,6 +160,8 @@ typedef struct CLAP_INSTANCE_T {
     _Atomic uint32_t process_errors;
     _Atomic uint32_t oversize_cycles;
     _Atomic uint32_t events_delivered;
+    _Atomic uint32_t notes_delivered;
+    _Atomic uint32_t notes_dropped;
     _Atomic uint32_t constant_channels;
 } clap_instance_t;
 
@@ -179,6 +200,7 @@ int clap_host_preset_load(clap_instance_t *instance, const char *location);
 void clap_host_idle(clap_instance_t *instance);
 
 /* audio thread */
+void clap_host_midi_in(clap_instance_t *instance, uint32_t time, const uint8_t *data, size_t size);
 void clap_host_run(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes);
 void clap_host_denormals_off(void);
 

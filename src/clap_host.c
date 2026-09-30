@@ -333,18 +333,29 @@ static void host_request_callback(const clap_host_t *host)
     atomic_store(&instance_of(host)->callback_requested, 1);
 }
 
+static uint32_t notes_in_view(const clap_instance_t *instance)
+{
+    return atomic_load_explicit(&instance->notes_visible, memory_order_acquire) ? instance->notes_count : 0;
+}
+
+/* the parameter events, then the notes of the cycle when the plugin is inside process() */
 static uint32_t in_events_size(const clap_input_events_t *list)
 {
-    return ((clap_instance_t *)list->ctx)->events_count;
+    const clap_instance_t *instance = list->ctx;
+
+    return instance->events_count + notes_in_view(instance);
 }
 
 static const clap_event_header_t *in_events_get(const clap_input_events_t *list, uint32_t index)
 {
     clap_instance_t *instance = list->ctx;
 
-    if (index >= instance->events_count)
+    if (index < instance->events_count)
+        return &instance->events[index].header;
+    index -= instance->events_count;
+    if (index >= notes_in_view(instance))
         return NULL;
-    return &instance->events[index].header;
+    return &instance->notes[index].header;
 }
 
 static bool out_events_try_push(const clap_output_events_t *list, const clap_event_header_t *event)
@@ -366,7 +377,43 @@ static int descriptor_has_feature(const clap_plugin_descriptor_t *desc, const ch
     return 0;
 }
 
-/* one main input and one main output, mono or stereo, nothing else; the reason when not */
+/* the note input, when the plugin has one: how it is fed, the reason when it can't be */
+static int read_note_input(clap_instance_t *instance, char *reason, size_t reason_size)
+{
+    const clap_plugin_note_ports_t *ports = instance->note_ports;
+    clap_note_port_info_t info;
+    uint32_t count = ports ? ports->count(instance->plugin, true) : 0;
+
+    if (count == 0)
+        return 0;
+    if (count > 1)
+    {
+        snprintf(reason, reason_size, "%u note inputs", count);
+        return -1;
+    }
+    memset(&info, 0, sizeof(info));
+    if (!ports->get(instance->plugin, 0, true, &info))
+    {
+        snprintf(reason, reason_size, "note input 0 unreadable");
+        return -1;
+    }
+    if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
+        instance->note_dialect = CLAP_NOTE_DIALECT_MIDI;
+    else if (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
+        instance->note_dialect = CLAP_NOTE_DIALECT_CLAP;
+    else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI)
+        instance->note_dialect = CLAP_NOTE_DIALECT_MIDI;
+    else
+    {
+        snprintf(reason, reason_size, "note input reads neither the CLAP nor the MIDI dialect");
+        return -1;
+    }
+    instance->note_inputs = 1;
+    return 0;
+}
+
+/* one main output, mono or stereo, and one main input of the same kind unless a note input feeds the plugin
+ * instead; nothing else; the reason when not */
 static int read_topology(clap_instance_t *instance, char *reason, size_t reason_size)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
@@ -421,14 +468,11 @@ static int read_topology(clap_instance_t *instance, char *reason, size_t reason_
         snprintf(reason, reason_size, "%u sidechain/aux ports", others);
         return -1;
     }
-    if (main_inputs != 1 || main_outputs != 1)
+    if (read_note_input(instance, reason, reason_size) != 0)
+        return -1;
+    if (main_outputs != 1 || main_inputs > 1 || (main_inputs == 0 && !instance->note_inputs))
     {
         snprintf(reason, reason_size, "%u main inputs, %u main outputs", main_inputs, main_outputs);
-        return -1;
-    }
-    if (instance->note_ports && instance->note_ports->count(instance->plugin, true) > 0)
-    {
-        snprintf(reason, reason_size, "note input");
         return -1;
     }
     return 0;
@@ -499,7 +543,7 @@ static void drain_events(clap_instance_t *instance)
     while (head != tail && n < CLAP_HOST_EVENTS_PER_CYCLE)
     {
         const clap_param_record_t *record = &queue->records[head & (CLAP_HOST_PARAM_QUEUE_DEPTH - 1)];
-        clap_event_param_value_t *event = &instance->events[n++];
+        clap_event_param_value_t *event = &instance->events[n++].param;
 
         event->header.size = sizeof(*event);
         event->header.time = 0;
@@ -617,6 +661,8 @@ static void free_buffers(clap_instance_t *instance)
         instance->input_buffers[c] = NULL;
         instance->output_buffers[c] = NULL;
     }
+    free(instance->silence);
+    instance->silence = NULL;
 }
 
 static int64_t stream_write(const clap_ostream_t *stream, const void *data, uint64_t size)
@@ -656,8 +702,11 @@ static int process_cycle(clap_instance_t *instance, uint32_t nframes)
     instance->process.steady_time = instance->steady_time;
     instance->process.frames_count = nframes;
 
+    atomic_store_explicit(&instance->notes_visible, 1, memory_order_release);
     status = instance->plugin->process(instance->plugin, &instance->process);
+    atomic_store_explicit(&instance->notes_visible, 0, memory_order_release);
     clap_host_denormals_off();
+    atomic_fetch_add_explicit(&instance->notes_delivered, instance->notes_count, memory_order_relaxed);
 
     instance->steady_time += nframes;
     instance->events_count = 0;
@@ -690,7 +739,9 @@ static void pass_dry(const clap_instance_t *instance, const float *const *inputs
     for (c = 0; c < instance->output_channels; c++)
     {
         const uint32_t in = c < instance->input_channels ? c : instance->input_channels - 1;
-        if (outputs[c] != inputs[in])
+        if (!instance->input_channels)
+            memset(outputs[c], 0, sizeof(float) * nframes);
+        else if (outputs[c] != inputs[in])
             memcpy(outputs[c], inputs[in], sizeof(float) * nframes);
     }
 }
@@ -714,7 +765,7 @@ static void deliver(clap_instance_t *instance, const float *const *inputs, float
     {
         const uint32_t in = c < instance->input_channels ? c : instance->input_channels - 1;
         const float *wet = instance->output_buffers[c];
-        const float *dry = inputs[in];
+        const float *dry = instance->input_channels ? inputs[in] : instance->silence;
 
         if (want_wet && instance->rendered_wet)
             memcpy(outputs[c], wet, sizeof(float) * nframes);
@@ -861,9 +912,9 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
         binary_unref(binary);
         return ERR_LV2_INVALID_URI;
     }
-    if (!descriptor_has_feature(desc, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT))
+    if (!descriptor_has_feature(desc, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT) && !descriptor_has_feature(desc, CLAP_PLUGIN_FEATURE_INSTRUMENT))
     {
-        fprintf(stderr, "%s is not an audio effect\n", id);
+        fprintf(stderr, "%s is neither an audio effect nor an instrument\n", id);
         binary_unref(binary);
         return ERR_LV2_INSTANTIATION;
     }
@@ -903,6 +954,7 @@ int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t m
         instance->input_buffers[c] = calloc(max_frames, sizeof(float));
     for (c = 0; c < instance->output_channels; c++)
         instance->output_buffers[c] = calloc(max_frames, sizeof(float));
+    instance->silence = calloc(max_frames, sizeof(float));
 
     if (!instance->plugin->activate(instance->plugin, sample_rate, 1, max_frames))
     {
@@ -916,6 +968,7 @@ int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t m
     instance->steady_time = 0;
     instance->rendered_wet = 0;
     instance->events_count = 0;
+    instance->notes_count = 0;
 
     instance->audio_in.data32 = instance->input_buffers;
     instance->audio_in.data64 = NULL;
@@ -930,9 +983,9 @@ int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t m
 
     memset(&instance->process, 0, sizeof(instance->process));
     instance->process.transport = NULL;
-    instance->process.audio_inputs = &instance->audio_in;
+    instance->process.audio_inputs = instance->input_channels ? &instance->audio_in : NULL;
     instance->process.audio_outputs = &instance->audio_out;
-    instance->process.audio_inputs_count = 1;
+    instance->process.audio_inputs_count = instance->input_channels ? 1 : 0;
     instance->process.audio_outputs_count = 1;
     instance->process.in_events = &instance->in_events;
     instance->process.out_events = &instance->out_events;
@@ -1200,11 +1253,64 @@ static void run_cycle(clap_instance_t *instance, const float *const *inputs, flo
     deliver(instance, inputs, outputs, nframes, want_wet);
 }
 
+static clap_host_event_t *note_slot(clap_instance_t *instance, uint32_t time, uint16_t type, uint32_t size)
+{
+    clap_host_event_t *slot;
+
+    if (instance->notes_count >= CLAP_HOST_NOTES_PER_CYCLE)
+    {
+        atomic_fetch_add_explicit(&instance->notes_dropped, 1, memory_order_relaxed);
+        return NULL;
+    }
+    slot = &instance->notes[instance->notes_count++];
+    memset(slot, 0, sizeof(*slot));
+    slot->header.size = size;
+    slot->header.time = time;
+    slot->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    slot->header.type = type;
+    return slot;
+}
+
+/* audio thread, ahead of the cycle they belong to, in the order they arrived: one MIDI message of the note input
+ * as the event the input's dialect wants; a plugin that reads only the CLAP dialect gets notes, and only notes */
+void clap_host_midi_in(clap_instance_t *instance, uint32_t time, const uint8_t *data, size_t size)
+{
+    const uint8_t type = size ? data[0] & 0xf0 : 0;
+    const int16_t channel = size ? data[0] & 0x0f : 0;
+    clap_host_event_t *slot;
+
+    if (!instance->note_inputs || size == 0 || size > 3 || data[0] < 0x80 || data[0] >= 0xf0)
+        return;
+
+    if (instance->note_dialect == CLAP_NOTE_DIALECT_MIDI)
+    {
+        slot = note_slot(instance, time, CLAP_EVENT_MIDI, sizeof(clap_event_midi_t));
+        if (!slot)
+            return;
+        slot->midi.data[0] = data[0];
+        slot->midi.data[1] = size > 1 ? data[1] : 0;
+        slot->midi.data[2] = size > 2 ? data[2] : 0;
+        return;
+    }
+
+    if ((type != 0x80 && type != 0x90) || size != 3)
+        return;
+    slot = note_slot(instance, time, type == 0x90 && data[2] ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
+    if (!slot)
+        return;
+    slot->note.note_id = -1;
+    slot->note.port_index = 0;
+    slot->note.channel = channel;
+    slot->note.key = data[1];
+    slot->note.velocity = (double)data[2] / 127.0;
+}
+
 /* a cycle marks itself so the control thread taking the audio role waits for it */
 void clap_host_run(clap_instance_t *instance, const float *const *inputs, float *const *outputs, uint32_t nframes)
 {
     atomic_store(&instance->in_cycle, 1);
     run_cycle(instance, inputs, outputs, nframes);
+    instance->notes_count = 0;
     atomic_store(&instance->in_cycle, 0);
 }
 
