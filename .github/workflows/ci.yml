@@ -144,5 +144,5 @@ jobs:
           test -s scan.txt
           omx-clap-scan --json in/fake-plugins/fake_synth.clap | tee scan.json
           grep -q '"scanner":"omx-clap-scan"' scan.json
-          omx-clap-scan in/fake-plugins/crash.clap || echo "the scanner exited $? on crash.clap, as a failed file"
-          test -e /usr/share/man/man1/omx-clap-scan.1.gz
+          omx-clap-scan in/fake-plugins/crash.clap | tee crash.txt || true
+          grep -q "crashed with signal 6" crash.txt
