@@ -2,7 +2,7 @@ name: ci
 
 # The tests that need no audio server run on every push and pull request, then the RPMs are built as
 # artifacts, on both architectures, and installed in a clean container. Nothing is signed or published
-# here: release-rpm.yml is a release, run from a version tag, and its dry run is the last job.
+# here: release.yml is a release, run from a version tag, and its dry run is the last job.
 
 on:
   pull_request:
@@ -129,6 +129,94 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  deb:
+    name: DEBs ({{ matrix.suite }}, {{ matrix.arch }}), built and linted
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [bookworm, trixie]
+        arch: [amd64, arm64]
+    container:
+      image: debian:${{ matrix.suite }}
+    steps:
+      - name: Install the build tools
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ca-certificates git dpkg-dev debhelper build-essential lintian
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: FreeMixer/.github/.github/actions/deb-deps@main
+
+      - uses: FreeMixer/.github/.github/actions/build-deb@main
+
+      # what the smoke test runs the installed package against, built here for the architecture
+      - name: Build the smoke test fixtures
+        run: |
+          set -euo pipefail
+          make tests/fake.clap tests/fake_synth.clap tests/crash.clap
+          mkdir -p smoke
+          cp tests/fake.clap tests/fake_synth.clap tests/crash.clap smoke/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omx-clap-host-debs-${{ matrix.suite }}-${{ matrix.arch }}
+          path: |
+            debs/*.deb
+            dep-debs/libmod-host-protocol0_*.deb
+            smoke
+          if-no-files-found: error
+          retention-days: 1
+
+  deb-smoke:
+    name: DEBs ({{ matrix.suite }}, {{ matrix.arch }}), installed in a clean container
+    needs: deb
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [bookworm, trixie]
+        arch: [amd64, arm64]
+    # nothing but the distribution: a dependency the package forgot to declare is missing here
+    container:
+      image: debian:${{ matrix.suite }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: omx-clap-host-debs-${{ matrix.suite }}-${{ matrix.arch }}
+
+      - name: Install the package with its dependencies from the distribution
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./dep-debs/libmod-host-protocol0_*.deb 
+          dpkg -s libmod-host-protocol0 | grep '^Status: install ok installed'
+
+      - name: The host reports the version of its package and resolves its libraries
+        run: |
+          set -euo pipefail
+          version=$(dpkg-query -W -f='${Version}' omx-clap-host)
+          omx-clap-host -V | tee v.txt
+          grep -q "version: ${version%%~*}\$" v.txt
+          ldd /usr/bin/omx-clap-host | tee ldd.txt
+          ! grep -q 'not found' ldd.txt
+          grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+
+      - name: The scanner lists the fake plugins and survives the one that crashes
+        run: |
+          set -euo pipefail
+          omx-clap-scan smoke/fake.clap | tee scan.txt
+          test -s scan.txt
+          omx-clap-scan --json smoke/fake_synth.clap | tee scan.json
+          grep -q '"scanner":"omx-clap-scan"' scan.json
+          omx-clap-scan smoke/crash.clap | tee crash.txt || true
+          grep -q "crashed with signal 6" crash.txt
+
   # The release workflow as a tag would run it, publishing nothing: both architectures build through the
   # shared workflow and an unsigned tree is assembled. The caller grants what the called workflow may ask
   # for; its publish and release steps do not run here.
@@ -136,6 +224,6 @@ jobs:
     name: release workflow, dry run
     permissions:
       contents: write
-    uses: ./.github/workflows/release-rpm.yml
+    uses: ./.github/workflows/release.yml
     with:
       publish: false
