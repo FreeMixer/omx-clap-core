@@ -113,9 +113,6 @@ typedef struct CLAP_INSTANCE_T {
     uint32_t note_inputs;
     uint32_t note_dialect;
 
-    // the plugin's own bypass parameter, CLAP_INVALID_ID when it has none: refused to param_set, never written
-    clap_id bypass_param;
-
     double sample_rate;
     uint32_t max_frames;
     int active;

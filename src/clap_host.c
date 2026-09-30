@@ -495,27 +495,6 @@ static int param_info(clap_instance_t *instance, clap_id id, clap_param_info_t *
     return -1;
 }
 
-static void find_bypass_param(clap_instance_t *instance)
-{
-    clap_param_info_t info;
-    uint32_t count, i;
-
-    instance->bypass_param = CLAP_INVALID_ID;
-    if (!instance->params)
-        return;
-
-    count = instance->params->count(instance->plugin);
-    for (i = 0; i < count; i++)
-    {
-        memset(&info, 0, sizeof(info));
-        if (instance->params->get_info(instance->plugin, i, &info) && (info.flags & CLAP_PARAM_IS_BYPASS))
-        {
-            instance->bypass_param = info.id;
-            return;
-        }
-    }
-}
-
 static int queue_push(clap_param_queue_t *queue, clap_id id, double value, void *cookie)
 {
     const uint32_t tail = atomic_load_explicit(&queue->tail, memory_order_relaxed);
@@ -930,8 +909,6 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
         clap_host_close(instance);
         return ERR_LV2_INSTANTIATION;
     }
-
-    find_bypass_param(instance);
 
     instance->in_events.ctx = instance;
     instance->in_events.size = in_events_size;

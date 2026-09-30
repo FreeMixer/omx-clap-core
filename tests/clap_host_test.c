@@ -360,7 +360,6 @@ int main(int argc, char **argv)
     printf("     preset-load extension: %s\n", first->preset_load ? "present" : "absent");
     CHECK(first->input_channels == 2 && first->output_channels == 2, "main ports: %u in, %u out",
           first->input_channels, first->output_channels);
-    CHECK(first->bypass_param == PARAM_BYPASS, "bypass parameter is id %u", first->bypass_param);
 
     CHECK(clap_host_activate(first, SAMPLE_RATE, BLOCK) == SUCCESS, "activate at %.0f / %u", SAMPLE_RATE, BLOCK);
     printf("     latency: %u frames\n", first->latency_frames);
