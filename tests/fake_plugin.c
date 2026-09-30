@@ -21,6 +21,8 @@
  *   org.omx-clap-host.test.wide        one main pair, 4 channels each
  *   org.omx-clap-host.test.sidechain   a stereo main pair and one more input
  *   org.omx-clap-host.test.notes       a stereo main pair and a note input
+ *   org.omx-clap-host.test.widen       a mono main input and a stereo main output
+ *   org.omx-clap-host.test.auxout      a stereo main pair and a stereo auxiliary output
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
@@ -35,6 +37,8 @@
 #define ID_SIDECHAIN    "org.omx-clap-host.test.sidechain"
 #define ID_NOTES        "org.omx-clap-host.test.notes"
 #define ID_PASSTHROUGH  "org.omx-clap-host.test.passthrough"
+#define ID_WIDEN        "org.omx-clap-host.test.widen"
+#define ID_AUXOUT       "org.omx-clap-host.test.auxout"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -42,7 +46,9 @@ typedef struct FAKE_T {
     clap_plugin_t plugin;
     const clap_host_t *host;
     uint32_t main_channels;
+    uint32_t out_channels;
     uint32_t extra_inputs;
+    uint32_t extra_outputs;
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
@@ -58,6 +64,8 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("sidechain", ID_SIDECHAIN),
     DESCRIPTOR("notes", ID_NOTES),
     DESCRIPTOR("passthrough", ID_PASSTHROUGH),
+    DESCRIPTOR("widen", ID_WIDEN),
+    DESCRIPTOR("auxout", ID_AUXOUT),
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
@@ -65,7 +73,7 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
 static uint32_t audio_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const fake_t *fake = plugin->plugin_data;
-    return 1 + (is_input ? fake->extra_inputs : 0);
+    return 1 + (is_input ? fake->extra_inputs : fake->extra_outputs);
 }
 
 static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_audio_port_info_t *info)
@@ -78,7 +86,7 @@ static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is
     info->id = index;
     snprintf(info->name, sizeof(info->name), "%s %u", is_input ? "in" : "out", index);
     info->flags = index == 0 ? CLAP_AUDIO_PORT_IS_MAIN : 0;
-    info->channel_count = index == 0 ? fake->main_channels : 1;
+    info->channel_count = index == 0 ? (is_input ? fake->main_channels : fake->out_channels) : (is_input ? 1 : 2);
     info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : (info->channel_count == 1 ? CLAP_PORT_MONO : NULL);
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
@@ -234,11 +242,17 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     fake_t *fake = plugin->plugin_data;
     const clap_audio_buffer_t *in = &process->audio_inputs[0];
     clap_audio_buffer_t *out = &process->audio_outputs[0];
-    uint32_t c;
+    uint32_t c, i;
 
     take_events(fake, process->in_events);
+    if (process->audio_outputs_count != 1 + fake->extra_outputs)
+        return CLAP_PROCESS_ERROR;
     for (c = 0; c < out->channel_count; c++)
         memcpy(out->data32[c], in->data32[c < in->channel_count ? c : 0], sizeof(float) * process->frames_count);
+    // an auxiliary output is the host's to hand over: a buffer it cannot write is a crash here
+    for (c = 1; c < process->audio_outputs_count; c++)
+        for (i = 0; i < process->audio_outputs[c].channel_count; i++)
+            memset(process->audio_outputs[c].data32[i], 0, sizeof(float) * process->frames_count);
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -299,7 +313,9 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
 
     fake = calloc(1, sizeof(fake_t));
     fake->host = host;
-    fake->main_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : 2;
+    fake->main_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : (!strcmp(plugin_id, ID_WIDEN) ? 1 : 2);
+    fake->out_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : 2;
+    fake->extra_outputs = !strcmp(plugin_id, ID_AUXOUT) ? 1 : 0;
     fake->extra_inputs = !strcmp(plugin_id, ID_SIDECHAIN) ? 1 : 0;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;

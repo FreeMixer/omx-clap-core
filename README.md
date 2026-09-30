@@ -130,19 +130,20 @@ arrived on, in the dialect the note port prefers:
 - MIDI: every channel message of one to three bytes becomes a
   `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
 
-A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_CYCLE`); the surplus is
+A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`); the surplus is
 counted and dropped. Nothing is allocated or locked on the audio thread.
 
-A sidechain, an auxiliary port, a main port wider than stereo, a second
-note input, a note input that reads neither the CLAP nor the MIDI dialect,
-or no audio input and no note input is refused at `add` with `resp -102`
-and the reason on stderr: `<id>: unsupported port layout: main port has 4
-channels`, `1 sidechain/aux ports`, `2 note inputs`, `note input reads
-neither the CLAP nor the MIDI dialect`, `0 main inputs, 1 main outputs`. A
-sidechain is not fed silence, because a plugin behaving on a silent
-sidechain is not the plugin the same core gives in-process. A plugin is
-admitted with the `audio-effect` or the `instrument` feature and refused
-with neither.
+An extra audio input (a sidechain), a main port wider than stereo, a main
+pair of different widths, a second note input, a note input that reads
+neither the CLAP nor the MIDI dialect, or no audio input and no note input
+is refused at `add` with `resp -102` and the `hosting.*` code on stderr:
+`<id>: hosting.topology.extra-inputs-fed-silence`,
+`hosting.topology.wider-than-strip`, `hosting.clap.note-input`,
+`hosting.topology.no-audio-input`. A sidechain is not fed silence, because a
+plugin behaving on a silent sidechain is not the plugin the same core gives
+in-process. An extra audio output is admitted and left unconnected: the
+plugin is handed a scratch buffer for it. A plugin is admitted with the
+`audio-effect` or the `instrument` feature and refused with neither.
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
 and then leaves the plugin idle: notes that arrive meanwhile are dropped.

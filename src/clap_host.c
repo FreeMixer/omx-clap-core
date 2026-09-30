@@ -375,26 +375,20 @@ static int descriptor_has_feature(const clap_plugin_descriptor_t *desc, const ch
     return 0;
 }
 
-/* the note input, when the plugin has one: how it is fed, the reason when it can't be */
-static int read_note_input(clap_instance_t *instance, char *reason, size_t reason_size)
+/* the note input, when the plugin has one: how it is fed, the code when it can't be */
+static const char *read_note_input(clap_instance_t *instance)
 {
     const clap_plugin_note_ports_t *ports = instance->note_ports;
     clap_note_port_info_t info;
     uint32_t count = ports ? ports->count(instance->plugin, true) : 0;
 
     if (count == 0)
-        return 0;
+        return NULL;
     if (count > 1)
-    {
-        snprintf(reason, reason_size, "%u note inputs", count);
-        return -1;
-    }
+        return CLAP_HOST_CODE_NOTE_INPUT;
     memset(&info, 0, sizeof(info));
     if (!ports->get(instance->plugin, 0, true, &info))
-    {
-        snprintf(reason, reason_size, "note input 0 unreadable");
-        return -1;
-    }
+        return CLAP_HOST_CODE_NOTE_INPUT;
     if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
         instance->note_dialect = CLAP_NOTE_DIALECT_MIDI;
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
@@ -402,29 +396,24 @@ static int read_note_input(clap_instance_t *instance, char *reason, size_t reaso
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI)
         instance->note_dialect = CLAP_NOTE_DIALECT_MIDI;
     else
-    {
-        snprintf(reason, reason_size, "note input reads neither the CLAP nor the MIDI dialect");
-        return -1;
-    }
+        return CLAP_HOST_CODE_NOTE_INPUT;
     instance->note_inputs = 1;
-    return 0;
+    return NULL;
 }
 
-/* one main output, mono or stereo, and one main input of the same kind unless a note input feeds the plugin
- * instead; nothing else; the reason when not */
-static int read_topology(clap_instance_t *instance, char *reason, size_t reason_size)
+/* one main output, mono or stereo, and one main input of the same width unless a note input feeds the plugin
+ * instead; an input besides those is refused, an output besides it is left unconnected; the hosting code when not */
+static const char *read_topology(clap_instance_t *instance)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
-    uint32_t main_inputs = 0, main_outputs = 0, others = 0;
+    uint32_t main_inputs = 0, main_outputs = 0, extra_inputs = 0;
     clap_audio_port_info_t info;
+    const char *code;
     uint32_t count, i;
     int dir;
 
     if (!ports)
-    {
-        snprintf(reason, reason_size, "no audio-ports extension");
-        return -1;
-    }
+        return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
 
     for (dir = 0; dir < 2; dir++)
     {
@@ -434,19 +423,20 @@ static int read_topology(clap_instance_t *instance, char *reason, size_t reason_
         {
             memset(&info, 0, sizeof(info));
             if (!ports->get(instance->plugin, i, is_input, &info))
-            {
-                snprintf(reason, reason_size, "%s port %u unreadable", is_input ? "input" : "output", i);
-                return -1;
-            }
+                return CLAP_HOST_CODE_HEADLESS_FAILED;
+            if (info.channel_count == 0)
+                return is_input ? CLAP_HOST_CODE_NO_AUDIO_INPUT : CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
+            if (info.channel_count > CLAP_HOST_MAIN_PORT_CHANNELS)
+                return CLAP_HOST_CODE_WIDER_THAN_STRIP;
             if (!(info.flags & CLAP_AUDIO_PORT_IS_MAIN))
             {
-                others++;
+                if (is_input)
+                    extra_inputs++;
+                else if (instance->aux_outputs < CLAP_HOST_AUX_OUTPUTS)
+                    instance->aux_channels[instance->aux_outputs++] = info.channel_count;
+                else
+                    return CLAP_HOST_CODE_WIDER_THAN_STRIP;
                 continue;
-            }
-            if (info.channel_count == 0 || info.channel_count > CLAP_HOST_MAIN_PORT_CHANNELS)
-            {
-                snprintf(reason, reason_size, "main port has %u channels", info.channel_count);
-                return -1;
             }
             if (is_input)
             {
@@ -461,19 +451,20 @@ static int read_topology(clap_instance_t *instance, char *reason, size_t reason_
         }
     }
 
-    if (others != 0)
-    {
-        snprintf(reason, reason_size, "%u sidechain/aux ports", others);
-        return -1;
-    }
-    if (read_note_input(instance, reason, reason_size) != 0)
-        return -1;
-    if (main_outputs != 1 || main_inputs > 1 || (main_inputs == 0 && !instance->note_inputs))
-    {
-        snprintf(reason, reason_size, "%u main inputs, %u main outputs", main_inputs, main_outputs);
-        return -1;
-    }
-    return 0;
+    if (extra_inputs != 0)
+        return CLAP_HOST_CODE_EXTRA_INPUTS;
+    code = read_note_input(instance);
+    if (code)
+        return code;
+    if (main_outputs == 0)
+        return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
+    if (main_outputs > 1 || main_inputs > 1)
+        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+    if (main_inputs == 0)
+        return instance->note_inputs ? NULL : CLAP_HOST_CODE_NO_AUDIO_INPUT;
+    if (instance->input_channels != instance->output_channels)
+        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+    return NULL;
 }
 
 static int param_info(clap_instance_t *instance, clap_id id, clap_param_info_t *info)
@@ -640,6 +631,11 @@ static void free_buffers(clap_instance_t *instance)
     }
     free(instance->silence);
     instance->silence = NULL;
+    for (c = 0; c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
+    {
+        free(instance->aux_buffers[c]);
+        instance->aux_buffers[c] = NULL;
+    }
 }
 
 static int64_t stream_write(const clap_ostream_t *stream, const void *data, uint64_t size)
@@ -675,7 +671,7 @@ static int process_cycle(clap_instance_t *instance, uint32_t nframes)
 
     drain_events(instance);
     instance->audio_in.constant_mask = 0;
-    instance->audio_out.constant_mask = 0;
+    instance->audio_outputs[0].constant_mask = 0;
     instance->process.steady_time = instance->steady_time;
     instance->process.frames_count = nframes;
 
@@ -696,7 +692,7 @@ static int process_cycle(clap_instance_t *instance, uint32_t nframes)
     }
 
     // a constant output channel holds its value in sample 0 only
-    mask = instance->audio_out.constant_mask;
+    mask = instance->audio_outputs[0].constant_mask;
     for (c = 0; mask && c < instance->output_channels; c++)
     {
         float *buffer = instance->output_buffers[c];
@@ -860,6 +856,7 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
     clap_binary_t *binary;
     const clap_plugin_descriptor_t *desc = NULL;
     clap_instance_t *instance;
+    const char *code;
     char reason[256];
     uint32_t count, i;
     int ret;
@@ -901,9 +898,10 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
     if (ret != SUCCESS)
         return ret;
 
-    if (read_topology(instance, reason, sizeof(reason)) != 0)
+    code = read_topology(instance);
+    if (code)
     {
-        fprintf(stderr, "%s: unsupported port layout: %s\n", id, reason);
+        fprintf(stderr, "%s: %s\n", id, code);
         clap_host_close(instance);
         return ERR_LV2_INSTANTIATION;
     }
@@ -930,6 +928,8 @@ int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t m
     for (c = 0; c < instance->output_channels; c++)
         instance->output_buffers[c] = calloc(max_frames, sizeof(float));
     instance->silence = calloc(max_frames, sizeof(float));
+    for (c = 0; instance->aux_outputs && c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
+        instance->aux_buffers[c] = calloc(max_frames, sizeof(float));
 
     if (!instance->plugin->activate(instance->plugin, sample_rate, 1, max_frames))
     {
@@ -950,18 +950,26 @@ int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t m
     instance->audio_in.channel_count = instance->input_channels;
     instance->audio_in.latency = 0;
     instance->audio_in.constant_mask = 0;
-    instance->audio_out.data32 = instance->output_buffers;
-    instance->audio_out.data64 = NULL;
-    instance->audio_out.channel_count = instance->output_channels;
-    instance->audio_out.latency = 0;
-    instance->audio_out.constant_mask = 0;
+    instance->audio_outputs[0].data32 = instance->output_buffers;
+    instance->audio_outputs[0].data64 = NULL;
+    instance->audio_outputs[0].channel_count = instance->output_channels;
+    instance->audio_outputs[0].latency = 0;
+    instance->audio_outputs[0].constant_mask = 0;
+    for (c = 0; c < instance->aux_outputs; c++)
+    {
+        instance->audio_outputs[1 + c].data32 = instance->aux_buffers;
+        instance->audio_outputs[1 + c].data64 = NULL;
+        instance->audio_outputs[1 + c].channel_count = instance->aux_channels[c];
+        instance->audio_outputs[1 + c].latency = 0;
+        instance->audio_outputs[1 + c].constant_mask = 0;
+    }
 
     memset(&instance->process, 0, sizeof(instance->process));
     instance->process.transport = NULL;
     instance->process.audio_inputs = instance->input_channels ? &instance->audio_in : NULL;
-    instance->process.audio_outputs = &instance->audio_out;
+    instance->process.audio_outputs = instance->audio_outputs;
     instance->process.audio_inputs_count = instance->input_channels ? 1 : 0;
-    instance->process.audio_outputs_count = 1;
+    instance->process.audio_outputs_count = 1 + instance->aux_outputs;
     instance->process.in_events = &instance->in_events;
     instance->process.out_events = &instance->out_events;
 

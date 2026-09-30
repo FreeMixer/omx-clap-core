@@ -109,7 +109,11 @@ typedef struct CLAP_INSTANCE_T {
     float *output_buffers[CLAP_HOST_MAIN_PORT_CHANNELS];
     float *silence;
     clap_audio_buffer_t audio_in;
-    clap_audio_buffer_t audio_out;
+    // the main output first, then one buffer per auxiliary output, all of them over the scratch pair
+    clap_audio_buffer_t audio_outputs[1 + CLAP_HOST_AUX_OUTPUTS];
+    uint32_t aux_outputs;
+    uint32_t aux_channels[CLAP_HOST_AUX_OUTPUTS];
+    float *aux_buffers[CLAP_HOST_MAIN_PORT_CHANNELS];
     clap_host_event_t events[CLAP_HOST_EVENTS_PER_BLOCK];
     uint32_t events_count;
     // written by the audio thread ahead of a cycle, seen by the plugin only inside process()

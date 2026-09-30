@@ -48,6 +48,8 @@
 #define FAKE_SIDECHAIN      "org.omx-clap-host.test.sidechain"
 #define FAKE_NOTES          "org.omx-clap-host.test.notes"
 #define FAKE_PASSTHROUGH    "org.omx-clap-host.test.passthrough"
+#define FAKE_WIDEN          "org.omx-clap-host.test.widen"
+#define FAKE_AUXOUT         "org.omx-clap-host.test.auxout"
 #define SYNTH               "org.omx-clap-host.test.synth"
 #define SYNTH_MIDI          "org.omx-clap-host.test.synth-midi"
 #define SYNTH_AUX           "org.omx-clap-host.test.synth-aux"
@@ -126,8 +128,9 @@ static void fake_plugin_checks(const char *path)
     double value;
 
     CHECK(CLAP_HOST_MAIN_PORT_CHANNELS == 2, "CLAP_HOST_MAIN_PORT_CHANNELS is %i", CLAP_HOST_MAIN_PORT_CHANNELS);
-    check_refused(path, FAKE_WIDE, "main port has 4 channels");
-    check_refused(path, FAKE_SIDECHAIN, "1 sidechain/aux ports");
+    check_refused(path, FAKE_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
+    check_refused(path, FAKE_SIDECHAIN, CLAP_HOST_CODE_EXTRA_INPUTS);
+    check_refused(path, FAKE_WIDEN, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     CHECK(clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", clap_host_binaries_open());
 
     CHECK(clap_host_open(path, FAKE_NOTES, &instance) == SUCCESS && instance != NULL, "open %s: a note input is admitted", FAKE_NOTES);
@@ -136,6 +139,26 @@ static void fake_plugin_checks(const char *path)
         CHECK(instance->note_inputs == 1 && instance->note_dialect == CLAP_NOTE_DIALECT_CLAP, "one note input, fed the CLAP dialect");
         CHECK(instance->input_channels == 2 && instance->output_channels == 2, "and the effect's audio pair is kept (%u in, %u out)",
               instance->input_channels, instance->output_channels);
+        clap_host_close(instance);
+    }
+
+    CHECK(clap_host_open(path, FAKE_AUXOUT, &instance) == SUCCESS && instance != NULL, "open %s: an auxiliary output is admitted", FAKE_AUXOUT);
+    if (instance)
+    {
+        float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+        const float *inputs[2] = { in_l, in_r };
+        float *outputs[2] = { out_l, out_r };
+
+        fill_tone(in_l, BLOCK, 0);
+        memcpy(in_r, in_l, sizeof(in_l));
+        CHECK(instance->aux_outputs == 1 && instance->aux_channels[0] == 2, "one auxiliary output of two channels (%u, %u)", instance->aux_outputs, instance->aux_channels[0]);
+        CHECK(clap_host_activate(instance, SAMPLE_RATE, BLOCK) == SUCCESS, "activate with the auxiliary output");
+        clap_host_set_audio_thread(instance, pthread_self());
+        clap_host_arm(instance);
+        clap_host_run(instance, inputs, outputs, BLOCK);
+        clap_host_run(instance, inputs, outputs, BLOCK);
+        CHECK(atomic_load(&instance->process_errors) == 0 && memcmp(out_l, in_l, sizeof(in_l)) == 0,
+              "the plugin was handed the auxiliary buffers (%u process errors) and the main output is its input", atomic_load(&instance->process_errors));
         clap_host_close(instance);
     }
 
@@ -258,11 +281,11 @@ static void synth_checks(const char *path)
     clap_instance_t *synth;
     uint32_t i;
 
-    check_refused(path, SYNTH_AUX, "1 sidechain/aux ports");
-    check_refused(path, SYNTH_WIDE, "main port has 4 channels");
-    check_refused(path, SYNTH_NOTES, "2 note inputs");
-    check_refused(path, SYNTH_MPE, "neither the CLAP nor the MIDI dialect");
-    check_refused(path, SILENT, "0 main inputs, 1 main outputs");
+    check_refused(path, SYNTH_AUX, CLAP_HOST_CODE_EXTRA_INPUTS);
+    check_refused(path, SYNTH_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
+    check_refused(path, SYNTH_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
+    check_refused(path, SYNTH_MPE, CLAP_HOST_CODE_NOTE_INPUT);
+    check_refused(path, SILENT, CLAP_HOST_CODE_NO_AUDIO_INPUT);
     CHECK(clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", clap_host_binaries_open());
 
     synth_notes_checks(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
