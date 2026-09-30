@@ -175,9 +175,7 @@ test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
 
 tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	rm -rf build/stage
-	$(MAKE) install-lib DESTDIR=$(CURDIR)/build/stage PREFIX=/usr LIBDIR=/usr/lib
-	sed -i 's,^prefix=.*,prefix=$(CURDIR)/build/stage/usr,' build/stage/usr/lib/pkgconfig/omx-clap-core.pc
-	sed -i 's,^libdir=.*,libdir=$${prefix}/lib,; s,^includedir=.*,includedir=$${prefix}/include,' build/stage/usr/lib/pkgconfig/omx-clap-core.pc
+	$(MAKE) install-lib PREFIX=$(CURDIR)/build/stage/usr LIBDIR=$(CURDIR)/build/stage/usr/lib
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/stage/usr/lib/pkgconfig/clap.pc
 	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
