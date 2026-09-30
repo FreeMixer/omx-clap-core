@@ -98,7 +98,7 @@ static clap_binary_t *g_binaries;
 ************************************************************************************************************************
 */
 
-static clap_binary_t *binary_ref(const char *path)
+static clap_binary_t *binary_ref(const char *path, char *reason, size_t reason_size)
 {
     clap_binary_t *binary;
     void *handle;
@@ -117,14 +117,14 @@ static clap_binary_t *binary_ref(const char *path)
     handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!handle)
     {
-        fprintf(stderr, "can't open %s: %s\n", path, dlerror());
+        snprintf(reason, reason_size, "can't open %s: %s", path, dlerror());
         return NULL;
     }
 
     entry = dlsym(handle, "clap_entry");
     if (!entry || !clap_version_is_compatible(entry->clap_version) || !entry->init || !entry->init(path))
     {
-        fprintf(stderr, "can't init %s\n", path);
+        snprintf(reason, reason_size, "can't init %s", path);
         dlclose(handle);
         return NULL;
     }
@@ -132,7 +132,7 @@ static clap_binary_t *binary_ref(const char *path)
     factory = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
     if (!factory)
     {
-        fprintf(stderr, "no plugin factory in %s\n", path);
+        snprintf(reason, reason_size, "no plugin factory in %s", path);
         entry->deinit();
         dlclose(handle);
         return NULL;
@@ -761,19 +761,89 @@ static int wait_stopped(clap_instance_t *instance)
 ************************************************************************************************************************
 */
 
+clap_binary_t *clap_host_binary_open(const char *path, char *reason, size_t reason_size)
+{
+    return binary_ref(path, reason, reason_size);
+}
+
+void clap_host_binary_close(clap_binary_t *binary)
+{
+    binary_unref(binary);
+}
+
+uint32_t clap_host_binary_count(const clap_binary_t *binary)
+{
+    return binary->factory->get_plugin_count(binary->factory);
+}
+
+const clap_plugin_descriptor_t *clap_host_binary_descriptor(const clap_binary_t *binary, uint32_t index)
+{
+    return binary->factory->get_plugin_descriptor(binary->factory, index);
+}
+
+/* the instance holds a reference of its own on the binary until clap_host_close */
+int clap_host_create(clap_binary_t *binary, const clap_plugin_descriptor_t *desc, clap_instance_t **out)
+{
+    clap_instance_t *instance;
+
+    *out = NULL;
+
+    instance = calloc(1, sizeof(clap_instance_t));
+    instance->binary = binary;
+    instance->desc = desc;
+    instance->main_thread = pthread_self();
+    instance->host.clap_version = (clap_version_t)CLAP_VERSION_INIT;
+    instance->host.host_data = instance;
+    instance->host.name = "omx-clap-host";
+    instance->host.vendor = "Pau Aliagas";
+    instance->host.url = "";
+    instance->host.version = "0";
+    instance->host.get_extension = host_get_extension;
+    instance->host.request_restart = host_request_restart;
+    instance->host.request_process = host_request_process;
+    instance->host.request_callback = host_request_callback;
+
+    instance->plugin = binary->factory->create_plugin(binary->factory, &instance->host, desc->id);
+    if (!instance->plugin || !instance->plugin->init(instance->plugin))
+    {
+        fprintf(stderr, "can't init plugin %s\n", desc->id);
+        if (instance->plugin)
+            instance->plugin->destroy(instance->plugin);
+        free(instance);
+        return ERR_LV2_INSTANTIATION;
+    }
+    binary->refs++;
+
+    instance->params = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PARAMS);
+    instance->latency = instance->plugin->get_extension(instance->plugin, CLAP_EXT_LATENCY);
+    instance->audio_ports = instance->plugin->get_extension(instance->plugin, CLAP_EXT_AUDIO_PORTS);
+    instance->note_ports = instance->plugin->get_extension(instance->plugin, CLAP_EXT_NOTE_PORTS);
+    instance->state = instance->plugin->get_extension(instance->plugin, CLAP_EXT_STATE);
+    instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD);
+    if (!instance->preset_load)
+        instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
+
+    *out = instance;
+    return SUCCESS;
+}
+
 int clap_host_open(const char *path, const char *id, clap_instance_t **out)
 {
     clap_binary_t *binary;
     const clap_plugin_descriptor_t *desc = NULL;
     clap_instance_t *instance;
-    char reason[64];
+    char reason[256];
     uint32_t count, i;
+    int ret;
 
     *out = NULL;
 
-    binary = binary_ref(path);
+    binary = binary_ref(path, reason, sizeof(reason));
     if (!binary)
+    {
+        fprintf(stderr, "%s\n", reason);
         return ERR_LV2_INVALID_URI;
+    }
 
     count = binary->factory->get_plugin_count(binary->factory);
     for (i = 0; i < count; i++)
@@ -798,47 +868,15 @@ int clap_host_open(const char *path, const char *id, clap_instance_t **out)
         return ERR_LV2_INSTANTIATION;
     }
 
-    instance = calloc(1, sizeof(clap_instance_t));
-    instance->binary = binary;
-    instance->desc = desc;
-    instance->main_thread = pthread_self();
-    instance->host.clap_version = (clap_version_t)CLAP_VERSION_INIT;
-    instance->host.host_data = instance;
-    instance->host.name = "omx-clap-host";
-    instance->host.vendor = "Pau Aliagas";
-    instance->host.url = "";
-    instance->host.version = "0";
-    instance->host.get_extension = host_get_extension;
-    instance->host.request_restart = host_request_restart;
-    instance->host.request_process = host_request_process;
-    instance->host.request_callback = host_request_callback;
-
-    instance->plugin = binary->factory->create_plugin(binary->factory, &instance->host, desc->id);
-    if (!instance->plugin || !instance->plugin->init(instance->plugin))
-    {
-        fprintf(stderr, "can't init plugin %s\n", id);
-        if (instance->plugin)
-            instance->plugin->destroy(instance->plugin);
-        binary_unref(binary);
-        free(instance);
-        return ERR_LV2_INSTANTIATION;
-    }
-
-    instance->params = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PARAMS);
-    instance->latency = instance->plugin->get_extension(instance->plugin, CLAP_EXT_LATENCY);
-    instance->audio_ports = instance->plugin->get_extension(instance->plugin, CLAP_EXT_AUDIO_PORTS);
-    instance->note_ports = instance->plugin->get_extension(instance->plugin, CLAP_EXT_NOTE_PORTS);
-    instance->state = instance->plugin->get_extension(instance->plugin, CLAP_EXT_STATE);
-    instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD);
-    if (!instance->preset_load)
-        instance->preset_load = instance->plugin->get_extension(instance->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
+    ret = clap_host_create(binary, desc, &instance);
+    binary_unref(binary);
+    if (ret != SUCCESS)
+        return ret;
 
     if (read_topology(instance, reason, sizeof(reason)) != 0)
     {
         fprintf(stderr, "%s: unsupported port layout: %s\n", id, reason);
-        instance->plugin->destroy(instance->plugin);
-        binary_unref(binary);
-        free(instance);
+        clap_host_close(instance);
         return ERR_LV2_INSTANTIATION;
     }
 

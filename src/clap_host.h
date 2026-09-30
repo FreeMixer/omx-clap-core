@@ -36,6 +36,7 @@
 #include <clap/clap.h>
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 
 
@@ -160,6 +161,13 @@ int clap_host_restart(clap_instance_t *instance, uint32_t max_frames);
 void clap_host_deactivate(clap_instance_t *instance);
 void clap_host_close(clap_instance_t *instance);
 uint32_t clap_host_binaries_open(void);
+
+/* a plugin file and one instance of a plugin in it, no layout judged: what the host and the scanner both start from */
+clap_binary_t *clap_host_binary_open(const char *path, char *reason, size_t reason_size);
+void clap_host_binary_close(clap_binary_t *binary);
+uint32_t clap_host_binary_count(const clap_binary_t *binary);
+const clap_plugin_descriptor_t *clap_host_binary_descriptor(const clap_binary_t *binary, uint32_t index);
+int clap_host_create(clap_binary_t *binary, const clap_plugin_descriptor_t *desc, clap_instance_t **instance);
 
 int clap_host_param_set(clap_instance_t *instance, clap_id id, double value);
 int clap_host_param_get(clap_instance_t *instance, clap_id id, double *value);

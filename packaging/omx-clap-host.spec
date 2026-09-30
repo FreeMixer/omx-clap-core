@@ -43,7 +43,9 @@ make test-fake
 %license COPYING
 %doc README.md
 %{_bindir}/omx-clap-host
+%{_bindir}/omx-clap-scan
 %{_mandir}/man1/omx-clap-host.1*
+%{_mandir}/man1/omx-clap-scan.1*
 
 %changelog
 * Tue Sep 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.0-1
