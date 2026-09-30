@@ -39,19 +39,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-
-/*
-************************************************************************************************************************
-*           CONFIGURATION DEFINES
-************************************************************************************************************************
-*/
-
-#define CLAP_HOST_PARAM_QUEUE_DEPTH     256     // power of two
-#define CLAP_HOST_EVENTS_PER_CYCLE      64
-#define CLAP_HOST_NOTES_PER_CYCLE       256
-#define CLAP_HOST_MAX_CHANNELS          2
-#define CLAP_HOST_STATE_MAX             (1024 * 1024)
-#define CLAP_HOST_LOG_SIZE              256
+#include "clap_host_limits.h"
 
 
 /*
@@ -117,15 +105,15 @@ typedef struct CLAP_INSTANCE_T {
     uint32_t max_frames;
     int active;
 
-    float *input_buffers[CLAP_HOST_MAX_CHANNELS];
-    float *output_buffers[CLAP_HOST_MAX_CHANNELS];
+    float *input_buffers[CLAP_HOST_MAIN_PORT_CHANNELS];
+    float *output_buffers[CLAP_HOST_MAIN_PORT_CHANNELS];
     float *silence;
     clap_audio_buffer_t audio_in;
     clap_audio_buffer_t audio_out;
-    clap_host_event_t events[CLAP_HOST_EVENTS_PER_CYCLE];
+    clap_host_event_t events[CLAP_HOST_EVENTS_PER_BLOCK];
     uint32_t events_count;
     // written by the audio thread ahead of a cycle, seen by the plugin only inside process()
-    clap_host_event_t notes[CLAP_HOST_NOTES_PER_CYCLE];
+    clap_host_event_t notes[CLAP_HOST_NOTES_PER_BLOCK];
     uint32_t notes_count;
     _Atomic uint32_t notes_visible;
     clap_input_events_t in_events;
@@ -151,7 +139,7 @@ typedef struct CLAP_INSTANCE_T {
     _Atomic uint32_t state_dirty;
     _Atomic uint32_t thread_violations;
     _Atomic uint32_t log_pending;
-    char log_slot[CLAP_HOST_LOG_SIZE];
+    char log_slot[CLAP_HOST_LOG_BYTES];
 
     _Atomic uint32_t runs;
     _Atomic uint32_t process_errors;

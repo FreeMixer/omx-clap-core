@@ -46,8 +46,6 @@
 ************************************************************************************************************************
 */
 
-#define RESTART_TIMEOUT_US      200000
-#define RESTART_POLL_US         1000
 #define QUEUE_SETTLE_US         50000
 
 
@@ -445,7 +443,7 @@ static int read_topology(clap_instance_t *instance, char *reason, size_t reason_
                 others++;
                 continue;
             }
-            if (info.channel_count == 0 || info.channel_count > CLAP_HOST_MAX_CHANNELS)
+            if (info.channel_count == 0 || info.channel_count > CLAP_HOST_MAIN_PORT_CHANNELS)
             {
                 snprintf(reason, reason_size, "main port has %u channels", info.channel_count);
                 return -1;
@@ -519,7 +517,7 @@ static void drain_events(clap_instance_t *instance)
     const uint32_t tail = atomic_load_explicit(&queue->tail, memory_order_acquire);
     uint32_t n = 0;
 
-    while (head != tail && n < CLAP_HOST_EVENTS_PER_CYCLE)
+    while (head != tail && n < CLAP_HOST_EVENTS_PER_BLOCK)
     {
         const clap_param_record_t *record = &queue->records[head & (CLAP_HOST_PARAM_QUEUE_DEPTH - 1)];
         clap_event_param_value_t *event = &instance->events[n++].param;
@@ -556,10 +554,10 @@ static role_t take_role(clap_instance_t *instance)
     while (state != CLAP_HOST_IDLE && state != CLAP_HOST_STOPPED && state != CLAP_HOST_HELD
            && !atomic_compare_exchange_weak(&instance->run_state, &state, CLAP_HOST_HELD))
         ;
-    while (atomic_load(&instance->in_cycle) && waited < RESTART_TIMEOUT_US)
+    while (atomic_load(&instance->in_cycle) && waited < CLAP_HOST_ROLE_TIMEOUT_US)
     {
-        usleep(RESTART_POLL_US);
-        waited += RESTART_POLL_US;
+        usleep(CLAP_HOST_ROLE_POLL_US);
+        waited += CLAP_HOST_ROLE_POLL_US;
     }
 
     role.state = state;
@@ -610,8 +608,8 @@ static void settle_queue(clap_instance_t *instance)
 
     while (queue_pending(instance) && waited < QUEUE_SETTLE_US)
     {
-        usleep(RESTART_POLL_US);
-        waited += RESTART_POLL_US;
+        usleep(CLAP_HOST_ROLE_POLL_US);
+        waited += CLAP_HOST_ROLE_POLL_US;
     }
     if (queue_pending(instance) && atomic_load(&instance->runs) == runs)
         flush_events(instance);
@@ -633,7 +631,7 @@ static void free_buffers(clap_instance_t *instance)
 {
     uint32_t c;
 
-    for (c = 0; c < CLAP_HOST_MAX_CHANNELS; c++)
+    for (c = 0; c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
     {
         free(instance->input_buffers[c]);
         free(instance->output_buffers[c]);
@@ -769,7 +767,7 @@ static int wait_stopped(clap_instance_t *instance)
 
     while (atomic_load(&instance->run_state) == CLAP_HOST_STOPPING)
     {
-        if (waited >= RESTART_TIMEOUT_US)
+        if (waited >= CLAP_HOST_ROLE_TIMEOUT_US)
         {
             // no cycle came to stop it
             role_t role = take_role(instance);
@@ -778,8 +776,8 @@ static int wait_stopped(clap_instance_t *instance)
             release_role(instance, &role, CLAP_HOST_STOPPED);
             return 0;
         }
-        usleep(RESTART_POLL_US);
-        waited += RESTART_POLL_US;
+        usleep(CLAP_HOST_ROLE_POLL_US);
+        waited += CLAP_HOST_ROLE_POLL_US;
     }
     return 0;
 }
@@ -1093,7 +1091,7 @@ int clap_host_bypassed(clap_instance_t *instance)
 
 int clap_host_state_save(clap_instance_t *instance, const char *filename)
 {
-    stream_t stream = { NULL, CLAP_HOST_STATE_MAX, 0, 0, 0 };
+    stream_t stream = { NULL, CLAP_HOST_STATE_MAX_BYTES, 0, 0, 0 };
     const clap_ostream_t ostream = { &stream, stream_write };
     FILE *file;
     int ok;
@@ -1123,7 +1121,7 @@ int clap_host_state_save(clap_instance_t *instance, const char *filename)
 
 int clap_host_state_load(clap_instance_t *instance, const char *filename)
 {
-    stream_t stream = { NULL, CLAP_HOST_STATE_MAX, 0, 0, 0 };
+    stream_t stream = { NULL, CLAP_HOST_STATE_MAX_BYTES, 0, 0, 0 };
     const clap_istream_t istream = { &stream, stream_read };
     FILE *file;
     int ok;
@@ -1234,7 +1232,7 @@ static clap_host_event_t *note_slot(clap_instance_t *instance, uint32_t time, ui
 {
     clap_host_event_t *slot;
 
-    if (instance->notes_count >= CLAP_HOST_NOTES_PER_CYCLE)
+    if (instance->notes_count >= CLAP_HOST_NOTES_PER_BLOCK)
     {
         atomic_fetch_add_explicit(&instance->notes_dropped, 1, memory_order_relaxed);
         return NULL;

@@ -70,8 +70,8 @@
 typedef struct EFFECT_T {
     int instance;
     jack_client_t *jack_client;
-    jack_port_t *input_ports[CLAP_HOST_MAX_CHANNELS];
-    jack_port_t *output_ports[CLAP_HOST_MAX_CHANNELS];
+    jack_port_t *input_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
+    jack_port_t *output_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
     jack_port_t *midi_port;
     clap_instance_t *clap;
     uint32_t latency_published;
@@ -190,8 +190,8 @@ static void jack_thread_init(void *arg)
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
-    const float *inputs[CLAP_HOST_MAX_CHANNELS];
-    float *outputs[CLAP_HOST_MAX_CHANNELS];
+    const float *inputs[CLAP_HOST_MAIN_PORT_CHANNELS];
+    float *outputs[CLAP_HOST_MAIN_PORT_CHANNELS];
     uint32_t c;
 
     if (!effect || !effect->clap)

@@ -125,7 +125,7 @@ static void fake_plugin_checks(const char *path)
     clap_instance_t *instance = NULL;
     double value;
 
-    CHECK(CLAP_HOST_MAX_CHANNELS == 2, "CLAP_HOST_MAX_CHANNELS is %i", CLAP_HOST_MAX_CHANNELS);
+    CHECK(CLAP_HOST_MAIN_PORT_CHANNELS == 2, "CLAP_HOST_MAIN_PORT_CHANNELS is %i", CLAP_HOST_MAIN_PORT_CHANNELS);
     check_refused(path, FAKE_WIDE, "main port has 4 channels");
     check_refused(path, FAKE_SIDECHAIN, "1 sidechain/aux ports");
     CHECK(clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", clap_host_binaries_open());
@@ -253,7 +253,7 @@ static void synth_checks(const char *path)
     static const midi_at_t running_off[] = { { 10, { 0x90, 69, 127 }, 3 }, { 20, { 0x90, 60, 0 }, 3 }, { 40, { 0x90, 69, 0 }, 3 } };
     static const midi_at_t others[] = { { 0, { 0xb0, 1, 64 }, 3 }, { 1, { 0xe0, 0, 64 }, 3 }, { 2, { 0xc0, 5, 0 }, 2 }, { 3, { 0xf8, 0, 0 }, 1 } };
     static const midi_at_t held[] = { { 0, { 0x90, 69, 127 }, 3 } };
-    midi_at_t flood[CLAP_HOST_NOTES_PER_CYCLE + 44];
+    midi_at_t flood[CLAP_HOST_NOTES_PER_BLOCK + 44];
     float out_l[BLOCK], out_r[BLOCK];
     clap_instance_t *synth;
     uint32_t i;
@@ -293,7 +293,7 @@ static void synth_checks(const char *path)
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     if (!synth)
         return;
-    for (i = 0; i < CLAP_HOST_NOTES_PER_CYCLE + 44; i++)
+    for (i = 0; i < CLAP_HOST_NOTES_PER_BLOCK + 44; i++)
     {
         flood[i].time = i % BLOCK;
         flood[i].data[0] = 0x90;
@@ -301,9 +301,9 @@ static void synth_checks(const char *path)
         flood[i].data[2] = 100;
         flood[i].size = 3;
     }
-    run_block(synth, flood, CLAP_HOST_NOTES_PER_CYCLE + 44, out_l, out_r);
-    CHECK(atomic_load(&synth->notes_delivered) == CLAP_HOST_NOTES_PER_CYCLE && atomic_load(&synth->notes_dropped) == 44,
-          "%u messages: %u delivered, %u dropped", CLAP_HOST_NOTES_PER_CYCLE + 44, atomic_load(&synth->notes_delivered), atomic_load(&synth->notes_dropped));
+    run_block(synth, flood, CLAP_HOST_NOTES_PER_BLOCK + 44, out_l, out_r);
+    CHECK(atomic_load(&synth->notes_delivered) == CLAP_HOST_NOTES_PER_BLOCK && atomic_load(&synth->notes_dropped) == 44,
+          "%u messages: %u delivered, %u dropped", CLAP_HOST_NOTES_PER_BLOCK + 44, atomic_load(&synth->notes_delivered), atomic_load(&synth->notes_dropped));
     clap_host_close(synth);
     CHECK(clap_host_binaries_open() == 0, "synth binary closed");
 }
