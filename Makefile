@@ -107,19 +107,16 @@ INCLUDEDIR = $(PREFIX)/include
 DATADIR = $(PREFIX)/share
 MANDIR = $(DATADIR)/man/man1
 
-# omx-clap-core.pc names the prefix it was made for
-omx-clap-core.pc: omx-clap-core.pc.in Makefile
-	sed -e 's,@PREFIX@,$(PREFIX),' -e 's,@LIBDIR@,$(LIBDIR),' -e 's,@INCLUDEDIR@,$(INCLUDEDIR),' \
-	    -e 's,@DATADIR@,$(DATADIR),' -e 's,@VERSION@,$(CORE_VERSION),' $< > $@
-
 # the library, its headers, the pkg-config file and the export list: what a program that hosts CLAP plugins builds against
-install-lib: $(CORE_SO) omx-clap-core.pc
+install-lib: $(CORE_SO)
 	install -d $(DESTDIR)$(LIBDIR)/pkgconfig $(DESTDIR)$(INCLUDEDIR)/omx-clap-host $(DESTDIR)$(DATADIR)/$(CORE)
 	install -m 755 $(CORE_FILE) $(DESTDIR)$(LIBDIR)/
 	ln -sf $(CORE_FILE) $(DESTDIR)$(LIBDIR)/$(CORE_SONAME)
 	ln -sf $(CORE_SONAME) $(DESTDIR)$(LIBDIR)/$(CORE_SO)
 	install -m 644 $(CORE_HEADERS) $(DESTDIR)$(INCLUDEDIR)/omx-clap-host/
-	install -m 644 omx-clap-core.pc $(DESTDIR)$(LIBDIR)/pkgconfig/
+	sed -e 's,@PREFIX@,$(PREFIX),' -e 's,@LIBDIR@,$(LIBDIR),' -e 's,@INCLUDEDIR@,$(INCLUDEDIR),' \
+	    -e 's,@DATADIR@,$(DATADIR),' -e 's,@VERSION@,$(CORE_VERSION),' omx-clap-core.pc.in > $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-core.pc
+	chmod 644 $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-core.pc
 	install -m 644 $(CORE_MAP) $(DESTDIR)$(DATADIR)/$(CORE)/
 	if [ -f abi/$(CORE_SONAME).abi ]; then install -m 644 abi/$(CORE_SONAME).abi $(DESTDIR)$(DATADIR)/$(CORE)/; fi
 
@@ -133,7 +130,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* omx-clap-core.pc build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_identity
+	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_identity
 
 -include $(wildcard src/*.d)
 
@@ -176,7 +173,7 @@ test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
-tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc
+tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	rm -rf build/stage
 	$(MAKE) install-lib DESTDIR=$(CURDIR)/build/stage PREFIX=/usr LIBDIR=/usr/lib
 	sed -i 's,^prefix=.*,prefix=$(CURDIR)/build/stage/usr,' build/stage/usr/lib/pkgconfig/omx-clap-core.pc
