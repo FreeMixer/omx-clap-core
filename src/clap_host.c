@@ -752,7 +752,7 @@ static void crossfade(float *dst, const float *from, const float *to, uint32_t n
 
     for (i = 0; i < nframes; i++)
     {
-        const float gain = (float)i / (float)nframes;
+        const float gain = (1.0f / (float)nframes) * (float)i;
         dst[i] = from[i] + (to[i] - from[i]) * gain;
     }
 }
