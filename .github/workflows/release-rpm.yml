@@ -76,7 +76,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: omx-clap-host-release-rpms
-          path: rpms/*.rpm
+          path: rpms/omx-clap-host-[0-9]*.rpm
           if-no-files-found: error
           retention-days: 30
 
