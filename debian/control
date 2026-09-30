@@ -33,11 +33,11 @@ Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: CLAP hosting core of omx-clap-host, shared library
- The library omx-clap-host and a program that hosts CLAP plugins in its own
- process both run plugins on: the control thread that loads, judges, activates and
- warms a CLAP plugin up and owns its parameters and state, and the RT body
- that runs its process() on the caller's thread. It names no JACK and no
- socket.
+ The library omx-clap-host and a program that hosts CLAP plugins in its
+ own process both run plugins on: the control thread that loads, judges,
+ activates and warms a CLAP plugin up and owns its parameters and state,
+ and the RT body that runs its process() on the caller's thread. It names
+ no JACK and no socket.
 
 Package: libomx-clap-core-dev
 Section: libdevel

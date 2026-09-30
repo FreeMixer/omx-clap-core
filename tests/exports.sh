@@ -24,8 +24,11 @@ for f in exported.txt listed.txt declared.txt; do
 done
 
 status=0
-diff -u "$tmp/listed.txt" "$tmp/exported.txt" || { echo "FAIL the file exports other than the version script lists"; status=1; }
-diff -u "$tmp/listed.txt" "$tmp/declared.txt" || { echo "FAIL the header declares other than the version script lists"; status=1; }
+# comm prints what only one side has; both lists are sorted
+extra=$(comm -3 "$tmp/listed.txt" "$tmp/exported.txt")
+[ -z "$extra" ] || { echo "$extra"; echo "FAIL the file exports other than the version script lists (left: listed only, right: exported only)"; status=1; }
+extra=$(comm -3 "$tmp/listed.txt" "$tmp/declared.txt")
+[ -z "$extra" ] || { echo "$extra"; echo "FAIL the header declares other than the version script lists (left: listed only, right: declared only)"; status=1; }
 echo "ok   $(wc -l < "$tmp/exported.txt") exports, the version script's and the header's"
 
 needed=$(readelf -d "$lib" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')

@@ -18,7 +18,7 @@ jobs:
       image: fedora:44
     steps:
       - name: Install the build tools
-        run: dnf install -y --setopt=install_weak_deps=False git gcc make pkgconf-pkg-config clap-devel libabigail
+        run: dnf install -y --setopt=install_weak_deps=False git gcc make diffutils pkgconf-pkg-config clap-devel libabigail
 
       - uses: actions/checkout@v4
 

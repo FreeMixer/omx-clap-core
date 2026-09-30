@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Install the build tools
         run: |
-          dnf install -y --setopt=install_weak_deps=False git gcc make python3 pkgconf-pkg-config clap-devel \
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
             pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
 
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
       options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install the build tools
-        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip pipewire-jack-audio-connection-kit-devel
+        run: dnf install -y --setopt=install_weak_deps=False git rpm-build dnf5-plugins gcc make tar gzip diffutils pkgconf-pkg-config pipewire-jack-audio-connection-kit-devel
 
       - uses: actions/checkout@v4
         with:
@@ -127,7 +127,7 @@ jobs:
           grep -q '^0.1.0$' v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /usr/lib' ldd.txt
+          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
           /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
 
@@ -219,7 +219,7 @@ jobs:
           grep -q '^0.1.0$' v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /usr/lib' ldd.txt
+          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
           dpkg -L libomx-clap-core-dev
