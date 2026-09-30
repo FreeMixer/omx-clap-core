@@ -24,7 +24,7 @@ jobs:
     steps:
       - name: Install the build tools
         run: |
-          dnf install -y --setopt=install_weak_deps=False git gcc make pkgconf-pkg-config clap-devel \
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 pkgconf-pkg-config clap-devel \
             pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
 
       - uses: actions/checkout@v4
@@ -68,12 +68,7 @@ jobs:
 
       - uses: ./.github/actions/mod-host-rpms
 
-      - name: Build the RPMs
-        run: |
-          set -euo pipefail
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          dnf builddep -y packaging/omx-clap-host.spec
-          packaging/build-rpm.sh rpms
+      - uses: ./.github/actions/build-rpm
 
       - name: Check the file lists
         run: |

@@ -1,0 +1,32 @@
+name: build-rpm
+description: Build the RPMs of a checked-out tree from a tarball of it, installing its BuildRequires first
+
+# The caller runs in a Fedora container with git, rpm-build and dnf5-plugins, and has installed what
+# provides the tree's pkgconfig(mod-host-protocol) (see mod-host-rpms).
+
+inputs:
+  tree:
+    description: the checkout
+    default: .
+  tag:
+    description: release tag the tree must be at; empty builds a snapshot
+    default: ''
+  out:
+    description: directory the RPMs are copied to
+    default: rpms
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        TREE: ${{ inputs.tree }}
+        TAG: ${{ inputs.tag }}
+        OUT: ${{ inputs.out }}
+      run: |
+        set -euo pipefail
+        git config --global --add safe.directory "$(readlink -f "$TREE")"
+        dnf builddep -y "$TREE"/packaging/*.spec
+        args=(-C "$TREE")
+        [ -z "$TAG" ] || args+=(-t "$TAG")
+        "$GITHUB_ACTION_PATH/build-rpm.sh" "${args[@]}" "$OUT"

@@ -64,12 +64,9 @@ jobs:
 
       - uses: ./.github/actions/mod-host-rpms
 
-      - name: Build the RPMs
-        run: |
-          set -euo pipefail
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          dnf builddep -y packaging/omx-clap-host.spec
-          packaging/build-rpm.sh -t "$RELEASE_TAG" rpms
+      - uses: ./.github/actions/build-rpm
+        with:
+          tag: ${{ env.RELEASE_TAG }}
 
       - name: Refuse an empty build
         run: |
@@ -121,4 +118,5 @@ jobs:
 
       - name: Report a dry run honestly
         if: inputs.sign != true
-        run: echo "::warning::sign=false: a dry run, nothing was published. The unsigned tree is attached to this run."
+        run: |
+          echo "::warning::sign=false, a dry run: nothing was published. The unsigned tree is attached to this run."
