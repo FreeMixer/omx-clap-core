@@ -35,7 +35,7 @@ needed=$(readelf -d "$lib" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
 echo "ok   needs: $(echo $needed)"
 for n in $needed; do
     case $n in
-        libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*) ;;
+        libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|ld-linux*.so.*) ;;
         *) echo "FAIL the core needs $n"; status=1 ;;
     esac
 done
