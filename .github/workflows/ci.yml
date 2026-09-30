@@ -130,7 +130,7 @@ jobs:
           retention-days: 7
 
   deb:
-    name: DEBs ({{ matrix.suite }}, {{ matrix.arch }}), built and linted
+    name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), built and linted
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
@@ -173,7 +173,7 @@ jobs:
           retention-days: 1
 
   deb-smoke:
-    name: DEBs ({{ matrix.suite }}, {{ matrix.arch }}), installed in a clean container
+    name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), installed in a clean container
     needs: deb
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 15
