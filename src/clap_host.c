@@ -153,7 +153,7 @@ static void binary_unref(clap_binary_t *binary)
 {
     clap_binary_t **link;
 
-    if (--binary->refs > 0)
+    if (!binary || --binary->refs > 0)
         return;
 
     for (link = &g_binaries; *link; link = &(*link)->next)
