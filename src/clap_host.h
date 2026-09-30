@@ -108,6 +108,9 @@ typedef struct CLAP_INSTANCE_T {
     float *input_buffers[CLAP_HOST_MAIN_PORT_CHANNELS];
     float *output_buffers[CLAP_HOST_MAIN_PORT_CHANNELS];
     float *silence;
+    // the four bounce buffers in one mapping with a guard page at each end
+    float *bounce_map;
+    size_t bounce_map_len;
     clap_audio_buffer_t audio_in;
     // the main output first, then one buffer per auxiliary output, all of them over the scratch pair
     clap_audio_buffer_t audio_outputs[1 + CLAP_HOST_AUX_OUTPUTS];

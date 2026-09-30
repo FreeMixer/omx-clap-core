@@ -31,6 +31,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "../src/clap_host.h"
@@ -122,6 +125,36 @@ static void check_refused(const char *path, const char *id, const char *reason)
         clap_host_close(instance);
 }
 
+/* a write one sample past the last bounce buffer, or into the page below the bounce, dies on a guard page of its mapping;
+ * the child has no core dump to leave */
+static int dies_writing(volatile float *at)
+{
+    struct rlimit no_core = { 0, 0 };
+    int status;
+    pid_t pid;
+
+    fflush(stdout);
+    pid = fork();
+    if (pid == 0)
+    {
+        setrlimit(RLIMIT_CORE, &no_core);
+        *at = 1.0f;
+        _exit(0);
+    }
+    waitpid(pid, &status, 0);
+    return WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV;
+}
+
+static void guard_checks(clap_instance_t *instance)
+{
+    const uint32_t last = instance->output_channels - 1;
+
+    CHECK(clap_host_activate(instance, SAMPLE_RATE, BLOCK) == SUCCESS, "activate for the guard pages");
+    CHECK(!dies_writing(&instance->output_buffers[last][BLOCK - 1]), "the last sample of the bounce is writable");
+    CHECK(dies_writing(&instance->output_buffers[last][BLOCK]), "the first sample past the bounce faults on the guard page");
+    CHECK(dies_writing(instance->bounce_map), "the guard page below the bounce faults");
+}
+
 static void fake_plugin_checks(const char *path)
 {
     clap_instance_t *instance = NULL;
@@ -139,6 +172,13 @@ static void fake_plugin_checks(const char *path)
         CHECK(instance->note_inputs == 1 && instance->note_dialect == CLAP_NOTE_DIALECT_CLAP, "one note input, fed the CLAP dialect");
         CHECK(instance->input_channels == 2 && instance->output_channels == 2, "and the effect's audio pair is kept (%u in, %u out)",
               instance->input_channels, instance->output_channels);
+        clap_host_close(instance);
+    }
+
+    CHECK(clap_host_open(path, FAKE_PASSTHROUGH, &instance) == SUCCESS && instance != NULL, "open %s for the guard pages", FAKE_PASSTHROUGH);
+    if (instance)
+    {
+        guard_checks(instance);
         clap_host_close(instance);
     }
 

@@ -34,6 +34,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #include "clap_host.h"
@@ -618,24 +619,49 @@ static int push_or_flush(clap_instance_t *instance, clap_id id, double value, vo
     return SUCCESS;
 }
 
+/* the bounce buffers sit flush against a guard page at the top and have one below: a write past either end of them
+ * faults here, in this mapping, and never lands in a foreign buffer */
+static int take_bounce(clap_instance_t *instance, uint32_t max_frames)
+{
+    const size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    const size_t used = (size_t)4 * max_frames * sizeof(float);
+    const size_t body = (used + page - 1) / page * page;
+    const size_t length = body + 2 * page;
+    uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    float *bounce;
+    uint32_t c;
+
+    if (map == MAP_FAILED)
+        return -1;
+    mprotect(map, page, PROT_NONE);
+    mprotect(map + page + body, page, PROT_NONE);
+    instance->bounce_map = (float *)map;
+    instance->bounce_map_len = length;
+    bounce = (float *)(map + page + (body - used));
+    for (c = 0; c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
+    {
+        instance->input_buffers[c] = bounce + c * max_frames;
+        instance->output_buffers[c] = bounce + (2 + c) * max_frames;
+    }
+    return 0;
+}
+
 static void free_buffers(clap_instance_t *instance)
 {
     uint32_t c;
 
     for (c = 0; c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
     {
-        free(instance->input_buffers[c]);
-        free(instance->output_buffers[c]);
         instance->input_buffers[c] = NULL;
         instance->output_buffers[c] = NULL;
-    }
-    free(instance->silence);
-    instance->silence = NULL;
-    for (c = 0; c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
-    {
         free(instance->aux_buffers[c]);
         instance->aux_buffers[c] = NULL;
     }
+    if (instance->bounce_map)
+        munmap(instance->bounce_map, instance->bounce_map_len);
+    instance->bounce_map = NULL;
+    free(instance->silence);
+    instance->silence = NULL;
 }
 
 static int64_t stream_write(const clap_ostream_t *stream, const void *data, uint64_t size)
@@ -923,10 +949,8 @@ int clap_host_activate(clap_instance_t *instance, double sample_rate, uint32_t m
     if (instance->active || max_frames == 0)
         return ERR_INVALID_OPERATION;
 
-    for (c = 0; c < instance->input_channels; c++)
-        instance->input_buffers[c] = calloc(max_frames, sizeof(float));
-    for (c = 0; c < instance->output_channels; c++)
-        instance->output_buffers[c] = calloc(max_frames, sizeof(float));
+    if (take_bounce(instance, max_frames) != 0)
+        return ERR_LV2_INSTANTIATION;
     instance->silence = calloc(max_frames, sizeof(float));
     for (c = 0; instance->aux_outputs && c < CLAP_HOST_MAIN_PORT_CHANNELS; c++)
         instance->aux_buffers[c] = calloc(max_frames, sizeof(float));
