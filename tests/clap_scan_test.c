@@ -20,7 +20,8 @@
 /* The scanner, run as a program: what it lists for tests/fake.clap, a .clap
  * that is no library, one that crashes its process, a directory walk and a
  * path that can't be read. Arguments: omx-clap-scan, fake.clap, crash.clap
- * and optionally omx-delay.clap (parameter 0 = time, 5 = its bypass). */
+ * and optionally omx-delay.clap (parameter 0 = time, 5 = its bypass) and
+ * fake_synth.clap. */
 
 #include <limits.h>
 #include <stdarg.h>
@@ -206,6 +207,24 @@ static void text_checks(const char *scan, const char *fake, char *out)
           "without --json a listing for a person");
 }
 
+/* the synths: an instrument feature, no audio input, one note input with the dialects the port declares */
+static void synth_checks(const char *scan, const char *synth, char *out)
+{
+    int status = run(out, "%s --json %s", scan, synth);
+
+    CHECK(status == 0 && !has(out, "\"error\""), "fake_synth.clap scans (%i)", status);
+    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 7, "its seven plugins are listed (%i)",
+          count(out, "\"id\":\"org.omx-clap-host.test."));
+    CHECK(has(out, "\"id\":\"org.omx-clap-host.test.synth\",\"name\":\"synth\"") && has(out, "\"features\":[\"instrument\",\"synthesizer\"]"),
+          "the synth is an instrument");
+    CHECK(has(out, "\"audio_ports\":{\"inputs\":[],\"outputs\":[{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":2}]}"),
+          "with no audio input and a stereo main output");
+    CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 5, "one note input on five of them (%i)",
+          count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}"));
+    CHECK(count(out, "\"note_ports\":{\"inputs\":2,\"outputs\":0}") == 1, "two on synth-notes (%i)",
+          count(out, "\"note_ports\":{\"inputs\":2,\"outputs\":0}"));
+}
+
 static void delay_checks(const char *scan, const char *delay, char *out)
 {
     int status = run(out, "%s --json %s", scan, delay);
@@ -223,7 +242,7 @@ int main(int argc, char **argv)
 
     if (argc < 4)
     {
-        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> [omx-delay.clap]\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> [omx-delay.clap | -] [fake_synth.clap]\n", argv[0]);
         return 2;
     }
     if (!realpath(argv[1], scan))
@@ -240,6 +259,8 @@ int main(int argc, char **argv)
     text_checks(scan, argv[2], out);
     if (argc > 4 && strcmp(argv[4], "-") != 0)
         delay_checks(scan, argv[4], out);
+    if (argc > 5)
+        synth_checks(scan, argv[5], out);
 
     printf("%s\n", g_failures == 0 ? "clap scan test ok" : "clap scan test FAILED");
     free(out);

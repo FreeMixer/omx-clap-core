@@ -86,26 +86,29 @@ install_man:
 
 # clean rule
 clean:
-	@rm -f src/*.o $(PROG) $(SCAN_PROG) tests/clap_host_test tests/clap_scan_test tests/fake.clap tests/crash.clap tests/jack_latency_probe tests/jack_identity
+	@rm -f src/*.o $(PROG) $(SCAN_PROG) tests/clap_host_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/jack_latency_probe tests/jack_identity
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: tests/clap_host_test tests/fake.clap test-scan
-	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap)
+test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan
+	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
-# the scanner against the fake plugin, one that crashes, a broken file, a directory walk and omx-delay.clap
-test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap
-	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN)
+# the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
+test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap tests/fake_synth.clap
+	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap
-	./tests/clap_host_test - $(abspath tests/fake.clap)
-	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap)
+test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap
+	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
+	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
 tests/clap_host_test: tests/clap_host_test.c src/clap_host.c
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $^ -ldl -lpthread -lm
 
 tests/fake.clap: tests/fake_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+
+tests/fake_synth.clap: tests/fake_synth.c
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
 
 tests/crash.clap: tests/crash_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
