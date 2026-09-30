@@ -2,7 +2,7 @@ name: mod-host-protocol
 description: Build libmod-host-protocol from a linuxnow/mod-host commit and install it into a prefix
 
 # One way to get the protocol library for every FreeMixer host repository, until the distribution
-# ships mod-host-protocol-devel. The caller has gcc, make and pkg-config.
+# ships mod-host-protocol-devel. The caller has git, gcc, make, python3 and pkg-config.
 
 inputs:
   ref:
