@@ -1,0 +1,41 @@
+name: install-clean
+description: Install RPMs, with their dependencies from the distribution, into an empty root
+
+# A clean container within the job's container: only what the packages pull in is in the root, so a
+# dependency the spec forgot to declare is missing there. Run commands in it with `chroot <root>`.
+# Needs the container options of the jack tests (--cap-add SYS_ADMIN, systempaths=unconfined) to mount
+# /proc and /dev into the root.
+
+inputs:
+  rpms:
+    description: RPM files or globs, one per line
+    required: true
+  packages:
+    description: distribution packages installed beside them, space separated
+    default: ''
+  root:
+    description: the root
+    default: /tmp/clean-root
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        RPMS: ${{ inputs.rpms }}
+        PACKAGES: ${{ inputs.packages }}
+        ROOT: ${{ inputs.root }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$ROOT"
+        files=()
+        while IFS= read -r glob; do
+          [ -n "$glob" ] || continue
+          matched=($glob)
+          [ -e "${matched[0]}" ] || { echo "::error::no file matches $glob"; exit 1; }
+          files+=("${matched[@]}")
+        done <<< "$RPMS"
+        dnf install -y --installroot="$ROOT" --use-host-config --releasever="$(rpm -E %fedora)" \
+          --setopt=install_weak_deps=False "${files[@]}" $PACKAGES
+        mount -t proc proc "$ROOT/proc"
+        mount --rbind /dev "$ROOT/dev"
