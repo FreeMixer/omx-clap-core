@@ -138,7 +138,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity
+	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
 -include $(wildcard src/*.d)
 
@@ -222,6 +222,25 @@ tests/jack_synth_probe: tests/jack_synth_probe.c
 # feedback socket carries, a constant input fed by jack_meter_source
 test-jack-meters: $(PROG) tests/fake_compressor.clap tests/fake.clap tests/jack_meter_source
 	./tests/jack_meters_e2e.sh
+
+# layout pinning over jack in the same kind of namespace: pin_expect before add, a layout that matches loads, one that
+# differs is destroyed before activate with nothing processed, a scheme this host does not know is refused
+test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
+	$(PHD_DECLARED) ./tests/jack_pin_e2e.sh
+
+tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h
+	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
+
+# the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
+# host answers the add. PLUGIN_HOSTD is the daemon, built in a plugin-hostd checkout by default.
+PLUGIN_HOSTD ?= $(PLUGIN_HOSTD_DIR)/plugin-hostd
+test-hostd-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
+	$(PHD_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_pin_e2e.sh
+
+# what the pin tests read of plugin-hostd's protocol, from its header: a test names no code or verb of its own
+HASH := \#
+phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+PHD_DECLARED = $(foreach n,PHD_ERR_PIN_ABSENT PHD_ERR_PIN_BINARY_MISMATCH PHD_ERR_PIN_LAYOUT_MISMATCH PHD_VERB_PIN_EXPECT PHD_VERB_PIN_SET PHD_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE,$(n)='$(call phd_declared,$(n))')
 
 tests/jack_meter_source: tests/jack_meter_source.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)

@@ -58,6 +58,21 @@ the `output_set` lines of the feedback socket against the values the input
 makes, the standard gain adjustment alone and bypassed, and the plugin whose
 meters clash refused.
 
+    make test-jack-pin
+
+runs `tests/jack_pin_e2e.sh` in the same kind of namespace: `pin_expect` with
+the layout pin `tests/clap_layout_pin` computes for `tests/fake.clap`, the
+plugin that matches loaded, activated and processing, the same binary started
+with another parameter default (`FAKE_LAYOUT_DEFAULT`) refused with no
+activate and no process in its `FAKE_LOG`, a pin for another instance leaving
+this one alone, and a scheme the host does not know refused.
+
+    make test-hostd-pin [PLUGIN_HOSTD=<plugin-hostd>]
+
+runs `tests/hostd_pin_e2e.sh`: the same behind plugin-hostd with
+`require_pins 1` and this host as its CLAP worker, `pin_set` with the true
+layout and with another, an unpinned plugin and a wrong binary digest.
+
     make test-identity MOD_HOST=<mod-host> CLAP_TEST_PLUGIN=<omx-delay>.clap [LV2_DIR=<dir with omx-delay.lv2>]
 
 runs `tests/clap_lv2_identity.sh` in the same kind of namespace: the LV2

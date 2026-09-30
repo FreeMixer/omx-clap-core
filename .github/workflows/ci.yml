@@ -69,6 +69,24 @@ jobs:
             echo "::warning::test-jack-meters SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # Layout pinning over jack: pin_expect before add, a layout that differs destroyed before activate.
+      - name: Test layout pinning over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-pin
+          else
+            echo "::warning::test-jack-pin SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The same behind plugin-hostd with require_pins 1 and this host as its CLAP worker.
+      - name: Test layout pinning behind plugin-hostd
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-hostd-pin PLUGIN_HOSTD=/tmp/plugin-hostd/plugin-hostd
+          else
+            echo "::warning::test-hostd-pin SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       - name: Name what this job does not run
         run: |
           echo "test-jack and test-identity are NOT run here: they load omx-delay.clap, which is built in the console's tree."
