@@ -171,6 +171,7 @@ abi-check: abi-stage
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
 	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
+	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h && echo "ok   hosted_stage.h and clap_stage.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
