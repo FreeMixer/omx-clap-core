@@ -29,6 +29,14 @@ PROTOCOL_CFLAGS = -I$(MOD_HOST_DIR)/src
 PROTOCOL_LIBS = -L$(MOD_HOST_DIR) -lmod-host-protocol -Wl,-rpath,$(abspath $(MOD_HOST_DIR))
 endif
 
+# plugin-hostd's protocol and pin headers: pkg-config when plugin-hostd-devel is installed, a plugin-hostd checkout otherwise
+PLUGIN_HOSTD_DIR ?= ../plugin-hostd
+ifeq ($(shell $(PKG_CONFIG) --exists plugin-hostd && echo true), true)
+PLUGIN_HOSTD_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd)
+else
+PLUGIN_HOSTD_CFLAGS = -I$(PLUGIN_HOSTD_DIR)/include
+endif
+
 # CLAP headers: pkg-config when clap-devel is installed, CLAP_CFLAGS=-I<dir> otherwise
 CLAP_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags clap 2>/dev/null)
 
@@ -56,7 +64,7 @@ CORE_LINK_TEST = -L. -l$(CORE) -Wl,-rpath,$(CURDIR)
 LIBS = $(shell $(PKG_CONFIG) --libs jack 2>/dev/null) -ldl -lpthread -lm
 
 # include paths
-INCS = $(PROTOCOL_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack 2>/dev/null)
+INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack 2>/dev/null)
 
 LDFLAGS += -Wl,--no-undefined
 

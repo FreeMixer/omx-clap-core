@@ -13,14 +13,17 @@ adds the CLAP side only.
 Building
 --------
 
-    make [MOD_HOST_DIR=<mod-host checkout>] [CLAP_CFLAGS=-I<clap headers>]
+    make [MOD_HOST_DIR=<mod-host checkout>] [PLUGIN_HOSTD_DIR=<plugin-hostd checkout>] [CLAP_CFLAGS=-I<clap headers>]
 
 The protocol is mod-host's `libmod-host-protocol.so.0`, linked as a shared
 library: from `pkg-config mod-host-protocol` when it is installed
 (mod-host's `make install-lib`, or the mod-host-protocol-devel package),
 otherwise from `MOD_HOST_DIR`, a mod-host tree where the library is built
-if missing and whose path becomes the binary's rpath. The CLAP headers
-come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
+if missing and whose path becomes the binary's rpath. The layout pin's verb,
+its error codes and its serialisation are plugin-hostd's headers
+`plugin-hostd/protocol.h` and `plugin-hostd/pin.h`: from `pkg-config plugin-hostd`
+(the plugin-hostd-devel package) or from `PLUGIN_HOSTD_DIR/include`. The CLAP
+headers come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
@@ -88,6 +91,7 @@ Commands
     param_set <instance_number> <param_id> <param_value>
     param_get <instance_number> <param_id>
     monitor_output <instance_number> <output_symbol>
+    pin_expect <instance_number> <scheme>:<sha256>
     preset_load <instance_number> <preset_file>
     state_save <dir>
     state_load <dir>
@@ -107,6 +111,18 @@ cycle comes (a client nothing is linked to gets none from PipeWire), the
 host delivers it itself through the plugin's `params.flush` on the control
 thread, so `param_get`, `state_save` and the plugin always see the last
 value written.
+
+Layout pin
+----------
+
+`pin_expect <N> omx-layout/1:<sha256>` is plugin-hostd's: the daemon sends it
+just before the `add` of instance `N` with the layout pin of the plugin. That
+`add` computes the plugin's layout after `init()` and before `activate()`,
+every parameter `params.get_info()` gives in the `omx-layout/1` serialisation of
+plugin-hostd's `pin.h`, and when it differs destroys the instance and answers
+`resp -510` (`PHD_ERR_PIN_LAYOUT_MISMATCH`): the plugin is never activated and
+processes nothing. A pin is spent by the `add` it was sent for. A scheme the
+host does not know answers `resp -508` (`PHD_ERR_PIN_ABSENT`) and pins nothing.
 
 Meters
 ------

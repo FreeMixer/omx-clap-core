@@ -36,6 +36,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <plugin-hostd/protocol.h>
+
 #include "mod-host.h"
 #include "host-dispatch.h"
 #include "socket.h"
@@ -83,6 +85,7 @@ static const char g_help_msg[] =
     "param_set <instance_number> <param_id> <param_value>\n"
     "param_get <instance_number> <param_id>\n"
     "monitor_output <instance_number> <output_symbol>\n"
+    PHD_VERB_PIN_EXPECT " <instance_number> <scheme>" PHD_PIN_SCHEME_SEPARATOR "<sha256>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
@@ -104,6 +107,11 @@ static void cpu_load_cb(proto_t *proto)
     char buffer[128];
     sprintf(buffer, "resp 0 %.04f", effects_jack_cpu_load());
     protocol_response(buffer, proto);
+}
+
+static void pin_expect_cb(proto_t *proto)
+{
+    protocol_response_int(effects_pin_expect(atoi(proto->list[1]), proto->list[2]), proto);
 }
 
 static void help_cb(proto_t *proto)
@@ -142,6 +150,7 @@ static int host_init(int socket_port, int feedback_port)
 {
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
+    protocol_add_command(PHD_VERB_PIN_EXPECT " %i %s", pin_expect_cb);
     host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command(HELP, help_cb);

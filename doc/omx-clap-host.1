@@ -73,7 +73,7 @@ answered with
 .B resp
 .I code
 using mod\-host's codes:
-.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", "
+.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
@@ -91,7 +91,23 @@ for one and
 .B "resp 0"
 otherwise, and the feedback port carries
 .BI "output_set " "N symbol value"
-whenever the value moves. Every other mod\-host command answers
+whenever the value moves.
+.BI "pin_expect " "N scheme" : sha256
+is plugin\-hostd's: the next
+.B add
+of instance
+.I N
+compares the plugin's parameter layout in plugin\-hostd's
+.B omx\-layout/1
+serialisation with it after
+.B init
+and before
+.BR activate ,
+and when it differs destroys the instance and answers
+.BR "resp \-510" ;
+a scheme the host does not know answers
+.BR "resp \-508" .
+Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its
 arguments.

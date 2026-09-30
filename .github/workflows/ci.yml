@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this commit
+  PLUGIN_HOSTD_REF: 38e2c6be86b93b9a14023272b02a3ec24777b198
+
 jobs:
   test:
     name: build and test
@@ -30,6 +34,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: FreeMixer/.github/.github/actions/mod-host-protocol@main
+
+      - name: Install plugin-hostd's headers and build its daemon
+        run: |
+          set -euo pipefail
+          .github/plugin-hostd.sh /tmp/plugin-hostd
+          make -C /tmp/plugin-hostd install_protocol PREFIX=/opt/plugin-hostd
+          make -C /tmp/plugin-hostd plugin-hostd
+          echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
       - name: Build
         run: make
@@ -88,6 +101,21 @@ jobs:
           fetch-depth: 0
 
       - uses: FreeMixer/.github/.github/actions/mod-host-rpms@main
+
+      - name: Fetch plugin-hostd
+        run: .github/plugin-hostd.sh /tmp/plugin-hostd
+
+      - name: Build the plugin-hostd RPMs
+        uses: FreeMixer/.github/.github/actions/build-rpm@main
+        with:
+          tree: /tmp/plugin-hostd
+          out: plugin-hostd-rpms
+
+      - name: Install plugin-hostd-devel
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False plugin-hostd-rpms/plugin-hostd-devel-[0-9]*.noarch.rpm
+          pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-rpm@main
 
@@ -210,6 +238,21 @@ jobs:
           fetch-depth: 0
 
       - uses: FreeMixer/.github/.github/actions/deb-deps@main
+
+      - name: Fetch plugin-hostd
+        run: .github/plugin-hostd.sh /tmp/plugin-hostd
+
+      - name: Build the plugin-hostd DEBs
+        uses: FreeMixer/.github/.github/actions/build-deb@main
+        with:
+          tree: /tmp/plugin-hostd
+          out: plugin-hostd-debs
+
+      - name: Install plugin-hostd-dev
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends ./plugin-hostd-debs/plugin-hostd-dev_*.deb
+          pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-deb@main
 
