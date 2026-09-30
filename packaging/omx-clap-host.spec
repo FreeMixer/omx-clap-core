@@ -18,7 +18,7 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 omx-clap-host runs CLAP plugins as JACK clients and is controlled like
 mod-host: the same socket, the same line protocol and the same command
 replies, from mod-host's protocol library. Each plugin instance is a JACK
-client with its own ports.
+client with its own ports, and a MIDI input port for an instrument.
 
 %prep
 %autosetup
