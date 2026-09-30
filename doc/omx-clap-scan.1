@@ -1,0 +1,54 @@
+.TH OMX\-CLAP\-SCAN 1 "September 2026" "omx-clap-host 0.1.0" "User Commands"
+.SH NAME
+omx\-clap\-scan \- list the plugins, parameters and ports of CLAP plugin files
+.SH SYNOPSIS
+.B omx\-clap\-scan
+.RB [ \-\-json ]
+.RI [ path ...]
+.SH DESCRIPTION
+.B omx\-clap\-scan
+loads each
+.I path
+(a
+.B .clap
+file, or a directory searched recursively for
+.B .clap
+files, in name order) and lists every plugin of its factory: id, name, vendor,
+version, description, url and features, then, from an initialised instance
+that is destroyed again and never activated, every parameter (id, name,
+module, min, max, default, flags by name), the audio ports (main or aux,
+channels), the note port counts and the latency.
+.PP
+The latency is left out when the plugin reports 0 before it is activated,
+since that answer is not a measurement.
+.PP
+With no
+.I path
+the search path is
+.BR CLAP_PATH ,
+then
+.IR ~/.clap ,
+.I /usr/lib64/clap
+and
+.IR /usr/lib/clap .
+.PP
+Each file is scanned in a child process. A file that can't be loaded, a
+plugin that fails to initialise, a crash or a scan longer than 30 seconds is
+reported for that file or plugin, and the scan goes on.
+.SH OPTIONS
+.TP
+.B \-\-json
+One JSON document on stdout, keys in a fixed order:
+.B scanner, version, files
+with, per file,
+.B path
+and either
+.B plugins
+or
+.BR error .
+Without it the same facts are printed as a listing for a person.
+.SH EXIT STATUS
+0 when at least one path could be read, even if some plugins reported errors;
+1 when no path could be read; 2 on a bad option.
+.SH SEE ALSO
+.BR omx\-clap\-host (1)

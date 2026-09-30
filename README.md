@@ -45,6 +45,12 @@ bit with `cmp`; then both bypassed, compared again and the CLAP side
 compared to its input. It prints the sample counts and, on a difference,
 the first differing sample.
 
+    make test-scan CLAP_TEST_PLUGIN=<omx-delay>.clap
+
+runs `tests/clap_scan_test`: `omx-clap-scan` against `tests/fake.clap`, a
+`tests/crash.clap` whose entry point aborts, a file that is no library, a
+directory walk and a path that can't be read.
+
 Running
 -------
 
@@ -117,3 +123,41 @@ is read after every activate; when the plugin reports it changed, or
 asks for a restart that re-activates it, the new figure is republished
 with `jack_recompute_total_latencies`. A graph reads the latency from
 the ports, not from this socket.
+
+Scanning
+--------
+
+    omx-clap-scan [--json] [<path>...]
+
+lists what CLAP plugin files hold. A `<path>` is a `.clap` file or a
+directory searched recursively for `.clap` files, in name order; with none
+given the search path is `CLAP_PATH`, then `~/.clap`, `/usr/lib64/clap` and
+`/usr/lib/clap`. For each plugin of each factory it prints the descriptor
+(id, name, vendor, version, description, url, features) and, from an
+instance that is initialised, read and destroyed without being activated:
+
+- every parameter: id, name, module, min, max, default and the flags by
+  name (`stepped`, `hidden`, `readonly`, `bypass`, `automatable`, ...);
+- the audio ports of each direction: id, name, `main` or `aux`, channels;
+- the note port counts;
+- the latency, when the plugin answers it before activation with more than
+  0 frames; otherwise the key is absent, never 0.
+
+`--json` writes one document on stdout with the keys in a fixed order:
+
+    {"scanner":"omx-clap-scan","version":"0.1.0","files":[
+    {"path":"...","plugins":[
+    {"id":"...","name":"...","vendor":"...","version":"...","description":"...",
+     "url":"...","features":["audio-effect"],
+     "params":[{"id":0,"name":"...","module":"","min":0,"max":1,"default":0,"flags":["stepped"]}],
+     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2}],"outputs":[...]},
+     "note_ports":{"inputs":0,"outputs":0},"latency":64}
+    ]}
+    ]}
+
+A bound a plugin leaves infinite is `null`. A file that can't be loaded is
+`{"path":"...","error":"<reason>"}`, a plugin that can't be created or
+initialised keeps its descriptor and gets an `"error"`, and a plugin that
+crashes or hangs (30 s) takes only its own file's entry: each file is
+scanned in a child process and the scan goes on. The exit status is 0 when
+at least one path could be read, 1 when none could.
