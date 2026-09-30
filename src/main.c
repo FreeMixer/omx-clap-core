@@ -82,6 +82,7 @@ static const char g_help_msg[] =
     "bypass <instance_number> <bypass_value>\n"
     "param_set <instance_number> <param_id> <param_value>\n"
     "param_get <instance_number> <param_id>\n"
+    "monitor_output <instance_number> <output_symbol>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
@@ -140,6 +141,7 @@ static void term_signal(int sig)
 static int host_init(int socket_port, int feedback_port)
 {
     host_dispatch_register(&g_clap_backend);
+    host_dispatch_register_monitor_output(effects_monitor_output);
     host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command(HELP, help_cb);

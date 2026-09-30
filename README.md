@@ -78,6 +78,7 @@ Commands
     bypass <instance_number> <bypass_value>
     param_set <instance_number> <param_id> <param_value>
     param_get <instance_number> <param_id>
+    monitor_output <instance_number> <output_symbol>
     preset_load <instance_number> <preset_file>
     state_save <dir>
     state_load <dir>
@@ -97,6 +98,26 @@ cycle comes (a client nothing is linked to gets none from PipeWire), the
 host delivers it itself through the plugin's `params.flush` on the control
 thread, so `param_get`, `state_save` and the plugin always see the last
 value written.
+
+Meters
+------
+
+A plugin's meters are output symbols, as an LV2 plugin's output ports are
+to mod-host: `monitor_output <N> <symbol>` answers `resp 1` for a symbol
+the plugin has and `resp 0` for any other, and from then on the feedback
+socket (`-f`) carries `output_set <N> <symbol> <value>` with the value at
+once and again whenever it moves, at most every 20 ms, never from the
+audio thread.
+
+The host asks each plugin for `org.openmixer.meters/1` (`omx_clap_ext.h`)
+first and, when it has none, for `clap.gain-adjustment-metering/0`. A
+meter's symbol is its name with every character outside `[A-Za-z0-9_]`
+turned into `_` and a `_` before a leading digit; a meter of more than
+one channel has one symbol per channel, `<symbol>_<channel>` from 0. The
+standard gain adjustment is `gain_adjustment_metering`, read on the audio
+thread right after the plugin's `process()`; a cycle that does not call
+it, bypassed, reads 0. A plugin whose meters derive a symbol twice, or one
+a parameter answers to, is refused, and the host names both.
 
 Bypass
 ------

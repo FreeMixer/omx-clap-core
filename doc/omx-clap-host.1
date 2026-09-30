@@ -73,13 +73,25 @@ answered with
 .B resp
 .I code
 using mod\-host's codes:
-.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " preset_load ", "
-.BR state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " help ", " quit .
+.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", "
+.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
 and a parameter by its decimal CLAP id;
 .B :bypass
-reads and writes the bypass. Every other mod\-host command answers
+reads and writes the bypass. A meter the plugin reports through
+.B org.openmixer.meters/1
+or
+.B clap.gain\-adjustment\-metering/0
+is an output symbol:
+.B monitor_output
+answers
+.B "resp 1"
+for one and
+.B "resp 0"
+otherwise, and the feedback port carries
+.BI "output_set " "N symbol value"
+whenever the value moves. Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its
 arguments.
