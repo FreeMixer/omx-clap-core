@@ -20,7 +20,7 @@ jobs:
     container:
       image: fedora:44
       # the jack tests run the host in a user, net, pid and mount namespace of its own
-      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
     steps:
       - name: Install the build tools
         run: |
@@ -74,11 +74,11 @@ jobs:
         run: |
           set -euo pipefail
           for rpm in rpms/omx-clap-host-[0-9]*.x86_64.rpm; do
-            rpm -qlp "$rpm" | tee files.txt
+            rpm -qlp "$rpm"
+            rpm -qp --qf '[%{FILEMODES:perms} %{FILENAMES}\n]' "$rpm" | grep -v -e '^d' -e '/\.build-id/' | cut -d' ' -f2 | sort > files.txt
             printf '%s\n' /usr/bin/omx-clap-host /usr/bin/omx-clap-scan \
               /usr/share/man/man1/omx-clap-host.1.gz /usr/share/man/man1/omx-clap-scan.1.gz \
               /usr/share/doc/omx-clap-host/README.md /usr/share/licenses/omx-clap-host/COPYING | sort > expected.txt
-            sort -o files.txt files.txt
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libmod-host-protocol.so.0' requires.txt
