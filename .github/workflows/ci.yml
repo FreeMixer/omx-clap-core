@@ -47,6 +47,15 @@ jobs:
             echo "::warning::test-jack-synth SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # The meters over jack the same way: monitor_output on each derived symbol and the output_set lines of the feedback socket.
+      - name: Test the meters over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-meters
+          else
+            echo "::warning::test-jack-meters SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       - name: Name what this job does not run
         run: |
           echo "test-jack and test-identity are NOT run here: they load omx-delay.clap, which is built in the console's tree."

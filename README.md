@@ -46,6 +46,15 @@ runs `tests/jack_synth_e2e.sh` in the same kind of namespace: the host with
 before the note, at two velocities and after the note off, and the layouts
 the host refuses.
 
+    make test-jack-meters
+
+runs `tests/jack_meters_e2e.sh` in the same kind of namespace: the host with
+`tests/fake_compressor.clap` fed a constant input by `tests/jack_meter_source`,
+`monitor_output` on every symbol its meters derive and on some they don't,
+the `output_set` lines of the feedback socket against the values the input
+makes, the standard gain adjustment alone and bypassed, and the plugin whose
+meters clash refused.
+
     make test-identity MOD_HOST=<mod-host> CLAP_TEST_PLUGIN=<omx-delay>.clap [LV2_DIR=<dir with omx-delay.lv2>]
 
 runs `tests/clap_lv2_identity.sh` in the same kind of namespace: the LV2
