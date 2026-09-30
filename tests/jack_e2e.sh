@@ -127,7 +127,7 @@ expect "state_load $state_dir" "resp 0"
 expect "param_get 0 2" "resp 0 1.0000"
 
 expect "add clap:$fake#org.omx-clap-host.test.wide 1" "resp -102"
-grep -q "main port has 4 channels" "$runtime/host.log"; step $? "the wide plugin's refusal names its reason"
+grep -q "hosting.topology.wider-than-strip" "$runtime/host.log"; step $? "the wide plugin's refusal names its reason"
 ! graph_has effect_1:in_1; step $? "no effect_1 port after the refusal"
 
 expect "add clap:$fake#org.omx-clap-host.test.passthrough 1" "resp 1"
