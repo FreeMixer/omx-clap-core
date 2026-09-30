@@ -173,6 +173,7 @@ abi-check: abi-stage
 # and linked by that alone, with the console's defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
 	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
+	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc

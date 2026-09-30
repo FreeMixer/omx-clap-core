@@ -62,6 +62,7 @@
 
 #include <clap/audio-buffer.h>
 #include <clap/events.h>
+#include <clap/ext/note-ports.h>
 #include <clap/plugin.h>
 #include <clap/process.h>
 
