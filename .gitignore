@@ -9,3 +9,8 @@ tests/jack_latency_probe
 tests/jack_identity
 tests/fake_synth.clap
 tests/jack_synth_probe
+*.d
+libomx-clap-core.so*
+omx-clap-core.pc
+build/
+tests/core_link_test

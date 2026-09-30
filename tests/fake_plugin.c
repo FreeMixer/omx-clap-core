@@ -26,7 +26,9 @@
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
- *                                      announce the change */
+ *                                      announce the change
+ * Every plugin reads back three read-only parameters: 1 the calls of activate and 2 the calls of process, which is how a
+ * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,6 +54,9 @@ typedef struct FAKE_T {
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
+    uint32_t activations;
+    uint32_t process_calls;
+    uint32_t host_preset_load;
 } fake_t;
 
 static const char *const g_features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL };
@@ -117,30 +122,30 @@ static const clap_plugin_note_ports_t g_note_ports = { note_ports_count, note_po
 static uint32_t params_count(const clap_plugin_t *plugin)
 {
     (void)plugin;
-    return 1;
+    return 4;
 }
 
 static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_param_info_t *info)
 {
     (void)plugin;
-    if (index != 0)
+    if (index > 3)
         return false;
     memset(info, 0, sizeof(*info));
-    info->id = 0;
-    info->flags = CLAP_PARAM_IS_STEPPED;
+    info->id = index;
+    info->flags = CLAP_PARAM_IS_STEPPED | (index ? CLAP_PARAM_IS_READONLY : 0);
     info->min_value = 0.0;
-    info->max_value = LATENCY_MAX;
-    info->default_value = LATENCY_DEFAULT;
-    strcpy(info->name, "latency");
+    info->max_value = index ? 1e9 : LATENCY_MAX;
+    info->default_value = index ? 0.0 : LATENCY_DEFAULT;
+    strcpy(info->name, index == 0 ? "latency" : (index == 1 ? "activations" : (index == 2 ? "process calls" : "host preset-load")));
     return true;
 }
 
 static bool params_get_value(const clap_plugin_t *plugin, clap_id id, double *value)
 {
     const fake_t *fake = plugin->plugin_data;
-    if (id != 0)
+    if (id > 3)
         return false;
-    *value = fake->latency_param;
+    *value = id == 0 ? fake->latency_param : (id == 1 ? fake->activations : (id == 2 ? fake->process_calls : fake->host_preset_load));
     return true;
 }
 
@@ -212,7 +217,10 @@ static void plugin_destroy(const clap_plugin_t *plugin)
 
 static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uint32_t min_frames, uint32_t max_frames)
 {
-    (void)plugin; (void)sample_rate; (void)min_frames; (void)max_frames;
+    fake_t *fake = plugin->plugin_data;
+
+    (void)sample_rate; (void)min_frames; (void)max_frames;
+    fake->activations++;
     return true;
 }
 
@@ -244,6 +252,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     clap_audio_buffer_t *out = &process->audio_outputs[0];
     uint32_t c, i;
 
+    fake->process_calls++;
     take_events(fake, process->in_events);
     if (process->audio_outputs_count != 1 + fake->extra_outputs)
         return CLAP_PROCESS_ERROR;
@@ -313,6 +322,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
 
     fake = calloc(1, sizeof(fake_t));
     fake->host = host;
+    fake->host_preset_load = host->get_extension(host, CLAP_EXT_PRESET_LOAD) != NULL;
     fake->main_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : (!strcmp(plugin_id, ID_WIDEN) ? 1 : 2);
     fake->out_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : 2;
     fake->extra_outputs = !strcmp(plugin_id, ID_AUXOUT) ? 1 : 0;

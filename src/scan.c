@@ -42,7 +42,6 @@
 #include <unistd.h>
 
 #include "clap_host.h"
-#include "host-errors.h"
 
 
 /*
@@ -213,7 +212,7 @@ static void put_features(FILE *out, const char *const *features)
         fputc(']', out);
 }
 
-static void put_params(FILE *out, const clap_instance_t *instance)
+static void put_params(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_params_t *params = instance->params;
     clap_param_info_t info;
@@ -266,7 +265,7 @@ static void put_params(FILE *out, const clap_instance_t *instance)
         fputs(first ? "]" : "\n]", out);
 }
 
-static void put_audio_ports(FILE *out, const clap_instance_t *instance)
+static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
     clap_audio_port_info_t info;
@@ -311,7 +310,7 @@ static void put_audio_ports(FILE *out, const clap_instance_t *instance)
         fputc('}', out);
 }
 
-static void put_note_ports(FILE *out, const clap_instance_t *instance)
+static void put_note_ports(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_note_ports_t *ports = instance->note_ports;
     const uint32_t inputs = ports ? ports->count(instance->plugin, true) : 0;
@@ -324,7 +323,7 @@ static void put_note_ports(FILE *out, const clap_instance_t *instance)
 }
 
 /* what a plugin that is only initialised answers; a plugin not yet activated may say 0, so 0 is left out as unknown */
-static void put_latency(FILE *out, const clap_instance_t *instance)
+static void put_latency(FILE *out, const struct omx_clap_instance *instance)
 {
     uint32_t frames;
 
@@ -374,12 +373,12 @@ static void put_descriptor(FILE *out, const clap_plugin_descriptor_t *desc)
     }
 }
 
-static void put_plugin(FILE *out, clap_binary_t *binary, const clap_plugin_descriptor_t *desc)
+static void put_plugin(FILE *out, struct omx_clap_binary *binary, const clap_plugin_descriptor_t *desc)
 {
-    clap_instance_t *instance;
+    struct omx_clap_instance *instance;
 
     put_descriptor(out, desc);
-    if (clap_host_create(binary, desc, &instance) != SUCCESS)
+    if (omx_clap_host_create(binary, desc, &instance) != 0)
     {
         if (g_json)
             fputs(",\"error\":\"plugin failed to create or init\"}", out);
@@ -400,14 +399,14 @@ static void put_plugin(FILE *out, clap_binary_t *binary, const clap_plugin_descr
     put_latency(out, instance);
     if (g_json)
         fputc('}', out);
-    clap_host_close(instance);
+    omx_clap_host_close(instance);
 }
 
 /* one file's entry, written from the child */
 static void put_file(FILE *out, const char *path)
 {
     char reason[REASON_SIZE], local[PATH_MAX];
-    clap_binary_t *binary;
+    struct omx_clap_binary *binary;
     uint32_t count, i;
     int first = 1;
 
@@ -425,9 +424,9 @@ static void put_file(FILE *out, const char *path)
 
     /* dlopen searches the library path for a name with no slash, and the file is here */
     if (!strchr(path, '/') && snprintf(local, sizeof(local), "./%s", path) < (int)sizeof(local))
-        binary = clap_host_binary_open(local, reason, sizeof(reason));
+        binary = omx_clap_host_binary_open(local, reason, sizeof(reason));
     else
-        binary = clap_host_binary_open(path, reason, sizeof(reason));
+        binary = omx_clap_host_binary_open(path, reason, sizeof(reason));
     if (!binary)
     {
         if (g_json)
@@ -447,10 +446,10 @@ static void put_file(FILE *out, const char *path)
 
     if (g_json)
         fputs(",\"plugins\":[", out);
-    count = clap_host_binary_count(binary);
+    count = omx_clap_host_binary_count(binary);
     for (i = 0; i < count; i++)
     {
-        const clap_plugin_descriptor_t *desc = clap_host_binary_descriptor(binary, i);
+        const clap_plugin_descriptor_t *desc = omx_clap_host_binary_descriptor(binary, i);
         if (!desc || !desc->id)
             continue;
         if (g_json)
@@ -460,7 +459,7 @@ static void put_file(FILE *out, const char *path)
     }
     if (g_json)
         fputs(first ? "]}" : "\n]}", out);
-    clap_host_binary_close(binary);
+    omx_clap_host_binary_close(binary);
 }
 
 static void put_failure(FILE *out, const char *path, const char *reason)
