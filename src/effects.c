@@ -44,10 +44,12 @@
 #include <jack/jack.h>
 #include <jack/midiport.h>
 #include <clap/ext/draft/gain-adjustment-metering.h>
+#include <plugin-hostd/protocol.h>
 
 #include "effects.h"
 #include "clap_host.h"
 #include "omx_clap_ext.h"
+#include "layout_pin.h"
 #include "host-dispatch.h"
 
 
@@ -117,6 +119,8 @@ typedef struct EFFECT_T {
 */
 
 static effect_t g_effects[MAX_INSTANCES];
+// the layout digest pin_expect named for the next add of an instance, empty when none
+static char g_layout_pins[MAX_INSTANCES][PHD_SHA256_HEX_LEN + 1];
 static jack_client_t *g_jack_global_client;
 
 
@@ -686,6 +690,27 @@ static void state_filename(char *buffer, size_t size, const char *dir, int insta
 }
 
 
+/* one-contract 10.1 step 3: the layout of an instance after init and before activate against its pin; 0 when it
+ * matches, or when no pin was expected */
+static int layout_check(effect_t *effect, const char *pin, const char *id)
+{
+    char hex[PHD_SHA256_HEX_LEN + 1];
+
+    if (!pin[0])
+        return 0;
+    if (layout_pin_write(effect->clap->plugin, effect->clap->params, NULL, NULL, hex) != 0)
+    {
+        fprintf(stderr, "%s: its parameter layout cannot be read\n", id);
+        return -1;
+    }
+    if (strcmp(hex, pin) != 0)
+    {
+        fprintf(stderr, "%s: layout %s:%s, pinned %s:%s\n", id, PHD_PIN_LAYOUT_SCHEME, hex, PHD_PIN_LAYOUT_SCHEME, pin);
+        return -1;
+    }
+    return 0;
+}
+
 /*
 ************************************************************************************************************************
 *           GLOBAL FUNCTIONS
@@ -740,6 +765,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
     char path[PATH_MAX];
     char port_name[32];
     char why[OMX_CLAP_WHY_MAX];
+    char pin[PHD_SHA256_HEX_LEN + 1];
     const char *id;
     effect_t *effect;
     uint32_t c;
@@ -751,6 +777,10 @@ int effects_add(const char *uri, int instance, const char *client_name)
         return ERR_INSTANCE_INVALID;
     if (instance_exist(instance))
         return ERR_INSTANCE_ALREADY_EXISTS;
+
+    // a pin is for the one add that follows it
+    memcpy(pin, g_layout_pins[instance], sizeof(pin));
+    g_layout_pins[instance][0] = '\0';
 
     effect = &g_effects[instance];
     memset(effect, 0, sizeof(effect_t));
@@ -766,6 +796,11 @@ int effects_add(const char *uri, int instance, const char *client_name)
     error = open_clap(path, id, &effect->clap);
     if (error != SUCCESS)
         goto error;
+    if (layout_check(effect, pin, id) != 0)
+    {
+        error = PHD_ERR_PIN_LAYOUT_MISMATCH;
+        goto error;
+    }
     if (outputs_build(effect) != 0)
     {
         error = ERR_LV2_INSTANTIATION;
@@ -829,6 +864,25 @@ int effects_add(const char *uri, int instance, const char *client_name)
 error:
     instance_free(effect);
     return error;
+}
+
+/* the layout pin the next add of an instance checks: "<scheme>:<sha256>", a scheme this host does not know refused as no
+ * pin at all */
+int effects_pin_expect(int instance, const char *layout)
+{
+    char scheme[32], hex[PHD_SHA256_HEX_LEN + 1];
+
+    if (!INSTANCE_IS_VALID(instance))
+        return ERR_INSTANCE_INVALID;
+    if (phd_pin_layout_parse(layout, scheme, sizeof(scheme), hex) != 0)
+        return ERR_INVALID_OPERATION;
+    if (strcmp(scheme, PHD_PIN_LAYOUT_SCHEME) != 0)
+    {
+        fprintf(stderr, "instance %d: layout pin scheme %s is not %s\n", instance, scheme, PHD_PIN_LAYOUT_SCHEME);
+        return PHD_ERR_PIN_ABSENT;
+    }
+    memcpy(g_layout_pins[instance], hex, sizeof(hex));
+    return SUCCESS;
 }
 
 int effects_remove(int effect_id)

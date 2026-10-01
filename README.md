@@ -13,14 +13,17 @@ adds the CLAP side only.
 Building
 --------
 
-    make [MOD_HOST_DIR=<mod-host checkout>] [CLAP_CFLAGS=-I<clap headers>]
+    make [MOD_HOST_DIR=<mod-host checkout>] [PLUGIN_HOSTD_DIR=<plugin-hostd checkout>] [CLAP_CFLAGS=-I<clap headers>]
 
 The protocol is mod-host's `libmod-host-protocol.so.0`, linked as a shared
 library: from `pkg-config mod-host-protocol` when it is installed
 (mod-host's `make install-lib`, or the mod-host-protocol-devel package),
 otherwise from `MOD_HOST_DIR`, a mod-host tree where the library is built
-if missing and whose path becomes the binary's rpath. The CLAP headers
-come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
+if missing and whose path becomes the binary's rpath. The layout pin's verb,
+its error codes and its serialisation are plugin-hostd's headers
+`plugin-hostd/protocol.h` and `plugin-hostd/pin.h`: from `pkg-config plugin-hostd`
+(the plugin-hostd-devel package) or from `PLUGIN_HOSTD_DIR/include`. The CLAP
+headers come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
@@ -55,6 +58,21 @@ the `output_set` lines of the feedback socket against the values the input
 makes, the standard gain adjustment alone and bypassed, and the plugin whose
 meters clash refused.
 
+    make test-jack-pin
+
+runs `tests/jack_pin_e2e.sh` in the same kind of namespace: `pin_expect` with
+the layout pin `tests/clap_layout_pin` computes for `tests/fake.clap`, the
+plugin that matches loaded, activated and processing, the same binary started
+with another parameter default (`FAKE_LAYOUT_DEFAULT`) refused with no
+activate and no process in its `FAKE_LOG`, a pin for another instance leaving
+this one alone, and a scheme the host does not know refused.
+
+    make test-hostd-pin [PLUGIN_HOSTD=<plugin-hostd>]
+
+runs `tests/hostd_pin_e2e.sh`: the same behind plugin-hostd with
+`require_pins 1` and this host as its CLAP worker, `pin_set` with the true
+layout and with another, an unpinned plugin and a wrong binary digest.
+
     make test-identity MOD_HOST=<mod-host> CLAP_TEST_PLUGIN=<omx-delay>.clap [LV2_DIR=<dir with omx-delay.lv2>]
 
 runs `tests/clap_lv2_identity.sh` in the same kind of namespace: the LV2
@@ -88,6 +106,7 @@ Commands
     param_set <instance_number> <param_id> <param_value>
     param_get <instance_number> <param_id>
     monitor_output <instance_number> <output_symbol>
+    pin_expect <instance_number> <scheme>:<sha256>
     preset_load <instance_number> <preset_file>
     state_save <dir>
     state_load <dir>
@@ -107,6 +126,18 @@ cycle comes (a client nothing is linked to gets none from PipeWire), the
 host delivers it itself through the plugin's `params.flush` on the control
 thread, so `param_get`, `state_save` and the plugin always see the last
 value written.
+
+Layout pin
+----------
+
+`pin_expect <N> omx-layout/1:<sha256>` is plugin-hostd's: the daemon sends it
+just before the `add` of instance `N` with the layout pin of the plugin. That
+`add` computes the plugin's layout after `init()` and before `activate()`,
+every parameter `params.get_info()` gives in the `omx-layout/1` serialisation of
+plugin-hostd's `pin.h`, and when it differs destroys the instance and answers
+`resp -510` (`PHD_ERR_PIN_LAYOUT_MISMATCH`): the plugin is never activated and
+processes nothing. A pin is spent by the `add` it was sent for. A scheme the
+host does not know answers `resp -508` (`PHD_ERR_PIN_ABSENT`) and pins nothing.
 
 Meters
 ------

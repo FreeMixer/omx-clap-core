@@ -16,3 +16,4 @@ tests/jack_meter_source
 /omx-clap-core.pc
 /build/
 tests/core_link_test
+tests/clap_layout_pin

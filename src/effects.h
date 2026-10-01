@@ -56,6 +56,7 @@
 int effects_init(void);
 int effects_finish(void);
 int effects_add(const char *uri, int instance, const char *client_name);
+int effects_pin_expect(int instance, const char *layout);
 int effects_remove(int effect_id);
 int effects_bypass(int effect_id, int value);
 int effects_set_parameter(int effect_id, const char *control_symbol, float value);

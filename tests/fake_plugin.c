@@ -28,7 +28,10 @@
  *                                      makes it ask for a restart and
  *                                      announce the change
  * Every plugin reads back three read-only parameters: 1 the calls of activate and 2 the calls of process, which is how a
- * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension. */
+ * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension.
+ * FAKE_LAYOUT_DEFAULT is the default parameter 0 declares (64 without it): the same binary with another layout.
+ * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
+ * "<id> destroy" to, which outlives an instance the host destroyed. */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,6 +60,7 @@ typedef struct FAKE_T {
     uint32_t activations;
     uint32_t process_calls;
     uint32_t host_preset_load;
+    int logged_process;
 } fake_t;
 
 static const char *const g_features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL };
@@ -74,6 +78,24 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
+
+static void fake_log(const clap_plugin_t *plugin, const char *what)
+{
+    const char *path = getenv("FAKE_LOG");
+    FILE *f;
+
+    if (!path || !(f = fopen(path, "a")))
+        return;
+    fprintf(f, "%s %s\n", plugin->desc->id, what);
+    fclose(f);
+}
+
+static double layout_default(void)
+{
+    const char *value = getenv("FAKE_LAYOUT_DEFAULT");
+
+    return value && *value ? atof(value) : LATENCY_DEFAULT;
+}
 
 static uint32_t audio_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
@@ -135,7 +157,7 @@ static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_pa
     info->flags = CLAP_PARAM_IS_STEPPED | (index ? CLAP_PARAM_IS_READONLY : 0);
     info->min_value = 0.0;
     info->max_value = index ? 1e9 : LATENCY_MAX;
-    info->default_value = index ? 0.0 : LATENCY_DEFAULT;
+    info->default_value = index ? 0.0 : layout_default();
     strcpy(info->name, index == 0 ? "latency" : (index == 1 ? "activations" : (index == 2 ? "process calls" : "host preset-load")));
     return true;
 }
@@ -206,12 +228,13 @@ static const clap_plugin_latency_t g_latency = { latency_get };
 
 static bool plugin_init(const clap_plugin_t *plugin)
 {
-    (void)plugin;
+    fake_log(plugin, "init");
     return true;
 }
 
 static void plugin_destroy(const clap_plugin_t *plugin)
 {
+    fake_log(plugin, "destroy");
     free(plugin->plugin_data);
 }
 
@@ -221,6 +244,7 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
 
     (void)sample_rate; (void)min_frames; (void)max_frames;
     fake->activations++;
+    fake_log(plugin, "activate");
     return true;
 }
 
@@ -253,6 +277,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     uint32_t c, i;
 
     fake->process_calls++;
+    if (!fake->logged_process)
+    {
+        fake->logged_process = 1;
+        fake_log(plugin, "process");
+    }
     take_events(fake, process->in_events);
     if (process->audio_outputs_count != 1 + fake->extra_outputs)
         return CLAP_PROCESS_ERROR;
