@@ -55,7 +55,7 @@
 ************************************************************************************************************************
 */
 
-#define CORE_VERSION                    (0u * 10000u + 1u * 100u + 0u)
+#define CORE_VERSION                    (0u * 10000u + 2u * 100u + 0u)
 
 // the warm-up runs at most this many frames a block, whatever the bounce holds
 #define WARMUP_BLOCK_FRAMES             128u
@@ -106,7 +106,7 @@ static struct omx_clap_binary *g_binaries;
 /* the defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
 {
-    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-host", "0"
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-host", "0", 0, 0
 };
 static int g_configured;
 static int g_sealed;        // a binary was opened: the configuration can no longer change
@@ -363,6 +363,33 @@ static const clap_host_audio_ports_t g_host_audio_ports = { host_ports_is_rescan
 static const clap_host_state_t g_host_state = { host_state_mark_dirty };
 static const clap_host_preset_load_t g_host_preset_load = { host_preset_on_error, host_preset_loaded };
 
+static bool host_track_info_get(const clap_host_t *host, clap_track_info_t *info)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (!main_thread_call(host) || !in->track_set)
+        return false;
+    *info = in->track;
+    return true;
+}
+
+static void host_remote_controls_changed(const clap_host_t *host)
+{
+    if (main_thread_call(host))
+        atomic_store(&instance_of(host)->remote_controls_changed, 1u);
+}
+
+/* the page a plugin would have shown: no surface follows it */
+static void host_remote_controls_suggest_page(const clap_host_t *host, clap_id page_id)
+{
+    (void)page_id;
+    main_thread_call(host);
+}
+
+static const clap_host_track_info_t g_host_track_info = { host_track_info_get };
+static const clap_host_remote_controls_t g_host_remote_controls = { host_remote_controls_changed,
+                                                                    host_remote_controls_suggest_page };
+
 static const char *const g_extension_ids[] = CLAP_HOST_EXTENSIONS_INIT;
 
 /* only what the declared list offers, and the preset-load extension where the configuration adds it: a verdict
@@ -377,6 +404,10 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return NULL;
     if (g_config.preset_load && (!strcmp(id, CLAP_EXT_PRESET_LOAD) || !strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)))
         return &g_host_preset_load;
+    if (g_config.track_info && (!strcmp(id, CLAP_EXT_TRACK_INFO) || !strcmp(id, CLAP_EXT_TRACK_INFO_COMPAT)))
+        return &g_host_track_info;
+    if (g_config.remote_controls && (!strcmp(id, CLAP_EXT_REMOTE_CONTROLS) || !strcmp(id, CLAP_EXT_REMOTE_CONTROLS_COMPAT)))
+        return &g_host_remote_controls;
     for (i = 0; g_extension_ids[i]; i++)
         declared |= strcmp(g_extension_ids[i], id) == 0;
     if (!declared)
@@ -557,6 +588,18 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD);
     if (!in->preset_load)
         in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
+    if (g_config.track_info)
+    {
+        in->track_info = in->plugin->get_extension(in->plugin, CLAP_EXT_TRACK_INFO);
+        if (!in->track_info)
+            in->track_info = in->plugin->get_extension(in->plugin, CLAP_EXT_TRACK_INFO_COMPAT);
+    }
+    if (g_config.remote_controls)
+    {
+        in->remote_controls = in->plugin->get_extension(in->plugin, CLAP_EXT_REMOTE_CONTROLS);
+        if (!in->remote_controls)
+            in->remote_controls = in->plugin->get_extension(in->plugin, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
+    }
     *out = in;
     return 0;
 }
@@ -822,7 +865,7 @@ void omx_clap_host_config_default(struct omx_clap_host_config *config)
 {
     static const struct omx_clap_host_config defaults =
     {
-        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-host", "0"
+        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-host", "0", 0, 0
     };
 
     *config = defaults;
@@ -845,6 +888,33 @@ int omx_clap_host_configure(const struct omx_clap_host_config *config)
     g_config = merged;
     g_configured = 1;
     return 0;
+}
+
+int omx_clap_host_track_info_set(struct omx_clap_instance *in, const char *name, const clap_color_t *color, uint64_t flags)
+{
+    if (!g_config.track_info)
+        return -1;
+    memset(&in->track, 0, sizeof(in->track));
+    in->track.flags = flags & (CLAP_TRACK_INFO_IS_FOR_RETURN_TRACK | CLAP_TRACK_INFO_IS_FOR_BUS | CLAP_TRACK_INFO_IS_FOR_MASTER);
+    if (name && *name)
+    {
+        snprintf(in->track.name, sizeof(in->track.name), "%s", name);
+        in->track.flags |= CLAP_TRACK_INFO_HAS_TRACK_NAME;
+    }
+    if (color)
+    {
+        in->track.color = *color;
+        in->track.flags |= CLAP_TRACK_INFO_HAS_TRACK_COLOR;
+    }
+    in->track_set = 1;
+    if (in->track_info)
+        in->track_info->changed(in->plugin);
+    return 0;
+}
+
+int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in)
+{
+    return atomic_exchange(&in->remote_controls_changed, 0) != 0;
 }
 
 uint32_t omx_clap_core_version(void)

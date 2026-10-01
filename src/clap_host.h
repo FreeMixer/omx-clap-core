@@ -92,6 +92,8 @@ struct omx_clap_host_config
     const char *vendor;
     const char *url;
     const char *version;
+    int track_info;             // offer clap.track-info besides the declared list: get answers omx_clap_host_track_info_set
+    int remote_controls;        // offer clap.remote-controls besides the declared list: see omx_clap_host_remote_controls_changed
 };
 
 /* One parameter of a hosted plugin as a row: what a slot serves. A parameter that is not a row (hidden, read-only, the
@@ -180,6 +182,15 @@ struct omx_clap_instance
     _Atomic uint32_t log_pending;
     _Atomic uint32_t log_fresh;             // last_log changed since omx_clap_host_log_take
     char log_ring[CLAP_HOST_LOG_BYTES];     // a message lands here: one slot, a lock-free single-message ring
+
+    // clap.track-info: what the host's get answers, set by omx_clap_host_track_info_set; the plugin's own extension
+    const clap_plugin_track_info_t *track_info;
+    clap_track_info_t track;
+    int track_set;
+    // clap.remote-controls: the plugin's own extension, and its call of the host's changed, read and cleared by
+    // omx_clap_host_remote_controls_changed
+    const clap_plugin_remote_controls_t *remote_controls;
+    _Atomic uint32_t remote_controls_changed;
 };
 
 
@@ -323,6 +334,15 @@ OMX_CLAP_EXPORT int omx_clap_host_state_load(struct omx_clap_instance *in, const
 
 /* preset-load from a file location; -1 when the plugin has no such extension or refuses. */
 OMX_CLAP_EXPORT int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location);
+
+/* clap.track-info, where the configuration offers it: store what the host's get answers from now on and call the
+ * plugin's changed. `name` NULL or "" for none, `color` NULL for none; `flags` the CLAP_TRACK_INFO_IS_FOR_* bits, the
+ * HAS_ bits are set here. The name is cut at CLAP_NAME_SIZE - 1 bytes. -1 when the configuration does not offer it. */
+OMX_CLAP_EXPORT int omx_clap_host_track_info_set(struct omx_clap_instance *in, const char *name, const clap_color_t *color,
+                                                 uint64_t flags);
+
+/* Whether the plugin called the host's remote_controls.changed since the last call; reading clears it. */
+OMX_CLAP_EXPORT int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in);
 
 /* The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency. Returns
  * nonzero when the plugin asked for a restart (the caller performs it). */

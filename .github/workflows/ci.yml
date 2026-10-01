@@ -156,7 +156,7 @@ jobs:
           for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
-            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' '/usr/lib*/libomx-clap-core.so.0.1.0' /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' '/usr/lib*/libomx-clap-core.so.0.2.0' /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             # the library names no jack and no protocol library
             rpm -qp --requires "$rpm" | tee requires.txt
@@ -180,7 +180,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm
           make tests/fake.clap tests/fake_synth.clap
           pkg-config --modversion omx-clap-core | tee v.txt
-          grep -q '^0.1.0$' v.txt
+          grep -q '^0.2.0$' v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
           grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
@@ -288,7 +288,7 @@ jobs:
           set -euo pipefail
           apt-get install -y --no-install-recommends ./debs/libomx-clap-core0_*.deb ./debs/libomx-clap-core-dev_*.deb
           pkg-config --modversion omx-clap-core | tee v.txt
-          grep -q '^0.1.0$' v.txt
+          grep -q '^0.2.0$' v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
           grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
