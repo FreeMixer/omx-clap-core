@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # The library against the baseline of its last release, with libabigail.
 #   abi-check.sh <libomx-clap-core.so.X.Y.Z> <include dir> <baseline.abi>
 # An added function or field is compatible and needs a new minor version; a removed or changed one is incompatible and needs a

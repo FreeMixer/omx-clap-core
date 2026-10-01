@@ -1,4 +1,5 @@
 #!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
 # plugin-hostd at the commit PLUGIN_HOSTD_REF names, fetched into a directory: its protocol and pin headers are what
 # this host builds against, and its daemon is what the pin test runs behind.
 #

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The LV2 twin through mod-host and the CLAP twin through omx-clap-host, the
 # same parameters, one deterministic input from the same cycles, both outputs

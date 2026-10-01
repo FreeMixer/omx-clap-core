@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # layout pinning behind plugin-hostd, end to end, in a PipeWire of its own:
 # the script re-runs itself in a private user, net, pid and mount namespace
