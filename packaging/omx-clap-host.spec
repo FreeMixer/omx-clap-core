@@ -11,7 +11,7 @@ BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
 BuildRequires: pkgconfig(mod-host-protocol)
-BuildRequires: pkgconfig(plugin-hostd)
+BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
