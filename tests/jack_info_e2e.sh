@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 #
 # track_info, remote_pages, remote_page_get and param_info over jack, end to end, in a PipeWire of its own: the
 # script re-runs itself in a private user, net, pid and mount namespace with its own /proc, starts pipewire on a
