@@ -58,6 +58,15 @@ the `output_set` lines of the feedback socket against the values the input
 makes, the standard gain adjustment alone and bypassed, and the plugin whose
 meters clash refused.
 
+    make test-jack-info
+
+runs `tests/jack_info_e2e.sh` in the same kind of namespace: `track_info`
+read back byte for byte by the fake plugin through `clap.track-info`, the
+names and colours that are refused, both remote pages of the fake with the
+slots `param_set` would refuse written `-`, `remote_pages_changed` on the
+feedback socket when the fake calls the host's `changed`, `param_info`, and
+every call of the plugin on the thread that ran `init`.
+
     make test-jack-pin
 
 runs `tests/jack_pin_e2e.sh` in the same kind of namespace: `pin_expect` with
@@ -107,6 +116,10 @@ Commands
     param_get <instance_number> <param_id>
     monitor_output <instance_number> <output_symbol>
     pin_expect <instance_number> <scheme>:<sha256>
+    track_info <instance_number> <name> <#RRGGBB|-> [bus|return|master]
+    remote_pages <instance_number>
+    remote_page_get <instance_number> <page>
+    param_info <instance_number> <param_id>
     preset_load <instance_number> <preset_file>
     state_save <dir>
     state_load <dir>
@@ -138,6 +151,27 @@ plugin-hostd's `pin.h`, and when it differs destroys the instance and answers
 `resp -510` (`PHD_ERR_PIN_LAYOUT_MISMATCH`): the plugin is never activated and
 processes nothing. A pin is spent by the `add` it was sent for. A scheme the
 host does not know answers `resp -508` (`PHD_ERR_PIN_ABSENT`) and pins nothing.
+
+Strip and controls
+------------------
+
+`track_info`, `remote_pages`, `remote_page_get` and `param_info` are plugin-hostd's
+(`include/plugin-hostd/protocol.h`), answered from the plugin:
+
+- `track_info <N> <name> <color> [kind]` stores the strip's name (`""` for none),
+  colour (`#RRGGBB`, or `-` for none) and kind, then calls the plugin's
+  `clap.track-info` `changed`; the host's `get` answers from that copy. A word
+  outside that grammar, or a name longer than 255 bytes, answers `resp -902`
+  and changes nothing.
+- `remote_pages <N>` answers the page count of `clap.remote-controls`, 0 for a
+  plugin without it. `remote_page_get <N> <page>` answers
+  `resp 0 <page_id> "<section>" "<page_name>" <s1> ... <s8>`, each slot the id
+  `param_set` takes, or `-` for an empty slot and for an id `param_set` would
+  refuse. A plugin's call of the host's `changed` writes
+  `remote_pages_changed <N>` on the feedback socket.
+- `param_info <N> <param_id>` answers `resp -511` (`PHD_ERR_NO_PARAM_CONTRACT`)
+  for every parameter until the host reads `org.openmixer.param-contract/1`,
+  and `resp -103` for an id `param_set` would refuse.
 
 Meters
 ------
@@ -296,6 +330,7 @@ What a host differs in is a configuration, set once per process with
 | warm-up before publish, restart after | on | off |
 | note inputs and instruments | refused | admitted |
 | `clap.preset-load` host extension | not offered | offered |
+| `clap.track-info` and `clap.remote-controls` host extensions | not offered | offered |
 | host name, vendor, url | omx-clap-core, Pau Aliagas | omx-clap-host, Pau Aliagas |
 
 The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core0`

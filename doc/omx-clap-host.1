@@ -74,6 +74,7 @@ answered with
 .I code
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
+.BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
@@ -107,6 +108,21 @@ and when it differs destroys the instance and answers
 .BR "resp \-510" ;
 a scheme the host does not know answers
 .BR "resp \-508" .
+.BI "track_info " "N name color" " [" kind ]
+passes the strip's name, colour and kind to the plugin through
+.BR clap.track\-info ;
+.BI "remote_pages " N
+and
+.BI "remote_page_get " "N page"
+read
+.BR clap.remote\-controls ,
+and the feedback port carries
+.BI "remote_pages_changed " N
+when the plugin changes its pages;
+.BI "param_info " "N id"
+answers
+.B "resp \-511"
+until the host reads a parameter contract.
 Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its

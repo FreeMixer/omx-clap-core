@@ -51,6 +51,7 @@
 #include "omx_clap_ext.h"
 #include "layout_pin.h"
 #include "host-dispatch.h"
+#include "socket.h"
 
 
 /*
@@ -729,6 +730,8 @@ static int configure_core(void)
     config.warmup = 0;
     config.note_inputs = 1;
     config.preset_load = 1;
+    config.track_info = 1;
+    config.remote_controls = 1;
     config.name = "omx-clap-host";
     config.vendor = "Pau Aliagas";
     config.url = "";
@@ -1044,10 +1047,134 @@ void effects_idle(void)
         if (!instance_exist(i))
             continue;
         clap_idle(effect->clap);
+        if (omx_clap_host_remote_controls_changed(effect->clap))
+        {
+            char line[64];
+
+            snprintf(line, sizeof(line), PHD_EVENT_REMOTE_PAGES_CHANGED_FMT, effect->instance);
+            socket_send_feedback(line);
+        }
         if (omx_clap_host_latency(effect->clap) != effect->latency_published)
             publish_latency(effect);
         outputs_notify(effect);
     }
+}
+
+/* the CLAP flag of a strip kind of PHD_TRACK_KINDS, 0 for an input channel */
+#define TRACK_KIND_FLAG_BUS     CLAP_TRACK_INFO_IS_FOR_BUS
+#define TRACK_KIND_FLAG_RETURN  CLAP_TRACK_INFO_IS_FOR_RETURN_TRACK
+#define TRACK_KIND_FLAG_MASTER  CLAP_TRACK_INFO_IS_FOR_MASTER
+
+static uint64_t track_kind_flag(const char *kind)
+{
+#define X(id, name) if (kind && !strcmp(kind, name)) return TRACK_KIND_FLAG_##id;
+    PHD_TRACK_KINDS(X)
+#undef X
+    return 0;
+}
+
+/* track_info: the words already checked against the grammar (phd_track_info_valid) */
+int effects_track_info(int effect_id, const char *name, const char *color, const char *kind)
+{
+    clap_color_t rgb;
+    unsigned long value;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (strcmp(color, PHD_NO_COLOR) != 0)
+    {
+        value = strtoul(color + 1, NULL, 16);
+        rgb.alpha = 255;
+        rgb.red = (uint8_t)(value >> 16);
+        rgb.green = (uint8_t)(value >> 8);
+        rgb.blue = (uint8_t)value;
+    }
+    if (omx_clap_host_track_info_set(g_effects[effect_id].clap, name,
+                                     strcmp(color, PHD_NO_COLOR) ? &rgb : NULL, track_kind_flag(kind)) != 0)
+        return ERR_INVALID_OPERATION;
+    return SUCCESS;
+}
+
+/* remote_pages: the plugin's page count, 0 without clap.remote-controls */
+int effects_remote_pages(int effect_id)
+{
+    const struct omx_clap_instance *clap;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    clap = g_effects[effect_id].clap;
+    return clap->remote_controls ? (int)clap->remote_controls->count(clap->plugin) : 0;
+}
+
+/* a name a plugin reports as one quoted word: a byte below 0x20 a space, cut at the last whole UTF-8 character within
+ * PHD_STRING_MAX bytes, '"' written \" */
+static void quoted(char *out, size_t size, const char *name)
+{
+    char clean[PHD_STRING_MAX + 1];
+    size_t n = 0, o = 0;
+
+    for (; name[n] && n < PHD_STRING_MAX; n++)
+        clean[n] = (unsigned char)name[n] < 0x20 ? ' ' : name[n];
+    if (name[n])
+        while (n > 0 && ((unsigned char)name[n] & 0xc0) == 0x80)
+            n--;
+    clean[n] = '\0';
+    out[o++] = '"';
+    for (n = 0; clean[n] && o + 3 < size; n++)
+    {
+        if (clean[n] == '"')
+            out[o++] = '\\';
+        out[o++] = clean[n];
+    }
+    out[o++] = '"';
+    out[o] = '\0';
+}
+
+/* remote_page_get: the page's reply into `reply`; a slot is the id param_set takes, PHD_EMPTY_SLOT for an empty one,
+ * an id params does not list, and an id param_set would refuse */
+int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
+{
+    struct omx_clap_instance *clap;
+    clap_remote_controls_page_t info;
+    char section[2 * PHD_STRING_MAX + 3], name[2 * PHD_STRING_MAX + 3];
+    size_t used;
+    int i;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    clap = g_effects[effect_id].clap;
+    memset(&info, 0, sizeof(info));
+    if (!clap->remote_controls || page < 0 || (uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
+        !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+        return ERR_INVALID_OPERATION;
+    info.section_name[sizeof(info.section_name) - 1] = '\0';
+    info.page_name[sizeof(info.page_name) - 1] = '\0';
+    quoted(section, sizeof(section), info.section_name);
+    quoted(name, sizeof(name), info.page_name);
+    used = snprintf(reply, size, "resp 0 %u %s %s", info.page_id, section, name);
+    for (i = 0; i < PHD_REMOTE_PAGE_SLOTS && used < size; i++)
+    {
+        const clap_id id = info.param_ids[i];
+
+        if (id == CLAP_INVALID_ID || !omx_clap_host_param_is_row(clap, id))
+            used += snprintf(reply + used, size - used, " %s", PHD_EMPTY_SLOT);
+        else
+            used += snprintf(reply + used, size - used, " %u", id);
+    }
+    return used < size ? SUCCESS : ERR_INVALID_OPERATION;
+}
+
+/* param_info: -103 for what is not a parameter param_set takes; every parameter is uncontracted until the host reads
+ * org.openmixer.param-contract/1, so the controller falls back to qualification */
+int effects_param_info(int effect_id, const char *symbol)
+{
+    clap_id id;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (parse_param_id(symbol, &id) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
+        return ERR_LV2_INVALID_PARAM_SYMBOL;
+    return PHD_ERR_NO_PARAM_CONTRACT;
 }
 
 /* monitor_output: 0 once `symbol` is monitored, its first value going out with the next idle call */

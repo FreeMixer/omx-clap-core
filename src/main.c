@@ -32,6 +32,7 @@
 
 #include <getopt.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -86,6 +87,10 @@ static const char g_help_msg[] =
     "param_get <instance_number> <param_id>\n"
     "monitor_output <instance_number> <output_symbol>\n"
     PHD_VERB_PIN_EXPECT " <instance_number> <scheme>" PHD_PIN_SCHEME_SEPARATOR "<sha256>\n"
+    PHD_VERB_TRACK_INFO " <instance_number> <name> <#RRGGBB|" PHD_NO_COLOR "> [bus|return|master]\n"
+    PHD_VERB_REMOTE_PAGES " <instance_number>\n"
+    PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
+    PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
@@ -112,6 +117,41 @@ static void cpu_load_cb(proto_t *proto)
 static void pin_expect_cb(proto_t *proto)
 {
     protocol_response_int(effects_pin_expect(atoi(proto->list[1]), proto->list[2]), proto);
+}
+
+static void track_info_cb(proto_t *proto)
+{
+    int resp = ERR_INVALID_OPERATION;
+
+    if (phd_track_info_valid(proto->list, (int)proto->list_count))
+        resp = effects_track_info(atoi(proto->list[1]), proto->list[2], proto->list[3],
+                                  proto->list_count > 4 ? proto->list[4] : NULL);
+    protocol_response_int(resp, proto);
+}
+
+static void remote_pages_cb(proto_t *proto)
+{
+    protocol_response_int(effects_remote_pages(atoi(proto->list[1])), proto);
+}
+
+static void remote_page_get_cb(proto_t *proto)
+{
+    char reply[SOCKET_MSG_BUFFER_SIZE];
+    char *end;
+    long page = strtol(proto->list[2], &end, 10);
+    int resp = ERR_INVALID_OPERATION;
+
+    if (*end == '\0' && end != proto->list[2] && page >= 0 && page <= INT32_MAX)
+        resp = effects_remote_page_get(atoi(proto->list[1]), (int)page, reply, sizeof(reply));
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+}
+
+static void param_info_cb(proto_t *proto)
+{
+    protocol_response_int(effects_param_info(atoi(proto->list[1]), proto->list[2]), proto);
 }
 
 static void help_cb(proto_t *proto)
@@ -151,6 +191,10 @@ static int host_init(int socket_port, int feedback_port)
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(PHD_VERB_PIN_EXPECT " %i %s", pin_expect_cb);
+    protocol_add_command(PHD_VERB_TRACK_INFO_FMT, track_info_cb);
+    protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
+    protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
+    protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
     host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command(HELP, help_cb);

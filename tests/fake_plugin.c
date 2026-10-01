@@ -31,8 +31,13 @@
  * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension.
  * FAKE_LAYOUT_DEFAULT is the default parameter 0 declares (64 without it): the same binary with another layout.
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
- * "<id> destroy" to, which outlives an instance the host destroyed. */
+ * "<id> destroy" to, which outlives an instance the host destroyed.
+ * passthrough also has clap.track-info, whose changed appends "<id> track_info <got> <flags> <a,r,g,b> <name>" with what
+ * the host's get answered and, told it is on a bus, calls the host's remote_controls.changed; and clap.remote-controls
+ * with two pages, a get past them appending "<id> remote_controls.get past the count". A call of either from any thread
+ * but the one that ran init appends "<id> wrong thread <what>". */
 
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +66,7 @@ typedef struct FAKE_T {
     uint32_t process_calls;
     uint32_t host_preset_load;
     int logged_process;
+    pthread_t init_thread;
 } fake_t;
 
 static const char *const g_features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL };
@@ -228,9 +234,84 @@ static const clap_plugin_latency_t g_latency = { latency_get };
 
 static bool plugin_init(const clap_plugin_t *plugin)
 {
+    fake_t *fake = plugin->plugin_data;
+
+    fake->init_thread = pthread_self();
     fake_log(plugin, "init");
     return true;
 }
+
+static void main_thread_only(const clap_plugin_t *plugin, const char *what)
+{
+    const fake_t *fake = plugin->plugin_data;
+    char line[64];
+
+    if (pthread_equal(pthread_self(), fake->init_thread))
+        return;
+    snprintf(line, sizeof(line), "wrong thread %s", what);
+    fake_log(plugin, line);
+}
+
+static void track_info_changed(const clap_plugin_t *plugin)
+{
+    const fake_t *fake = plugin->plugin_data;
+    const clap_host_track_info_t *host_track = fake->host->get_extension(fake->host, CLAP_EXT_TRACK_INFO);
+    const clap_host_remote_controls_t *host_remote = fake->host->get_extension(fake->host, CLAP_EXT_REMOTE_CONTROLS);
+    clap_track_info_t info;
+    char line[CLAP_NAME_SIZE + 96];
+    bool got;
+
+    main_thread_only(plugin, "track_info.changed");
+    memset(&info, 0, sizeof(info));
+    got = host_track && host_track->get(fake->host, &info);
+    snprintf(line, sizeof(line), "track_info %d %llx %u,%u,%u,%u %s", got, (unsigned long long)info.flags, info.color.alpha,
+             info.color.red, info.color.green, info.color.blue, info.name);
+    fake_log(plugin, line);
+    if (got && (info.flags & CLAP_TRACK_INFO_IS_FOR_BUS) && host_remote)
+        host_remote->changed(fake->host);
+}
+
+static const clap_plugin_track_info_t g_track_info = { track_info_changed };
+
+static uint32_t remote_controls_count(const clap_plugin_t *plugin)
+{
+    main_thread_only(plugin, "remote_controls.count");
+    return 2;
+}
+
+/* page 0: a parameter, a read-only one, an empty slot and an id params does not list; page 1: one parameter, last */
+static bool remote_controls_get(const clap_plugin_t *plugin, uint32_t index, clap_remote_controls_page_t *page)
+{
+    uint32_t i;
+
+    main_thread_only(plugin, "remote_controls.get");
+    if (index > 1)
+    {
+        fake_log(plugin, "remote_controls.get past the count");
+        return false;
+    }
+    memset(page, 0, sizeof(*page));
+    for (i = 0; i < CLAP_REMOTE_CONTROLS_COUNT; i++)
+        page->param_ids[i] = CLAP_INVALID_ID;
+    if (index == 0)
+    {
+        page->page_id = 7;
+        strcpy(page->section_name, "Main");
+        strcpy(page->page_name, "Page \"A\"\t1");
+        page->param_ids[0] = 0;
+        page->param_ids[1] = 1;
+        page->param_ids[3] = 99;
+    }
+    else
+    {
+        page->page_id = 8;
+        strcpy(page->page_name, "Two");
+        page->param_ids[7] = 0;
+    }
+    return true;
+}
+
+static const clap_plugin_remote_controls_t g_remote_controls = { remote_controls_count, remote_controls_get };
 
 static void plugin_destroy(const clap_plugin_t *plugin)
 {
@@ -306,6 +387,10 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_params;
     if (!strcmp(id, CLAP_EXT_LATENCY))
         return &g_latency;
+    if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_TRACK_INFO))
+        return &g_track_info;
+    if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_REMOTE_CONTROLS))
+        return &g_remote_controls;
     return NULL;
 }
 
