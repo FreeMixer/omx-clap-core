@@ -14,7 +14,7 @@ permissions:
 
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this commit
-  PLUGIN_HOSTD_REF: 38e2c6be86b93b9a14023272b02a3ec24777b198
+  PLUGIN_HOSTD_REF: b2fa9aba689d5fe2b7849244213465c7c9086d8d
 
 jobs:
   test:
