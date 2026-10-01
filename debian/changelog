@@ -1,3 +1,12 @@
+omx-clap-host (0.1.1) unstable; urgency=medium
+
+  * Report plugin meters as mod-host output symbols.
+  * Check the layout pin plugin-hostd expects before activating an instance.
+  * Answer track_info, remote_pages, remote_page_get and param_info.
+  * Build against plugin-hostd 0.1.2.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 01 Oct 2026 10:00:00 +0200
+
 omx-clap-host (0.1.0) unstable; urgency=medium
 
   * First package.

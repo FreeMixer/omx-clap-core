@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version: 0.1.0
+Version:        0.1.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: CLAP plugin host for JACK, controlled over mod-host's socket protocol
@@ -84,5 +84,11 @@ make test-fake
 %{_datadir}/omx-clap-core/
 
 %changelog
+* Thu Oct 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.1-1
+- report plugin meters as mod-host output symbols
+- check the layout pin plugin-hostd expects before activating an instance
+- answer track_info, remote_pages, remote_page_get and param_info
+- build against plugin-hostd 0.1.2
+
 * Tue Sep 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.0-1
 - first package: omx-clap-host, and omx-clap-core with omx-clap-core-devel, the library it is built on
