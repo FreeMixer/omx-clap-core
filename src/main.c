@@ -53,7 +53,7 @@
 */
 
 #define PID_FILE        "/tmp/omx-clap-host.pid"
-#define VERSION         "0.1.0"
+#define VERSION         "0.1.1"
 #define IDLE_INTERVAL_MS 20
 
 
