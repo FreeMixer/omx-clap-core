@@ -14,7 +14,7 @@ permissions:
 
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this commit
-  PLUGIN_HOSTD_REF: 38e2c6be86b93b9a14023272b02a3ec24777b198
+  PLUGIN_HOSTD_REF: 1c19fcb20fd8b17a5c75255adae47cd23c8f0d16
 
 jobs:
   test:
@@ -76,6 +76,15 @@ jobs:
             make test-jack-pin
           else
             echo "::warning::test-jack-pin SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # track_info, remote pages and param_info over jack: the fake plugin reads what the host passes it
+      - name: Test the strip and the remote pages over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-info
+          else
+            echo "::warning::test-jack-info SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # The same behind plugin-hostd with require_pins 1 and this host as its CLAP worker.

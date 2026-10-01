@@ -33,6 +33,8 @@
 ************************************************************************************************************************
 */
 
+#include <stddef.h>
+
 #include "host-errors.h"
 
 
@@ -67,6 +69,10 @@ int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);
 int effects_disconnect(const char *portA, const char *portB);
 int effects_monitor_output(int effect_id, const char *symbol);
+int effects_track_info(int effect_id, const char *name, const char *color, const char *kind);
+int effects_remote_pages(int effect_id);
+int effects_remote_page_get(int effect_id, int page, char *reply, size_t size);
+int effects_param_info(int effect_id, const char *symbol);
 float effects_jack_cpu_load(void);
 void effects_idle(void);
 
