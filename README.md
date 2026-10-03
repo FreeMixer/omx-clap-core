@@ -320,6 +320,26 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   `org.openmixer.meters/1` and `org.openmixer.declaration/1`, as exact C structures. Header only:
   the library exports nothing for them.
 
+The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
+answers true on the thread that holds it and false on every other, and a
+`[main-thread]` host call from it is counted a violation. `omx_clap_host_publish(in, rt)`
+and `omx_clap_host_set_audio_thread(in, thread)` name one thread. A caller whose walk
+runs on a driver and N workers names them all with a predicate:
+
+    int is_audio(void *ctx, pthread_t self);
+    omx_clap_host_publish_role(in, driver, is_audio, ctx);
+    omx_clap_host_set_audio_role(in, driver, is_audio, ctx);   /* the same on a running instance */
+
+`is_audio_thread` then answers true on `driver`, and on any thread for which
+`is_audio(ctx, self)` returns nonzero; false otherwise. The predicate runs on the
+plugin's calling thread, the RT one included: it must not block, allocate or lock, and
+`ctx` must stay valid until the instance is unpublished. `omx_clap_host_unpublish`
+clears it; `omx_clap_host_publish` and `omx_clap_host_set_audio_thread` clear it too, so a
+caller of the one-thread calls sees exactly what it saw before. While the control thread
+takes the role (`omx_clap_host_take_role`), no cycle runs, and the predicate is left as
+it is for the role's release. The library knows nothing of the caller's threads beyond
+the predicate.
+
 What a host differs in is a configuration, set once per process with
 `omx_clap_host_configure()` and otherwise the defaults:
 
