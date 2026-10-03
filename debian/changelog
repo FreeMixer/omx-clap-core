@@ -1,3 +1,10 @@
+omx-clap-host (0.2.0) unstable; urgency=medium
+
+  * omx-clap-core 0.2.0: name the audio role's threads with a predicate at
+    publish, so every worker of a split walk is the audio thread.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 03 Oct 2026 10:00:00 +0200
+
 omx-clap-host (0.1.1) unstable; urgency=medium
 
   * Report plugin meters as mod-host output symbols.

@@ -36,9 +36,11 @@ OMX_CLAP_CORE_0
     omx_clap_host_param_write;
     omx_clap_host_preset_load;
     omx_clap_host_publish;
+    omx_clap_host_publish_role;
     omx_clap_host_release_role;
     omx_clap_host_remote_controls_changed;
     omx_clap_host_restart;
+    omx_clap_host_set_audio_role;
     omx_clap_host_set_audio_thread;
     omx_clap_host_set_rate;
     omx_clap_host_settle;
