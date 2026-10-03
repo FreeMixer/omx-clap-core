@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.1.1
+Version:        0.2.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: CLAP plugin host for JACK, controlled over mod-host's socket protocol
@@ -84,6 +84,9 @@ make test-fake
 %{_datadir}/omx-clap-core/
 
 %changelog
+* Sat Oct 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.2.0-1
+- omx-clap-core 0.2.0: name the audio role's threads with a predicate at publish, so every worker of a split walk is the audio thread
+
 * Thu Oct 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.1-1
 - report plugin meters as mod-host output symbols
 - check the layout pin plugin-hostd expects before activating an instance
