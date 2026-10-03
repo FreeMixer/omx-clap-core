@@ -235,9 +235,30 @@ static struct omx_clap_instance *instance_of(const clap_host_t *host)
     return (struct omx_clap_instance *)host->host_data;
 }
 
+/* The predicate and its context as one pair: retried while a write is under way or one landed between the reads. */
+static int named_by_role(const struct omx_clap_instance *in, pthread_t self)
+{
+    omx_clap_audio_role_fn is_audio;
+    void *ctx;
+    uint32_t seq;
+
+    do
+    {
+        seq = atomic_load_explicit(&in->audio_role_seq, memory_order_acquire);
+        is_audio = atomic_load_explicit(&in->audio_role_is, memory_order_relaxed);
+        ctx = atomic_load_explicit(&in->audio_role_ctx, memory_order_relaxed);
+        atomic_thread_fence(memory_order_acquire);
+    } while ((seq & 1u) || seq != atomic_load_explicit(&in->audio_role_seq, memory_order_relaxed));
+    return is_audio && is_audio(ctx, self);
+}
+
 static int on_audio_role(const struct omx_clap_instance *in)
 {
-    return in->audio_role_held && pthread_equal(pthread_self(), in->audio_thread);
+    const pthread_t self = pthread_self();
+
+    if (!in->audio_role_held)
+        return 0;
+    return pthread_equal(self, in->audio_thread) || named_by_role(in, self);
 }
 
 /* A [main-thread] callback reached from anywhere but the control thread is a violation. */
@@ -1162,17 +1183,37 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     return 0;
 }
 
+/* One writer at a time: the sequence is odd while the pair changes. */
+static void set_role_predicate(struct omx_clap_instance *in, omx_clap_audio_role_fn is_audio, void *ctx)
+{
+    atomic_fetch_add_explicit(&in->audio_role_seq, 1u, memory_order_relaxed);
+    atomic_thread_fence(memory_order_release);
+    atomic_store_explicit(&in->audio_role_is, is_audio, memory_order_relaxed);
+    atomic_store_explicit(&in->audio_role_ctx, is_audio ? ctx : NULL, memory_order_relaxed);
+    atomic_fetch_add_explicit(&in->audio_role_seq, 1u, memory_order_release);
+}
+
+void omx_clap_host_set_audio_role(struct omx_clap_instance *in, pthread_t thread, omx_clap_audio_role_fn is_audio, void *ctx)
+{
+    set_role_predicate(in, is_audio, ctx);
+    in->audio_thread = thread;
+    in->audio_role_held = 1;
+}
+
+void omx_clap_host_publish_role(struct omx_clap_instance *in, pthread_t rt, omx_clap_audio_role_fn is_audio, void *ctx)
+{
+    omx_clap_host_set_audio_role(in, rt, is_audio, ctx);
+    omx_clap_arm(&in->stage);
+}
+
 void omx_clap_host_publish(struct omx_clap_instance *in, pthread_t rt)
 {
-    in->audio_thread = rt;
-    in->audio_role_held = 1;
-    omx_clap_arm(&in->stage);
+    omx_clap_host_publish_role(in, rt, NULL, NULL);
 }
 
 void omx_clap_host_set_audio_thread(struct omx_clap_instance *in, pthread_t thread)
 {
-    in->audio_thread = thread;
-    in->audio_role_held = 1;
+    omx_clap_host_set_audio_role(in, thread, NULL, NULL);
 }
 
 void omx_clap_host_arm(struct omx_clap_instance *in)
@@ -1193,6 +1234,7 @@ int omx_clap_host_unpublish(struct omx_clap_instance *in, unsigned poll_us, unsi
         waited += poll_us;
     }
     in->audio_role_held = 0;
+    set_role_predicate(in, NULL, NULL);
     atomic_store_explicit(&in->stage.state, OMX_CLAP_IDLE, memory_order_release);
     return 0;
 }

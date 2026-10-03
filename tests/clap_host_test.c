@@ -134,6 +134,135 @@ static void guard_checks(struct omx_clap_instance *instance)
     CHECK(dies_writing(instance->bounce_map), "the guard page below the bounce faults");
 }
 
+/* three threads of their own, each asking the plugin's clap.thread-check once the test lets them go */
+struct role_probes
+{
+    struct omx_clap_instance *instance;
+    pthread_barrier_t go;
+    pthread_t threads[3];
+    int audio[3];
+};
+
+struct role_probe
+{
+    struct role_probes *all;
+    int index;
+};
+
+static void *probe_role(void *arg)
+{
+    const struct role_probe *probe = arg;
+    struct omx_clap_instance *instance = probe->all->instance;
+    const clap_host_thread_check_t *check = instance->host.get_extension(&instance->host, CLAP_EXT_THREAD_CHECK);
+
+    pthread_barrier_wait(&probe->all->go);
+    probe->all->audio[probe->index] = check->is_audio_thread(&instance->host);
+    return NULL;
+}
+
+/* the walk split across a driver and two workers: the first two probes are the workers */
+static int workers_role(void *ctx, pthread_t self)
+{
+    const struct role_probes *probes = ctx;
+
+    return pthread_equal(self, probes->threads[0]) || pthread_equal(self, probes->threads[1]);
+}
+
+/* a running instance whose workers changed: the third probe alone */
+static int third_role(void *ctx, pthread_t self)
+{
+    const struct role_probes *probes = ctx;
+
+    return pthread_equal(self, probes->threads[2]);
+}
+
+enum role_call { ROLE_PUBLISH, ROLE_SET_THREAD, ROLE_PUBLISH_PREDICATE, ROLE_SET_PREDICATE };
+
+/* start the probes, name the audio role with `call`, let them ask: their answers in `probes->audio`, this thread's returned */
+static int ask_role(struct omx_clap_instance *instance, enum role_call call, struct role_probes *probes)
+{
+    const clap_host_thread_check_t *check = instance->host.get_extension(&instance->host, CLAP_EXT_THREAD_CHECK);
+    struct role_probe probe[3];
+    int i;
+
+    probes->instance = instance;
+    pthread_barrier_init(&probes->go, NULL, 4);
+    for (i = 0; i < 3; i++)
+    {
+        probe[i].all = probes;
+        probe[i].index = i;
+        probes->audio[i] = -1;
+        pthread_create(&probes->threads[i], NULL, probe_role, &probe[i]);
+    }
+    switch (call)
+    {
+    case ROLE_PUBLISH:
+        omx_clap_host_publish(instance, probes->threads[0]);
+        break;
+    case ROLE_SET_THREAD:
+        omx_clap_host_set_audio_thread(instance, probes->threads[0]);
+        break;
+    case ROLE_PUBLISH_PREDICATE:
+        omx_clap_host_publish_role(instance, pthread_self(), workers_role, probes);
+        break;
+    case ROLE_SET_PREDICATE:
+        omx_clap_host_set_audio_role(instance, pthread_self(), third_role, probes);
+        break;
+    }
+    pthread_barrier_wait(&probes->go);
+    for (i = 0; i < 3; i++)
+        pthread_join(probes->threads[i], NULL);
+    pthread_barrier_destroy(&probes->go);
+    return check->is_audio_thread(&instance->host);
+}
+
+/* the audio role as the plugin reads it: one thread named, or a driver and the workers a predicate names */
+static void role_checks(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct role_probes probes;
+    int self;
+
+    CHECK(open_ok(path, FAKE_PASSTHROUGH, &instance), "open %s for the audio role", FAKE_PASSTHROUGH);
+    if (!instance)
+        return;
+    CHECK(activate(instance), "activate for the audio role");
+
+    // the one-thread calls: the thread named reads true, every other false
+    self = ask_role(instance, ROLE_PUBLISH, &probes);
+    CHECK(probes.audio[0] == 1 && probes.audio[1] == 0 && probes.audio[2] == 0 && self == 0,
+          "publish names one thread: %i %i %i, this one %i", probes.audio[0], probes.audio[1], probes.audio[2], self);
+    CHECK(omx_clap_host_unpublish(instance, 100, 100000) == 0, "unpublished");
+    self = ask_role(instance, ROLE_SET_THREAD, &probes);
+    CHECK(probes.audio[0] == 1 && probes.audio[1] == 0 && probes.audio[2] == 0 && self == 0,
+          "set_audio_thread names one thread: %i %i %i, this one %i", probes.audio[0], probes.audio[1], probes.audio[2], self);
+    omx_clap_host_arm(instance);
+    CHECK(omx_clap_host_unpublish(instance, 100, 100000) == 0, "unpublished");
+
+    // the split walk: the driver and the two workers the predicate names read true, the third thread false
+    self = ask_role(instance, ROLE_PUBLISH_PREDICATE, &probes);
+    CHECK(probes.audio[0] == 1 && probes.audio[1] == 1 && probes.audio[2] == 0 && self == 1,
+          "publish_role: both workers %i %i, the third %i, the driver %i", probes.audio[0], probes.audio[1], probes.audio[2], self);
+    self = ask_role(instance, ROLE_SET_PREDICATE, &probes);
+    CHECK(probes.audio[0] == 0 && probes.audio[1] == 0 && probes.audio[2] == 1 && self == 1,
+          "set_audio_role on a running instance: %i %i %i, the driver %i", probes.audio[0], probes.audio[1], probes.audio[2], self);
+    CHECK(omx_clap_host_unpublish(instance, 100, 100000) == 0 && atomic_load(&instance->audio_role_is) == NULL,
+          "unpublish clears the predicate");
+
+    // a one-thread publish after a predicate names that thread alone
+    self = ask_role(instance, ROLE_PUBLISH_PREDICATE, &probes);
+    CHECK(omx_clap_host_unpublish(instance, 100, 100000) == 0, "unpublished");
+    omx_clap_host_publish_role(instance, pthread_self(), workers_role, &probes);
+    omx_clap_host_publish(instance, probes.threads[2]);
+    CHECK(atomic_load(&instance->audio_role_is) == NULL, "publish clears the predicate");
+    omx_clap_host_set_audio_role(instance, pthread_self(), workers_role, &probes);
+    omx_clap_host_set_audio_thread(instance, probes.threads[2]);
+    CHECK(atomic_load(&instance->audio_role_is) == NULL, "set_audio_thread clears the predicate");
+    CHECK(omx_clap_host_unpublish(instance, 100, 100000) == 0, "unpublished");
+    CHECK(atomic_load(&instance->thread_violations) == 0, "%u thread-check violations", atomic_load(&instance->thread_violations));
+    omx_clap_host_close(instance);
+}
+
 /* the configuration is the isolated host's: nothing is clamped, nothing scanned, nothing warmed up */
 static void configuration_checks(const char *path)
 {
@@ -197,6 +326,8 @@ static void fake_plugin_checks(const char *path)
               instance->in_channels, instance->channels);
         omx_clap_host_close(instance);
     }
+
+    role_checks(path);
 
     CHECK(open_ok(path, FAKE_PASSTHROUGH, &instance), "open %s for the guard pages", FAKE_PASSTHROUGH);
     if (instance)

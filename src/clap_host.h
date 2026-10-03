@@ -119,6 +119,10 @@ struct omx_clap_shadow
     int valid;
 };
 
+/* Names the threads, beyond the one named directly, that hold the audio role: nonzero for `self` when it is one. Runs on
+ * the plugin's calling thread, the RT one included. */
+typedef int (*omx_clap_audio_role_fn)(void *ctx, pthread_t self);
+
 struct omx_clap_binary;         // one loaded .clap, or one linked entry, reference-counted across its instances
 
 /* What the control thread displaces while it holds the audio role: see omx_clap_host_take_role. */
@@ -192,6 +196,11 @@ struct omx_clap_instance
     // omx_clap_host_remote_controls_changed
     const clap_plugin_remote_controls_t *remote_controls;
     _Atomic uint32_t remote_controls_changed;
+    // the audio role beyond `audio_thread`: a predicate and its context, written under `audio_role_seq` (odd while a
+    // write is under way) so a reader never pairs one predicate with another's context
+    _Atomic uint32_t audio_role_seq;
+    _Atomic omx_clap_audio_role_fn audio_role_is;
+    void *_Atomic audio_role_ctx;
 };
 
 
@@ -255,6 +264,12 @@ OMX_CLAP_EXPORT void omx_clap_host_publish(struct omx_clap_instance *in, pthread
 
 /* A client whose thread is known only once it runs (JACK's thread-init callback): name the audio thread, then arm. */
 OMX_CLAP_EXPORT void omx_clap_host_set_audio_thread(struct omx_clap_instance *in, pthread_t thread);
+
+/* The same for a walk split across threads: `rt` (or `thread`) holds the audio role, and so does every thread for which
+ * `is_audio(ctx, self)` is nonzero. `ctx` stays valid until the instance is unpublished, which clears the predicate;
+ * omx_clap_host_publish and omx_clap_host_set_audio_thread clear it too. A NULL `is_audio` names `rt` alone. */
+OMX_CLAP_EXPORT void omx_clap_host_publish_role(struct omx_clap_instance *in, pthread_t rt, omx_clap_audio_role_fn is_audio, void *ctx);
+OMX_CLAP_EXPORT void omx_clap_host_set_audio_role(struct omx_clap_instance *in, pthread_t thread, omx_clap_audio_role_fn is_audio, void *ctx);
 OMX_CLAP_EXPORT void omx_clap_host_arm(struct omx_clap_instance *in);
 
 /* Unpublish: ask the RT to stop and wait, off the RT, polling every `poll_us` for at most `timeout_us`, for it to say
