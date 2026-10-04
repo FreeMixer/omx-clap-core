@@ -493,6 +493,7 @@ static const char *read_note_input(struct omx_clap_instance *in)
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
     else
         return CLAP_HOST_CODE_NOTE_INPUT;
+    in->note_dialects = info.supported_dialects;
     in->note_inputs = 1;
     return NULL;
 }
@@ -742,6 +743,7 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->stage.h.guards = (g_config.clamp ? OMX_HOSTED_GUARD_CLAMP : 0u) | (g_config.nonfinite ? OMX_HOSTED_GUARD_NONFINITE : 0u);
     in->stage.note_inputs = in->note_inputs;
     in->stage.note_dialect = in->note_dialect;
+    in->stage.note_dialects = in->note_dialects;
     return omx_clap_bind_aux(&in->stage, b, b + max_block, in->aux_outputs, in->aux_channels);
 }
 

@@ -472,8 +472,9 @@ static void synth_checks(const char *path)
     for (i = 0; i < sizeof(others) / sizeof(others[0]); i++)
         omx_clap_note_in(&synth->stage, others[i].time, others[i].data, others[i].size);
     omx_clap_run_io(&synth->stage, NULL, (float *[]){ out_l, out_r }, BLOCK);
-    CHECK(atomic_load(&synth->stage.notes_delivered) == 3, "controllers, bend, program change and clock are not notes to a CLAP-dialect input (%u delivered)",
-          atomic_load(&synth->stage.notes_delivered));
+    CHECK(atomic_load(&synth->stage.notes_delivered) == 6 && atomic_load(&synth->stage.notes_unmappable) == 0,
+          "controllers, bend and program change reach a note port that also declares the MIDI dialect, as CLAP_EVENT_MIDI; the clock does not (%u delivered, %u unmappable)",
+          atomic_load(&synth->stage.notes_delivered), atomic_load(&synth->stage.notes_unmappable));
 
     // the bypass is silence for a plugin with nothing to pass through: one block of fade, then the plugin idles
     run_block(synth, held, 1, out_l, out_r);

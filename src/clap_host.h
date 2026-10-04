@@ -154,6 +154,7 @@ struct omx_clap_instance
     uint32_t aux_channels[CLAP_HOST_AUX_OUTPUTS];
     uint32_t note_inputs;       // 0 or 1; the dialect the host feeds it
     uint32_t note_dialect;
+    uint32_t note_dialects;     // every dialect the note input's port declared, not just note_dialect
     double rate;
     uint32_t max_block;
     int active;
