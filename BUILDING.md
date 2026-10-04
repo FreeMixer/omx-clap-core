@@ -1,7 +1,7 @@
 Building omx-clap-host
 ======================
 
-make [MOD_HOST_DIR=<mod-host checkout>] [PLUGIN_HOSTD_DIR=<plugin-hostd checkout>] [CLAP_CFLAGS=-I<clap headers>]
+make [MOD_HOST_DIR=<mod-host checkout>] [PLUGIN_HOSTD_DIR=<plugin-hostd checkout>] [CLAP_CFLAGS=-I<clap headers>] [JACK_DIR=<jack install tree>]
 
 The protocol is mod-host's `libmod-host-protocol.so.0`, linked as a shared
 library: from `pkg-config mod-host-protocol` when it is installed
@@ -12,6 +12,10 @@ its error codes and its serialisation are plugin-hostd's headers
 `plugin-hostd/protocol.h` and `plugin-hostd/pin.h`: from `pkg-config plugin-hostd`
 (the plugin-hostd-devel package) or from `PLUGIN_HOSTD_DIR/include`. The CLAP
 headers come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
+JACK's headers and library come from `pkg-config jack` (the
+pipewire-jack-audio-connection-kit-devel package) or, when that is absent,
+from `JACK_DIR/include` and `JACK_DIR/lib`, the latter also becoming the
+binary's rpath; `JACK_DIR` defaults to `../jack-dev`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
