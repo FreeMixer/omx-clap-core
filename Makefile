@@ -383,7 +383,7 @@ test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test $(LV2_BUNDLES)
 	./lv2/tests/lv2_host_test build/lv2 $(LILV_LIB)
 
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
-test-lv2: test-lv2-core test-lv2-clap test-lv2-link
+test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -ldl -lpthread -lm
@@ -411,3 +411,11 @@ test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-f
 lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 	./lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2
 .PHONY: lv2-cost
+
+# the fixture bundles against the LV2 specifications, with lv2_validate (the lv2 package's) when it is installed
+test-lv2-validate: $(LV2_BUNDLES)
+	@if command -v lv2_validate >/dev/null; then \
+	    for b in build/lv2/*.lv2; do lv2_validate $$b/*.ttl 2>&1 | tail -1 | tee build/lv2/validate.txt; grep -q '^Found 0 errors' build/lv2/validate.txt || exit 1; done; \
+	    echo "ok   every fixture bundle validates"; \
+	else echo "lv2_validate is not installed: the fixture bundles were not validated"; fi
+.PHONY: test-lv2-validate
