@@ -3,6 +3,14 @@
 What changed in each release of omx-clap-host, in plain words. The RPM and Debian changelogs and the
 GitHub release notes are generated from this file.
 
+## 0.3.0 - 2026-10-07
+
+- A plugin whose parameter list has a hole is refused whole, never served short; the whole list
+  comes in one call.
+- A host can give an instance its tempo: the plugin reads it from the transport of every block.
+- The list of host extensions has a header of its own, `clap_host_extensions.h`.
+- The qualifier's fault plugins come with the tests (`make fixtures`).
+
 ## 0.2.0 - 2026-10-03
 
 - The library names the threads that carry audio with a test the host supplies, so every worker

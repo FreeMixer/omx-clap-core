@@ -1,3 +1,14 @@
+omx-clap-host (0.3.0) unstable; urgency=medium
+
+  * A plugin whose parameter list has a hole is refused whole, never served
+    short; the whole list comes in one call.
+  * A host can give an instance its tempo: the plugin reads it from the
+    transport of every block.
+  * The host extension list has a header of its own.
+  * The qualifier's fault plugins come with the tests.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Wed, 07 Oct 2026 20:46:00 +0200
+
 omx-clap-host (0.2.0) unstable; urgency=medium
 
   * The library names the threads that carry audio with a test the host

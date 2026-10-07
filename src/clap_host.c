@@ -56,7 +56,7 @@
 ************************************************************************************************************************
 */
 
-#define CORE_VERSION                    (0u * 10000u + 2u * 100u + 0u)
+#define CORE_VERSION                    (0u * 10000u + 3u * 100u + 0u)
 
 // the warm-up runs at most this many frames a block, whatever the bounce holds
 #define WARMUP_BLOCK_FRAMES             128u
