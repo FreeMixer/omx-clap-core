@@ -324,7 +324,7 @@ static void t_audio_role_on_split(void) {
 /* The roster plugin: the asker's body with a `params` extension of `g_roster_n` parameters, and
  * `get_info` refusing index `g_roster_hole` (UINT32_MAX: none) — a plugin that declares a count
  * it will not answer. */
-static uint32_t g_roster_n, g_roster_hole = UINT32_MAX;
+static uint32_t g_roster_n, g_roster_hole = UINT32_MAX, g_roster_flags;
 static uint32_t roster_count(const clap_plugin_t *p) { (void)p; return g_roster_n; }
 static bool roster_info(const clap_plugin_t *p, uint32_t i, clap_param_info_t *info) {
   (void)p;
@@ -335,6 +335,7 @@ static bool roster_info(const clap_plugin_t *p, uint32_t i, clap_param_info_t *i
   info->min_value = 0.0;
   info->max_value = 1.0;
   info->default_value = 0.5;
+  info->flags = g_roster_flags;
   return true;
 }
 static bool roster_value(const clap_plugin_t *p, clap_id id, double *v) { (void)p, (void)id; *v = 0.5; return true; }
@@ -406,6 +407,26 @@ static void t_roster_whole_or_refused(void) {
         why ? why : "none");
   got = roster_read(4u, UINT32_MAX, &why, &last);
   CHECK(got == 4 && why == NULL, "positive control: the same plugin with no hole serves 4 rows (got %d)", got);
+
+  /* parameters none of which is a row, and a refusal with nowhere to name it */
+  char open_why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  g_roster_n = 3;
+  g_roster_hole = UINT32_MAX;
+  g_roster_flags = CLAP_PARAM_IS_HIDDEN;
+  CHECK(omx_clap_host_open_entry(&ROSTER_ENTRY, ROSTER_DESC.id, &in, open_why) == 0 && in, "open the hidden roster (%s)", open_why);
+  if (!in) return;
+  struct omx_clap_param_row sentinel, *rows = &sentinel;
+  got = omx_clap_host_param_roster(in, &rows, NULL);
+  CHECK(got == 0 && rows == NULL, "three hidden parameters: no row, and *rows NULL (got %d, rows %s)", got, rows ? "set" : "NULL");
+  free(rows);
+  g_roster_hole = 1;
+  rows = &sentinel;
+  got = omx_clap_host_param_roster(in, &rows, NULL);
+  CHECK(got == -1 && rows == NULL, "a hole refused with why NULL: -1 and no rows (got %d)", got);
+  g_roster_flags = 0;
+  g_roster_hole = UINT32_MAX;
+  omx_clap_host_close(in);
 }
 
 /* ---- 5. the tempo ---- */

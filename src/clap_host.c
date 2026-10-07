@@ -1353,64 +1353,56 @@ int omx_clap_host_bypassed(const struct omx_clap_instance *in)
 ************************************************************************************************************************
 */
 
-/* Whether every index below count() answers get_info: a roster with a hole is refused whole, never served short. */
-static int roster_whole(struct omx_clap_instance *in, uint32_t n)
+/*
+ * The roster, whole or refused: walk every index below count() once, -1 when one does not answer get_info (a roster
+ * with a hole is never served short). Returns the number of rows; with `want` < UINT32_MAX, the row of index `want`
+ * lands in `row` and `*found` says whether it existed. Each call re-reads the plugin: O(n), and a caller walking the
+ * rows by index is O(n^2) - omx_clap_host_param_roster reads them all in one pass.
+ */
+static int roster_walk(struct omx_clap_instance *in, uint32_t want, struct omx_clap_param_row *row, int *found)
 {
-    uint32_t i;
+    uint32_t n, i, rows = 0;
 
+    if (found)
+        *found = 0;
+    if (!in->params)
+        return 0;
+    n = in->params->count(in->plugin);
     for (i = 0; i < n; i++)
     {
         clap_param_info_t info;
 
         memset(&info, 0, sizeof(info));
         if (!in->params->get_info(in->plugin, i, &info))
-            return 0;
+            return -1;
+        if (!is_row(&info))
+            continue;
+        if (rows == want && row)
+        {
+            row_of(&info, row);
+            *found = 1;
+        }
+        rows++;
     }
-    return 1;
+    return (int)rows;
 }
 
 uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
 {
-    uint32_t n, i, rows = 0;
+    const int rows = roster_walk(in, UINT32_MAX, NULL, NULL);
 
-    if (!in->params)
-        return 0;
-    n = in->params->count(in->plugin);
-    if (!roster_whole(in, n))
-        return 0;
-    for (i = 0; i < n; i++)
-    {
-        clap_param_info_t info;
-
-        memset(&info, 0, sizeof(info));
-        if (in->params->get_info(in->plugin, i, &info) && is_row(&info))
-            rows++;
-    }
-    return rows;
+    return rows < 0 ? 0u : (uint32_t)rows;
 }
 
 int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row)
 {
-    uint32_t n, i, seen = 0;
+    struct omx_clap_param_row r;
+    int found;
 
-    if (!in->params)
+    if (index == UINT32_MAX || roster_walk(in, index, &r, &found) < 0 || !found)
         return -1;
-    n = in->params->count(in->plugin);
-    if (!roster_whole(in, n))
-        return -1;
-    for (i = 0; i < n; i++)
-    {
-        clap_param_info_t info;
-
-        memset(&info, 0, sizeof(info));
-        if (!in->params->get_info(in->plugin, i, &info) || !is_row(&info))
-            continue;
-        if (seen++ != index)
-            continue;
-        row_of(&info, row);
-        return 0;
-    }
-    return -1;
+    *row = r;
+    return 0;
 }
 
 int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why)
@@ -1427,7 +1419,8 @@ int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_par
     out = calloc(n, sizeof(*out));
     if (!out)
     {
-        *why = OMX_CLAP_PARAM_ROW_UNREADABLE;
+        if (why)
+            *why = OMX_CLAP_PARAM_ROW_UNREADABLE;
         return -1;
     }
     for (i = 0; i < n; i++)
@@ -1438,11 +1431,17 @@ int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_par
         if (!in->params->get_info(in->plugin, i, &info))
         {
             free(out);
-            *why = OMX_CLAP_PARAM_ROW_UNREADABLE;   // never the rows read so far
+            if (why)
+                *why = OMX_CLAP_PARAM_ROW_UNREADABLE;   // never the rows read so far
             return -1;
         }
         if (is_row(&info))
             row_of(&info, &out[k++]);
+    }
+    if (k == 0)
+    {
+        free(out);  // parameters, none of them a row: nothing to hand back
+        return 0;
     }
     *rows = out;
     return (int)k;
