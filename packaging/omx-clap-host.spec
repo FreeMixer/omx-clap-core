@@ -94,6 +94,10 @@ make test-fake
 - The list of host extensions has a header of its own,
   `clap_host_extensions.h`.
 - The qualifier's fault plugins come with the tests (`make fixtures`).
+- A plugin re-engaged after a bypass is reset on the control thread, never in
+  the audio path.
+- The worker message ring an in-process plugin shares with its worker thread
+  ships as `omx_msgring.h`.
 
 * Sat Oct 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.2.0-1
 - The library names the threads that carry audio with a test the host

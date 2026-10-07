@@ -10,6 +10,9 @@ GitHub release notes are generated from this file.
 - A host can give an instance its tempo: the plugin reads it from the transport of every block.
 - The list of host extensions has a header of its own, `clap_host_extensions.h`.
 - The qualifier's fault plugins come with the tests (`make fixtures`).
+- A plugin re-engaged after a bypass is reset on the control thread, never in the audio path.
+- The worker message ring an in-process plugin shares with its worker thread ships as
+  `omx_msgring.h`.
 
 ## 0.2.0 - 2026-10-03
 
