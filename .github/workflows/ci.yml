@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: FreeMixer/.github/.github/actions/changelog@packaging-changelog
+      - uses: FreeMixer/.github/.github/actions/changelog@main
 
   test:
     name: build and test
