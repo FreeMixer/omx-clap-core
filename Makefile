@@ -346,7 +346,9 @@ tests/jack_identity: tests/jack_identity.c
 
 # the fixture bundles, built into build/lv2: their TTL beside a binary of their own, every symbol a test reads exported
 LV2_FIXTURE_DIR = lv2/tests/fixtures
-LV2_FIXTURE_CFLAGS = -O2 -g -Wall -Wextra -Werror -std=gnu99 -fPIC -shared -D_GNU_SOURCE -pthread $(LV2_CFLAGS)
+# -ffp-contract=off on the fixtures and the tests: an exact oracle (out == in * gain) holds only when neither side
+# fuses a multiply into an add; aarch64's GCC fuses by default and the product's rounding then reads as an error
+LV2_FIXTURE_CFLAGS = -O2 -g -Wall -Wextra -Werror -std=gnu99 -fPIC -shared -D_GNU_SOURCE -pthread -ffp-contract=off $(LV2_CFLAGS)
 LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-worker-gain.lv2/omx-worker-gain.so \
               build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 
@@ -365,7 +367,7 @@ build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so: $(LV2_FIXTURE_DIR)/lv2_fakes.c $(L
 	cp $(LV2_FIXTURE_DIR)/omx-lv2-fakes.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -fvisibility=hidden -o $@ $< -lm
 
-LV2_TEST_CFLAGS = -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests $(LV2_CFLAGS) $(CFLAGS) -Werror
+LV2_TEST_CFLAGS = -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests $(LV2_CFLAGS) $(CFLAGS) -Werror -ffp-contract=off
 LV2_WRAP = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 
 lv2/tests/lv2_run_test: lv2/tests/lv2_run_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
