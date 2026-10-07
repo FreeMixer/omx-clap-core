@@ -322,7 +322,9 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_latency(const struct omx_clap_instance *i
 OMX_CLAP_EXPORT void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role *role);
 OMX_CLAP_EXPORT void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_clap_role *role, uint32_t state);
 
-/* The host's own bypass: one crossfade to the dry lane on the next cycle, then the plugin idles. */
+/* The host's own bypass: one crossfade to the dry lane on the next cycle, then the plugin idles. Off after on re-engages:
+ * the control thread takes the audio role, resets a plugin that idled, and the stage fades back in. Off when already off
+ * only records it: the stage is not held and the output does not move. */
 OMX_CLAP_EXPORT void omx_clap_host_bypass(struct omx_clap_instance *in, int on);
 OMX_CLAP_EXPORT int omx_clap_host_bypassed(const struct omx_clap_instance *in);
 

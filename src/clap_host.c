@@ -1312,9 +1312,12 @@ uint32_t omx_clap_host_latency(const struct omx_clap_instance *in)
 void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
 {
     struct omx_clap_role role;
+    const uint32_t was = in->bypass_wanted;
 
     in->bypass_wanted = on ? 1u : 0u;
-    if (on || !in->active)
+    // a bypass, an inactive instance, or an off that was already off: the flag alone. A live engaged stage is never held
+    // for a redundant off, which would pass one block dry and fade back in
+    if (on || !in->active || !was)
     {
         omx_clap_set_bypass(&in->stage, on);
         return;

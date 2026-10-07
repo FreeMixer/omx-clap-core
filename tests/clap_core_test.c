@@ -39,7 +39,8 @@
  *     The transport is written only inside a processing block: a block run on an idle stage leaves the instance's
  *     record untouched, and the warm-up after it is handed none.
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
- *     role; the RT thread running the instance never calls reset().
+ *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
+ *     block stays the plugin's output.
  */
 #include <pthread.h>
 #include <sched.h>
@@ -535,6 +536,7 @@ static void t_transport_in_the_cycle(void) {
 /* The reset fake: a -20 dB pad that counts its reset() calls by the thread that made them. */
 static pthread_t g_rs_rt;
 static _Atomic uint32_t g_rs_on_rt, g_rs_off_rt, g_rs_process;
+static _Atomic int g_rs_slow; /* process() takes ~300 us: a cycle is under way half the time */
 static void rs_reset(const clap_plugin_t *p) {
   (void)p;
   if (pthread_equal(pthread_self(), g_rs_rt)) atomic_fetch_add(&g_rs_on_rt, 1u);
@@ -543,6 +545,12 @@ static void rs_reset(const clap_plugin_t *p) {
 static clap_process_status rs_process(const clap_plugin_t *p, const clap_process_t *pr) {
   (void)p;
   atomic_fetch_add(&g_rs_process, 1u);
+  if (atomic_load(&g_rs_slow)) {
+    struct timespec t0, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    do clock_gettime(CLOCK_MONOTONIC, &t1);
+    while ((t1.tv_sec - t0.tv_sec) * 1000000000L + (t1.tv_nsec - t0.tv_nsec) < 300000L);
+  }
   const clap_audio_buffer_t *ai = &pr->audio_inputs[0], *ao = &pr->audio_outputs[0];
   for (uint32_t c = 0; c < ao->channel_count; c++)
     for (uint32_t i = 0; i < pr->frames_count; i++) ao->data32[c][i] = 0.1f * ai->data32[c][i];
@@ -566,7 +574,9 @@ static struct {
   struct omx_clap_instance *in;
   _Atomic int go, quit;
   _Atomic uint32_t blocks;
-  float last;
+  _Atomic float last;
+  _Atomic int watch;          /* count the blocks that are not the plugin's output */
+  _Atomic uint32_t not_wet;
 } g_rs;
 static void *rs_rt(void *arg) {
   (void)arg;
@@ -575,7 +585,8 @@ static void *rs_rt(void *arg) {
   while (!atomic_load(&g_rs.quit)) {
     for (int i = 0; i < 64; i++) l[i] = r[i] = 0.5f;
     omx_clap_host_run(g_rs.in, l, r, 64);
-    g_rs.last = l[32];
+    atomic_store(&g_rs.last, l[32]);
+    if (atomic_load(&g_rs.watch) && (l[0] != 0.05f || l[63] != 0.05f)) atomic_fetch_add(&g_rs.not_wet, 1u);
     atomic_fetch_add(&g_rs.blocks, 1u);
     usleep(200);
   }
@@ -609,9 +620,23 @@ static void t_reset_off_rt(void) {
   rs_wait(40);
   CHECK(atomic_load(&g_rs_on_rt) == 0, "the RT thread called reset() %u times across %u blocks", atomic_load(&g_rs_on_rt), atomic_load(&g_rs.blocks));
   CHECK(atomic_load(&g_rs_off_rt) - off0 == 1, "and nobody reset it again");
-  CHECK(atomic_load(&g_rs_process) > idle_from && g_rs.last == 0.05f, "processing again after the re-engage (%g)", (double)g_rs.last);
-  omx_clap_host_bypass(g_rs.in, 0);
-  CHECK(atomic_load(&g_rs_off_rt) - off0 == 1, "an off that was already off resets nothing");
+  CHECK(atomic_load(&g_rs_process) > idle_from && atomic_load(&g_rs.last) == 0.05f, "processing again after the re-engage (%g)", (double)atomic_load(&g_rs.last));
+  /* an off that was already off, many times over a stage whose cycle is under way half the time: holding the role for
+   * it would pass a block dry and fade back in */
+  atomic_store(&g_rs_slow, 1);
+  rs_wait(4);
+  atomic_store(&g_rs.watch, 1);
+  const uint32_t watched0 = atomic_load(&g_rs.blocks);
+  for (int k = 0; k < 200; k++) {
+    omx_clap_host_bypass(g_rs.in, 0);
+    usleep(150);
+  }
+  rs_wait(4);
+  atomic_store(&g_rs.watch, 0);
+  atomic_store(&g_rs_slow, 0);
+  CHECK(atomic_load(&g_rs.not_wet) == 0, "a redundant off leaves every block the plugin's output (%u of %u moved)",
+        atomic_load(&g_rs.not_wet), atomic_load(&g_rs.blocks) - watched0);
+  CHECK(atomic_load(&g_rs_off_rt) - off0 == 1 && atomic_load(&g_rs.in->stage.resets) == 1, "an off that was already off resets nothing");
   omx_clap_request_stop(&g_rs.in->stage);
   rs_wait(2);
   atomic_store(&g_rs.quit, 1);
