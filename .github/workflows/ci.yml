@@ -37,7 +37,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
-            pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
 
       - uses: actions/checkout@v4
 
@@ -57,6 +57,14 @@ jobs:
 
       - name: Test the plugin lifecycle and the scanner against the fake plugins
         run: make test-fake
+
+      # The LV2 adapter: lv2/core against the fixture bundles through lilv, the CLAP face and libomx-clap-core's body
+      # around it, and a program linked through the installed pkg-config file alone
+      - name: Test the LV2 adapter
+        run: make test-lv2
+
+      - name: What the LV2 adapter costs per process() call
+        run: make lv2-cost
 
       # The host over jack with an instrument, in a PipeWire of its own. It needs a private user
       # namespace with its own /proc; a runner that refuses one cannot run it, and the step says so.
@@ -188,6 +196,16 @@ jobs:
               /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done
+          for rpm in rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm; do
+            rpm -qlp "$rpm"
+            files "$rpm" > files.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-lv2.a' '/usr/lib*/pkgconfig/omx-clap-lv2.pc' /usr/include/omx-clap-lv2/omx_clap_lv2.h \
+              /usr/share/licenses/omx-clap-lv2-devel/COPYING | sort > expected.txt
+            diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
+            rpm -qp --provides "$rpm" | tee provides.txt
+            grep -q 'pkgconfig(omx-clap-lv2)' provides.txt
+          done
+          ls rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm
           ls rpms/omx-clap-host-*.src.rpm
 
       # a program outside this tree, built against the installed development package and run on the installed library
@@ -203,6 +221,19 @@ jobs:
           grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
           /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
+
+      # the LV2 adapter the same way: built against omx-clap-lv2-devel, run on the fixture bundle with the system's lilv
+      - name: A consumer builds against omx-clap-lv2-devel and runs an LV2 plugin
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm lilv-libs
+          make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+          pkg-config --modversion omx-clap-lv2 | tee v.txt
+          grep -q '^0.4.0$' v.txt
+          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
+          ! ldd /tmp/lv2-consumer | grep -q liblilv
+          /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
+          grep -q 'lv2 link test ok' lv2-consumer.txt
 
       - name: Build the fake plugins the smoke test scans
         run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
@@ -245,6 +276,7 @@ jobs:
             rpms/omx-clap-host-[0-9]*.rpm
             rpms/omx-clap-core-[0-9]*.rpm
             rpms/omx-clap-core-devel-[0-9]*.rpm
+            rpms/omx-clap-lv2-devel-[0-9]*.rpm
           if-no-files-found: error
           retention-days: 7
 
@@ -312,6 +344,22 @@ jobs:
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
           dpkg -L libomx-clap-core-dev
+
+      # the LV2 adapter: its files, then a program built against libomx-clap-lv2-dev runs the fixture with the system's lilv
+      - name: A consumer builds against libomx-clap-lv2-dev and runs an LV2 plugin
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends ./debs/libomx-clap-lv2-dev_*.deb liblilv-0-0
+          dpkg -L libomx-clap-lv2-dev | tee lv2-files.txt
+          grep -q '/libomx-clap-lv2\.a$' lv2-files.txt
+          grep -q '/pkgconfig/omx-clap-lv2\.pc$' lv2-files.txt
+          grep -q '/usr/include/omx-clap-lv2/omx_clap_lv2\.h$' lv2-files.txt
+          pkg-config --modversion omx-clap-lv2 | tee v.txt
+          grep -q '^0.4.0$' v.txt
+          make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
+          /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
+          grep -q 'lv2 link test ok' lv2-consumer.txt
 
       - uses: actions/upload-artifact@v4
         with:

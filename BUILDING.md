@@ -156,3 +156,53 @@ package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.0
 the baseline of the last release, with libabigail's `abidiff`, and CI runs it on every
 push and before every release. A release commit records its own baseline with `make
 abi-baseline` and commits `abi/`.
+
+The message ring
+----------------
+
+`omx_msgring.h`, installed with the library's headers, is the variable-length
+single-producer single-consumer ring between a plugin's RT thread and a non-RT
+thread of its host: a 4-byte size, then the payload, contiguous; a full ring refuses
+a record and never waits. Header only, so it changes nothing in the ABI. `make
+test-msgring` runs its closed-form test, and `make test-fake` includes it. The LV2
+adapter's worker uses the same ring.
+
+The LV2 adapter
+---------------
+
+    make libomx-clap-lv2.a
+
+builds `libomx-clap-lv2.a`, the library that presents one LV2 plugin as one CLAP
+plugin, from `lv2/`. It needs the LV2 headers and lilv's (`lv2-devel` and
+`lilv-devel` on Fedora, `lv2-dev` and `liblilv-dev` on Debian), found through
+`pkg-config lv2 lilv-0` or `LV2_CFLAGS`. lilv is never linked: the adapter dlopens
+`liblilv-0.so.0` when the first bundle is opened, so a program that never opens one
+never needs it.
+
+`lv2/core` is the LV2 host, with no CLAP in it: the bundle and its ports, the
+refusals, the features the plugin is given, the worker thread and the LV2 half of a
+block. `lv2/clap` is the shim that makes it a CLAP plugin; its header,
+`lv2/clap/omx_clap_lv2.h`, is the whole public surface:
+
+    omx_clap_lv2_configure(&cfg, why);           /* once per process: the features to provide, the numbers */
+    entry = omx_clap_lv2_entry("/usr/lib64/lv2/some.lv2", why);
+    /* entry->init, entry->get_factory(CLAP_PLUGIN_FACTORY_ID), factory->create_plugin(..., "<LV2 URI>") */
+    omx_clap_lv2_entry_release(entry);
+
+A plugin the adapter cannot run is refused by `create_plugin`, which writes the
+reason (the verdict's code, such as `hosting.features.cv-ports`) to the host's
+`clap.log`. `make install` installs the archive, `omx-clap-lv2/omx_clap_lv2.h` and
+`omx-clap-lv2.pc`; the packages are `omx-clap-lv2-devel` (RPM) and
+`libomx-clap-lv2-dev` (deb).
+
+    make test-lv2
+
+builds the fixture bundles into `build/lv2/` and runs the adapter's tests:
+`lv2/tests/lv2_run_test` (the LV2 half of a block against fake plugins),
+`lv2/tests/lv2_host_test` (bundles, ports, refusals, features and the worker),
+`lv2/tests/lv2_clap_test` (the CLAP face, and libomx-clap-core's body around it),
+`lv2/tests/lv2_link_test` (a program built against the installed files through
+pkg-config alone) and, when `lv2_validate` is installed, the fixture bundles against
+the LV2 specifications. `make lv2-cost` prints what the adapter costs per `process()`
+call at 96 and 192 kHz, quantum 128. What each test proves is listed in
+[docs/lv2-compatibility.md](docs/lv2-compatibility.md).

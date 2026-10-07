@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The host half's fixture bundle (lv2_host_fixture.c): one plugin with a binary, and twins the host
+# must refuse from this TTL before it opens that binary.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:host-fixture>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#atom>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#wide>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#cv>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#no-in>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#no-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#three-in>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#fixed>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
