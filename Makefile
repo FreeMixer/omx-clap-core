@@ -138,7 +138,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
 -include $(wildcard src/*.d)
 
@@ -151,9 +151,23 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core
+test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
+
+# the stage against fake plugins at six rates, and the core over the fault fixtures and fakes: the witness, the guard
+# page, the audio role on a split, the whole roster and the tempo
+test-stage: tests/clap_stage_test tests/clap_core_test fixtures
+	./tests/clap_stage_test
+	./tests/clap_core_test $(abspath tests)
+
+WRAP_ALLOC = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
+
+tests/clap_stage_test: tests/clap_stage_test.c src/clap_stage.h src/hosted_stage.h
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< -lm
+
+tests/clap_core_test: tests/clap_core_test.c $(CORE_SO)
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
@@ -188,6 +202,16 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/stage/usr/lib/pkgconfig/clap.pc
 	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
+
+# what one stage block costs, as the header is and with omx_clap_run's two in_cycle stores relaxed: a measurement
+bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h
+	mkdir -p build/bench-relaxed
+	sed -e 's/atomic_store(&s->in_cycle, \([01]\));/atomic_store_explicit(\&s->in_cycle, \1, memory_order_relaxed);/' src/clap_stage.h > build/bench-relaxed/clap_stage.h
+	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 2
+	cp src/hosted_stage.h src/clap_host_limits.h build/bench-relaxed/
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< -lm
+	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< -lm
+	for i in 1 2 3; do ./build/stage_bench_seq_cst; ./build/stage_bench_relaxed; done
 
 # the fault fixtures, one .clap per mode of tests/fault_clap.c: also what a consumer's tests load
 FAULT_MODES = 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16

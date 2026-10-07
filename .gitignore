@@ -18,3 +18,5 @@ tests/jack_meter_source
 tests/core_link_test
 tests/clap_layout_pin
 tests/fault-*.clap
+tests/clap_stage_test
+tests/clap_core_test
