@@ -80,7 +80,7 @@ static void test_accounting(void) {
   fill(msg, 8, 5);
   CHECK(omx_msgring_push(&r, msg, 8) == 0, "the wrapping record fits exactly (16 of 16)");
   CHECK(omx_msgring_used(&r) == 64, "ring exactly full after the wrap, got %u", omx_msgring_used(&r));
-  CHECK(omx_msgring_push(&r, NULL, 0) == -1, "even an empty record is refused on a full ring");
+  CHECK(omx_msgring_push(&r, msg, 0) == -1, "even an empty record is refused on a full ring");
   for (uint32_t k = 1; k <= 5; k++) {
     p = omx_msgring_peek(&r, &size);
     CHECK(p != NULL && size == 8 && matches(p, 8, k), "record %u in order after the wrap", k);
