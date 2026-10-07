@@ -11,6 +11,8 @@ omx-clap-host (0.3.0) unstable; urgency=medium
     in the audio path.
   * The worker message ring an in-process plugin shares with its worker thread
     ships as `omx_msgring.h`.
+  * The library's ABI number is 2: a program built against the 0.2 headers
+    keeps working, and one built against these is refused by an older library.
 
  -- Pau Aliagas <linuxnow@gmail.com>  Wed, 07 Oct 2026 12:00:00 +0000
 

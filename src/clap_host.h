@@ -63,9 +63,13 @@
 ************************************************************************************************************************
 */
 
-/* The version of the structures below, the stage's and the instance's: a field is only ever appended, and a removal or
- * a reorder is a new major of the library with a new ABI number. */
-#define OMX_CLAP_CORE_ABI               1u
+/* The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
+ * raises it (2: the instance's tempo and transport, 0.3). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
+ * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
+ * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
+ * the library. */
+#define OMX_CLAP_CORE_ABI               2u
+#define OMX_CLAP_CORE_ABI_OLDEST        1u
 
 /* How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64

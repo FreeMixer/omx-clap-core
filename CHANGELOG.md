@@ -13,6 +13,8 @@ GitHub release notes are generated from this file.
 - A plugin re-engaged after a bypass is reset on the control thread, never in the audio path.
 - The worker message ring an in-process plugin shares with its worker thread ships as
   `omx_msgring.h`.
+- The library's ABI number is 2: a program built against the 0.2 headers keeps working, and one
+  built against these is refused by an older library.
 
 ## 0.2.0 - 2026-10-03
 

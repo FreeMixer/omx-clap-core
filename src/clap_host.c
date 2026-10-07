@@ -897,7 +897,7 @@ int omx_clap_host_configure(const struct omx_clap_host_config *config)
 {
     struct omx_clap_host_config merged;
 
-    if (!config || config->abi != OMX_CLAP_CORE_ABI || config->size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
+    if (!config || config->abi < OMX_CLAP_CORE_ABI_OLDEST || config->abi > OMX_CLAP_CORE_ABI || config->size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
         return -1;
     if (g_configured || g_sealed)
         return -1;

@@ -98,6 +98,8 @@ make test-fake
   the audio path.
 - The worker message ring an in-process plugin shares with its worker thread
   ships as `omx_msgring.h`.
+- The library's ABI number is 2: a program built against the 0.2 headers keeps
+  working, and one built against these is refused by an older library.
 
 * Sat Oct 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.2.0-1
 - The library names the threads that carry audio with a test the host

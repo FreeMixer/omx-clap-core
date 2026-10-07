@@ -41,6 +41,7 @@
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
  *     block stays the plugin's output.
+ *  7. THE ABI: configure accepts a consumer of the 0.2 header (ABI 1) and of this one, and refuses 0 and a newer one.
  */
 #include <pthread.h>
 #include <sched.h>
@@ -82,6 +83,19 @@ static const char *g_fault_dir;
 
 static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s/fault-%d.clap", g_fault_dir, mode); }
 /* ---- 1. the witness ---- */
+/* ---- 7. the ABI ---- */
+static void t_abi(void) {
+  struct omx_clap_host_config config;
+  omx_clap_host_config_default(&config);
+  CHECK(config.abi == 2u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 2, the oldest accepted 1 (%u)", config.abi);
+  config.abi = 0;
+  CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
+  config.abi = OMX_CLAP_CORE_ABI + 1u;
+  CHECK(omx_clap_host_configure(&config) == -1, "a consumer of a newer header is refused");
+  config.abi = 1;
+  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of the 0.2 header (ABI 1) is accepted");
+}
+
 static void t_witness(void) {
   char path[512], why[OMX_CLAP_WHY_MAX];
   fault_path(path, sizeof path, 10);
@@ -651,6 +665,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   g_fault_dir = argv[1];
+  t_abi();
   t_witness();
   t_guard_page();
   t_audio_role_on_split();
