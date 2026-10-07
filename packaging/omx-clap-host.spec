@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.2.0
+Version:        0.3.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -86,6 +86,21 @@ make test-fake
 %{_datadir}/omx-clap-core/
 
 %changelog
+* Wed Oct 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.3.0-1
+- A plugin whose parameter list has a hole is refused whole, never served
+  short; the whole list comes in one call.
+- A host can give an instance its tempo: the plugin reads it from the
+  transport of every block.
+- The list of host extensions has a header of its own,
+  `clap_host_extensions.h`.
+- The qualifier's fault plugins come with the tests (`make fixtures`).
+- A plugin re-engaged after a bypass is reset on the control thread, never in
+  the audio path.
+- The worker message ring an in-process plugin shares with its worker thread
+  ships as `omx_msgring.h`.
+- The library's ABI number is 2: a program built against the 0.2 headers keeps
+  working, and one built against these is refused by an older library.
+
 * Sat Oct 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.2.0-1
 - The library names the threads that carry audio with a test the host
   supplies, so every worker of a split processing chain counts as an audio

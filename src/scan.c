@@ -51,7 +51,7 @@
 ************************************************************************************************************************
 */
 
-#define VERSION             "0.2.0"
+#define VERSION             "0.3.0"
 #define SCAN_TIMEOUT_S      30
 #define REASON_SIZE         512
 #define CLAP_SUFFIX         ".clap"

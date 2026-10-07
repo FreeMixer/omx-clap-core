@@ -3,8 +3,8 @@
 /*
  * GENERATED — DO NOT EDIT BY HAND.
  * Produced by openmixer's `node harness/contract-limits-gen.mjs --clap-host-limits <file>` from
- * HOSTED_STAGE_LIMITS (packages/core/src/hosted-stage-limits.ts), OMX_CLAP_HOST_EXTENSIONS and
- * CLAP_CORE_REFUSALS over HOSTING_CODE (packages/plugin-qualify/src/hosting-suitability.ts).
+ * HOSTED_STAGE_LIMITS (packages/core/src/hosted-stage-limits.ts) and CLAP_CORE_REFUSALS over
+ * HOSTING_CODE (packages/plugin-qualify/src/hosting-suitability.ts).
  * Committed here because this repository builds without that tree; openmixer's
  * contract-limits-generated ratchet requires it byte-identical to a fresh render. Change a number
  * there, regenerate, commit the result here.
@@ -28,10 +28,6 @@
 #define CLAP_HOST_LOG_BYTES 256u
 #define CLAP_HOST_ROLE_POLL_US 1000u
 #define CLAP_HOST_ROLE_TIMEOUT_US 200000u
-
-/* the host object offers exactly these extensions, NULL-terminated */
-#define CLAP_HOST_EXTENSION_COUNT 6u
-#define CLAP_HOST_EXTENSIONS_INIT { "clap.log", "clap.thread-check", "clap.latency", "clap.params", "clap.audio-ports", "clap.state", NULL }
 
 /* the refusals the core returns, as the hosting codes the console's verdicts use */
 #define CLAP_HOST_CODE_HEADLESS_FAILED "hosting.clap.headless-failed"

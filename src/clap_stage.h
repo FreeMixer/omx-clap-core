@@ -34,14 +34,16 @@
 *     for the next block. The note events of the block, written ahead of it by omx_clap_note_in, follow them.
 *     out_events.try_push is a counting sink: a CLAP_EVENT_PARAM_VALUE from the plugin raises plugin_changed and nothing
 *     is stored.
-*  3. process() with steady_time a running frame counter from activate, never -1, transport NULL. CLAP_PROCESS_ERROR
+*  3. process() with steady_time a running frame counter from activate, never -1, transport NULL (a processing block
+*     of omx_clap_run_transport carries the tempo transport; the warm-up never does). CLAP_PROCESS_ERROR
 *     discards the block (the lane passes dry); SLEEP, CONTINUE_IF_NOT_QUIET and TAIL are CONTINUE: a published plugin is
 *     never put to sleep.
 *  4. Flush-to-zero is re-asserted after process(): the mode is per thread.
 *  5. A constant output channel is expanded from its sample 0 before the scan and the clamp.
 *  6. The scan for non-finite output, the clamp, the one-block crossfade on every change of body and the bit-identical
-*     steady bypass are hosted_stage.h's, as the stage's guards say. Re-engaging after a steady bypass calls reset()
-*     before the first process().
+*     steady bypass are hosted_stage.h's, as the stage's guards say. A steady bypass marks the stage need_reset; the
+*     body never calls reset(): the host's re-engage (omx_clap_host_bypass) does, on the control thread holding the
+*     audio role, before the stage resumes.
 *  7. The latency is not read on the RT: latency.get() is [main-thread]; the control thread publishes it.
 *  8. start_processing and stop_processing run on the audio thread, driven by the state the control thread moves by
 *     compare-and-swap: ARMED to PROCESSING on the first block after publish, STOPPING to STOPPED on the first block
@@ -133,7 +135,8 @@ struct omx_clap_stage
 
     // RT-owned; the control thread reads them relaxed
     _Atomic uint32_t in_cycle;                          // 1 while omx_clap_run is under way
-    uint32_t need_reset;                                // a steady bypass happened since the last process(): reset() first
+    uint32_t need_reset;                                // a steady bypass happened since the last process(): the RT marks it,
+                                                        // the control thread resets the plugin at re-engage holding the role
     _Atomic uint32_t process_errors;                    // of which CLAP_PROCESS_ERROR returns
     _Atomic uint32_t constant_channels;                 // output channels the plugin reported constant, expanded
     _Atomic uint32_t events_delivered;                  // parameter events drained into process()
@@ -141,7 +144,7 @@ struct omx_clap_stage
     _Atomic uint32_t notes_dropped;                     // note events past CLAP_HOST_NOTES_PER_BLOCK
     _Atomic uint32_t out_events_seen;                   // events the plugin pushed at the counting sink
     _Atomic uint32_t plugin_changed;                    // a CLAP_EVENT_PARAM_VALUE came back: read-back due
-    _Atomic uint32_t resets;                            // reset() calls on re-engage
+    _Atomic uint32_t resets;                            // reset() calls on re-engage, made by the control thread
     _Atomic uint32_t start_refused;                     // start_processing() answered false
 };
 
@@ -488,8 +491,29 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
     return omx_hosted_out_finite(&s->h, n);
 }
 
-static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float *r, uint32_t n)
+/*
+ * The transport a processing block hands the plugin: CLAP_TRANSPORT_HAS_TEMPO at `bpm` and nothing else, written into
+ * `t` only here, inside the cycle bracket of a PROCESSING stage, and withdrawn when the block returns. A stage that is
+ * not processing (idle, warming up, held by the control thread) never sees `t` written.
+ */
+static inline void omx_clap_transport_fill(clap_event_transport_t *t, double bpm)
 {
+    memset(t, 0, sizeof(*t));
+    t->header.size = sizeof(*t);
+    t->header.time = 0;
+    t->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    t->header.type = CLAP_EVENT_TRANSPORT;
+    t->header.flags = 0;
+    t->flags = CLAP_TRANSPORT_HAS_TEMPO;
+    t->tempo = bpm;
+    t->tempo_inc = 0.0;
+}
+
+static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
+                                       clap_event_transport_t *t, double bpm)
+{
+    int usable;
+
     uint32_t st = atomic_load_explicit(&s->state, memory_order_acquire);
     uint32_t want_wet;
 
@@ -530,34 +554,42 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
         case OMX_HOSTED_SKIP:
             return;
         case OMX_HOSTED_IDLE:
-            s->need_reset = 1;  // a tail may be frozen: reset() first
+            s->need_reset = 1;  // a tail may be frozen: the control thread resets the plugin at re-engage, never this one
             return;
         case OMX_HOSTED_GO:
             break;
     }
-    if (want_wet && s->need_reset)
+    if (t && bpm > 0.0)
     {
-        if (s->plugin->reset)
-            s->plugin->reset(s->plugin);
-        omx_hosted_count(&s->resets, 1);
-        s->need_reset = 0;
+        omx_clap_transport_fill(t, bpm);
+        s->proc.transport = t;
     }
-    omx_hosted_run_end(&s->h, omx_clap_run_plugin(s, n), want_wet, l, r, n);
+    usable = omx_clap_run_plugin(s, n);
+    s->proc.transport = NULL;
+    omx_hosted_run_end(&s->h, usable, want_wet, l, r, n);
 }
 
 /*
  * RT: the stage's body for one block, in place on the lane (`l`, and `r` or NULL for a mono lane), every guard as the
  * header comment lists them. A block longer than the bounce is passed through untouched and counted. The block marks
  * itself in_cycle, so the control thread taking the audio role waits for it, and forgets the notes it was handed.
+ * omx_clap_run_transport is the same body handing a processing block the tempo transport in `t` (NULL or `bpm` <= 0:
+ * transport NULL); omx_clap_run hands none.
  */
-static inline void omx_clap_run(struct omx_clap_stage *s, float *l, float *r, uint32_t n)
+static inline void omx_clap_run_transport(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
+                                          clap_event_transport_t *t, double bpm)
 {
     if (s == NULL || s->plugin == NULL || l == NULL || n == 0)
         return;
     atomic_store(&s->in_cycle, 1);
-    omx_clap_run_locked(s, l, r, n);
+    omx_clap_run_locked(s, l, r, n, t, bpm);
     s->n_notes = 0;
     atomic_store(&s->in_cycle, 0);
+}
+
+static inline void omx_clap_run(struct omx_clap_stage *s, float *l, float *r, uint32_t n)
+{
+    omx_clap_run_transport(s, l, r, n, NULL, 0.0);
 }
 
 /*

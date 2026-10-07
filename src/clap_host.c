@@ -56,7 +56,7 @@
 ************************************************************************************************************************
 */
 
-#define CORE_VERSION                    (0u * 10000u + 2u * 100u + 0u)
+#define CORE_VERSION                    (0u * 10000u + 3u * 100u + 0u)
 
 // the warm-up runs at most this many frames a block, whatever the bounce holds
 #define WARMUP_BLOCK_FRAMES             128u
@@ -897,7 +897,7 @@ int omx_clap_host_configure(const struct omx_clap_host_config *config)
 {
     struct omx_clap_host_config merged;
 
-    if (!config || config->abi != OMX_CLAP_CORE_ABI || config->size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
+    if (!config || config->abi < OMX_CLAP_CORE_ABI_OLDEST || config->abi > OMX_CLAP_CORE_ABI || config->size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
         return -1;
     if (g_configured || g_sealed)
         return -1;
@@ -1311,8 +1311,34 @@ uint32_t omx_clap_host_latency(const struct omx_clap_instance *in)
 
 void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
 {
+    struct omx_clap_role role;
+    const uint32_t was = in->bypass_wanted;
+
     in->bypass_wanted = on ? 1u : 0u;
-    omx_clap_set_bypass(&in->stage, on);
+    // a bypass, an inactive instance, or an off that was already off: the flag alone. A live engaged stage is never held
+    // for a redundant off, which would pass one block dry and fade back in
+    if (on || !in->active || !was)
+    {
+        omx_clap_set_bypass(&in->stage, on);
+        return;
+    }
+    // re-engage: a plugin that sat idle through a steady bypass may hold a frozen tail. It is reset here, on the control
+    // thread holding the audio role, before the stage resumes; the RT body never calls reset()
+    omx_clap_host_take_role(in, &role);
+    if (in->stage.need_reset)
+    {
+        if (in->plugin->reset)
+            in->plugin->reset(in->plugin);
+        omx_hosted_count(&in->stage.resets, 1);
+        in->stage.need_reset = 0;
+    }
+    omx_clap_set_bypass(&in->stage, 0);
+    omx_clap_host_release_role(in, &role, role.state);
+}
+
+void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo)
+{
+    in->tempo = tempo;
 }
 
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)
@@ -1327,10 +1353,18 @@ int omx_clap_host_bypassed(const struct omx_clap_instance *in)
 ************************************************************************************************************************
 */
 
-uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
+/*
+ * The roster, whole or refused: walk every index below count() once, -1 when one does not answer get_info (a roster
+ * with a hole is never served short). Returns the number of rows; with `want` < UINT32_MAX, the row of index `want`
+ * lands in `row` and `*found` says whether it existed. Each call re-reads the plugin: O(n), and a caller walking the
+ * rows by index is O(n^2) - omx_clap_host_param_roster reads them all in one pass.
+ */
+static int roster_walk(struct omx_clap_instance *in, uint32_t want, struct omx_clap_param_row *row, int *found)
 {
     uint32_t n, i, rows = 0;
 
+    if (found)
+        *found = 0;
     if (!in->params)
         return 0;
     n = in->params->count(in->plugin);
@@ -1339,32 +1373,78 @@ uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
         clap_param_info_t info;
 
         memset(&info, 0, sizeof(info));
-        if (in->params->get_info(in->plugin, i, &info) && is_row(&info))
-            rows++;
+        if (!in->params->get_info(in->plugin, i, &info))
+            return -1;
+        if (!is_row(&info))
+            continue;
+        if (rows == want && row)
+        {
+            row_of(&info, row);
+            *found = 1;
+        }
+        rows++;
     }
-    return rows;
+    return (int)rows;
+}
+
+uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
+{
+    const int rows = roster_walk(in, UINT32_MAX, NULL, NULL);
+
+    return rows < 0 ? 0u : (uint32_t)rows;
 }
 
 int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row)
 {
-    uint32_t n, i, seen = 0;
+    struct omx_clap_param_row r;
+    int found;
 
-    if (!in->params)
+    if (index == UINT32_MAX || roster_walk(in, index, &r, &found) < 0 || !found)
         return -1;
+    *row = r;
+    return 0;
+}
+
+int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why)
+{
+    struct omx_clap_param_row *out;
+    uint32_t n, i, k = 0;
+
+    *rows = NULL;
+    if (!in->params)
+        return 0;
     n = in->params->count(in->plugin);
+    if (n == 0)
+        return 0;
+    out = calloc(n, sizeof(*out));
+    if (!out)
+    {
+        if (why)
+            *why = OMX_CLAP_PARAM_ROW_UNREADABLE;
+        return -1;
+    }
     for (i = 0; i < n; i++)
     {
         clap_param_info_t info;
 
         memset(&info, 0, sizeof(info));
-        if (!in->params->get_info(in->plugin, i, &info) || !is_row(&info))
-            continue;
-        if (seen++ != index)
-            continue;
-        row_of(&info, row);
+        if (!in->params->get_info(in->plugin, i, &info))
+        {
+            free(out);
+            if (why)
+                *why = OMX_CLAP_PARAM_ROW_UNREADABLE;   // never the rows read so far
+            return -1;
+        }
+        if (is_row(&info))
+            row_of(&info, &out[k++]);
+    }
+    if (k == 0)
+    {
+        free(out);  // parameters, none of them a row: nothing to hand back
         return 0;
     }
-    return -1;
+    *rows = out;
+    return (int)k;
 }
 
 int omx_clap_host_param_write(struct omx_clap_instance *in, clap_id id, double value)

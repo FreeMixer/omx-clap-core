@@ -25,9 +25,9 @@
 * instance it hosts. It owns everything clap_stage.h (the RT body) does not: load, judge the ports, activate, warm up,
 * publish, unpublish, rate change, restart, parameters as rows, the read-back shadow, state, latency, the host object.
 *
-* Every function here runs on the control thread unless its comment says otherwise. None is called from the RT: the RT
-* sees only the stage, through omx_clap_run. Functions return 0 or -1, and name a refusal by the hosting code of
-* clap_host_limits.h in `why`.
+* Every function here runs on the control thread unless its comment says otherwise. The RT calls none of the exported
+* ones: it sees the stage, through omx_clap_run, or the instance through the inline omx_clap_host_run, the header's only
+* RT code. Functions return 0 or -1, and name a refusal by the hosting code of clap_host_limits.h in `why`.
 *
 * The library is configured once per process (omx_clap_host_configure) and otherwise runs the defaults. A
 * consumer is compiled against the headers of the library it runs with: OMX_CLAP_CORE_ABI is checked at configure.
@@ -46,10 +46,14 @@
 */
 
 #include <clap/clap.h>
+#include <math.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
+#include "clap_host_extensions.h"
 #include "clap_stage.h"
 
 
@@ -59,12 +63,19 @@
 ************************************************************************************************************************
 */
 
-/* The version of the structures below, the stage's and the instance's: a field is only ever appended, and a removal or
- * a reorder is a new major of the library with a new ABI number. */
-#define OMX_CLAP_CORE_ABI               1u
+/* The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
+ * raises it (2: the instance's tempo and transport, 0.3). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
+ * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
+ * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
+ * the library. */
+#define OMX_CLAP_CORE_ABI               2u
+#define OMX_CLAP_CORE_ABI_OLDEST        1u
 
 /* How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
+
+/* The roster's refusal: an index below count() whose get_info does not answer. */
+#define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
 
 #if defined(__GNUC__)
 #define OMX_CLAP_EXPORT                 __attribute__((visibility("default")))
@@ -131,6 +142,14 @@ struct omx_clap_role
     uint32_t state;
     pthread_t thread;
     int held;
+};
+
+/* A host's tempo: one published word, the bpm as the bits of a double, 0 for none. An instance given it hands its plugin
+ * a transport carrying that tempo and nothing else (no playhead, no meter); with no tempo the transport is NULL, never an
+ * invented one. */
+struct omx_clap_tempo
+{
+    _Atomic uint64_t bpm_bits;
 };
 
 /* One hosted instance. Opaque to the RT except for `stage`, which the consumer's RT thread runs. */
@@ -201,6 +220,11 @@ struct omx_clap_instance
     _Atomic uint32_t audio_role_seq;
     _Atomic omx_clap_audio_role_fn audio_role_is;
     void *_Atomic audio_role_ctx;
+    // the tempo omx_clap_host_run carries (NULL: none), set by omx_clap_host_set_tempo, and the transport record it
+    // hands the plugin, written only inside the stage's cycle on a processing block, never while the stage is idle,
+    // warming up or held
+    const struct omx_clap_tempo *tempo;
+    clap_event_transport_t transport;
 };
 
 
@@ -302,13 +326,23 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_latency(const struct omx_clap_instance *i
 OMX_CLAP_EXPORT void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role *role);
 OMX_CLAP_EXPORT void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_clap_role *role, uint32_t state);
 
-/* The host's own bypass: one crossfade to the dry lane on the next cycle, then the plugin idles. */
+/* The host's own bypass: one crossfade to the dry lane on the next cycle, then the plugin idles. Off after on re-engages:
+ * the control thread takes the audio role, resets a plugin that idled, and the stage fades back in. Off when already off
+ * only records it: the stage is not held and the output does not move. */
 OMX_CLAP_EXPORT void omx_clap_host_bypass(struct omx_clap_instance *in, int on);
 OMX_CLAP_EXPORT int omx_clap_host_bypassed(const struct omx_clap_instance *in);
 
-/* Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. */
+/* Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. The roster is whole or
+ * refused: when an index below count() does not answer get_info, the count is 0 and every row is refused. Each call
+ * walks the plugin's whole list once (O(n)), so reading every row by index is O(n^2): param_roster reads them in one. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_param_count(struct omx_clap_instance *in);
 OMX_CLAP_EXPORT int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row);
+
+/* The whole roster in one call: every row, in get_info order with the non-rows skipped, read in one pass over count()
+ * with no cap. `*rows` is malloc'd (the caller frees it) and the count returned; 0 with `*rows` NULL when there is no
+ * row (no parameter, or none of them a row). -1 with `*why` (when `why` is not NULL) OMX_CLAP_PARAM_ROW_UNREADABLE when
+ * an index below count() does not answer get_info (never the rows read so far) or the rows cannot be allocated. */
+OMX_CLAP_EXPORT int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why);
 
 /* A row write: one enqueue into the ring plus the shadow record. -1: the ring is full, the id is not a row or the
  * instance is not active. The value is the plugin's, unclamped. */
@@ -376,5 +410,47 @@ OMX_CLAP_EXPORT int omx_clap_host_has_feature(const clap_plugin_descriptor_t *de
 *           END HEADER
 ************************************************************************************************************************
 */
+
+/* Control thread, before publish: the tempo omx_clap_host_run hands the plugin from now on (NULL: none). The word must
+ * outlive the instance's publication. */
+OMX_CLAP_EXPORT void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo);
+
+
+/*
+************************************************************************************************************************
+*           INLINE FUNCTIONS
+************************************************************************************************************************
+*/
+
+/* Control thread: publish the bpm (a finite bpm > 0; anything else withdraws the tempo). Seen by the next block. */
+static inline void omx_clap_tempo_publish(struct omx_clap_tempo *tempo, double bpm)
+{
+    uint64_t bits = 0;
+
+    if (isfinite(bpm) && bpm > 0.0)
+        memcpy(&bits, &bpm, sizeof(bits));
+    atomic_store_explicit(&tempo->bpm_bits, bits, memory_order_relaxed);
+}
+
+/* Any thread: the published bpm, 0 when none is. */
+static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
+{
+    const uint64_t bits = atomic_load_explicit(&tempo->bpm_bits, memory_order_relaxed);
+    double bpm;
+
+    memcpy(&bpm, &bits, sizeof(bpm));
+    return bits ? bpm : 0.0;
+}
+
+/* The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
+ * transport carrying the tempo the instance was given (NULL when it has none or the word holds none). Read once per
+ * block, relaxed: a change is seen by the next block. The transport record is written only inside the stage's cycle,
+ * on a processing block (omx_clap_run_transport); this function itself writes nothing of the instance. */
+static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
+{
+    const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+
+    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, bpm);
+}
 
 #endif
