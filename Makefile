@@ -138,7 +138,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
 -include $(wildcard src/*.d)
 
@@ -188,6 +188,14 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/stage/usr/lib/pkgconfig/clap.pc
 	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
+
+# the fault fixtures, one .clap per mode of tests/fault_clap.c: also what a consumer's tests load
+FAULT_MODES = 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+FIXTURES = $(foreach m,$(FAULT_MODES),tests/fault-$(m).clap)
+fixtures: $(FIXTURES)
+
+tests/fault-%.clap: tests/fault_clap.c
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -DOMX_FAULT_MODE=$* -o $@ $< -lm
 
 tests/fake.clap: tests/fake_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
