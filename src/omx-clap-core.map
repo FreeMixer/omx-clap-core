@@ -54,3 +54,10 @@ OMX_CLAP_CORE_0
   local:
     *;
 };
+
+/* added in 0.3.0 */
+OMX_CLAP_CORE_0.3
+{
+  global:
+    omx_clap_host_param_roster;
+} OMX_CLAP_CORE_0;

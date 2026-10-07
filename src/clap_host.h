@@ -67,6 +67,9 @@
 /* How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
 
+/* The roster's refusal: an index below count() whose get_info does not answer. */
+#define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
+
 #if defined(__GNUC__)
 #define OMX_CLAP_EXPORT                 __attribute__((visibility("default")))
 #else
@@ -307,9 +310,16 @@ OMX_CLAP_EXPORT void omx_clap_host_release_role(struct omx_clap_instance *in, co
 OMX_CLAP_EXPORT void omx_clap_host_bypass(struct omx_clap_instance *in, int on);
 OMX_CLAP_EXPORT int omx_clap_host_bypassed(const struct omx_clap_instance *in);
 
-/* Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. */
+/* Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. The roster is whole or
+ * refused: when an index below count() does not answer get_info, the count is 0 and every row is refused. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_param_count(struct omx_clap_instance *in);
 OMX_CLAP_EXPORT int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row);
+
+/* The whole roster in one call: every row, in get_info order with the non-rows skipped, read in one pass over count()
+ * with no cap. `*rows` is malloc'd (the caller frees it; NULL for none) and the count returned. -1 with `*why`
+ * OMX_CLAP_PARAM_ROW_UNREADABLE when an index below count() does not answer get_info (never the rows read so far) or
+ * the rows cannot be allocated. */
+OMX_CLAP_EXPORT int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why);
 
 /* A row write: one enqueue into the ring plus the shadow record. -1: the ring is full, the id is not a row or the
  * instance is not active. The value is the plugin's, unclamped. */

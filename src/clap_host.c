@@ -1327,6 +1327,22 @@ int omx_clap_host_bypassed(const struct omx_clap_instance *in)
 ************************************************************************************************************************
 */
 
+/* Whether every index below count() answers get_info: a roster with a hole is refused whole, never served short. */
+static int roster_whole(struct omx_clap_instance *in, uint32_t n)
+{
+    uint32_t i;
+
+    for (i = 0; i < n; i++)
+    {
+        clap_param_info_t info;
+
+        memset(&info, 0, sizeof(info));
+        if (!in->params->get_info(in->plugin, i, &info))
+            return 0;
+    }
+    return 1;
+}
+
 uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
 {
     uint32_t n, i, rows = 0;
@@ -1334,6 +1350,8 @@ uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
     if (!in->params)
         return 0;
     n = in->params->count(in->plugin);
+    if (!roster_whole(in, n))
+        return 0;
     for (i = 0; i < n; i++)
     {
         clap_param_info_t info;
@@ -1352,6 +1370,8 @@ int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct
     if (!in->params)
         return -1;
     n = in->params->count(in->plugin);
+    if (!roster_whole(in, n))
+        return -1;
     for (i = 0; i < n; i++)
     {
         clap_param_info_t info;
@@ -1365,6 +1385,41 @@ int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct
         return 0;
     }
     return -1;
+}
+
+int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why)
+{
+    struct omx_clap_param_row *out;
+    uint32_t n, i, k = 0;
+
+    *rows = NULL;
+    if (!in->params)
+        return 0;
+    n = in->params->count(in->plugin);
+    if (n == 0)
+        return 0;
+    out = calloc(n, sizeof(*out));
+    if (!out)
+    {
+        *why = OMX_CLAP_PARAM_ROW_UNREADABLE;
+        return -1;
+    }
+    for (i = 0; i < n; i++)
+    {
+        clap_param_info_t info;
+
+        memset(&info, 0, sizeof(info));
+        if (!in->params->get_info(in->plugin, i, &info))
+        {
+            free(out);
+            *why = OMX_CLAP_PARAM_ROW_UNREADABLE;   // never the rows read so far
+            return -1;
+        }
+        if (is_row(&info))
+            row_of(&info, &out[k++]);
+    }
+    *rows = out;
+    return (int)k;
 }
 
 int omx_clap_host_param_write(struct omx_clap_instance *in, clap_id id, double value)
