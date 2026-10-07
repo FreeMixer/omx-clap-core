@@ -477,6 +477,7 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     if (!p->controls)
         return LV2_CODE_NO_REALISATION;
     p->latency_port = -1;
+    p->n_ports = n;
     for (i = 0; i < n; i++)
     {
         const LilvPort *port = L.lilv_plugin_get_port_by_index(pl, i);

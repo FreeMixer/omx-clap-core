@@ -22,9 +22,9 @@
 ************************************************************************************************************************
 *
 * The configuration and the feature providers of the LV2 host (see lv2_core.h), moved from the console's
-* mix_host_backend.c: one URID map per process, guarded for the main and the worker threads; a log:log sink that writes
-* nothing; and which providers are on, which is the configured list's say. The options and the worker schedule are each
-* instance's own (lv2_instance.c). This table says how each feature is built, never which are on.
+* mix_host_backend.c: one URID table per process, lock-free for a URI already mapped, and which providers are on,
+* which is the configured list's say. The map, the log, the options and the worker schedule an instance is handed are
+* its own structures over that table (lv2_instance.c), so a call names the instance it came from.
 *
 ************************************************************************************************************************
 */
@@ -37,7 +37,6 @@
 */
 
 #include <pthread.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -88,15 +87,20 @@ static struct
     uint32_t provided;          // bit k: lv2_feature_uri[k] is on the configured list
 } g;
 
-/* urid:map and urid:unmap: ONE table for the process. A URID is the index + 1 (0 is "no URID"); a string is kept for
- * the life of the process, so a URID never changes meaning. */
+/* urid:map and urid:unmap: ONE table for the process, append-only. A URID is the index + 1 (0 is "no URID"); a string is
+ * kept for the life of the process, so a URID never changes meaning. The entries live in segments that never move, the
+ * segment k holding URID_SEGMENT0 << k of them, and the count is published with a release store after the entry is
+ * written: a lookup of a URI already mapped takes no lock, allocates nothing and copies nothing. Only an append takes
+ * the writer's lock. */
+#define URID_SEGMENT0                   64u
+#define URID_SEGMENTS                   24u
+
 static struct
 {
-    pthread_mutex_t lock;
-    char **uris;
-    uint32_t n, cap;
-} g_urid = { PTHREAD_MUTEX_INITIALIZER, NULL, 0, 0 };
-
+    pthread_mutex_t writer;
+    _Atomic(const char *) *segment[URID_SEGMENTS];
+    _Atomic uint32_t count;
+} g_urid = { PTHREAD_MUTEX_INITIALIZER, { NULL }, 0 };
 
 /*
 ************************************************************************************************************************
@@ -104,76 +108,76 @@ static struct
 ************************************************************************************************************************
 */
 
-static LV2_URID urid_map(LV2_URID_Map_Handle h, const char *uri)
+/* the slot of the URID index `i`: segment k starts at URID_SEGMENT0 * (2^k - 1) */
+static _Atomic(const char *) *urid_slot(uint32_t i, int create)
 {
-    LV2_URID id = 0;
+    uint32_t k = 0, base = 0;
+
+    while (k < URID_SEGMENTS && i >= base + (URID_SEGMENT0 << k))
+    {
+        base += URID_SEGMENT0 << k;
+        k++;
+    }
+    if (k == URID_SEGMENTS)
+        return NULL;
+    if (!g_urid.segment[k] && create)
+        g_urid.segment[k] = calloc(URID_SEGMENT0 << k, sizeof(*g_urid.segment[k]));
+    return g_urid.segment[k] ? &g_urid.segment[k][i - base] : NULL;
+}
+
+/* the URID of `uri` among the first `n`, or 0 */
+static LV2_URID urid_find(const char *uri, uint32_t from, uint32_t n)
+{
     uint32_t i;
 
-    (void)h;
+    for (i = from; i < n; i++)
+    {
+        const char *s = atomic_load_explicit(urid_slot(i, 0), memory_order_relaxed);
+
+        if (strcmp(s, uri) == 0)
+            return i + 1;
+    }
+    return 0;
+}
+
+LV2_URID lv2_urid_lookup(const char *uri)
+{
+    const uint32_t n = atomic_load_explicit(&g_urid.count, memory_order_acquire);
+    uint32_t seen;
+    LV2_URID id;
+
     if (!uri)
         return 0;
-    pthread_mutex_lock(&g_urid.lock);
-    for (i = 0; i < g_urid.n && !id; i++)
-        if (strcmp(g_urid.uris[i], uri) == 0)
-            id = i + 1;
+    id = urid_find(uri, 0, n);
+    if (id)
+        return id;
+    pthread_mutex_lock(&g_urid.writer);
+    seen = atomic_load_explicit(&g_urid.count, memory_order_relaxed);
+    id = urid_find(uri, n, seen);      // another writer may have appended it meanwhile
     if (!id)
     {
-        char *copy;
+        _Atomic(const char *) *slot = urid_slot(seen, 1);
+        char *copy = slot ? strdup(uri) : NULL;
 
-        if (g_urid.n == g_urid.cap)
-        {
-            const uint32_t cap = g_urid.cap ? 2u * g_urid.cap : 64u;
-            char **grown = realloc(g_urid.uris, cap * sizeof(*grown));
-
-            if (grown)
-            {
-                g_urid.uris = grown;
-                g_urid.cap = cap;
-            }
-        }
-        copy = g_urid.n < g_urid.cap ? strdup(uri) : NULL;
         if (copy)
         {
-            g_urid.uris[g_urid.n++] = copy;
-            id = g_urid.n;
+            atomic_store_explicit(slot, copy, memory_order_relaxed);
+            atomic_store_explicit(&g_urid.count, seen + 1, memory_order_release);
+            id = seen + 1;
         }
     }
-    pthread_mutex_unlock(&g_urid.lock);
+    pthread_mutex_unlock(&g_urid.writer);
     return id;
 }
 
-static const char *urid_unmap(LV2_URID_Unmap_Handle h, LV2_URID id)
+const char *lv2_urid_unlookup(LV2_URID id)
 {
-    const char *uri;
+    const uint32_t n = atomic_load_explicit(&g_urid.count, memory_order_acquire);
 
-    (void)h;
-    pthread_mutex_lock(&g_urid.lock);
-    uri = id >= 1 && id <= g_urid.n ? g_urid.uris[id - 1] : NULL;
-    pthread_mutex_unlock(&g_urid.lock);
-    return uri;
+    if (id < 1 || id > n)
+        return NULL;
+    return atomic_load_explicit(urid_slot(id - 1, 0), memory_order_relaxed);
 }
-
-/* log:log formats nothing and writes nothing: a line from run() must never reach a system call */
-static int log_vprintf(LV2_Log_Handle h, LV2_URID type, const char *fmt, va_list ap)
-{
-    (void)h;
-    (void)type;
-    (void)fmt;
-    (void)ap;
-    return 0;
-}
-
-static int log_printf(LV2_Log_Handle h, LV2_URID type, const char *fmt, ...)
-{
-    (void)h;
-    (void)type;
-    (void)fmt;
-    return 0;
-}
-
-LV2_URID_Map lv2_urid_map = { NULL, urid_map };
-LV2_URID_Unmap lv2_urid_unmap = { NULL, urid_unmap };
-LV2_Log_Log lv2_log = { NULL, log_printf, log_vprintf };
 
 static int provider_of(const char *uri)
 {

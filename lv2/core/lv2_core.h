@@ -137,6 +137,7 @@ struct lv2_plugin
     struct lv2_bundle *bundle;
     char *uri;
     char *bundle_path;              // the directory, with its trailing '/'
+    uint32_t n_ports;
     uint32_t legs;                  // 1 or 2
     uint32_t in_ports[2], out_ports[2];
     int32_t latency_port;           // -1: none
@@ -150,6 +151,21 @@ struct lv2_plugin
 
 /* One running instance of a plugin. Opaque. */
 struct lv2_instance;
+
+/* What the host supplies to say whether the calling thread holds the audio role of the instance (its RT thread, a
+ * worker of a split chain, or the control thread during the warm-up). */
+typedef int (*lv2_audio_role_fn)(void *ctx);
+
+/* What the instance counts, read relaxed. */
+struct lv2_counters
+{
+    uint32_t schedule_refused;      // schedule_work on a full request ring (NO_SPACE)
+    uint32_t responses_refused;     // respond on a full response ring (NO_SPACE)
+    uint32_t respond_strikes;       // respond() called outside work(): refused
+    uint32_t map_on_audio;          // urid:map called on the audio role: a thread violation
+    uint32_t schedule_off_audio;    // schedule_work called off the audio role: a thread violation
+    uint32_t log_on_audio;          // log:log called on the audio role (the sink writes nothing either way)
+};
 
 
 /*
@@ -230,10 +246,12 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
 /* [thread-safe] The latency port's last valid reading in frames (0 without one, or before the first run). */
 uint32_t lv2_instance_latency(const struct lv2_instance *in);
 
-/* [thread-safe] The worker's counters: schedule_work on a full request ring, respond on a full response ring, respond
- * outside work(). */
-void lv2_instance_counters(const struct lv2_instance *in, uint32_t *schedule_refused, uint32_t *responses_refused,
-                           uint32_t *respond_strikes);
+/* [thread-safe] The counters. */
+void lv2_instance_counters(const struct lv2_instance *in, struct lv2_counters *out);
+
+/* The host's audio-role predicate: urid:map, log:log and schedule_work are classified by it, never by a thread check of
+ * the library's own. NULL classifies nothing. */
+void lv2_instance_set_role(struct lv2_instance *in, lv2_audio_role_fn is_audio, void *ctx);
 
 /* Block until the worker has serviced every pending request (a test pins the schedule with it). */
 void lv2_instance_worker_quiesce(struct lv2_instance *in);

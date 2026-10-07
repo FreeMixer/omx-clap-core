@@ -46,10 +46,9 @@ int lv2_feature_configured(const char *uri);
 /* whether the provider `kind` is on the configured list */
 int lv2_feature_on(enum lv2_feature_kind kind);
 
-/* the process's one URID map and unmap, and the log sink that writes nothing */
-extern LV2_URID_Map lv2_urid_map;
-extern LV2_URID_Unmap lv2_urid_unmap;
-extern LV2_Log_Log lv2_log;
+/* the process's one URID table, lock-free for a URI already mapped */
+LV2_URID lv2_urid_lookup(const char *uri);
+const char *lv2_urid_unlookup(LV2_URID id);
 
 /* state:loadDefaultState over lilv-state, with the features `instantiate` was handed: 0, or -1 */
 int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features);
