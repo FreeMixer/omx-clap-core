@@ -17,6 +17,14 @@ env:
   PLUGIN_HOSTD_REF: b2fa9aba689d5fe2b7849244213465c7c9086d8d
 
 jobs:
+  changelog:
+    name: CHANGELOG.md agrees with the spec and debian/changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FreeMixer/.github/.github/actions/changelog@packaging-changelog
+
   test:
     name: build and test
     runs-on: ubuntu-latest

@@ -87,13 +87,18 @@ make test-fake
 
 %changelog
 * Sat Oct 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.2.0-1
-- omx-clap-core 0.2.0: name the audio role's threads with a predicate at publish, so every worker of a split walk is the audio thread
+- The library names the threads that carry audio with a test the host
+  supplies, so every worker of a split processing chain counts as an audio
+  thread.
 
 * Thu Oct 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.1-1
-- report plugin meters as mod-host output symbols
-- check the layout pin plugin-hostd expects before activating an instance
-- answer track_info, remote_pages, remote_page_get and param_info
-- build against plugin-hostd 0.1.2
+- Plugin meters are reported the way mod-host reports its output meters.
+- Before a plugin is activated, the host checks the layout that plugin-hostd
+  expects.
+- Answers the new plugin information commands: track_info, remote_pages,
+  remote_page_get and param_info.
+- Built against plugin-hostd 0.1.2.
 
 * Tue Sep 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.1.0-1
-- first package: omx-clap-host, and omx-clap-core with omx-clap-core-devel, the library it is built on
+- First package: the CLAP host, and the library it is built on with its
+  development files.
