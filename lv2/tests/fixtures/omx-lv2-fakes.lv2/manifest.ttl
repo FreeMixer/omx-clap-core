@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The fakes of lv2_fakes.c: one binary, seven plugins.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:omx:test:pad:mono#0>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .
+
+<urn:omx:test:pad:stereo#0>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .
+
+<urn:omx:test:broken:mono#1>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .
+
+<urn:omx:test:clobber:mono#2>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .
+
+<urn:omx:test:nan:mono#3>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .
+
+<urn:omx:test:hot:mono#4>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .
+
+<urn:omx:test:worker:mono#5>
+    a lv2:Plugin ;
+    lv2:binary <omx-lv2-fakes.so> ;
+    rdfs:seeAlso <omx-lv2-fakes.ttl> .

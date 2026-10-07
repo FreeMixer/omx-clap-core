@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# lv2_fakes.c's ports: mono 0 in, 1 out, 2 latency; stereo 0 in L, 1 in R, 2 out L, 3 out R, 4 latency.
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix work: <http://lv2plug.in/ns/ext/worker#> .
+
+<urn:omx:test:pad:mono#0>
+    a lv2:Plugin ;
+    doap:name "omx fake pad" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:pad:stereo#0>
+    a lv2:Plugin ;
+    doap:name "omx fake stereo pad" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:broken:mono#1>
+    a lv2:Plugin ;
+    doap:name "omx fake in-place broken pad" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:clobber:mono#2>
+    a lv2:Plugin ;
+    doap:name "omx fake MXCSR clobber" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:nan:mono#3>
+    a lv2:Plugin ;
+    doap:name "omx fake NaN" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:hot:mono#4>
+    a lv2:Plugin ;
+    doap:name "omx fake +40 dB" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:worker:mono#5>
+    a lv2:Plugin ;
+    doap:name "omx fake worker" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:extensionData work:interface ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .

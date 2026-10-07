@@ -21,3 +21,8 @@ tests/fault-*.clap
 tests/clap_stage_test
 tests/clap_core_test
 tests/msgring_test
+lv2/tests/lv2_run_test
+lv2/tests/lv2_host_test
+lv2/tests/lv2_clap_test
+/libomx-clap-lv2.a
+lv2/*/*.o
