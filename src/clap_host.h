@@ -25,9 +25,9 @@
 * instance it hosts. It owns everything clap_stage.h (the RT body) does not: load, judge the ports, activate, warm up,
 * publish, unpublish, rate change, restart, parameters as rows, the read-back shadow, state, latency, the host object.
 *
-* Every function here runs on the control thread unless its comment says otherwise. None is called from the RT: the RT
-* sees only the stage, through omx_clap_run. Functions return 0 or -1, and name a refusal by the hosting code of
-* clap_host_limits.h in `why`.
+* Every function here runs on the control thread unless its comment says otherwise. The RT calls none of the exported
+* ones: it sees the stage, through omx_clap_run, or the instance through the inline omx_clap_host_run, the header's only
+* RT code. Functions return 0 or -1, and name a refusal by the hosting code of clap_host_limits.h in `why`.
 *
 * The library is configured once per process (omx_clap_host_configure) and otherwise runs the defaults. A
 * consumer is compiled against the headers of the library it runs with: OMX_CLAP_CORE_ABI is checked at configure.
@@ -217,7 +217,8 @@ struct omx_clap_instance
     _Atomic omx_clap_audio_role_fn audio_role_is;
     void *_Atomic audio_role_ctx;
     // the tempo omx_clap_host_run carries (NULL: none), set by omx_clap_host_set_tempo, and the transport record it
-    // hands the plugin, written only by the thread that runs the instance
+    // hands the plugin, written only inside the stage's cycle on a processing block, never while the stage is idle,
+    // warming up or held
     const struct omx_clap_tempo *tempo;
     clap_event_transport_t transport;
 };
@@ -436,30 +437,13 @@ static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
 
 /* The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
  * transport carrying the tempo the instance was given (NULL when it has none or the word holds none). Read once per
- * block, relaxed: a change is seen by the next block. */
+ * block, relaxed: a change is seen by the next block. The transport record is written only inside the stage's cycle,
+ * on a processing block (omx_clap_run_transport); this function itself writes nothing of the instance. */
 static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
 {
     const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
-    clap_event_transport_t *t = &in->transport;
 
-    if (bpm > 0.0)
-    {
-        memset(t, 0, sizeof(*t));
-        t->header.size = sizeof(*t);
-        t->header.time = 0;
-        t->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
-        t->header.type = CLAP_EVENT_TRANSPORT;
-        t->header.flags = 0;
-        t->flags = CLAP_TRANSPORT_HAS_TEMPO;
-        t->tempo = bpm;
-        t->tempo_inc = 0.0;
-        in->stage.proc.transport = t;
-    }
-    else
-    {
-        in->stage.proc.transport = NULL;
-    }
-    omx_clap_run(&in->stage, l, r, n);
+    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, bpm);
 }
 
 #endif

@@ -36,6 +36,8 @@
  *  5. THE TEMPO: omx_clap_host_run hands the plugin no transport with no tempo given or none published, a transport
  *     carrying the bpm and only HAS_TEMPO once one is, a change at the next block, none once withdrawn; the tempo
  *     fixture (fault mode 16) reads 120 bpm as a level of 0.12.
+ *     The transport is written only inside a processing block: a block run on an idle stage leaves the instance's
+ *     record untouched, and the warm-up after it is handed none.
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset().
  */
@@ -498,6 +500,36 @@ static void t_tempo(void) {
   omx_clap_host_close(in);
 }
 
+/* The transport is the processing block's: an idle stage's block writes nothing of the instance, so a warm-up that
+ * follows it is handed no transport. */
+static void t_transport_in_the_cycle(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  CHECK(omx_clap_host_open_entry(&TP_ENTRY, TP_DESC.id, &in, why) == 0 && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "the transport reader opens again (%s)", why);
+  if (!in) return;
+  struct omx_clap_tempo word;
+  memset(&word, 0, sizeof word);
+  omx_clap_tempo_publish(&word, 120.0);
+  omx_clap_host_set_tempo(in, &word);
+  clap_event_transport_t before;
+  memcpy(&before, &in->transport, sizeof before);
+  const uint32_t calls0 = g_tp.runs;
+  tp_run(in); /* not published: the stage is idle and the block passes dry */
+  CHECK(g_tp.runs == calls0, "an idle stage's block never reaches the plugin");
+  CHECK(memcmp(&before, &in->transport, sizeof before) == 0, "and leaves the instance's transport record untouched");
+  CHECK(in->stage.proc.transport == NULL, "and hands the stage no transport");
+  CHECK(omx_clap_prime(&in->stage, 64) == 0, "a warm-up after it runs clean");
+  CHECK(g_tp.runs > calls0 && !g_tp.saw_transport, "and the warm-up's process() is handed no transport");
+  omx_clap_host_publish(in, pthread_self());
+  tp_run(in);
+  CHECK(g_tp.saw_transport && g_tp.saw_tempo == 120.0, "published, the block carries the tempo (%g)", g_tp.saw_tempo);
+  CHECK(in->stage.proc.transport == NULL, "and withdraws it when the block returns");
+  omx_clap_request_stop(&in->stage);
+  tp_run(in);
+  CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "unpublished");
+  omx_clap_host_close(in);
+}
+
 /* ---- 6. the reset is the control thread's ---- */
 
 /* The reset fake: a -20 dB pad that counts its reset() calls by the thread that made them. */
@@ -599,6 +631,7 @@ int main(int argc, char **argv) {
   t_audio_role_on_split();
   t_roster_whole_or_refused();
   t_tempo();
+  t_transport_in_the_cycle();
   t_reset_off_rt();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
   if (failures) {
