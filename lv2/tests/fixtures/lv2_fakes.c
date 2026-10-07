@@ -68,6 +68,11 @@ static LV2_Handle f_instantiate(const LV2_Descriptor *d, double rate, const char
     f->rate = rate;
     f->kind = (enum fake_kind)(d->URI[strlen(d->URI) - 1] - '0');
     f->legs = strstr(d->URI, "stereo") ? 2 : 1;
+    if (f->kind == K_NAN_ALWAYS)
+    {
+        f->kind = K_NAN;
+        f->nan_on = 1;
+    }
     for (int i = 0; features && features[i]; i++)
         if (!strcmp(features[i]->URI, LV2_WORKER__schedule))
             f->sched = features[i]->data;
@@ -202,7 +207,7 @@ static const void *f_extension_data(const char *uri)
 static const LV2_Descriptor DESCRIPTORS[] =
 {
     DESC(FAKE_PAD, NULL), DESC(FAKE_PAD2, NULL), DESC(FAKE_BROKEN, NULL), DESC(FAKE_CLOBBER, NULL),
-    DESC(FAKE_NAN, NULL), DESC(FAKE_HOT, NULL), DESC(FAKE_WORKER, f_extension_data),
+    DESC(FAKE_NAN, NULL), DESC(FAKE_HOT, NULL), DESC(FAKE_WORKER, f_extension_data), DESC(FAKE_NAN_ALWAYS, NULL),
 };
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)

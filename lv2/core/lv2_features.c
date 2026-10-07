@@ -65,11 +65,7 @@ const char *const lv2_feature_uri[LV2_FEATURE_KINDS] =
     [F_LOG] = LV2_LOG__log,
 };
 
-const char *const lv2_core_provided[] =
-{
-    LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule,
-    LV2_STATE__loadDefaultState, LV2_LOG__log, NULL
-};
+const char *const lv2_core_provided[] = LV2_CORE_PROVIDED_INIT;
 
 
 /*

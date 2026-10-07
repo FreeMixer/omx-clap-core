@@ -50,7 +50,13 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
+#include <lv2/buf-size/buf-size.h>
 #include <lv2/core/lv2.h>
+#include <lv2/log/log.h>
+#include <lv2/options/options.h>
+#include <lv2/state/state.h>
+#include <lv2/urid/urid.h>
+#include <lv2/worker/worker.h>
 
 
 /*
@@ -64,6 +70,11 @@
 
 /* the library the first bundle loads unless the configuration names another */
 #define LV2_CORE_LILV_SONAME            "liblilv-0.so.0"
+
+/* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
+#define LV2_CORE_PROVIDED_INIT \
+    { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
+      LV2_STATE__loadDefaultState, LV2_LOG__log, NULL }
 
 /* the refusals, the verdict's spelling */
 #define LV2_CODE_NO_REALISATION         "hosting.no-realisation"
