@@ -523,15 +523,26 @@ void lv2_instance_deactivate(struct lv2_instance *in)
 
 void lv2_instance_reset(struct lv2_instance *in)
 {
+    const struct lv2_core_config *config = lv2_core_config();
     const LV2_Descriptor *d;
 
     if (!in || !in->lv2_active)
         return;
     d = in->plugin->desc;
+    // deactivate and activate are LV2 instantiation-class calls: no work() may run beside them, so the worker is
+    // stopped and joined first. A request or a response from before the reset belongs to the state it clears: both
+    // rings start empty, as at activate
+    worker_stop(in);
     if (d->deactivate)
         d->deactivate(in->handle);
+    if (in->ring_mem)
+    {
+        omx_msgring_init(&in->requests, in->ring_mem, config->worker_ring_bytes);
+        omx_msgring_init(&in->responses, in->ring_mem + config->worker_ring_bytes, config->worker_ring_bytes);
+    }
     if (d->activate)
         d->activate(in->handle);
+    worker_start(in);
 }
 
 void lv2_instance_free(struct lv2_instance *in)

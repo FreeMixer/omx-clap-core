@@ -68,6 +68,7 @@ struct fake
     LV2_Worker_Respond_Function respond;    // K_WORKER: the respond work() was last handed, and its handle
     LV2_Worker_Respond_Handle respond_handle;
     int latency_bias;                   // added to the latency the port reports (a test moves it)
+    uint32_t activations, deactivations;    // LV2 activate and deactivate calls on this instance
 };
 
 /* the instance instantiated last, the trace of the worker fake, and clearing it */

@@ -58,7 +58,7 @@ Ports
 | Control output ports | supported: a read-only CLAP parameter each, read back after every block (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
 | Latency port (`lv2:latency`, `lv2:reportsLatency`) | supported: `clap.latency` (`lv2_clap_test` latency and fixture, `lv2_run_test` pad) | unsupported |
 | A latency that changes while running | lossy: held until it has read unchanged for `latency_hold_ms`, then one restart; a change that comes back inside the hold is ignored (`lv2_clap_test` latency) | unsupported |
-| The plugin's own bypass (`lv2:enabled`, a `bypass` port) | lossy: held at the value that keeps the plugin processing; the host's crossfade is the bypass (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
+| The plugin's own bypass (`lv2:enabled`, a `bypass` port) | lossy: held at the value that keeps the plugin processing; the host's crossfade is the bypass. Turning the bypass off after a steady bypass resets the plugin (LV2 deactivate then activate, the worker joined before and started after) on the host's control thread, never in the audio path (`lv2_clap_test` fixture, core and worker, `lv2_host_test` fixture) | unsupported |
 | CV ports | unsupported; refused with `hosting.features.cv-ports` (`lv2_host_test` refusals) | unsupported |
 | Atom and event ports, MIDI | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals) | unsupported |
 | `time:Position` | unsupported (stage 2; lossy when it comes, built from the CLAP transport) | unsupported |

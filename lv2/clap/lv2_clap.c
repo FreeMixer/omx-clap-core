@@ -29,7 +29,8 @@
 *   init            the binary opened, the instance made, the parameter table built; no LV2 instance yet
 *   activate        lv2/core's activate: instantiate on the first one or a rate change, the default state, LV2
 *                   activate, the worker; the latency the port last read is the one latency.get answers from here on
-*   reset           LV2 deactivate then activate, called by a host with no process() under way
+*   reset           the worker joined, LV2 deactivate, the rings emptied, LV2 activate, the worker again; libomx-clap-core
+*                   calls it from the bypass-off verb on the control thread, never from process()
 *   process         the host's input copied into the instance's own buffers, worker responses drained, the parameter
 *                   events written into the control ports, run, end_run, the flush-to-zero bits, the output copied out
 *   deactivate      the worker stopped and joined, LV2 deactivate

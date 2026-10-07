@@ -670,6 +670,27 @@ static void t_worker(double rate)
         CHECK(g.host.callbacks > 0, "worker %.0f: the counter moved: the plugin asks for the main thread", rate);
         g.plugin->on_main_thread(g.plugin);
         CHECK(strstr(g.host.log, "respond_strikes 1") != NULL, "worker %.0f: and its clap.log line counts the strike (%s)", rate, g.host.log);
+
+        // reset with the worker live: it is joined before LV2 deactivate and started again after activate
+        omx_clap_lv2_worker_quiesce(g.plugin);
+        {
+            const uint32_t acts = f ? f->activations : 0, deacts = f ? f->deactivations : 0;
+            uint32_t seq;
+
+            g.plugin->reset(g.plugin);
+            CHECK(f && f->deactivations == deacts + 1 && f->activations == acts + 1, "worker %.0f: reset is one LV2 deactivate and one activate", rate);
+            fake_trace_clear();
+            seq = f ? f->seq : 0;
+            process(&g, l, NULL, l, NULL, 32, NULL);
+            omx_clap_lv2_worker_quiesce(g.plugin);
+            process(&g, l, NULL, l, NULL, 32, NULL);
+            {
+                char want[64];
+
+                snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
+                CHECK(!strcmp(fake_trace(), want), "worker %.0f: after the reset the worker answers again: %s", rate, fake_trace());
+            }
+        }
         rig_down(&g);
     }
 }
@@ -706,7 +727,7 @@ static void t_core(double rate)
     float l[64], r[64], x[64], want[64], worst = 0.0f;
     static float big[MAXB + 1], bx[MAXB + 1];
     struct fake *f;
-    uint32_t i, k, runs;
+    uint32_t i, k, runs, acts, deacts, resets;
     int blk, all;
 
     // the warm-up, the first block, the latency taken at the restart after the warm-up
@@ -745,7 +766,14 @@ static void t_core(double rate)
         all &= bits_equal(l, x, 64);
     }
     CHECK(all && f->runs == runs, "core %.0f: steady bypass is bit-identical and never runs the plugin", rate);
+    acts = f->activations;
+    deacts = f->deactivations;
+    resets = atomic_load(&in->stage.resets);
     omx_clap_host_bypass(in, 0);
+    CHECK(f->deactivations == deacts + 1 && f->activations == acts + 1 && f->runs == runs
+              && atomic_load(&in->stage.resets) == resets + 1,
+          "core %.0f: the bypass-off verb resets the plugin itself, before any process(): LV2 deactivate %u -> %u, activate %u -> %u",
+          rate, deacts, f->deactivations, acts, f->activations);
     tone(x, 64, 0.5f, 0);
     memcpy(l, x, sizeof(l));
     core_run(in, l, NULL, 64);

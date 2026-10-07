@@ -154,6 +154,16 @@ static void f_run(LV2_Handle h, uint32_t n)
     }
 }
 
+static void f_activate(LV2_Handle h)
+{
+    ((struct fake *)h)->activations++;
+}
+
+static void f_deactivate(LV2_Handle h)
+{
+    ((struct fake *)h)->deactivations++;
+}
+
 static void f_cleanup(LV2_Handle h)
 {
     if (g_last == h)
@@ -206,7 +216,7 @@ static const void *f_extension_data(const char *uri)
     return strcmp(uri, LV2_WORKER__interface) == 0 ? &WORKER : NULL;
 }
 
-#define DESC(uri, ext) { uri, f_instantiate, f_connect, NULL, f_run, NULL, f_cleanup, ext }
+#define DESC(uri, ext) { uri, f_instantiate, f_connect, f_activate, f_run, f_deactivate, f_cleanup, ext }
 static const LV2_Descriptor DESCRIPTORS[] =
 {
     DESC(FAKE_PAD, NULL), DESC(FAKE_PAD2, NULL), DESC(FAKE_BROKEN, NULL), DESC(FAKE_CLOBBER, NULL),
