@@ -14,9 +14,17 @@ permissions:
 
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this commit
-  PLUGIN_HOSTD_REF: b2fa9aba689d5fe2b7849244213465c7c9086d8d
+  PLUGIN_HOSTD_REF: 7f0dc99059c5540f4856e047b12e9f072ac71e73
 
 jobs:
+  changelog:
+    name: CHANGELOG.md agrees with the spec and debian/changelog
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: FreeMixer/.github/.github/actions/changelog@packaging-changelog
+
   test:
     name: build and test
     runs-on: ubuntu-latest
