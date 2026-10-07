@@ -2,7 +2,7 @@ Name: omx-clap-host
 Version:        0.2.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
-Summary: CLAP plugin host for JACK, controlled over mod-host's socket protocol
+Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
 URL: https://github.com/FreeMixer/omx-clap-host
 
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
@@ -17,32 +17,34 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 
 %description
-omx-clap-host runs CLAP plugins as JACK clients and is controlled like
-mod-host: the same socket, the same line protocol and the same command
-replies, from mod-host's protocol library. Each plugin instance is a JACK
-client with its own ports, and a MIDI input port for an instrument.
+omx-clap-host brings CLAP plugins, the modern open plugin format, into a live
+JACK or PipeWire rig. Each plugin runs as a JACK client with its own ports, and
+an instrument gets a MIDI input as well. Anything that already controls
+mod-host can control it over the same socket with the same commands. It comes
+with omx-clap-scan, which lists what is in a CLAP bundle and survives a plugin
+that crashes while loading.
 
 %package -n omx-clap-core
-Summary: The CLAP hosting core of omx-clap-host, as a shared library
+Summary: The engine that runs CLAP plugins for omx-clap-host, as a library
 License: GPL-3.0-or-later
 
 %description -n omx-clap-core
-The library omx-clap-host and a program that hosts CLAP plugins in its own
-process both run plugins on: the control thread that loads, judges, activates and warms a CLAP
-plugin up and owns its parameters and state, and the RT body that runs its
-process() on the caller's thread. It names no JACK and no socket.
+The library that loads and runs CLAP plugins: it checks a plugin before using
+it, activates and warms it up, keeps its parameters and saved state, and runs
+its audio on the thread of the program that hosts it. It knows nothing about
+JACK or sockets, so a program of your own can host CLAP plugins on it as well.
 
 %package -n omx-clap-core-devel
-Summary: Headers, pkg-config file and export list of omx-clap-core
+Summary: Build a program that hosts CLAP plugins on omx-clap-core
 License: GPL-3.0-or-later
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
-The headers under include/omx-clap-host, omx-clap-core.pc, the export list
-of libomx-clap-core.so.0 and the ABI baseline of the release it was built
-from, for a program that hosts CLAP plugins on the library.
+What you need to write a program that hosts CLAP plugins on omx-clap-core: the
+headers, the pkg-config file, and the list of functions the library promises to
+keep, with the baseline each release is checked against.
 
 %prep
 %autosetup
