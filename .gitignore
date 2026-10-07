@@ -27,3 +27,4 @@ lv2/tests/lv2_clap_test
 /libomx-clap-lv2.a
 lv2/*/*.o
 lv2/tests/lv2_cost
+lv2/tests/lv2_link_test

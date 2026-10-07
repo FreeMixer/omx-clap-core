@@ -1,0 +1,3 @@
+usr/include/omx-clap-lv2
+usr/lib/*/libomx-clap-lv2.a
+usr/lib/*/pkgconfig/omx-clap-lv2.pc

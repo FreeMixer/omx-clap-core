@@ -82,6 +82,7 @@ SCAN_OBJ = $(SCAN_SRC:.c=.o)
 # plugin as one CLAP plugin. A static archive, position-independent so a shared object can link it; lilv is never linked,
 # only its headers are read. lv2/core's own archive is internal: its tests link it, nothing installs it.
 LV2_LIB = libomx-clap-lv2.a
+LV2_VERSION = 0.4.0
 LV2_CORE_LIB = build/lv2/liblv2core.a
 LV2_HEADERS = lv2/clap/omx_clap_lv2.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
@@ -93,7 +94,7 @@ LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)
 LILV_LIB ?= $(shell $(PKG_CONFIG) --variable=libdir lilv-0 2>/dev/null)/liblilv-0.so.0
 
 # default build
-all: $(PROG) $(SCAN_PROG)
+all: $(PROG) $(SCAN_PROG) $(LV2_LIB)
 
 # the core: names no jack, no socket and nothing of the protocol library
 $(CORE_FILE): $(CORE_OBJ) $(CORE_MAP)
@@ -161,7 +162,17 @@ install-lib: $(CORE_SO)
 	install -m 644 $(CORE_MAP) $(DESTDIR)$(DATADIR)/$(CORE)/
 	if [ -f abi/$(CORE_SONAME).abi ]; then install -m 644 abi/$(CORE_SONAME).abi $(DESTDIR)$(DATADIR)/$(CORE)/; fi
 
-install: install-lib install_man
+# the LV2 adapter: the archive, its one header and its pkg-config file, what a program that hosts LV2 plugins as CLAP
+# plugins builds against; lilv is the program's to have at run time (the adapter dlopens liblilv-0.so.0)
+install-lv2: $(LV2_LIB)
+	install -d $(DESTDIR)$(LIBDIR)/pkgconfig $(DESTDIR)$(INCLUDEDIR)/omx-clap-lv2
+	install -m 644 $(LV2_LIB) $(DESTDIR)$(LIBDIR)/
+	install -m 644 $(LV2_HEADERS) $(DESTDIR)$(INCLUDEDIR)/omx-clap-lv2/
+	sed -e 's,@PREFIX@,$(PREFIX),' -e 's,@LIBDIR@,$(LIBDIR),' -e 's,@INCLUDEDIR@,$(INCLUDEDIR),' \
+	    -e 's,@VERSION@,$(LV2_VERSION),' omx-clap-lv2.pc.in > $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-lv2.pc
+	chmod 644 $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-lv2.pc
+
+install: install-lib install-lv2 install_man
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
 
@@ -171,7 +182,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -371,8 +382,8 @@ test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test $(LV2_BUNDLES)
 	./lv2/tests/lv2_run_test build/lv2/omx-lv2-fakes.lv2
 	./lv2/tests/lv2_host_test build/lv2 $(LILV_LIB)
 
-.PHONY: test-lv2 test-lv2-core test-lv2-clap
-test-lv2: test-lv2-core test-lv2-clap
+.PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
+test-lv2: test-lv2-core test-lv2-clap test-lv2-link
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -ldl -lpthread -lm
@@ -384,6 +395,18 @@ test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged
 lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
+
+# the adapter as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config
+# file and linked by that alone
+lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in omx-clap-core.pc.in
+	rm -rf build/lv2-stage
+	$(MAKE) install-lib install-lv2 PREFIX=$(CURDIR)/build/lv2-stage/usr LIBDIR=$(CURDIR)/build/lv2-stage/usr/lib
+	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/lv2-stage/usr/lib/pkgconfig/clap.pc
+	export PKG_CONFIG_PATH=$(CURDIR)/build/lv2-stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
+	    $$($(PKG_CONFIG) --cflags --libs omx-clap-lv2)
+
+test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+	./lv2/tests/lv2_link_test $(abspath build/lv2/omx-host-fixture.lv2)
 
 lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 	./lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2

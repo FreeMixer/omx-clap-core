@@ -4,6 +4,8 @@ Priority: optional
 Maintainer: Pau Aliagas <linuxnow@gmail.com>
 Build-Depends: debhelper-compat (= 13),
                clap-headers,
+               liblilv-dev,
+               lv2-dev,
                libjack-jackd2-dev | libjack-dev,
                libmod-host-protocol-dev,
                plugin-hostd-dev (>= 0.1.2~),
@@ -47,3 +49,16 @@ Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, and the list of functions the library
  promises to keep, with the baseline each release is checked against.
+
+Package: libomx-clap-lv2-dev
+Section: libdevel
+Architecture: any
+Multi-Arch: same
+Depends: libomx-clap-core-dev (= ${binary:Version}), clap-headers, pkgconf, ${misc:Depends}
+Description: run LV2 plugins in a CLAP host, as a library to link
+ libomx-clap-lv2 lets a program that hosts CLAP plugins run LV2 plugins too:
+ it presents one LV2 plugin as one CLAP plugin, with its controls as CLAP
+ parameters, its latency, its own background worker and its default
+ settings. It is a static library with its header and pkg-config file, and
+ it loads lilv when the first LV2 bundle is opened, so a program that never
+ opens one never needs lilv.
