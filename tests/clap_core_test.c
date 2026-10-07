@@ -36,6 +36,8 @@
  *  5. THE TEMPO: omx_clap_host_run hands the plugin no transport with no tempo given or none published, a transport
  *     carrying the bpm and only HAS_TEMPO once one is, a change at the next block, none once withdrawn; the tempo
  *     fixture (fault mode 16) reads 120 bpm as a level of 0.12.
+ *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
+ *     role; the RT thread running the instance never calls reset().
  */
 #include <pthread.h>
 #include <sched.h>
@@ -496,6 +498,96 @@ static void t_tempo(void) {
   omx_clap_host_close(in);
 }
 
+/* ---- 6. the reset is the control thread's ---- */
+
+/* The reset fake: a -20 dB pad that counts its reset() calls by the thread that made them. */
+static pthread_t g_rs_rt;
+static _Atomic uint32_t g_rs_on_rt, g_rs_off_rt, g_rs_process;
+static void rs_reset(const clap_plugin_t *p) {
+  (void)p;
+  if (pthread_equal(pthread_self(), g_rs_rt)) atomic_fetch_add(&g_rs_on_rt, 1u);
+  else atomic_fetch_add(&g_rs_off_rt, 1u);
+}
+static clap_process_status rs_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  (void)p;
+  atomic_fetch_add(&g_rs_process, 1u);
+  const clap_audio_buffer_t *ai = &pr->audio_inputs[0], *ao = &pr->audio_outputs[0];
+  for (uint32_t c = 0; c < ao->channel_count; c++)
+    for (uint32_t i = 0; i < pr->frames_count; i++) ao->data32[c][i] = 0.1f * ai->data32[c][i];
+  return CLAP_PROCESS_CONTINUE;
+}
+static const clap_plugin_descriptor_t RS_DESC = {CLAP_VERSION_INIT, "org.omx-clap-host.test.reset-counter", "reset counter", "omx-clap-host", "", "", "", "0", "",
+                                                 ASK_FEATURES};
+static const clap_plugin_descriptor_t *rs_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i == 0 ? &RS_DESC : NULL; }
+static const clap_plugin_t *rs_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
+  (void)f, (void)host;
+  if (strcmp(id, RS_DESC.id) != 0) return NULL;
+  clap_plugin_t *p = calloc(1, sizeof *p);
+  *p = (clap_plugin_t){&RS_DESC, NULL, tp_init, tp_destroy, ask_activate, ask_nop, ask_start, ask_nop, rs_reset, rs_process, ask_ext, ask_nop};
+  return p;
+}
+static const clap_plugin_factory_t RS_FACTORY = {ask_count, rs_desc, rs_create};
+static const void *rs_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &RS_FACTORY : NULL; }
+static const clap_plugin_entry_t RS_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, rs_factory};
+
+static struct {
+  struct omx_clap_instance *in;
+  _Atomic int go, quit;
+  _Atomic uint32_t blocks;
+  float last;
+} g_rs;
+static void *rs_rt(void *arg) {
+  (void)arg;
+  float l[64], r[64];
+  while (!atomic_load(&g_rs.go)) sched_yield();
+  while (!atomic_load(&g_rs.quit)) {
+    for (int i = 0; i < 64; i++) l[i] = r[i] = 0.5f;
+    omx_clap_host_run(g_rs.in, l, r, 64);
+    g_rs.last = l[32];
+    atomic_fetch_add(&g_rs.blocks, 1u);
+    usleep(200);
+  }
+  return NULL;
+}
+static void rs_wait(uint32_t n) {
+  const uint32_t to = atomic_load(&g_rs.blocks) + n;
+  while (atomic_load(&g_rs.blocks) < to) usleep(100);
+}
+
+static void t_reset_off_rt(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  CHECK(omx_clap_host_open_entry(&RS_ENTRY, RS_DESC.id, &g_rs.in, why) == 0 && omx_clap_host_activate(g_rs.in, 48000.0, 64, why) == 0, "the reset counter opens (%s)", why);
+  if (!g_rs.in) return;
+  pthread_t rt;
+  pthread_create(&rt, NULL, rs_rt, NULL);
+  g_rs_rt = rt;
+  const uint32_t off0 = atomic_load(&g_rs_off_rt); /* the warm-up's own reset, on this thread */
+  omx_clap_host_publish(g_rs.in, rt);
+  atomic_store(&g_rs.go, 1);
+  rs_wait(20);
+  omx_clap_host_bypass(g_rs.in, 1);
+  rs_wait(20); /* the crossfade, then a steady bypass: the plugin idles */
+  const uint32_t idle_from = atomic_load(&g_rs_process);
+  rs_wait(10);
+  CHECK(atomic_load(&g_rs_process) == idle_from, "the steady bypass never calls process()");
+  CHECK(atomic_load(&g_rs_off_rt) == off0 && atomic_load(&g_rs_on_rt) == 0, "no reset while bypassed");
+  omx_clap_host_bypass(g_rs.in, 0);
+  CHECK(atomic_load(&g_rs_off_rt) - off0 == 1, "the re-engage reset the plugin once, on the control thread (%u)", atomic_load(&g_rs_off_rt) - off0);
+  CHECK(atomic_load(&g_rs.in->stage.resets) == 1, "the stage counted it (%u)", atomic_load(&g_rs.in->stage.resets));
+  rs_wait(40);
+  CHECK(atomic_load(&g_rs_on_rt) == 0, "the RT thread called reset() %u times across %u blocks", atomic_load(&g_rs_on_rt), atomic_load(&g_rs.blocks));
+  CHECK(atomic_load(&g_rs_off_rt) - off0 == 1, "and nobody reset it again");
+  CHECK(atomic_load(&g_rs_process) > idle_from && g_rs.last == 0.05f, "processing again after the re-engage (%g)", (double)g_rs.last);
+  omx_clap_host_bypass(g_rs.in, 0);
+  CHECK(atomic_load(&g_rs_off_rt) - off0 == 1, "an off that was already off resets nothing");
+  omx_clap_request_stop(&g_rs.in->stage);
+  rs_wait(2);
+  atomic_store(&g_rs.quit, 1);
+  pthread_join(rt, NULL);
+  CHECK(omx_clap_host_unpublish(g_rs.in, 10, 1000) == 0, "unpublished");
+  omx_clap_host_close(g_rs.in);
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s <fault dir>\n", argv[0]);
@@ -507,6 +599,7 @@ int main(int argc, char **argv) {
   t_audio_role_on_split();
   t_roster_whole_or_refused();
   t_tempo();
+  t_reset_off_rt();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
   if (failures) {
     fprintf(stderr, "clap_core: %d failure(s)\n", failures);

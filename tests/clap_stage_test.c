@@ -32,8 +32,8 @@
  *     a 1x1 pad on a stereo lane returns its L on both legs.
  *  3. BYPASS BIT-IDENTICAL: steady bypass leaves the lane's bytes unchanged and never calls
  *     process(); the transition block is the closed-form crossfade.
- *  4. RESET: re-engage after a steady bypass calls reset() exactly once, before process(); the
- *     first block after publish calls it never.
+ *  4. RESET: the body never calls reset(): a steady bypass marks the stage need_reset and the
+ *     re-engage is the host's (clap_core_test's reset arm).
  *  5. EVENT DRAIN: the order is drain, process, MXCSR (the fake sees its events INSIDE process()
  *     and clears FTZ there; after omx_clap_run FTZ/DAZ are set again); a ring of eventsPerBlock
  *     + 3 records is delivered over TWO blocks, in order, none lost, every field as §4.2 says;
@@ -360,14 +360,13 @@ static void t_bypass_reset(void) {
   CHECK(bytes_equal(l, dl, 100) && bytes_equal(r, dr, 100), "steady bypass is bit-identical dry");
   CHECK(atomic_load(&g.st.h.runs) == runs_before, "steady bypass never calls process()");
   CHECK(g.f.resets == 0, "no reset while bypassed");
+  CHECK(g.st.need_reset == 1, "the steady bypass marked the stage need_reset");
   omx_clap_set_bypass(&g.st, 0);
   ramp(l, 100), ramp(r, 100);
-  run(&g, l, r, 100); /* re-engage: reset() then process(), fade in */
-  CHECK(g.f.resets == 1, "reset() exactly once on re-engage (%u)", g.f.resets);
-  CHECK(atomic_load(&g.st.resets) == 1, "the stage counted it");
+  run(&g, l, r, 100); /* re-engage at the stage: process(), fade in; the reset is the host's (clap_core_test) */
   ramp(l, 100), ramp(r, 100);
   run(&g, l, r, 100);
-  CHECK(g.f.resets == 1, "and not again on the next block");
+  CHECK(g.f.resets == 0 && atomic_load(&g.st.resets) == 0, "the body never calls reset() (%u)", g.f.resets);
   CHECK(l[50] == dl[50] * PAD_GAIN, "wet again after re-engage");
 }
 

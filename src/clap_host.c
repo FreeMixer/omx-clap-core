@@ -1311,8 +1311,26 @@ uint32_t omx_clap_host_latency(const struct omx_clap_instance *in)
 
 void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
 {
+    struct omx_clap_role role;
+
     in->bypass_wanted = on ? 1u : 0u;
-    omx_clap_set_bypass(&in->stage, on);
+    if (on || !in->active)
+    {
+        omx_clap_set_bypass(&in->stage, on);
+        return;
+    }
+    // re-engage: a plugin that sat idle through a steady bypass may hold a frozen tail. It is reset here, on the control
+    // thread holding the audio role, before the stage resumes; the RT body never calls reset()
+    omx_clap_host_take_role(in, &role);
+    if (in->stage.need_reset)
+    {
+        if (in->plugin->reset)
+            in->plugin->reset(in->plugin);
+        omx_hosted_count(&in->stage.resets, 1);
+        in->stage.need_reset = 0;
+    }
+    omx_clap_set_bypass(&in->stage, 0);
+    omx_clap_host_release_role(in, &role, role.state);
 }
 
 void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo)

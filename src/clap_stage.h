@@ -40,8 +40,9 @@
 *  4. Flush-to-zero is re-asserted after process(): the mode is per thread.
 *  5. A constant output channel is expanded from its sample 0 before the scan and the clamp.
 *  6. The scan for non-finite output, the clamp, the one-block crossfade on every change of body and the bit-identical
-*     steady bypass are hosted_stage.h's, as the stage's guards say. Re-engaging after a steady bypass calls reset()
-*     before the first process().
+*     steady bypass are hosted_stage.h's, as the stage's guards say. A steady bypass marks the stage need_reset; the
+*     body never calls reset(): the host's re-engage (omx_clap_host_bypass) does, on the control thread holding the
+*     audio role, before the stage resumes.
 *  7. The latency is not read on the RT: latency.get() is [main-thread]; the control thread publishes it.
 *  8. start_processing and stop_processing run on the audio thread, driven by the state the control thread moves by
 *     compare-and-swap: ARMED to PROCESSING on the first block after publish, STOPPING to STOPPED on the first block
@@ -133,7 +134,8 @@ struct omx_clap_stage
 
     // RT-owned; the control thread reads them relaxed
     _Atomic uint32_t in_cycle;                          // 1 while omx_clap_run is under way
-    uint32_t need_reset;                                // a steady bypass happened since the last process(): reset() first
+    uint32_t need_reset;                                // a steady bypass happened since the last process(): the RT marks it,
+                                                        // the control thread resets the plugin at re-engage holding the role
     _Atomic uint32_t process_errors;                    // of which CLAP_PROCESS_ERROR returns
     _Atomic uint32_t constant_channels;                 // output channels the plugin reported constant, expanded
     _Atomic uint32_t events_delivered;                  // parameter events drained into process()
@@ -141,7 +143,7 @@ struct omx_clap_stage
     _Atomic uint32_t notes_dropped;                     // note events past CLAP_HOST_NOTES_PER_BLOCK
     _Atomic uint32_t out_events_seen;                   // events the plugin pushed at the counting sink
     _Atomic uint32_t plugin_changed;                    // a CLAP_EVENT_PARAM_VALUE came back: read-back due
-    _Atomic uint32_t resets;                            // reset() calls on re-engage
+    _Atomic uint32_t resets;                            // reset() calls on re-engage, made by the control thread
     _Atomic uint32_t start_refused;                     // start_processing() answered false
 };
 
@@ -530,17 +532,10 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
         case OMX_HOSTED_SKIP:
             return;
         case OMX_HOSTED_IDLE:
-            s->need_reset = 1;  // a tail may be frozen: reset() first
+            s->need_reset = 1;  // a tail may be frozen: the control thread resets the plugin at re-engage, never this one
             return;
         case OMX_HOSTED_GO:
             break;
-    }
-    if (want_wet && s->need_reset)
-    {
-        if (s->plugin->reset)
-            s->plugin->reset(s->plugin);
-        omx_hosted_count(&s->resets, 1);
-        s->need_reset = 0;
     }
     omx_hosted_run_end(&s->h, omx_clap_run_plugin(s, n), want_wet, l, r, n);
 }
