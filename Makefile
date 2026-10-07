@@ -414,8 +414,8 @@ lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 
 # the fixture bundles against the LV2 specifications, with lv2_validate (the lv2 package's) when it is installed
 test-lv2-validate: $(LV2_BUNDLES)
-	@if command -v lv2_validate >/dev/null; then \
+	@if command -v lv2_validate >/dev/null && command -v sord_validate >/dev/null; then \
 	    for b in build/lv2/*.lv2; do lv2_validate $$b/*.ttl 2>&1 | tail -1 | tee build/lv2/validate.txt; grep -q '^Found 0 errors' build/lv2/validate.txt || exit 1; done; \
 	    echo "ok   every fixture bundle validates"; \
-	else echo "lv2_validate is not installed: the fixture bundles were not validated"; fi
+	else echo "lv2_validate or sord_validate is not installed: the fixture bundles were not validated"; fi
 .PHONY: test-lv2-validate

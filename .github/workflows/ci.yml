@@ -37,7 +37,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
-            lv2-devel lilv-devel binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
 
       - uses: actions/checkout@v4
 
