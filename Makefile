@@ -12,7 +12,7 @@ CORE_VERSION = 0.2.0
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h
 CORE_MAP = src/omx-clap-core.map
 
 PKG_CONFIG ?= pkg-config

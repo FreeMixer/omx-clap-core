@@ -184,7 +184,7 @@ jobs:
             files "$rpm" > files.txt
             printf '%s\n' '/usr/lib*/libomx-clap-core.so' '/usr/lib*/pkgconfig/omx-clap-core.pc' /usr/include/omx-clap-host/clap_host.h \
               /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
-              /usr/include/omx-clap-host/omx_clap_ext.h \
+              /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h \
               /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done

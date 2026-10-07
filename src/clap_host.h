@@ -50,6 +50,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "clap_host_extensions.h"
 #include "clap_stage.h"
 
 

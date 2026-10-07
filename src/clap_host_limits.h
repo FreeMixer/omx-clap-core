@@ -29,10 +29,6 @@
 #define CLAP_HOST_ROLE_POLL_US 1000u
 #define CLAP_HOST_ROLE_TIMEOUT_US 200000u
 
-/* the host object offers exactly these extensions, NULL-terminated */
-#define CLAP_HOST_EXTENSION_COUNT 6u
-#define CLAP_HOST_EXTENSIONS_INIT { "clap.log", "clap.thread-check", "clap.latency", "clap.params", "clap.audio-ports", "clap.state", NULL }
-
 /* the refusals the core returns, as the hosting codes the console's verdicts use */
 #define CLAP_HOST_CODE_HEADLESS_FAILED "hosting.clap.headless-failed"
 #define CLAP_HOST_CODE_NOT_AUDIO_EFFECT "hosting.clap.not-audio-effect"
