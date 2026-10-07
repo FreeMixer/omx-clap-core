@@ -1,21 +1,25 @@
 omx-clap-host (0.2.0) unstable; urgency=medium
 
-  * omx-clap-core 0.2.0: name the audio role's threads with a predicate at
-    publish, so every worker of a split walk is the audio thread.
+  * The library names the threads that carry audio with a test the host
+    supplies, so every worker of a split processing chain counts as an audio
+    thread.
 
- -- Pau Aliagas <linuxnow@gmail.com>  Sat, 03 Oct 2026 10:00:00 +0200
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 03 Oct 2026 12:00:00 +0000
 
 omx-clap-host (0.1.1) unstable; urgency=medium
 
-  * Report plugin meters as mod-host output symbols.
-  * Check the layout pin plugin-hostd expects before activating an instance.
-  * Answer track_info, remote_pages, remote_page_get and param_info.
-  * Build against plugin-hostd 0.1.2.
+  * Plugin meters are reported the way mod-host reports its output meters.
+  * Before a plugin is activated, the host checks the layout that plugin-hostd
+    expects.
+  * Answers the new plugin information commands: track_info, remote_pages,
+    remote_page_get and param_info.
+  * Built against plugin-hostd 0.1.2.
 
- -- Pau Aliagas <linuxnow@gmail.com>  Thu, 01 Oct 2026 10:00:00 +0200
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 01 Oct 2026 12:00:00 +0000
 
 omx-clap-host (0.1.0) unstable; urgency=medium
 
-  * First package.
+  * First package: the CLAP host, and the library it is built on with its
+    development files.
 
- -- Pau Aliagas <linuxnow@gmail.com>  Wed, 30 Sep 2026 12:00:00 +0200
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 29 Sep 2026 12:00:00 +0000
