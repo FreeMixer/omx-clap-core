@@ -40,7 +40,7 @@
  *  10 alloc          malloc inside process() (the RT-wrap witness)
  *  11 sidechain      one extra non-main input                      -> hosting.topology.extra-inputs-fed-silence
  *  12 note-in        a note input port                             -> hosting.clap.note-input
- *  13 hang           init() never returns                          -> hosting.stability.crashed-live (timed open)
+ *  13 hang           init() never returns                          -> hosting.stability.crashed-live-on-this-rig (timed open)
  *  14 crash-on-param a 2x2 effect at `in x gain` (param 0, default 0.1) that ABORTS when a gain
  *                    >= 0.9 reaches it after it has processed 200 blocks — a plugin supervisor's
  *                    crash drill: the
