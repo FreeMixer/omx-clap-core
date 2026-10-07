@@ -49,6 +49,10 @@ struct lv2_worker_gain_probe {
   double rate_option;              /* param:sampleRate, as the options feature carried it */
   int32_t max_block_option;        /* bufsz:maxBlockLength */
   int32_t min_block_option;        /* bufsz:minBlockLength */
+  int32_t nominal_block_option;    /* bufsz:nominalBlockLength */
+  int saw_bounded;                 /* bufsz:boundedBlockLength was in the features */
+  int unmap_round_trip;            /* urid:unmap gave back what urid:map was handed */
+  int log_answered;                /* log:log was in the features and its printf answered */
   pthread_t work_thread;           /* the thread work() last ran on */
   pthread_t run_thread;            /* the thread run() last ran on */
 };

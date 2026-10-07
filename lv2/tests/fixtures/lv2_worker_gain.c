@@ -27,6 +27,7 @@
 
 #include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
+#include <lv2/log/log.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
 #include <lv2/urid/urid.h>
@@ -52,7 +53,12 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
   const LV2_URID_Map *map = NULL;
   const LV2_Worker_Schedule *schedule = NULL;
   const LV2_Options_Option *options = NULL;
+  const LV2_URID_Unmap *unmap = NULL;
+  const LV2_Log_Log *log = NULL;
   for (int i = 0; features && features[i]; i++) {
+    if (!strcmp(features[i]->URI, LV2_URID__unmap)) unmap = features[i]->data;
+    else if (!strcmp(features[i]->URI, LV2_LOG__log)) log = features[i]->data;
+    else if (!strcmp(features[i]->URI, LV2_BUF_SIZE__boundedBlockLength)) lv2_worker_gain_probe.saw_bounded = 1;
     if (!strcmp(features[i]->URI, LV2_URID__map)) map = features[i]->data;
     else if (!strcmp(features[i]->URI, LV2_WORKER__schedule)) schedule = features[i]->data;
     else if (!strcmp(features[i]->URI, LV2_OPTIONS__options)) options = features[i]->data;
@@ -62,11 +68,18 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
   const LV2_URID u_max = map->map(map->handle, LV2_BUF_SIZE__maxBlockLength);
   const LV2_URID u_min = map->map(map->handle, LV2_BUF_SIZE__minBlockLength);
   const LV2_URID u_rate = map->map(map->handle, LV2_PARAMETERS__sampleRate);
+  const LV2_URID u_nominal = map->map(map->handle, LV2_BUF_SIZE__nominalBlockLength);
+  if (unmap) {
+    const char *back = unmap->unmap(unmap->handle, u_rate);
+    lv2_worker_gain_probe.unmap_round_trip = back && !strcmp(back, LV2_PARAMETERS__sampleRate);
+  }
+  if (log) lv2_worker_gain_probe.log_answered = log->printf(log->handle, map->map(map->handle, LV2_LOG__Note), "instantiate %d\n", 1) == 0;
   int32_t max_block = 0;
   for (const LV2_Options_Option *o = options; o->key; o++) {
     if (o->key == u_max && o->type == u_int) max_block = *(const int32_t *)o->value;
     else if (o->key == u_min && o->type == u_int) lv2_worker_gain_probe.min_block_option = *(const int32_t *)o->value;
     else if (o->key == u_rate && o->type == u_float) lv2_worker_gain_probe.rate_option = *(const float *)o->value;
+    else if (o->key == u_nominal && o->type == u_int) lv2_worker_gain_probe.nominal_block_option = *(const int32_t *)o->value;
   }
   lv2_worker_gain_probe.max_block_option = max_block;
   if (max_block <= 0) return NULL;

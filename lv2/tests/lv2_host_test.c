@@ -339,6 +339,10 @@ static void t_worker(double rate)
     CHECK(pr->rate_option == rate, "worker %.0f: options carried param:sampleRate %.0f", rate, pr->rate_option);
     CHECK(pr->max_block_option == (int32_t)BLOCK && pr->min_block_option == 1,
           "worker %.0f: options carried bufsz:minBlockLength %d, maxBlockLength %d (the activation's)", rate, pr->min_block_option, pr->max_block_option);
+    CHECK(pr->nominal_block_option == (int32_t)BLOCK, "worker %.0f: options carried bufsz:nominalBlockLength %d, the activation's max", rate, pr->nominal_block_option);
+    CHECK(pr->saw_bounded, "worker %.0f: bufsz:boundedBlockLength was in the features", rate);
+    CHECK(pr->unmap_round_trip, "worker %.0f: urid:unmap gave back the URI urid:map was handed", rate);
+    CHECK(pr->log_answered, "worker %.0f: log:log answered the plugin's printf", rate);
     CHECK(thread_count() == threads0 + 1, "worker %.0f: the instance owns ONE worker thread (%d -> %d threads)", rate, threads0, thread_count());
     CHECK(render_until(in, 0.0, 200, &level) > 0, "worker %.0f: at the default the output is the input (%.3f dB)", rate, level);
     works0 = atomic_load(&pr->works);

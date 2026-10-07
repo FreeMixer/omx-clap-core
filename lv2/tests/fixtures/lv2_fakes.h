@@ -36,7 +36,7 @@
 
 enum fake_kind
 {
-    K_PAD, K_BROKEN, K_CLOBBER, K_NAN, K_HOT, K_WORKER, K_NAN_ALWAYS
+    K_PAD, K_BROKEN, K_CLOBBER, K_NAN, K_HOT, K_WORKER, K_NAN_ALWAYS, K_PROPS
 };
 
 #define FAKE_PAD            "urn:omx:test:pad:mono#0"
@@ -46,6 +46,7 @@ enum fake_kind
 #define FAKE_NAN            "urn:omx:test:nan:mono#3"
 #define FAKE_HOT            "urn:omx:test:hot:mono#4"
 #define FAKE_WORKER         "urn:omx:test:worker:mono#5"
+#define FAKE_PROPS          "urn:omx:test:props:mono#7"           // a pad with one control port per port property
 #define FAKE_NAN_ALWAYS     "urn:omx:test:nan-always:mono#6"     // non-finite from its first run: refuses the warm-up
 
 #define PAD_GAIN            0.1f        // -20 dB, the fake's own definition

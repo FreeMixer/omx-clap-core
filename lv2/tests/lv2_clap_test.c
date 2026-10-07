@@ -494,6 +494,44 @@ static void t_fixture(double rate)
     rig_down(&g);
 }
 
+/* ---- the port properties as CLAP flags ---- */
+
+static int info_of(struct rig *g, clap_id id, clap_param_info_t *info)
+{
+    uint32_t i;
+
+    for (i = 0; i < g->params->count(g->plugin); i++)
+        if (g->params->get_info(g->plugin, i, info) && info->id == id)
+            return 1;
+    return 0;
+}
+
+static void t_props(void)
+{
+    const uint32_t A = CLAP_PARAM_IS_AUTOMATABLE, S = CLAP_PARAM_IS_STEPPED;
+    clap_param_info_t i;
+    struct rig g;
+    char text[64];
+    double v;
+
+    if (rig_up(&g, g_fakes, FAKE_PROPS, 0.0, MAXB) != 0)
+        return;
+    CHECK(g.params->count(g.plugin) == 8, "props: eight control inputs, eight parameters (%u)", g.params->count(g.plugin));
+    CHECK(info_of(&g, 3, &i) && i.flags == (A | S) && i.min_value == 0.0 && i.max_value == 8.0 && i.default_value == 2.0, "props: lv2:integer is IS_STEPPED");
+    CHECK(info_of(&g, 4, &i) && i.flags == (A | S) && i.min_value == 0.0 && i.max_value == 1.0 && i.default_value == 1.0, "props: lv2:toggled is IS_STEPPED over 0..1");
+    CHECK(info_of(&g, 5, &i) && i.flags == (A | S | CLAP_PARAM_IS_ENUM), "props: lv2:enumeration with a point on every integer is IS_STEPPED | IS_ENUM");
+    CHECK(g.params->value_to_text(g.plugin, 5, 1.0, text, sizeof(text)) && strcmp(text, "mid") == 0
+          && g.params->text_to_value(g.plugin, 5, "high", &v) && v == 2.0, "props: its value_to_text is the point's rdfs:label (%s), and back", text);
+    CHECK(info_of(&g, 6, &i) && i.flags == (A | S), "props: an enumeration whose points miss integers is IS_STEPPED without IS_ENUM");
+    CHECK(g.params->value_to_text(g.plugin, 6, 3.0, text, sizeof(text)) && strcmp(text, "square") == 0
+          && g.params->value_to_text(g.plugin, 6, 1.0, text, sizeof(text)) && strcmp(text, "1") == 0, "props: a labelled point reads its label, another value its number");
+    CHECK(info_of(&g, 7, &i) && i.flags == (A | CLAP_PARAM_IS_HIDDEN), "props: pprops:notOnGUI is IS_HIDDEN");
+    CHECK(info_of(&g, 8, &i) && i.flags == A && i.min_value == 20.0 && i.max_value == 20000.0, "props: pprops:logarithmic changes no CLAP flag (CLAP has none)");
+    CHECK(info_of(&g, 9, &i) && i.flags == (A | S), "props: pprops:trigger is IS_STEPPED");
+    CHECK(info_of(&g, 10, &i) && i.default_value == -3.0, "props: no lv2:default: the default is the minimum");
+    rig_down(&g);
+}
+
 /* ---- the latency hold, on the pad ---- */
 
 static void t_latency_hold(double rate)
@@ -853,6 +891,7 @@ int main(int argc, char **argv)
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
     t_entry();
     t_refusals();
+    t_props();
     for (r = 0; r < N_RATES; r++)
     {
         const int before = g_failures;
