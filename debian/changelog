@@ -4,10 +4,11 @@ omx-clap-host (0.3.0) unstable; urgency=medium
     short; the whole list comes in one call.
   * A host can give an instance its tempo: the plugin reads it from the
     transport of every block.
-  * The host extension list has a header of its own.
-  * The qualifier's fault plugins come with the tests.
+  * The list of host extensions has a header of its own,
+    `clap_host_extensions.h`.
+  * The qualifier's fault plugins come with the tests (`make fixtures`).
 
- -- Pau Aliagas <linuxnow@gmail.com>  Wed, 07 Oct 2026 20:46:00 +0200
+ -- Pau Aliagas <linuxnow@gmail.com>  Wed, 07 Oct 2026 12:00:00 +0000
 
 omx-clap-host (0.2.0) unstable; urgency=medium
 
