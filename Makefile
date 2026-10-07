@@ -78,6 +78,20 @@ CORE_OBJ = $(CORE_SRC:.c=.o)
 SCAN_SRC = src/scan.c
 SCAN_OBJ = $(SCAN_SRC:.c=.o)
 
+# the LV2 adapter, libomx-clap-lv2.a: lv2/core is the LV2 host with no CLAP in it, lv2/clap the shim that presents one LV2
+# plugin as one CLAP plugin. A static archive, position-independent so a shared object can link it; lilv is never linked,
+# only its headers are read. lv2/core's own archive is internal: its tests link it, nothing installs it.
+LV2_LIB = libomx-clap-lv2.a
+LV2_CORE_LIB = build/lv2/liblv2core.a
+LV2_HEADERS = lv2/clap/omx_clap_lv2.h
+LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
+LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c
+LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o)
+LV2_CLAP_SRC = lv2/clap/lv2_clap.c
+LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)
+# the lilv the tests' lazy-load arm points a late symlink at
+LILV_LIB ?= $(shell $(PKG_CONFIG) --variable=libdir lilv-0 2>/dev/null)/liblilv-0.so.0
+
 # default build
 all: $(PROG) $(SCAN_PROG)
 
@@ -106,6 +120,25 @@ $(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
 # meta-rule to generate the object files
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# lv2/core names no CLAP header: its include path holds no CLAP directory
+lv2/core/%.o: lv2/core/%.c
+	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(CFLAGS) -c -o $@ $<
+
+lv2/clap/%.o: lv2/clap/%.c
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -c -o $@ $<
+
+$(LV2_CORE_LIB): $(LV2_CORE_OBJ)
+	@mkdir -p build/lv2
+	rm -f $@
+	ar rcs $@ $^
+
+$(LV2_LIB): $(LV2_CORE_OBJ) $(LV2_CLAP_OBJ)
+	rm -f $@
+	ar rcs $@ $^
+
+.PHONY: lv2
+lv2: $(LV2_LIB)
 
 # install rule
 PREFIX = /usr/local
@@ -138,9 +171,9 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_clap_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
--include $(wildcard src/*.d)
+-include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
 test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core
