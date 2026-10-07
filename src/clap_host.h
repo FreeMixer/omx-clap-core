@@ -46,9 +46,12 @@
 */
 
 #include <clap/clap.h>
+#include <math.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "clap_host_extensions.h"
 #include "clap_stage.h"
@@ -137,6 +140,14 @@ struct omx_clap_role
     int held;
 };
 
+/* A host's tempo: one published word, the bpm as the bits of a double, 0 for none. An instance given it hands its plugin
+ * a transport carrying that tempo and nothing else (no playhead, no meter); with no tempo the transport is NULL, never an
+ * invented one. */
+struct omx_clap_tempo
+{
+    _Atomic uint64_t bpm_bits;
+};
+
 /* One hosted instance. Opaque to the RT except for `stage`, which the consumer's RT thread runs. */
 struct omx_clap_instance
 {
@@ -205,6 +216,10 @@ struct omx_clap_instance
     _Atomic uint32_t audio_role_seq;
     _Atomic omx_clap_audio_role_fn audio_role_is;
     void *_Atomic audio_role_ctx;
+    // the tempo omx_clap_host_run carries (NULL: none), set by omx_clap_host_set_tempo, and the transport record it
+    // hands the plugin, written only by the thread that runs the instance
+    const struct omx_clap_tempo *tempo;
+    clap_event_transport_t transport;
 };
 
 
@@ -387,5 +402,64 @@ OMX_CLAP_EXPORT int omx_clap_host_has_feature(const clap_plugin_descriptor_t *de
 *           END HEADER
 ************************************************************************************************************************
 */
+
+/* Control thread, before publish: the tempo omx_clap_host_run hands the plugin from now on (NULL: none). The word must
+ * outlive the instance's publication. */
+OMX_CLAP_EXPORT void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo);
+
+
+/*
+************************************************************************************************************************
+*           INLINE FUNCTIONS
+************************************************************************************************************************
+*/
+
+/* Control thread: publish the bpm (a finite bpm > 0; anything else withdraws the tempo). Seen by the next block. */
+static inline void omx_clap_tempo_publish(struct omx_clap_tempo *tempo, double bpm)
+{
+    uint64_t bits = 0;
+
+    if (isfinite(bpm) && bpm > 0.0)
+        memcpy(&bits, &bpm, sizeof(bits));
+    atomic_store_explicit(&tempo->bpm_bits, bits, memory_order_relaxed);
+}
+
+/* Any thread: the published bpm, 0 when none is. */
+static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
+{
+    const uint64_t bits = atomic_load_explicit(&tempo->bpm_bits, memory_order_relaxed);
+    double bpm;
+
+    memcpy(&bpm, &bits, sizeof(bpm));
+    return bits ? bpm : 0.0;
+}
+
+/* The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
+ * transport carrying the tempo the instance was given (NULL when it has none or the word holds none). Read once per
+ * block, relaxed: a change is seen by the next block. */
+static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
+{
+    const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+    clap_event_transport_t *t = &in->transport;
+
+    if (bpm > 0.0)
+    {
+        memset(t, 0, sizeof(*t));
+        t->header.size = sizeof(*t);
+        t->header.time = 0;
+        t->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        t->header.type = CLAP_EVENT_TRANSPORT;
+        t->header.flags = 0;
+        t->flags = CLAP_TRANSPORT_HAS_TEMPO;
+        t->tempo = bpm;
+        t->tempo_inc = 0.0;
+        in->stage.proc.transport = t;
+    }
+    else
+    {
+        in->stage.proc.transport = NULL;
+    }
+    omx_clap_run(&in->stage, l, r, n);
+}
 
 #endif

@@ -60,4 +60,5 @@ OMX_CLAP_CORE_0.3
 {
   global:
     omx_clap_host_param_roster;
+    omx_clap_host_set_tempo;
 } OMX_CLAP_CORE_0;

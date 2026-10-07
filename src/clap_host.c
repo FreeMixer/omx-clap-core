@@ -1315,6 +1315,11 @@ void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
     omx_clap_set_bypass(&in->stage, on);
 }
 
+void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo)
+{
+    in->tempo = tempo;
+}
+
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)
 {
     return in->bypass_wanted != 0;
