@@ -161,7 +161,8 @@ test-stage: tests/clap_stage_test tests/clap_core_test fixtures
 	./tests/clap_stage_test
 	./tests/clap_core_test $(abspath tests)
 
-WRAP_ALLOC = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
+# --wrap sees no call that link-time optimisation has already resolved inside one unit: the wrapped tests build without it
+WRAP_ALLOC = -fno-lto -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 
 tests/clap_stage_test: tests/clap_stage_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< -lm
