@@ -160,12 +160,12 @@ abi-baseline` and commits `abi/`.
 The message ring
 ----------------
 
-`msgring.h`, installed with the library's headers, is the variable-length
+`omx_msgring.h`, installed with the library's headers, is the variable-length
 single-producer single-consumer ring between a plugin's RT thread and a non-RT
 thread of its host: a 4-byte size, then the payload, contiguous; a full ring refuses
 a record and never waits. Header only, so it changes nothing in the ABI. `make
-test-msgring` runs its closed-form test, and `make test` and `make test-fake` include
-it.
+test-msgring` runs its closed-form test, and `make test-fake` includes it. The LV2
+adapter's worker uses the same ring.
 
 The LV2 adapter
 ---------------

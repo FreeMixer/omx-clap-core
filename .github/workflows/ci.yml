@@ -229,7 +229,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm lilv-libs
           make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
           pkg-config --modversion omx-clap-lv2 | tee v.txt
-          grep -q '^0.3.0$' v.txt
+          grep -q '^0.4.0$' v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
           ! ldd /tmp/lv2-consumer | grep -q liblilv
           /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
@@ -355,7 +355,7 @@ jobs:
           grep -q '/pkgconfig/omx-clap-lv2\.pc$' lv2-files.txt
           grep -q '/usr/include/omx-clap-lv2/omx_clap_lv2\.h$' lv2-files.txt
           pkg-config --modversion omx-clap-lv2 | tee v.txt
-          grep -q '^0.3.0$' v.txt
+          grep -q '^0.4.0$' v.txt
           make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
           /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
