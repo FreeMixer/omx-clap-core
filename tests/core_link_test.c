@@ -63,7 +63,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    CHECK(omx_clap_core_version() == 300, "the library says 0.3.0 (%u)", omx_clap_core_version());
+    CHECK(omx_clap_core_version() == 301, "the library says 0.3.1 (%u)", omx_clap_core_version());
     omx_clap_host_config_default(&config);
     CHECK(config.clamp && config.nonfinite && config.warmup && !config.note_inputs && !config.preset_load,
           "the defaults: clamp, scan and warm-up on, note inputs refused, no preset-load");
