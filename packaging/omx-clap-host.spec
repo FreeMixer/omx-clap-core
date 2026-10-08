@@ -3,7 +3,7 @@ Version:        0.4.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
-URL: https://github.com/FreeMixer/omx-clap-host
+URL: https://github.com/FreeMixer/omx-clap-core
 
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 

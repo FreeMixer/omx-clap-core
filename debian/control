@@ -11,7 +11,7 @@ Build-Depends: debhelper-compat (= 13),
                plugin-hostd-dev (>= 0.1.2~),
                pkgconf
 Standards-Version: 4.6.2
-Homepage: https://github.com/FreeMixer/omx-clap-host
+Homepage: https://github.com/FreeMixer/omx-clap-core
 Rules-Requires-Root: no
 
 Package: omx-clap-host
