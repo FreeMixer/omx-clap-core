@@ -3,6 +3,15 @@
 What changed in each release of omx-clap-host, in plain words. The RPM and Debian changelogs and the
 GitHub release notes are generated from this file.
 
+## Unreleased
+
+- New development package, omx-clap-lv2-devel (libomx-clap-lv2-dev on Debian): a library that
+  lets a CLAP host run LV2 plugins. An LV2 plugin with one or two audio channels in and out is
+  presented as a CLAP plugin, with its controls as parameters, its reported latency, its default
+  settings and its background worker.
+- A plugin the library cannot run yet (MIDI or other event ports, CV ports, other channel layouts,
+  a feature it does not provide) is refused when it is created, with a reason the host can log.
+
 ## 0.3.1 - 2026-10-08
 
 - A plugin may have at most 2048 parameters. One that reports more is served its first 2048, and

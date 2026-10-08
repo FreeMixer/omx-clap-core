@@ -13,6 +13,8 @@ BuildRequires: pkgconfig
 BuildRequires: pkgconfig(mod-host-protocol)
 BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
+BuildRequires: lv2-devel
+BuildRequires: lilv-devel
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 
@@ -46,6 +48,21 @@ What you need to write a program that hosts CLAP plugins on omx-clap-core: the
 headers, the pkg-config file, and the list of functions the library promises to
 keep, with the baseline each release is checked against.
 
+%package -n omx-clap-lv2-devel
+Summary: Run LV2 plugins in a CLAP host, as a library to link
+License: GPL-3.0-or-later
+Requires: omx-clap-core-devel%{?_isa} = %{version}-%{release}
+Requires: clap-devel
+Requires: pkgconfig
+
+%description -n omx-clap-lv2-devel
+libomx-clap-lv2 lets a program that hosts CLAP plugins run LV2 plugins too:
+it presents one LV2 plugin as one CLAP plugin, with its controls as CLAP
+parameters, its latency, its own background worker and its default
+settings. It is a static library with its header and pkg-config file, and
+it loads lilv when the first LV2 bundle is opened, so a program that never
+opens one never needs lilv.
+
 %prep
 %autosetup
 
@@ -65,6 +82,7 @@ sed -i 's,LDFLAGS += -s,LDFLAGS +=,g' Makefile
 %check
 
 make test-fake
+make test-lv2
 
 %files
 %license COPYING
@@ -84,6 +102,12 @@ make test-fake
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
 %{_datadir}/omx-clap-core/
+
+%files -n omx-clap-lv2-devel
+%license COPYING
+%{_libdir}/libomx-clap-lv2.a
+%{_libdir}/pkgconfig/omx-clap-lv2.pc
+%{_includedir}/omx-clap-lv2/
 
 %changelog
 * Thu Oct 08 2026 Pau Aliagas <linuxnow@gmail.com> - 0.3.1-1

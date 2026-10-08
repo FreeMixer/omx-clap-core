@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The worker-gain test plugin (lv2_worker_gain.c) as a bundle of its own: the second bundle the one-bundle test loads.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:worker-gain>
+    a lv2:Plugin ;
+    lv2:binary <omx-worker-gain.so> ;
+    rdfs:seeAlso <omx-worker-gain.ttl> .

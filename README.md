@@ -12,6 +12,10 @@ to mod-host and want CLAP plugins as well.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
 - `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
 
+LV2 plugins are loaded through the same CLAP host by an LV2 to CLAP adapter, the library
+`libomx-clap-lv2` (package `omx-clap-lv2-devel`, or `libomx-clap-lv2-dev` on Debian). What works
+today, and the test that proves each part, is in [docs/lv2-compatibility.md](docs/lv2-compatibility.md).
+
 Install
 -------
 
