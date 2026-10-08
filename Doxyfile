@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# libomx-clap-core C API reference: the installed headers' docstrings only.
+# Build-time only: `make docs`; a missing docstring on a public symbol fails the build.
+PROJECT_NAME           = libomx-clap-core
+PROJECT_BRIEF          = "Hosts CLAP plugins in-process: the C API"
+OUTPUT_DIRECTORY       = build/docs
+INPUT                  = src/clap_host.h \
+                         src/clap_host_extensions.h \
+                         src/omx_msgring.h \
+                         src/clap_stage.h \
+                         src/hosted_stage.h \
+                         src/clap_host_limits.h \
+                         src/omx_clap_ext.h
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTRACT_ALL            = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = NO
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+QUIET                  = YES
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+SOURCE_BROWSER         = NO
+ALPHABETICAL_INDEX     = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = "__attribute__(x)=" OMX_CLAP_EXPORT= CLAP_ABI=
+HAVE_DOT               = NO

@@ -18,6 +18,9 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
+/** @file
+ * @brief The OpenMixer CLAP extensions: meters and declaration. */
+
 /*
 ************************************************************************************************************************
 *
@@ -58,33 +61,36 @@ extern "C" {
 ************************************************************************************************************************
 */
 
+/** The meters extension id. */
 static const char OMX_CLAP_EXT_METERS[] = "org.openmixer.meters/1";
 
-/* What a meter measures; the unit is implied by the kind, never a free string. */
+/** What a meter measures; the unit is implied by the kind, never a free string. */
 enum omx_clap_meter_kind
 {
-    OMX_CLAP_METER_GAIN_REDUCTION_DB = 0,   // dB, CLAP's sign: 0 none, negative the reduction applied
-    OMX_CLAP_METER_LEVEL_DBFS = 1,          // peak level in dBFS, -inf as -HUGE_VALF
+    OMX_CLAP_METER_GAIN_REDUCTION_DB = 0,   ///< dB, CLAP's sign: 0 none, negative the reduction applied
+    OMX_CLAP_METER_LEVEL_DBFS = 1,          ///< peak level in dBFS, -inf as -HUGE_VALF
 };
 
+/** One meter a plugin declares. */
 typedef struct omx_clap_meter_info
 {
-    clap_id id;                 // stable across versions, append-only like the parameters
-    char name[CLAP_NAME_SIZE];  // what a host derives the meter's symbol from
-    uint32_t kind;              // enum omx_clap_meter_kind
-    uint32_t channel_count;     // the values read fills: 1 (linked) or 2 (per leg)
+    clap_id id;                 ///< stable across versions, append-only like the parameters
+    char name[CLAP_NAME_SIZE];  ///< what a host derives the meter's symbol from
+    uint32_t kind;              ///< enum omx_clap_meter_kind
+    uint32_t channel_count;     ///< the values read fills: 1 (linked) or 2 (per leg)
 } omx_clap_meter_info_t;
 
+/** The org.openmixer.meters/1 extension a plugin offers. */
 typedef struct omx_clap_plugin_meters
 {
-    // [main-thread]
+    /** [main-thread] The number of meters the plugin declares. */
     uint32_t(CLAP_ABI *count)(const clap_plugin_t *plugin);
 
-    // [main-thread]
+    /** [main-thread] Fills `info` with the meter at `index`; false for an index out of range. */
     bool(CLAP_ABI *get_info)(const clap_plugin_t *plugin, uint32_t index, omx_clap_meter_info_t *info);
 
-    // [thread-safe] the values the audio thread published at the end of the last process(), relaxed atomics: fills
-    // min(capacity, channel_count) floats, false for an unknown id or a plugin that has not processed since activate
+    /** [thread-safe] The values the audio thread published at the end of the last process(), relaxed atomics: fills
+     * min(capacity, channel_count) floats, false for an unknown id or a plugin that has not processed since activate. */
     bool(CLAP_ABI *read)(const clap_plugin_t *plugin, clap_id id, float *values, uint32_t capacity);
 } omx_clap_plugin_meters_t;
 
@@ -95,15 +101,17 @@ typedef struct omx_clap_plugin_meters
 ************************************************************************************************************************
 */
 
+/** The declaration extension id. */
 static const char OMX_CLAP_EXT_DECLARATION[] = "org.openmixer.declaration/1";
 
+/** The org.openmixer.declaration/1 extension a plugin offers. */
 typedef struct omx_clap_plugin_declaration
 {
-    // [thread-safe] the expression of the openmixer core the parameters were generated from
+    /** [thread-safe] The expression of the openmixer core the parameters were generated from. */
     const char *(CLAP_ABI *source)(const clap_plugin_t *plugin);
 
-    // [thread-safe] lowercase hex SHA-256 of the resolved parameter list (symbol, unit, min, max, default, flags, in id
-    // order): a host compares it with the one it runs and refuses a plugin whose parameters are stale
+    /** [thread-safe] Lowercase hex SHA-256 of the resolved parameter list (symbol, unit, min, max, default, flags, in id
+     * order): a host compares it with the one it runs and refuses a plugin whose parameters are stale. */
     const char *(CLAP_ABI *digest)(const clap_plugin_t *plugin);
 } omx_clap_plugin_declaration_t;
 

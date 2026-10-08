@@ -18,6 +18,9 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
+/** @file
+ * @brief The format-independent core of a hosted stage: the bounce, bypass, fault and counters. */
+
 /*
 ************************************************************************************************************************
 *
@@ -60,13 +63,13 @@
 /* A consumer that states contracts defines this before including the library's headers: the condition is a
  * postcondition of the function that evaluates it, the label its name. Without it nothing is evaluated. */
 #ifndef CLAP_HOST_POST
-#define CLAP_HOST_POST(cond, label) ((void)0)
+#define CLAP_HOST_POST(cond, label) ((void)0)  ///< states the postcondition `cond` under `label` when the consumer defines it, nothing otherwise
 #endif
 
-/* what a stage guards, per stage: the clamp at CLAP_HOST_CLAMP_DBFS and the scan for non-finite output with its strike */
+/** what a stage guards, per stage: the clamp at CLAP_HOST_CLAMP_DBFS and the scan for non-finite output with its strike */
 #define OMX_HOSTED_GUARD_CLAMP          1u
-#define OMX_HOSTED_GUARD_NONFINITE      2u
-#define OMX_HOSTED_GUARDS_ALL           (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE)
+#define OMX_HOSTED_GUARD_NONFINITE      2u  ///< scan the output for non-finite samples
+#define OMX_HOSTED_GUARDS_ALL           (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE)  ///< every guard
 
 
 /*
@@ -75,14 +78,14 @@
 ************************************************************************************************************************
 */
 
-/* Why a hosted stage stopped running its plugin for good. Sticky; the control thread reads it. */
+/** Why a hosted stage stopped running its plugin for good. Sticky; the control thread reads it. */
 enum omx_hosted_fault
 {
     OMX_HOSTED_FAULT_NONE = 0,
-    OMX_HOSTED_FAULT_NONFINITE = 1      // a non-finite block, or a CLAP_PROCESS_ERROR block, struck the counter out
+    OMX_HOSTED_FAULT_NONFINITE = 1      ///< a non-finite block, or a CLAP_PROCESS_ERROR block, struck the counter out
 };
 
-/*
+/**
  * The core of a hosted stage, embedded by each format's stage as `h` at offset 0: the private bounce, the legs, the
  * commanded bypass, the body the lane carried, the sticky fault and the counters every hosted body keeps. The
  * format's own state lives beside it, never in it.
@@ -90,54 +93,61 @@ enum omx_hosted_fault
 struct omx_hosted_stage
 {
     // bound by the control thread before publish
-    uint32_t n_in, n_out;               // audio legs: n_in 0, 1 or 2 (0 is an instrument), n_out 1 or 2
-    uint32_t max_block;                 // the bounce capacity, in frames
-    float *in_l, *in_r, *out_l, *out_r; // the private bounce, max_block each, four distinct buffers
-    uint32_t guards;                    // OMX_HOSTED_GUARD_*, set before publish
+    uint32_t n_in,                      ///< input legs: 0, 1 or 2 (0 is an instrument)
+             n_out;                     ///< output legs: 1 or 2
+    uint32_t max_block;                 ///< the bounce capacity, in frames
+    float *in_l,                        ///< the private bounce's left input, max_block frames
+          *in_r,                        ///< the right input, max_block frames
+          *out_l,                       ///< the left output, max_block frames
+          *out_r;                       ///< the right output, max_block frames
+    uint32_t guards;                    ///< OMX_HOSTED_GUARD_*, set before publish
 
     // control thread -> RT
-    _Atomic uint32_t bypass;            // commanded bypass: nonzero = the lane carries dry
+    _Atomic uint32_t bypass;            ///< commanded bypass: nonzero = the lane carries dry
 
     // RT-owned; the control thread reads them relaxed
-    _Atomic uint32_t rendered_wet;      // the body the lane carried on the last block
-    _Atomic uint32_t fault;             // enum omx_hosted_fault
-    _Atomic uint32_t runs;              // live plugin calls
-    _Atomic uint32_t nonfinite_blocks;  // discarded blocks: non-finite output, a CLAP process error
-    _Atomic uint32_t clamped_samples;
-    _Atomic uint32_t oversize_blocks;   // a block longer than the bounce: passed through, not run
+    _Atomic uint32_t rendered_wet;      ///< the body the lane carried on the last block
+    _Atomic uint32_t fault;             ///< enum omx_hosted_fault
+    _Atomic uint32_t runs;              ///< live plugin calls
+    _Atomic uint32_t nonfinite_blocks;  ///< discarded blocks: non-finite output, a CLAP process error
+    _Atomic uint32_t clamped_samples;   ///< samples clamped at CLAP_HOST_CLAMP_DBFS
+    _Atomic uint32_t oversize_blocks;   ///< a block longer than the bounce: passed through, not run
 };
 
-/* The private bounce a hosted stage is bound to: four distinct buffers of `max_block` frames. */
+/** The private bounce a hosted stage is bound to: four distinct buffers of `max_block` frames. */
 struct omx_hosted_bounce
 {
-    float *in_l, *in_r, *out_l, *out_r;
-    uint32_t max_block;
+    float *in_l,                ///< the left input
+          *in_r,                ///< the right input
+          *out_l,               ///< the left output
+          *out_r;               ///< the right output
+    uint32_t max_block;         ///< the capacity of each buffer, in frames
 };
 
-/* What the RT body does with a block: omx_hosted_run_begin's verdict. */
+/** What the RT body does with a block: omx_hosted_run_begin's verdict. */
 enum omx_hosted_verdict
 {
-    OMX_HOSTED_SKIP = 0,    // oversize: passed through untouched and counted; the lane carried dry
-    OMX_HOSTED_IDLE = 1,    // steady bypass: plugin idle, lane bit-identical
-    OMX_HOSTED_GO = 2       // the dry block is in the bounce: run the plugin, then omx_hosted_run_end
+    OMX_HOSTED_SKIP = 0,    ///< oversize: passed through untouched and counted; the lane carried dry
+    OMX_HOSTED_IDLE = 1,    ///< steady bypass: plugin idle, lane bit-identical
+    OMX_HOSTED_GO = 2       ///< the dry block is in the bounce: run the plugin, then omx_hosted_run_end
 };
 
-/* One queued parameter write: a CLAP param id (or an LV2 control's index), its value in the plugin's own units, the
+/** One queued parameter write: a CLAP param id (or an LV2 control's index), its value in the plugin's own units, the
  * cookie get_info returned for the id. */
 struct omx_hosted_param_record
 {
-    uint32_t id;
-    double value;
-    void *cookie;
+    uint32_t id;                ///< the CLAP param id, or the LV2 control's index
+    double value;               ///< the value in the plugin's own units
+    void *cookie;               ///< what get_info returned for the id
 };
 
-/* Lock-free single producer (control thread), single consumer (RT); cap a power of two; owns no memory. */
+/** Lock-free single producer (control thread), single consumer (RT); cap a power of two; owns no memory. */
 struct omx_hosted_param_queue
 {
-    struct omx_hosted_param_record *recs;
-    uint32_t cap;
-    _Atomic uint32_t head;              // consumer: the next record to pop
-    _Atomic uint32_t tail;              // producer: the next slot to push
+    struct omx_hosted_param_record *recs;   ///< the record storage
+    uint32_t cap;                           ///< the capacity in records, a power of two
+    _Atomic uint32_t head;              ///< consumer: the next record to pop
+    _Atomic uint32_t tail;              ///< producer: the next slot to push
 };
 
 
@@ -150,13 +160,13 @@ struct omx_hosted_param_queue
 ************************************************************************************************************************
 */
 
-/* decibels to linear amplitude, 10^(dB/20) */
+/** decibels to linear amplitude, 10^(dB/20) */
 static inline float omx_hosted_db_to_lin(float db)
 {
     return powf(10.0f, db * 0.05f);
 }
 
-/* whether every sample of a block is finite; a NULL block is */
+/** whether every sample of a block is finite; a NULL block is */
 static inline int omx_hosted_block_finite(const float *b, uint32_t n)
 {
     uint32_t i;
@@ -166,13 +176,13 @@ static inline int omx_hosted_block_finite(const float *b, uint32_t n)
     for (i = 0; i < n; i++)
     {
         const float x = b[i];
-        if (!(x - x == 0.0f))   // false for NaN and for both infinities
+        if (!(x - x == 0.0f))   ///< false for NaN and for both infinities
             return 0;
     }
     return 1;
 }
 
-/* flush-to-zero and denormals-are-zero for the calling thread; the mode is per thread */
+/** flush-to-zero and denormals-are-zero for the calling thread; the mode is per thread */
 static inline void omx_hosted_denormals_off(void)
 {
 #if defined(__i386__) || defined(__x86_64__)
@@ -203,13 +213,13 @@ static inline void omx_hosted_denormals_off(void)
 ************************************************************************************************************************
 */
 
-/* The counter store: one writer, so a relaxed load-add-store needs no read-modify-write. */
+/** The counter store: one writer, so a relaxed load-add-store needs no read-modify-write. */
 static inline void omx_hosted_count(_Atomic uint32_t *c, uint32_t by)
 {
     atomic_store_explicit(c, atomic_load_explicit(c, memory_order_relaxed) + by, memory_order_relaxed);
 }
 
-/*
+/**
  * The one-block crossfade from `from` to `to`, constant-gain linear: at sample i the gains are 1 - (1/n)*i and
  * (1/n)*i and they sum to exactly 1, so two identical bodies read back bit-identical (from + (to - from) * g makes that
  * exact, not merely close). `dst` may not alias `from` or `to`.
@@ -223,7 +233,7 @@ static inline void omx_hosted_xfade(float *dst, const float *from, const float *
         dst[i] = from[i] + (to[i] - from[i]) * (0.0f + step * (float)i);
 }
 
-/* Clamp one leg to the ceiling, returning how many samples it moved. Branch-free. */
+/** Clamp one leg to the ceiling, returning how many samples it moved. Branch-free. */
 static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
 {
     const float c = omx_hosted_db_to_lin(CLAP_HOST_CLAMP_DBFS);
@@ -239,7 +249,7 @@ static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
     return moved;
 }
 
-/* A discarded block: count it, and at the strike count fault the stage for good. The lane already holds the dry
+/** A discarded block: count it, and at the strike count fault the stage for good. The lane already holds the dry
  * block; the caller marks the body dry so the next usable block fades back in. */
 static inline void omx_hosted_strike(_Atomic uint32_t *blocks, _Atomic uint32_t *fault)
 {
@@ -248,7 +258,7 @@ static inline void omx_hosted_strike(_Atomic uint32_t *blocks, _Atomic uint32_t 
         atomic_store_explicit(fault, OMX_HOSTED_FAULT_NONFINITE, memory_order_relaxed);
 }
 
-/*
+/**
  * Deliver the block onto the lane, choosing the body: a steady wet block is copied, and every change of body, wet after
  * dry (the first block after publish, a recovery) or dry after wet (a commanded bypass), is one crossfade between the dry
  * input (in_*) and the wet output (out_l, wet_r). `r` is NULL on a mono lane, and then only `l` is written.
@@ -276,7 +286,7 @@ static inline void omx_hosted_deliver(int want_wet, int was_wet, float *l, float
     }
 }
 
-/*
+/**
  * Control thread, before the plugin exists: zero the whole format stage (`size` bytes, of which the hosted core is the
  * head: every format header asserts offsetof(..., h) == 0), bind its bounce and guard everything. Returns -1 (stage
  * unusable) unless the four buffers are present and distinct, out-of-place being the stage's first guarantee, and the
@@ -315,7 +325,7 @@ static inline int omx_hosted_stage_init(void *stage, size_t size, const struct o
     return 0;
 }
 
-/* RT: are the plugin's output legs finite? A mono body writes only out_l. */
+/** RT: are the plugin's output legs finite? A mono body writes only out_l. */
 static inline int omx_hosted_out_finite(const struct omx_hosted_stage *h, uint32_t n)
 {
     if (!(h->guards & OMX_HOSTED_GUARD_NONFINITE))
@@ -323,7 +333,7 @@ static inline int omx_hosted_out_finite(const struct omx_hosted_stage *h, uint32
     return omx_hosted_block_finite(h->out_l, n) && omx_hosted_block_finite(h->n_out == 2 ? h->out_r : NULL, n);
 }
 
-/*
+/**
  * RT, the preamble both bodies share: a block longer than the bounce is passed through untouched and counted (the
  * plugin never sees a block it was not sized for); `want_wet` reads the commanded bypass and the sticky fault; a steady
  * bypass touches nothing; otherwise the dry block is copied into the bounce (in_r the dry R, or the mono mirror).
@@ -334,7 +344,7 @@ static inline enum omx_hosted_verdict omx_hosted_run_begin(struct omx_hosted_sta
     if (n > h->max_block)
     {
         omx_hosted_count(&h->oversize_blocks, 1);
-        atomic_store_explicit(&h->rendered_wet, 0, memory_order_release);   // the lane carried dry: the next block fades back in
+        atomic_store_explicit(&h->rendered_wet, 0, memory_order_release);   ///< the lane carried dry: the next block fades back in
         return OMX_HOSTED_SKIP;
     }
     *want_wet = atomic_load_explicit(&h->bypass, memory_order_acquire) == 0u
@@ -346,7 +356,7 @@ static inline enum omx_hosted_verdict omx_hosted_run_begin(struct omx_hosted_sta
     return OMX_HOSTED_GO;
 }
 
-/*
+/**
  * RT, the tail both bodies share: count the run; an unusable block is discarded (the lane already holds the dry block:
  * counted, and struck when the stage guards for non-finite output); a usable one is clamped on both legs when the stage
  * clamps, counted, and delivered as the body `want_wet` names, one crossfade on every change of body; the lane is finite
@@ -382,7 +392,7 @@ static inline void omx_hosted_run_end(struct omx_hosted_stage *h, int usable, ui
     CLAP_HOST_POST((omx_hosted_block_finite(l, n) && omx_hosted_block_finite(r, n)) || !(h->guards & OMX_HOSTED_GUARD_NONFINITE), "finite");
 }
 
-/*
+/**
  * Control thread, the warm-up: CLAP_HOST_WARMUP_BLOCKS blocks of `n` frames through `block`, the format's own drain, run
  * and MXCSR path, the first half held at CLAP_HOST_WARMUP_LEVEL_DBFS, the second half silent, touching every bounce page.
  * Returns how many blocks `block` reported unusable (anything but 0 means do not publish), or UINT32_MAX when `n` does
@@ -407,6 +417,7 @@ static inline uint32_t omx_hosted_prime(struct omx_hosted_stage *h, uint32_t n, 
     return bad;
 }
 
+/** Bind the queue `q` to the `cap` records at `recs`, `cap` a power of two: 0, or -1 for a bad argument. */
 static inline int omx_hosted_queue_init(struct omx_hosted_param_queue *q, struct omx_hosted_param_record *recs, uint32_t cap)
 {
     if (q == NULL || recs == NULL || cap == 0 || (cap & (cap - 1u)) != 0)
@@ -418,7 +429,7 @@ static inline int omx_hosted_queue_init(struct omx_hosted_param_queue *q, struct
     return 0;
 }
 
-/* Control thread: enqueue one write. -1 when the ring is full or unbound. */
+/** Control thread: enqueue one write. -1 when the ring is full or unbound. */
 static inline int omx_hosted_queue_push(struct omx_hosted_param_queue *q, uint32_t id, double value, void *cookie)
 {
     const uint32_t tail = atomic_load_explicit(&q->tail, memory_order_relaxed);
@@ -435,7 +446,7 @@ static inline int omx_hosted_queue_push(struct omx_hosted_param_queue *q, uint32
     return 0;
 }
 
-/* RT: pop up to `max` records, handing each to `sink(ctx, record)` in order. Returns how many were handed over; the
+/** RT: pop up to `max` records, handing each to `sink(ctx, record)` in order. Returns how many were handed over; the
  * surplus stays queued. One load of tail, one store of head. An unbound ring drains nothing. */
 static inline uint32_t omx_hosted_queue_drain(struct omx_hosted_param_queue *q, uint32_t max,
                                               void (*sink)(void *ctx, const struct omx_hosted_param_record *r), void *ctx)
@@ -456,7 +467,7 @@ static inline uint32_t omx_hosted_queue_drain(struct omx_hosted_param_queue *q, 
     return n;
 }
 
-/* How many records wait in the ring (either thread, advisory). */
+/** How many records wait in the ring (either thread, advisory). */
 static inline uint32_t omx_hosted_queue_pending(const struct omx_hosted_param_queue *q)
 {
     if (q->recs == NULL)

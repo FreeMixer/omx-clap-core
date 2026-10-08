@@ -199,6 +199,12 @@ version-check:
 	else echo "FAIL VERSION says $(VERSION), the newest entry of CHANGELOG.md says $$newest"; exit 1; fi
 
 # clean rule
+.PHONY: docs
+# the C API reference by doxygen, from the installed headers' docstrings; build-time only
+docs: $(CORE_HEADERS) Doxyfile
+	mkdir -p build
+	doxygen Doxyfile
+
 clean:
 	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 

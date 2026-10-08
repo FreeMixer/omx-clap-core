@@ -18,6 +18,9 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
+/** @file
+ * @brief The host extensions libomx-clap-core offers a hosted plugin. */
+
 /*
  * clap_host_extensions.h: the host extensions the core's host object offers a plugin. This file is their home: the list
  * is written here by hand and nowhere else. A consumer that names them (a qualifier profile judging which extensions a
@@ -28,8 +31,8 @@
 #ifndef CLAP_HOST_EXTENSIONS_H
 #define CLAP_HOST_EXTENSIONS_H
 
-/* the host object offers exactly these extensions, NULL-terminated */
+/** the host object offers exactly these extensions, NULL-terminated */
 #define CLAP_HOST_EXTENSION_COUNT 6u
 #define CLAP_HOST_EXTENSIONS_INIT { "clap.log", "clap.thread-check", "clap.latency", "clap.params", "clap.audio-ports", "clap.state", NULL }
 
-#endif // CLAP_HOST_EXTENSIONS_H
+#endif ///< CLAP_HOST_EXTENSIONS_H
