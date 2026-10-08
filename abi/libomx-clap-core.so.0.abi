@@ -1,4 +1,4 @@
-<abi-corpus version='2.4' path='build/abi/usr/lib/libomx-clap-core.so.0.3.1' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.0'>
+<abi-corpus version='2.4' path='build/abi/usr/lib/libomx-clap-core.so.0.4.0' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.0'>
   <elf-needed>
     <dependency name='libm.so.6'/>
     <dependency name='libc.so.6'/>
@@ -1275,270 +1275,270 @@
       <parameter type-id='type-id-24'/>
       <return type-id='type-id-25'/>
     </function-decl>
-    <class-decl name='omx_clap_binary' is-struct='yes' visibility='default' is-declaration-only='yes' filepath='src/clap_host.c' line='72' column='1' id='type-id-290'/>
-    <function-decl name='omx_clap_host_has_feature' mangled-name='omx_clap_host_has_feature' filepath='src/clap_host.c' line='629' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_has_feature@@OMX_CLAP_CORE_0' hash='87cee14ce30898aa'>
-      <parameter type-id='type-id-68' name='desc' filepath='src/clap_host.c' line='629' column='1'/>
-      <parameter type-id='type-id-35' name='feature' filepath='src/clap_host.c' line='629' column='1'/>
+    <class-decl name='omx_clap_binary' is-struct='yes' visibility='default' is-declaration-only='yes' filepath='src/clap_host.c' line='76' column='1' id='type-id-290'/>
+    <function-decl name='omx_clap_host_has_feature' mangled-name='omx_clap_host_has_feature' filepath='src/clap_host.c' line='633' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_has_feature@@OMX_CLAP_CORE_0' hash='87cee14ce30898aa'>
+      <parameter type-id='type-id-68' name='desc' filepath='src/clap_host.c' line='633' column='1'/>
+      <parameter type-id='type-id-35' name='feature' filepath='src/clap_host.c' line='633' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_config_default' mangled-name='omx_clap_host_config_default' filepath='src/clap_host.c' line='916' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_config_default@@OMX_CLAP_CORE_0' hash='c073817ddd088a2e'>
-      <parameter type-id='type-id-266' name='config' filepath='src/clap_host.c' line='916' column='1'/>
+    <function-decl name='omx_clap_host_config_default' mangled-name='omx_clap_host_config_default' filepath='src/clap_host.c' line='920' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_config_default@@OMX_CLAP_CORE_0' hash='c073817ddd088a2e'>
+      <parameter type-id='type-id-266' name='config' filepath='src/clap_host.c' line='920' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_configure' mangled-name='omx_clap_host_configure' filepath='src/clap_host.c' line='926' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_configure@@OMX_CLAP_CORE_0' hash='54daa1fe9f071108'>
-      <parameter type-id='type-id-251' name='config' filepath='src/clap_host.c' line='926' column='1'/>
+    <function-decl name='omx_clap_host_configure' mangled-name='omx_clap_host_configure' filepath='src/clap_host.c' line='930' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_configure@@OMX_CLAP_CORE_0' hash='54daa1fe9f071108'>
+      <parameter type-id='type-id-251' name='config' filepath='src/clap_host.c' line='930' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_track_info_set' mangled-name='omx_clap_host_track_info_set' filepath='src/clap_host.c' line='945' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_track_info_set@@OMX_CLAP_CORE_0' hash='64fe27f1ad4b5a8a'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='945' column='1'/>
-      <parameter type-id='type-id-35' name='name' filepath='src/clap_host.c' line='945' column='1'/>
-      <parameter type-id='type-id-213' name='color' filepath='src/clap_host.c' line='945' column='1'/>
-      <parameter type-id='type-id-33' name='flags' filepath='src/clap_host.c' line='945' column='1'/>
+    <function-decl name='omx_clap_host_track_info_set' mangled-name='omx_clap_host_track_info_set' filepath='src/clap_host.c' line='949' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_track_info_set@@OMX_CLAP_CORE_0' hash='64fe27f1ad4b5a8a'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='949' column='1'/>
+      <parameter type-id='type-id-35' name='name' filepath='src/clap_host.c' line='949' column='1'/>
+      <parameter type-id='type-id-213' name='color' filepath='src/clap_host.c' line='949' column='1'/>
+      <parameter type-id='type-id-33' name='flags' filepath='src/clap_host.c' line='949' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_remote_controls_changed' mangled-name='omx_clap_host_remote_controls_changed' filepath='src/clap_host.c' line='967' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_remote_controls_changed@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1643' column='1'/>
+    <function-decl name='omx_clap_host_remote_controls_changed' mangled-name='omx_clap_host_remote_controls_changed' filepath='src/clap_host.c' line='971' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_remote_controls_changed@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1647' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_core_version' mangled-name='omx_clap_core_version' filepath='src/clap_host.c' line='972' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_core_version@@OMX_CLAP_CORE_0' hash='2bb88322482ae81c'>
+    <function-decl name='omx_clap_core_version' mangled-name='omx_clap_core_version' filepath='src/clap_host.c' line='976' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_core_version@@OMX_CLAP_CORE_0' hash='2bb88322482ae81c'>
       <return type-id='type-id-32'/>
     </function-decl>
-    <function-decl name='omx_clap_host_binary_open' mangled-name='omx_clap_host_binary_open' filepath='src/clap_host.c' line='984' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_open@@OMX_CLAP_CORE_0' hash='8a6023582c1a51b8'>
-      <parameter type-id='type-id-35' name='path' filepath='src/clap_host.c' line='984' column='1'/>
-      <parameter type-id='type-id-201' name='reason' filepath='src/clap_host.c' line='984' column='1'/>
-      <parameter type-id='type-id-126' name='reason_size' filepath='src/clap_host.c' line='984' column='1'/>
+    <function-decl name='omx_clap_host_binary_open' mangled-name='omx_clap_host_binary_open' filepath='src/clap_host.c' line='988' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_open@@OMX_CLAP_CORE_0' hash='8a6023582c1a51b8'>
+      <parameter type-id='type-id-35' name='path' filepath='src/clap_host.c' line='988' column='1'/>
+      <parameter type-id='type-id-201' name='reason' filepath='src/clap_host.c' line='988' column='1'/>
+      <parameter type-id='type-id-126' name='reason_size' filepath='src/clap_host.c' line='988' column='1'/>
       <return type-id='type-id-115'/>
     </function-decl>
-    <function-decl name='omx_clap_host_binary_close' mangled-name='omx_clap_host_binary_close' filepath='src/clap_host.c' line='989' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_close@@OMX_CLAP_CORE_0' hash='7f32ffea222edbe7'>
-      <parameter type-id='type-id-115' name='binary' filepath='src/clap_host.c' line='989' column='1'/>
+    <function-decl name='omx_clap_host_binary_close' mangled-name='omx_clap_host_binary_close' filepath='src/clap_host.c' line='993' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_close@@OMX_CLAP_CORE_0' hash='7f32ffea222edbe7'>
+      <parameter type-id='type-id-115' name='binary' filepath='src/clap_host.c' line='993' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_binary_count' mangled-name='omx_clap_host_binary_count' filepath='src/clap_host.c' line='994' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_count@@OMX_CLAP_CORE_0' hash='2bb88322482ae81c'>
-      <parameter type-id='type-id-292' name='binary' filepath='src/clap_host.c' line='994' column='1'/>
+    <function-decl name='omx_clap_host_binary_count' mangled-name='omx_clap_host_binary_count' filepath='src/clap_host.c' line='998' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_count@@OMX_CLAP_CORE_0' hash='2bb88322482ae81c'>
+      <parameter type-id='type-id-292' name='binary' filepath='src/clap_host.c' line='998' column='1'/>
       <return type-id='type-id-32'/>
     </function-decl>
-    <function-decl name='omx_clap_host_binary_descriptor' mangled-name='omx_clap_host_binary_descriptor' filepath='src/clap_host.c' line='999' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_descriptor@@OMX_CLAP_CORE_0' hash='9a5bb09b151fb6cd'>
-      <parameter type-id='type-id-292' name='binary' filepath='src/clap_host.c' line='999' column='1'/>
-      <parameter type-id='type-id-32' name='index' filepath='src/clap_host.c' line='999' column='1'/>
+    <function-decl name='omx_clap_host_binary_descriptor' mangled-name='omx_clap_host_binary_descriptor' filepath='src/clap_host.c' line='1003' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_descriptor@@OMX_CLAP_CORE_0' hash='9a5bb09b151fb6cd'>
+      <parameter type-id='type-id-292' name='binary' filepath='src/clap_host.c' line='1003' column='1'/>
+      <parameter type-id='type-id-32' name='index' filepath='src/clap_host.c' line='1003' column='1'/>
       <return type-id='type-id-68'/>
     </function-decl>
-    <function-decl name='omx_clap_host_binaries_open' mangled-name='omx_clap_host_binaries_open' filepath='src/clap_host.c' line='1004' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binaries_open@@OMX_CLAP_CORE_0' hash='2bb88322482ae81c'>
+    <function-decl name='omx_clap_host_binaries_open' mangled-name='omx_clap_host_binaries_open' filepath='src/clap_host.c' line='1008' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binaries_open@@OMX_CLAP_CORE_0' hash='2bb88322482ae81c'>
       <return type-id='type-id-32'/>
     </function-decl>
-    <function-decl name='omx_clap_host_create' mangled-name='omx_clap_host_create' filepath='src/clap_host.c' line='1015' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_create@@OMX_CLAP_CORE_0' hash='bf3bb679e08de500'>
-      <parameter type-id='type-id-115' name='binary' filepath='src/clap_host.c' line='1015' column='1'/>
-      <parameter type-id='type-id-68' name='desc' filepath='src/clap_host.c' line='1015' column='1'/>
-      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1015' column='1'/>
+    <function-decl name='omx_clap_host_create' mangled-name='omx_clap_host_create' filepath='src/clap_host.c' line='1019' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_create@@OMX_CLAP_CORE_0' hash='bf3bb679e08de500'>
+      <parameter type-id='type-id-115' name='binary' filepath='src/clap_host.c' line='1019' column='1'/>
+      <parameter type-id='type-id-68' name='desc' filepath='src/clap_host.c' line='1019' column='1'/>
+      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1019' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_open' mangled-name='omx_clap_host_open' filepath='src/clap_host.c' line='1022' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open@@OMX_CLAP_CORE_0' hash='b1e246b26017f247'>
-      <parameter type-id='type-id-35' name='path' filepath='src/clap_host.c' line='1022' column='1'/>
-      <parameter type-id='type-id-35' name='id' filepath='src/clap_host.c' line='1022' column='1'/>
-      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1022' column='1'/>
-      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1022' column='1'/>
+    <function-decl name='omx_clap_host_open' mangled-name='omx_clap_host_open' filepath='src/clap_host.c' line='1026' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open@@OMX_CLAP_CORE_0' hash='b1e246b26017f247'>
+      <parameter type-id='type-id-35' name='path' filepath='src/clap_host.c' line='1026' column='1'/>
+      <parameter type-id='type-id-35' name='id' filepath='src/clap_host.c' line='1026' column='1'/>
+      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1026' column='1'/>
+      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1026' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_open_entry' mangled-name='omx_clap_host_open_entry' filepath='src/clap_host.c' line='1039' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_entry@@OMX_CLAP_CORE_0' hash='df20899a6c12c512'>
-      <parameter type-id='type-id-239' name='entry' filepath='src/clap_host.c' line='1039' column='1'/>
-      <parameter type-id='type-id-35' name='id' filepath='src/clap_host.c' line='1039' column='1'/>
-      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1039' column='1'/>
-      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1039' column='1'/>
+    <function-decl name='omx_clap_host_open_entry' mangled-name='omx_clap_host_open_entry' filepath='src/clap_host.c' line='1043' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_entry@@OMX_CLAP_CORE_0' hash='df20899a6c12c512'>
+      <parameter type-id='type-id-239' name='entry' filepath='src/clap_host.c' line='1043' column='1'/>
+      <parameter type-id='type-id-35' name='id' filepath='src/clap_host.c' line='1043' column='1'/>
+      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1043' column='1'/>
+      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1043' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_open_timed' mangled-name='omx_clap_host_open_timed' filepath='src/clap_host.c' line='1056' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_timed@@OMX_CLAP_CORE_0' hash='4ab2b112e422cabc'>
-      <parameter type-id='type-id-35' name='path' filepath='src/clap_host.c' line='1056' column='1'/>
-      <parameter type-id='type-id-35' name='id' filepath='src/clap_host.c' line='1056' column='1'/>
-      <parameter type-id='type-id-155' name='timeout_ms' filepath='src/clap_host.c' line='1056' column='1'/>
-      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1056' column='1'/>
-      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1056' column='1'/>
+    <function-decl name='omx_clap_host_open_timed' mangled-name='omx_clap_host_open_timed' filepath='src/clap_host.c' line='1060' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_timed@@OMX_CLAP_CORE_0' hash='4ab2b112e422cabc'>
+      <parameter type-id='type-id-35' name='path' filepath='src/clap_host.c' line='1060' column='1'/>
+      <parameter type-id='type-id-35' name='id' filepath='src/clap_host.c' line='1060' column='1'/>
+      <parameter type-id='type-id-155' name='timeout_ms' filepath='src/clap_host.c' line='1060' column='1'/>
+      <parameter type-id='type-id-268' name='out' filepath='src/clap_host.c' line='1060' column='1'/>
+      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1060' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_close' mangled-name='omx_clap_host_close' filepath='src/clap_host.c' line='1095' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_close@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1272' column='1'/>
+    <function-decl name='omx_clap_host_close' mangled-name='omx_clap_host_close' filepath='src/clap_host.c' line='1099' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_close@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1276' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_take_role' mangled-name='omx_clap_host_take_role' filepath='src/clap_host.c' line='1115' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_take_role@@OMX_CLAP_CORE_0' hash='a6bd737b4fbbdd1e'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1115' column='1'/>
-      <parameter type-id='type-id-271' name='role' filepath='src/clap_host.c' line='1115' column='1'/>
+    <function-decl name='omx_clap_host_take_role' mangled-name='omx_clap_host_take_role' filepath='src/clap_host.c' line='1119' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_take_role@@OMX_CLAP_CORE_0' hash='a6bd737b4fbbdd1e'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1119' column='1'/>
+      <parameter type-id='type-id-271' name='role' filepath='src/clap_host.c' line='1119' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_release_role' mangled-name='omx_clap_host_release_role' filepath='src/clap_host.c' line='1138' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_release_role@@OMX_CLAP_CORE_0' hash='042e1c9046f46717'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1138' column='1'/>
-      <parameter type-id='type-id-255' name='role' filepath='src/clap_host.c' line='1138' column='1'/>
-      <parameter type-id='type-id-32' name='state' filepath='src/clap_host.c' line='1138' column='1'/>
+    <function-decl name='omx_clap_host_release_role' mangled-name='omx_clap_host_release_role' filepath='src/clap_host.c' line='1142' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_release_role@@OMX_CLAP_CORE_0' hash='042e1c9046f46717'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1142' column='1'/>
+      <parameter type-id='type-id-255' name='role' filepath='src/clap_host.c' line='1142' column='1'/>
+      <parameter type-id='type-id-32' name='state' filepath='src/clap_host.c' line='1142' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_activate' mangled-name='omx_clap_host_activate' filepath='src/clap_host.c' line='1147' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_activate@@OMX_CLAP_CORE_0' hash='e4ab51a37fce151c'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1327' column='1'/>
-      <parameter type-id='type-id-19' name='rate' filepath='src/clap_host.c' line='1327' column='1'/>
-      <parameter type-id='type-id-32' name='max_block' filepath='src/clap_host.c' line='1327' column='1'/>
-      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1327' column='1'/>
+    <function-decl name='omx_clap_host_activate' mangled-name='omx_clap_host_activate' filepath='src/clap_host.c' line='1151' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_activate@@OMX_CLAP_CORE_0' hash='e4ab51a37fce151c'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1331' column='1'/>
+      <parameter type-id='type-id-19' name='rate' filepath='src/clap_host.c' line='1331' column='1'/>
+      <parameter type-id='type-id-32' name='max_block' filepath='src/clap_host.c' line='1331' column='1'/>
+      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1331' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_set_audio_role' mangled-name='omx_clap_host_set_audio_role' filepath='src/clap_host.c' line='1226' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_role@@OMX_CLAP_CORE_0' hash='6d98597720c3a060'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1233' column='1'/>
-      <parameter type-id='type-id-128' name='rt' filepath='src/clap_host.c' line='1233' column='1'/>
-      <parameter type-id='type-id-183' name='is_audio' filepath='src/clap_host.c' line='1233' column='1'/>
-      <parameter type-id='type-id-47' name='ctx' filepath='src/clap_host.c' line='1233' column='1'/>
+    <function-decl name='omx_clap_host_set_audio_role' mangled-name='omx_clap_host_set_audio_role' filepath='src/clap_host.c' line='1230' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_role@@OMX_CLAP_CORE_0' hash='6d98597720c3a060'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1237' column='1'/>
+      <parameter type-id='type-id-128' name='rt' filepath='src/clap_host.c' line='1237' column='1'/>
+      <parameter type-id='type-id-183' name='is_audio' filepath='src/clap_host.c' line='1237' column='1'/>
+      <parameter type-id='type-id-47' name='ctx' filepath='src/clap_host.c' line='1237' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_publish_role' mangled-name='omx_clap_host_publish_role' filepath='src/clap_host.c' line='1233' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish_role@@OMX_CLAP_CORE_0' hash='6d98597720c3a060'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1233' column='1'/>
-      <parameter type-id='type-id-128' name='rt' filepath='src/clap_host.c' line='1233' column='1'/>
-      <parameter type-id='type-id-183' name='is_audio' filepath='src/clap_host.c' line='1233' column='1'/>
-      <parameter type-id='type-id-47' name='ctx' filepath='src/clap_host.c' line='1233' column='1'/>
+    <function-decl name='omx_clap_host_publish_role' mangled-name='omx_clap_host_publish_role' filepath='src/clap_host.c' line='1237' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish_role@@OMX_CLAP_CORE_0' hash='6d98597720c3a060'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1237' column='1'/>
+      <parameter type-id='type-id-128' name='rt' filepath='src/clap_host.c' line='1237' column='1'/>
+      <parameter type-id='type-id-183' name='is_audio' filepath='src/clap_host.c' line='1237' column='1'/>
+      <parameter type-id='type-id-47' name='ctx' filepath='src/clap_host.c' line='1237' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_publish' mangled-name='omx_clap_host_publish' filepath='src/clap_host.c' line='1239' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish@@OMX_CLAP_CORE_0' hash='e8ee5e76a1ba9416'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1244' column='1'/>
-      <parameter type-id='type-id-128' name='thread' filepath='src/clap_host.c' line='1244' column='1'/>
+    <function-decl name='omx_clap_host_publish' mangled-name='omx_clap_host_publish' filepath='src/clap_host.c' line='1243' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish@@OMX_CLAP_CORE_0' hash='e8ee5e76a1ba9416'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1248' column='1'/>
+      <parameter type-id='type-id-128' name='thread' filepath='src/clap_host.c' line='1248' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_set_audio_thread' mangled-name='omx_clap_host_set_audio_thread' filepath='src/clap_host.c' line='1244' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_thread@@OMX_CLAP_CORE_0' hash='e8ee5e76a1ba9416'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1244' column='1'/>
-      <parameter type-id='type-id-128' name='thread' filepath='src/clap_host.c' line='1244' column='1'/>
+    <function-decl name='omx_clap_host_set_audio_thread' mangled-name='omx_clap_host_set_audio_thread' filepath='src/clap_host.c' line='1248' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_thread@@OMX_CLAP_CORE_0' hash='e8ee5e76a1ba9416'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1248' column='1'/>
+      <parameter type-id='type-id-128' name='thread' filepath='src/clap_host.c' line='1248' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_arm' mangled-name='omx_clap_host_arm' filepath='src/clap_host.c' line='1249' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_arm@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1272' column='1'/>
+    <function-decl name='omx_clap_host_arm' mangled-name='omx_clap_host_arm' filepath='src/clap_host.c' line='1253' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_arm@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1276' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_unpublish' mangled-name='omx_clap_host_unpublish' filepath='src/clap_host.c' line='1254' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_unpublish@@OMX_CLAP_CORE_0' hash='6c6f4448e549aacf'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1254' column='1'/>
-      <parameter type-id='type-id-155' name='poll_us' filepath='src/clap_host.c' line='1254' column='1'/>
-      <parameter type-id='type-id-155' name='timeout_us' filepath='src/clap_host.c' line='1254' column='1'/>
+    <function-decl name='omx_clap_host_unpublish' mangled-name='omx_clap_host_unpublish' filepath='src/clap_host.c' line='1258' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_unpublish@@OMX_CLAP_CORE_0' hash='6c6f4448e549aacf'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1258' column='1'/>
+      <parameter type-id='type-id-155' name='poll_us' filepath='src/clap_host.c' line='1258' column='1'/>
+      <parameter type-id='type-id-155' name='timeout_us' filepath='src/clap_host.c' line='1258' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_stop' mangled-name='omx_clap_host_stop' filepath='src/clap_host.c' line='1272' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_stop@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1272' column='1'/>
+    <function-decl name='omx_clap_host_stop' mangled-name='omx_clap_host_stop' filepath='src/clap_host.c' line='1276' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_stop@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1276' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_restart' mangled-name='omx_clap_host_restart' filepath='src/clap_host.c' line='1290' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_restart@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1643' column='1'/>
+    <function-decl name='omx_clap_host_restart' mangled-name='omx_clap_host_restart' filepath='src/clap_host.c' line='1294' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_restart@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1647' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_deactivate' mangled-name='omx_clap_host_deactivate' filepath='src/clap_host.c' line='1312' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_deactivate@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1272' column='1'/>
+    <function-decl name='omx_clap_host_deactivate' mangled-name='omx_clap_host_deactivate' filepath='src/clap_host.c' line='1316' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_deactivate@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1276' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_set_rate' mangled-name='omx_clap_host_set_rate' filepath='src/clap_host.c' line='1327' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_rate@@OMX_CLAP_CORE_0' hash='e4ab51a37fce151c'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1327' column='1'/>
-      <parameter type-id='type-id-19' name='rate' filepath='src/clap_host.c' line='1327' column='1'/>
-      <parameter type-id='type-id-32' name='max_block' filepath='src/clap_host.c' line='1327' column='1'/>
-      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1327' column='1'/>
+    <function-decl name='omx_clap_host_set_rate' mangled-name='omx_clap_host_set_rate' filepath='src/clap_host.c' line='1331' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_rate@@OMX_CLAP_CORE_0' hash='e4ab51a37fce151c'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1331' column='1'/>
+      <parameter type-id='type-id-19' name='rate' filepath='src/clap_host.c' line='1331' column='1'/>
+      <parameter type-id='type-id-32' name='max_block' filepath='src/clap_host.c' line='1331' column='1'/>
+      <parameter type-id='type-id-201' name='why' filepath='src/clap_host.c' line='1331' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_latency' mangled-name='omx_clap_host_latency' filepath='src/clap_host.c' line='1337' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_latency@@OMX_CLAP_CORE_0' hash='cab684d7e0d822ea'>
-      <parameter type-id='type-id-253' name='in' filepath='src/clap_host.c' line='1337' column='1'/>
+    <function-decl name='omx_clap_host_latency' mangled-name='omx_clap_host_latency' filepath='src/clap_host.c' line='1341' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_latency@@OMX_CLAP_CORE_0' hash='cab684d7e0d822ea'>
+      <parameter type-id='type-id-253' name='in' filepath='src/clap_host.c' line='1341' column='1'/>
       <return type-id='type-id-32'/>
     </function-decl>
-    <function-decl name='omx_clap_host_bypass' mangled-name='omx_clap_host_bypass' filepath='src/clap_host.c' line='1342' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypass@@OMX_CLAP_CORE_0' hash='1ac3ec7abd37cf6b'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1342' column='1'/>
-      <parameter type-id='type-id-24' name='on' filepath='src/clap_host.c' line='1342' column='1'/>
+    <function-decl name='omx_clap_host_bypass' mangled-name='omx_clap_host_bypass' filepath='src/clap_host.c' line='1346' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypass@@OMX_CLAP_CORE_0' hash='1ac3ec7abd37cf6b'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1346' column='1'/>
+      <parameter type-id='type-id-24' name='on' filepath='src/clap_host.c' line='1346' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_set_tempo' mangled-name='omx_clap_host_set_tempo' filepath='src/clap_host.c' line='1369' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_tempo@@OMX_CLAP_CORE_0.3' hash='7f6089db771ad3ab'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1369' column='1'/>
-      <parameter type-id='type-id-133' name='tempo' filepath='src/clap_host.c' line='1369' column='1'/>
+    <function-decl name='omx_clap_host_set_tempo' mangled-name='omx_clap_host_set_tempo' filepath='src/clap_host.c' line='1373' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_tempo@@OMX_CLAP_CORE_0.3' hash='7f6089db771ad3ab'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1373' column='1'/>
+      <parameter type-id='type-id-133' name='tempo' filepath='src/clap_host.c' line='1373' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_bypassed' mangled-name='omx_clap_host_bypassed' filepath='src/clap_host.c' line='1374' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0' hash='22131e7d2dddd6db'>
-      <parameter type-id='type-id-253' name='in' filepath='src/clap_host.c' line='1374' column='1'/>
+    <function-decl name='omx_clap_host_bypassed' mangled-name='omx_clap_host_bypassed' filepath='src/clap_host.c' line='1378' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0' hash='22131e7d2dddd6db'>
+      <parameter type-id='type-id-253' name='in' filepath='src/clap_host.c' line='1378' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_count' mangled-name='omx_clap_host_param_count' filepath='src/clap_host.c' line='1420' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_count@@OMX_CLAP_CORE_0' hash='42f47fe9fc1c2b0a'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1420' column='1'/>
+    <function-decl name='omx_clap_host_param_count' mangled-name='omx_clap_host_param_count' filepath='src/clap_host.c' line='1424' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_count@@OMX_CLAP_CORE_0' hash='42f47fe9fc1c2b0a'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1424' column='1'/>
       <return type-id='type-id-32'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_row' mangled-name='omx_clap_host_param_row' filepath='src/clap_host.c' line='1427' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row@@OMX_CLAP_CORE_0' hash='68d99ca049ebd713'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1427' column='1'/>
-      <parameter type-id='type-id-32' name='index' filepath='src/clap_host.c' line='1427' column='1'/>
-      <parameter type-id='type-id-269' name='row' filepath='src/clap_host.c' line='1427' column='1'/>
+    <function-decl name='omx_clap_host_param_row' mangled-name='omx_clap_host_param_row' filepath='src/clap_host.c' line='1431' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row@@OMX_CLAP_CORE_0' hash='68d99ca049ebd713'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1431' column='1'/>
+      <parameter type-id='type-id-32' name='index' filepath='src/clap_host.c' line='1431' column='1'/>
+      <parameter type-id='type-id-269' name='row' filepath='src/clap_host.c' line='1431' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_roster' mangled-name='omx_clap_host_param_roster' filepath='src/clap_host.c' line='1438' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_roster@@OMX_CLAP_CORE_0.3' hash='262b7a44050645bd'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1438' column='1'/>
-      <parameter type-id='type-id-270' name='rows' filepath='src/clap_host.c' line='1438' column='1'/>
-      <parameter type-id='type-id-210' name='why' filepath='src/clap_host.c' line='1438' column='1'/>
+    <function-decl name='omx_clap_host_param_roster' mangled-name='omx_clap_host_param_roster' filepath='src/clap_host.c' line='1442' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_roster@@OMX_CLAP_CORE_0.3' hash='262b7a44050645bd'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1442' column='1'/>
+      <parameter type-id='type-id-270' name='rows' filepath='src/clap_host.c' line='1442' column='1'/>
+      <parameter type-id='type-id-210' name='why' filepath='src/clap_host.c' line='1442' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_write' mangled-name='omx_clap_host_param_write' filepath='src/clap_host.c' line='1480' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_write@@OMX_CLAP_CORE_0' hash='5015d10723a1fea2'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1480' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1480' column='1'/>
-      <parameter type-id='type-id-19' name='value' filepath='src/clap_host.c' line='1480' column='1'/>
+    <function-decl name='omx_clap_host_param_write' mangled-name='omx_clap_host_param_write' filepath='src/clap_host.c' line='1484' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_write@@OMX_CLAP_CORE_0' hash='5015d10723a1fea2'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1484' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1484' column='1'/>
+      <parameter type-id='type-id-19' name='value' filepath='src/clap_host.c' line='1484' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_flush' mangled-name='omx_clap_host_param_flush' filepath='src/clap_host.c' line='1501' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_flush@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1643' column='1'/>
+    <function-decl name='omx_clap_host_param_flush' mangled-name='omx_clap_host_param_flush' filepath='src/clap_host.c' line='1505' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_flush@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1647' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_deliver' mangled-name='omx_clap_host_param_deliver' filepath='src/clap_host.c' line='1519' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_deliver@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1272' column='1'/>
+    <function-decl name='omx_clap_host_param_deliver' mangled-name='omx_clap_host_param_deliver' filepath='src/clap_host.c' line='1523' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_deliver@@OMX_CLAP_CORE_0' hash='300a7208e75c8737'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1276' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_settle' mangled-name='omx_clap_host_settle' filepath='src/clap_host.c' line='1535' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_settle@@OMX_CLAP_CORE_0' hash='645fd976be899325'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1535' column='1'/>
-      <parameter type-id='type-id-155' name='timeout_us' filepath='src/clap_host.c' line='1535' column='1'/>
+    <function-decl name='omx_clap_host_settle' mangled-name='omx_clap_host_settle' filepath='src/clap_host.c' line='1539' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_settle@@OMX_CLAP_CORE_0' hash='645fd976be899325'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1539' column='1'/>
+      <parameter type-id='type-id-155' name='timeout_us' filepath='src/clap_host.c' line='1539' column='1'/>
       <return type-id='type-id-293'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_read' mangled-name='omx_clap_host_param_read' filepath='src/clap_host.c' line='1551' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_read@@OMX_CLAP_CORE_0' hash='3a555faba6b696d4'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1594' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1594' column='1'/>
-      <parameter type-id='type-id-262' name='applied' filepath='src/clap_host.c' line='1594' column='1'/>
+    <function-decl name='omx_clap_host_param_read' mangled-name='omx_clap_host_param_read' filepath='src/clap_host.c' line='1555' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_read@@OMX_CLAP_CORE_0' hash='3a555faba6b696d4'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1598' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1598' column='1'/>
+      <parameter type-id='type-id-262' name='applied' filepath='src/clap_host.c' line='1598' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_is_row' mangled-name='omx_clap_host_param_is_row' filepath='src/clap_host.c' line='1558' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_is_row@@OMX_CLAP_CORE_0' hash='91bb3bad6e3c6c41'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1565' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1565' column='1'/>
+    <function-decl name='omx_clap_host_param_is_row' mangled-name='omx_clap_host_param_is_row' filepath='src/clap_host.c' line='1562' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_is_row@@OMX_CLAP_CORE_0' hash='91bb3bad6e3c6c41'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1569' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1569' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_readable' mangled-name='omx_clap_host_param_readable' filepath='src/clap_host.c' line='1565' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_readable@@OMX_CLAP_CORE_0' hash='91bb3bad6e3c6c41'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1565' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1565' column='1'/>
+    <function-decl name='omx_clap_host_param_readable' mangled-name='omx_clap_host_param_readable' filepath='src/clap_host.c' line='1569' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_readable@@OMX_CLAP_CORE_0' hash='91bb3bad6e3c6c41'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1569' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1569' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_row_of' mangled-name='omx_clap_host_param_row_of' filepath='src/clap_host.c' line='1572' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row_of@@OMX_CLAP_CORE_0' hash='68d99ca049ebd713'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1572' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1572' column='1'/>
-      <parameter type-id='type-id-269' name='row' filepath='src/clap_host.c' line='1572' column='1'/>
+    <function-decl name='omx_clap_host_param_row_of' mangled-name='omx_clap_host_param_row_of' filepath='src/clap_host.c' line='1576' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row_of@@OMX_CLAP_CORE_0' hash='68d99ca049ebd713'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1576' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1576' column='1'/>
+      <parameter type-id='type-id-269' name='row' filepath='src/clap_host.c' line='1576' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_value' mangled-name='omx_clap_host_param_value' filepath='src/clap_host.c' line='1582' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_value@@OMX_CLAP_CORE_0' hash='3a555faba6b696d4'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1594' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1594' column='1'/>
-      <parameter type-id='type-id-262' name='applied' filepath='src/clap_host.c' line='1594' column='1'/>
+    <function-decl name='omx_clap_host_param_value' mangled-name='omx_clap_host_param_value' filepath='src/clap_host.c' line='1586' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_value@@OMX_CLAP_CORE_0' hash='3a555faba6b696d4'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1598' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1598' column='1'/>
+      <parameter type-id='type-id-262' name='applied' filepath='src/clap_host.c' line='1598' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_param_compare' mangled-name='omx_clap_host_param_compare' filepath='src/clap_host.c' line='1594' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_compare@@OMX_CLAP_CORE_0' hash='3a555faba6b696d4'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1594' column='1'/>
-      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1594' column='1'/>
-      <parameter type-id='type-id-262' name='applied' filepath='src/clap_host.c' line='1594' column='1'/>
+    <function-decl name='omx_clap_host_param_compare' mangled-name='omx_clap_host_param_compare' filepath='src/clap_host.c' line='1598' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_compare@@OMX_CLAP_CORE_0' hash='3a555faba6b696d4'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1598' column='1'/>
+      <parameter type-id='type-id-16' name='id' filepath='src/clap_host.c' line='1598' column='1'/>
+      <parameter type-id='type-id-262' name='applied' filepath='src/clap_host.c' line='1598' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_state_save' mangled-name='omx_clap_host_state_save' filepath='src/clap_host.c' line='1613' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_save@@OMX_CLAP_CORE_0' hash='6baae9bc04704785'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1613' column='1'/>
-      <parameter type-id='type-id-47' name='buf' filepath='src/clap_host.c' line='1613' column='1'/>
-      <parameter type-id='type-id-126' name='cap' filepath='src/clap_host.c' line='1613' column='1'/>
-      <parameter type-id='type-id-274' name='len' filepath='src/clap_host.c' line='1613' column='1'/>
+    <function-decl name='omx_clap_host_state_save' mangled-name='omx_clap_host_state_save' filepath='src/clap_host.c' line='1617' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_save@@OMX_CLAP_CORE_0' hash='6baae9bc04704785'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1617' column='1'/>
+      <parameter type-id='type-id-47' name='buf' filepath='src/clap_host.c' line='1617' column='1'/>
+      <parameter type-id='type-id-126' name='cap' filepath='src/clap_host.c' line='1617' column='1'/>
+      <parameter type-id='type-id-274' name='len' filepath='src/clap_host.c' line='1617' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_state_load' mangled-name='omx_clap_host_state_load' filepath='src/clap_host.c' line='1626' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_load@@OMX_CLAP_CORE_0' hash='6eca9b889f5d9197'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1626' column='1'/>
-      <parameter type-id='type-id-47' name='buf' filepath='src/clap_host.c' line='1626' column='1'/>
-      <parameter type-id='type-id-126' name='len' filepath='src/clap_host.c' line='1626' column='1'/>
+    <function-decl name='omx_clap_host_state_load' mangled-name='omx_clap_host_state_load' filepath='src/clap_host.c' line='1630' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_load@@OMX_CLAP_CORE_0' hash='6eca9b889f5d9197'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1630' column='1'/>
+      <parameter type-id='type-id-47' name='buf' filepath='src/clap_host.c' line='1630' column='1'/>
+      <parameter type-id='type-id-126' name='len' filepath='src/clap_host.c' line='1630' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_preset_load' mangled-name='omx_clap_host_preset_load' filepath='src/clap_host.c' line='1636' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load@@OMX_CLAP_CORE_0' hash='1a333a10a43cf435'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1636' column='1'/>
-      <parameter type-id='type-id-35' name='location' filepath='src/clap_host.c' line='1636' column='1'/>
+    <function-decl name='omx_clap_host_preset_load' mangled-name='omx_clap_host_preset_load' filepath='src/clap_host.c' line='1640' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load@@OMX_CLAP_CORE_0' hash='1a333a10a43cf435'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1640' column='1'/>
+      <parameter type-id='type-id-35' name='location' filepath='src/clap_host.c' line='1640' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_tick' mangled-name='omx_clap_host_tick' filepath='src/clap_host.c' line='1643' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_tick@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1643' column='1'/>
+    <function-decl name='omx_clap_host_tick' mangled-name='omx_clap_host_tick' filepath='src/clap_host.c' line='1647' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_tick@@OMX_CLAP_CORE_0' hash='eca23c8682cc85dc'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1647' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_log_take' mangled-name='omx_clap_host_log_take' filepath='src/clap_host.c' line='1657' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_log_take@@OMX_CLAP_CORE_0' hash='20927f8849395aac'>
-      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1657' column='1'/>
+    <function-decl name='omx_clap_host_log_take' mangled-name='omx_clap_host_log_take' filepath='src/clap_host.c' line='1661' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_log_take@@OMX_CLAP_CORE_0' hash='20927f8849395aac'>
+      <parameter type-id='type-id-267' name='in' filepath='src/clap_host.c' line='1661' column='1'/>
       <return type-id='type-id-35'/>
     </function-decl>
     <type-decl name='variadic parameter type' id='type-id-295'/>
