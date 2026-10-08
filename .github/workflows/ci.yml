@@ -58,6 +58,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Every source names its licence
+        run: bash tests/spdx-check.sh
+
       - uses: FreeMixer/.github/.github/actions/mod-host-protocol@v1
 
       - name: Install plugin-hostd's headers and build its daemon
