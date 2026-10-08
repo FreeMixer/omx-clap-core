@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: FreeMixer/.github/.github/actions/changelog@main
+      - uses: FreeMixer/.github/.github/actions/changelog@v1
 
       # the file VERSION is the one version the Makefile, the library and the programs carry
       - name: VERSION is the newest entry of CHANGELOG.md
@@ -58,7 +58,7 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@main
+      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@v1
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -163,13 +163,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@main
+      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@v1
 
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
 
       - name: Build the plugin-hostd RPMs
-        uses: FreeMixer/.github/.github/actions/build-rpm@main
+        uses: FreeMixer/.github/.github/actions/build-rpm@v1
         with:
           tree: /tmp/plugin-hostd
           out: plugin-hostd-rpms
@@ -180,7 +180,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False plugin-hostd-rpms/plugin-hostd-devel-[0-9]*.noarch.rpm
           pkg-config --modversion plugin-hostd
 
-      - uses: FreeMixer/.github/.github/actions/build-rpm@main
+      - uses: FreeMixer/.github/.github/actions/build-rpm@v1
 
       - name: Check the file lists
         run: |
@@ -258,7 +258,7 @@ jobs:
       - name: Build the fake plugins the smoke test scans
         run: make tests/fake.clap tests/fake_synth.clap tests/crash.clap
 
-      - uses: FreeMixer/.github/.github/actions/install-clean@main
+      - uses: FreeMixer/.github/.github/actions/install-clean@v1
         with:
           rpms: |
             mod-host-rpms/mod-host-[0-9]*.rpm
@@ -324,13 +324,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: FreeMixer/.github/.github/actions/deb-deps@main
+      - uses: FreeMixer/.github/.github/actions/deb-deps@v1
 
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
 
       - name: Build the plugin-hostd DEBs
-        uses: FreeMixer/.github/.github/actions/build-deb@main
+        uses: FreeMixer/.github/.github/actions/build-deb@v1
         with:
           tree: /tmp/plugin-hostd
           out: plugin-hostd-debs
@@ -341,7 +341,7 @@ jobs:
           apt-get install -y --no-install-recommends ./plugin-hostd-debs/plugin-hostd-dev_*.deb
           pkg-config --modversion plugin-hostd
 
-      - uses: FreeMixer/.github/.github/actions/build-deb@main
+      - uses: FreeMixer/.github/.github/actions/build-deb@v1
 
       # what the smoke test runs the installed package against, built here for the architecture
       - name: Build the smoke test fixtures
