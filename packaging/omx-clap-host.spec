@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.3.1
+Version:        0.4.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -110,6 +110,20 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 08 2026 Pau Aliagas <linuxnow@gmail.com> - 0.4.0-1
+- New development package, omx-clap-lv2-devel (libomx-clap-lv2-dev on Debian):
+  a library that lets a CLAP host run LV2 plugins. An LV2 plugin with one or
+  two audio channels in and out is presented as a CLAP plugin, with its
+  controls as parameters, its reported latency, its default settings and its
+  background worker.
+- A plugin the library cannot run yet (MIDI or other event ports, CV ports,
+  other channel layouts, a feature it does not provide) is refused when it is
+  created, with a reason the host can log.
+- The CLAP host, its scanner, libomx-clap-core and the LV2 library now share
+  one version, 0.4.0, so the packages you install together always match. The
+  core library itself is unchanged from 0.3.1: same interface, same soname,
+  libomx-clap-core.so.0.
+
 * Thu Oct 08 2026 Pau Aliagas <linuxnow@gmail.com> - 0.3.1-1
 - A plugin may have at most 2048 parameters. One that reports more is served
   its first 2048, and the host's log says so once, when the plugin is opened;
