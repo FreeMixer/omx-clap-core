@@ -45,3 +45,25 @@ jobs:
       package-name: omx-clap-host
       publish: ${{ github.event_name == 'push' || inputs.publish == true }}
     secrets: inherit
+
+  # the generated C API reference, fetched by the website from the release assets
+  api-docs:
+    if: ${{ github.event_name == 'push' }}
+    needs: [rpm, deb]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install doxygen
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends doxygen
+
+      - name: Build the HTML and attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          make docs
+          version=$(sed -n 's/^CORE_VERSION = //p' Makefile)
+          tar -czf "omx-clap-core-api-docs-${version}.tar.gz" -C build/docs html
+          gh release upload "$GITHUB_REF_NAME" omx-clap-core-api-docs-*.tar.gz --clobber
