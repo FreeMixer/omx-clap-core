@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.3.0
+Version:        0.3.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -110,6 +110,16 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 08 2026 Pau Aliagas <linuxnow@gmail.com> - 0.3.1-1
+- A plugin may have at most 2048 parameters. One that reports more is served
+  its first 2048, and the host's log says so once, when the plugin is opened;
+  the library no longer sizes its tables or its scans from whatever count the
+  plugin gives. Its layout cannot be pinned.
+- A plugin whose parameter table cannot be allocated is refused when it is
+  opened, instead of being opened with the table missing.
+- A parameter name the plugin did not terminate is read no further than its
+  own buffer.
+
 * Wed Oct 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.3.0-1
 - A plugin whose parameter list has a hole is refused whole, never served
   short; the whole list comes in one call.

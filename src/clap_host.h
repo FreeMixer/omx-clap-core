@@ -76,6 +76,8 @@
 
 /* The roster's refusal: an index below count() whose get_info does not answer. */
 #define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
+/* The widest params->count() the core trusts, under the name openmixer's host gave it (CLAP_HOST_PARAM_COUNT_MAX). */
+#define OMX_CLAP_PARAM_COUNT_MAX        CLAP_HOST_PARAM_COUNT_MAX
 
 #if defined(__GNUC__)
 #define OMX_CLAP_EXPORT                 __attribute__((visibility("default")))
@@ -260,6 +262,7 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
  * instrument), init must succeed headless with only the declared host extensions offered, the audio ports must declare
  * one main output and one main input of the same width, 1 or 2 channels (no main input for an instrument), no extra
  * input, and no note input unless the configuration admits one. An auxiliary output is admitted and left unconnected.
+ * The read-back table of the parameters must be allocated, or the open is refused (CLAP_HOST_CODE_HEADLESS_FAILED).
  * Returns 0 with `*out` set, or -1 with `why` the deciding hosting code and nothing left loaded. The binary is
  * reference-counted: one dlopen per path, deinit and dlclose after its last instance.
  */
@@ -332,14 +335,15 @@ OMX_CLAP_EXPORT void omx_clap_host_release_role(struct omx_clap_instance *in, co
 OMX_CLAP_EXPORT void omx_clap_host_bypass(struct omx_clap_instance *in, int on);
 OMX_CLAP_EXPORT int omx_clap_host_bypassed(const struct omx_clap_instance *in);
 
-/* Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. The roster is whole or
- * refused: when an index below count() does not answer get_info, the count is 0 and every row is refused. Each call
+/* Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. Every read of the plugin's
+ * count() is capped at CLAP_HOST_PARAM_COUNT_MAX (clap_host_limits.h): the rows past it are not served and their ids are
+ * not looked up, and the open leaves one log message saying so (omx_clap_host_log_take). The roster is whole or refused: when an index below count() does not answer get_info, the count is 0 and every row is refused. Each call
  * walks the plugin's whole list once (O(n)), so reading every row by index is O(n^2): param_roster reads them in one. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_param_count(struct omx_clap_instance *in);
 OMX_CLAP_EXPORT int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row);
 
 /* The whole roster in one call: every row, in get_info order with the non-rows skipped, read in one pass over count()
- * with no cap. `*rows` is malloc'd (the caller frees it) and the count returned; 0 with `*rows` NULL when there is no
+ * capped at CLAP_HOST_PARAM_COUNT_MAX. `*rows` is malloc'd (the caller frees it) and the count returned; 0 with `*rows` NULL when there is no
  * row (no parameter, or none of them a row). -1 with `*why` (when `why` is not NULL) OMX_CLAP_PARAM_ROW_UNREADABLE when
  * an index below count() does not answer get_info (never the rows read so far) or the rows cannot be allocated. */
 OMX_CLAP_EXPORT int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why);

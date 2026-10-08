@@ -32,7 +32,7 @@
  *     thread that ran a lane is true, a thread outside reads false, and every thread reads false once unpublished.
  *  4. THE ROSTER is whole or refused: 257 parameters give 257 rows, a hole below count() refuses with
  *     clap.param-row-unreadable and no rows, and param_count and param_row refuse it too; the same plugin without the
- *     hole gives 4.
+ *     hole gives 4. A plugin claiming 10000000 parameters is served OMX_CLAP_PARAM_COUNT_MAX rows (openmixer #1142).
  *  5. THE TEMPO: omx_clap_host_run hands the plugin no transport with no tempo given or none published, a transport
  *     carrying the bpm and only HAS_TEMPO once one is, a change at the next block, none once withdrawn; the tempo
  *     fixture (fault mode 16) reads 120 bpm as a level of 0.12.
@@ -429,6 +429,17 @@ static void t_roster_whole_or_refused(void) {
   omx_clap_host_close(in);
 }
 
+/* openmixer #1142's arm, as the console runs it: the plugin's own count() sizes no table past the ceiling */
+static void t_roster_count_is_ceilinged(void) {
+  const char *why = NULL;
+  uint32_t last = 0;
+  const int got = roster_read(10000000u, UINT32_MAX, &why, &last);
+  printf("clap_core: roster of 10000000 params -> %d rows, last id %u, refusal %s\n", got, last, why ? why : "none");
+  CHECK(got == (int)OMX_CLAP_PARAM_COUNT_MAX, "a plugin claiming 10M params is capped at %u rows (got %d)", OMX_CLAP_PARAM_COUNT_MAX, got);
+  CHECK(last == 1000u + OMX_CLAP_PARAM_COUNT_MAX - 1u, "the last row served is the cap's own index (id %u, want %u)", last,
+        1000u + OMX_CLAP_PARAM_COUNT_MAX - 1u);
+}
+
 /* ---- 5. the tempo ---- */
 
 /* The tempo fake: a stereo pass-through that records the transport its last process() was given. */
@@ -691,6 +702,7 @@ int main(int argc, char **argv) {
   t_guard_page();
   t_audio_role_on_split();
   t_roster_whole_or_refused();
+  t_roster_count_is_ceilinged();
   t_tempo();
   t_transport_in_the_cycle();
   t_reset_off_rt();

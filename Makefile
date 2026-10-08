@@ -8,7 +8,7 @@ SCAN_PROG = omx-clap-scan
 # the hosting core, a shared library of its own: soname libomx-clap-core.so.<major>, the file <major>.<minor>.<patch>
 CORE = omx-clap-core
 CORE_MAJOR = 0
-CORE_VERSION = 0.3.0
+CORE_VERSION = 0.3.1
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
@@ -182,7 +182,7 @@ install_man:
 
 # clean rule
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -201,9 +201,15 @@ test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PRO
 
 # the stage against fake plugins at six rates, and the core over the fault fixtures and fakes: the witness, the guard
 # page, the audio role on a split, the whole roster and the tempo
-test-stage: tests/clap_stage_test tests/clap_core_test fixtures
+test-stage: tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test fixtures
 	./tests/clap_stage_test
 	./tests/clap_core_test $(abspath tests)
+	./tests/clap_untrusted_test
+
+# the parameters a plugin reports, with the core compiled into the test under AddressSanitizer: a read past the plugin's
+# own buffers is an error here, not luck. Needs libasan; CI runs it, the package builds do not
+test-untrusted-asan: tests/clap_untrusted_asan
+	ASAN_OPTIONS=detect_leaks=0:check_printf=1 ./tests/clap_untrusted_asan
 
 # the worker message ring of the shared host-services layer, single- and two-threaded
 test-msgring: tests/msgring_test
@@ -220,6 +226,14 @@ tests/clap_stage_test: tests/clap_stage_test.c src/clap_stage.h src/hosted_stage
 
 tests/clap_core_test: tests/clap_core_test.c $(CORE_SO)
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
+# defines calloc to fail one size on demand, which the core links from it: no --wrap, no link-time optimisation, no builtin
+tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_SO)
+	$(CC) $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CFLAGS) -Werror -fno-lto -fno-builtin-calloc -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
+tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
+	$(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
