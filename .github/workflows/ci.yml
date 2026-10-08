@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 env:
-  # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this commit
-  PLUGIN_HOSTD_REF: 7f0dc99059c5540f4856e047b12e9f072ac71e73
+  # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
+  PLUGIN_HOSTD_REF: v0.1.3
 
 jobs:
   changelog:
