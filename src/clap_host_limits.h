@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
 #ifndef CLAP_HOST_LIMITS_H
 #define CLAP_HOST_LIMITS_H
 /*
