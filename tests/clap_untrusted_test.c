@@ -14,6 +14,8 @@
  *  3. THE NAME IS BOUNDED: a name that fills CLAP_NAME_SIZE with no NUL, followed by a module path and numbers with no
  *     zero byte either, is read no further than its own buffer. The build with -fsanitize=address (make test-untrusted-asan)
  *     compiles the core into the test and catches a read past the plugin's info.
+ *
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 #include <errno.h>
 #include <stdio.h>
