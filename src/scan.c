@@ -51,7 +51,11 @@
 ************************************************************************************************************************
 */
 
-#define VERSION             "0.3.1"
+/* the one version of the tree, from the file VERSION through the Makefile */
+#ifndef OMX_CLAP_VERSION
+#error "build with make: the version is passed in OMX_CLAP_VERSION from the file VERSION"
+#endif
+#define VERSION             OMX_CLAP_VERSION
 #define SCAN_TIMEOUT_S      30
 #define REASON_SIZE         512
 #define CLAP_SUFFIX         ".clap"

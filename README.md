@@ -16,17 +16,33 @@ LV2 plugins are loaded through the same CLAP host by an LV2 to CLAP adapter, the
 `libomx-clap-lv2` (package `omx-clap-lv2-devel`, or `libomx-clap-lv2-dev` on Debian). What works
 today, and the test that proves each part, is in [docs/lv2-compatibility.md](docs/lv2-compatibility.md).
 
+The CLAP hosting core is a library of its own, `libomx-clap-core`, for programs that host CLAP
+plugins themselves: it checks a plugin before using it, runs its audio on your thread and keeps
+its parameters and state. The host, the core and the LV2 adapter share one version.
+
 Install
 -------
 
-Fedora:
+Fedora (x86_64 and aarch64):
 
     sudo dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
     sudo dnf install omx-clap-host
 
-Debian and Raspberry Pi OS: add the apt line from <https://freemixer.github.io>, then
+Debian and Raspberry Pi OS (amd64 and arm64): add the apt line from <https://freemixer.github.io>, then
 
     sudo apt install omx-clap-host
+
+Version 0.4.0 ships these packages, all from the same release:
+
+| What | Fedora | Debian |
+|---|---|---|
+| The host and the scanner: `omx-clap-host`, `omx-clap-scan`, their manual pages | `omx-clap-host` | `omx-clap-host` |
+| The hosting core, a shared library | `omx-clap-core` | `libomx-clap-core0` |
+| Headers, pkg-config file and ABI baseline to build a program on the core | `omx-clap-core-devel` | `libomx-clap-core-dev` |
+| Headers, pkg-config file and static library to run LV2 plugins in a CLAP host | `omx-clap-lv2-devel` | `libomx-clap-lv2-dev` |
+
+For your own program, install the `-devel` / `-dev` package and build with
+`pkg-config --cflags --libs omx-clap-core` (and `omx-clap-lv2` for the adapter).
 
 Try it
 ------

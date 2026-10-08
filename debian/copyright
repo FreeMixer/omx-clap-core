@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: omx-clap-host
-Source: https://github.com/FreeMixer/omx-clap-host
+Source: https://github.com/FreeMixer/omx-clap-core
 
 Files: *
 Copyright: 2026 Pau Aliagas <linuxnow@gmail.com>

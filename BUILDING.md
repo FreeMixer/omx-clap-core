@@ -206,3 +206,15 @@ pkg-config alone) and, when `lv2_validate` is installed, the fixture bundles aga
 the LV2 specifications. `make lv2-cost` prints what the adapter costs per `process()`
 call at 96 and 192 kHz, quantum 128. What each test proves is listed in
 [docs/lv2-compatibility.md](docs/lv2-compatibility.md).
+
+The version
+-----------
+
+The file `VERSION` holds the one version of the whole tree: the programs, `libomx-clap-core`
+(its file is `libomx-clap-core.so.<major>.<minor>.<patch>`) and `libomx-clap-lv2`, with the
+`.pc` files and the manual pages. The Makefile reads it and hands it to the compiler, so no
+source file spells it. A release is: add the version's section to `CHANGELOG.md`, put the
+same version in `VERSION`, run `changelog.sh sync` (from FreeMixer/.github) to write the
+spec's `%changelog` and `debian/changelog`, set the spec's `Version`, run `make
+abi-baseline`, and tag `v<version>`. `make version-check` and the changelog check in CI
+refuse a tree whose files disagree.

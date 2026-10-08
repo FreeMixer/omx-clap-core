@@ -1,5 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # compiler
 CC ?= gcc
+
+# the one version of the library, the adapter and the programs: VERSION holds it, and the spec's Version, debian/changelog
+# and the release notes are written from CHANGELOG.md, whose newest entry `make version-check` holds to it
+VERSION := $(strip $(shell cat VERSION))
+# the library reports it as major * 10000 + minor * 100 + patch (omx_clap_core_version())
+VERSION_NUM := $(shell echo $(VERSION) | awk -F. '{ print $$1 * 10000 + $$2 * 100 + $$3 }')
 
 # program names
 PROG = omx-clap-host
@@ -8,7 +15,7 @@ SCAN_PROG = omx-clap-scan
 # the hosting core, a shared library of its own: soname libomx-clap-core.so.<major>, the file <major>.<minor>.<patch>
 CORE = omx-clap-core
 CORE_MAJOR = 0
-CORE_VERSION = 0.3.1
+CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
@@ -46,6 +53,7 @@ CLAP_TEST_PLUGIN ?= ../openmixer/packages/omx-plugins/bin/omx-delay.clap
 # default compiler and linker flags; everything is hidden by default, the core's export list is its version script
 CFLAGS += -O3 -g -Wall -Wextra -std=gnu99 -fPIC -fvisibility=hidden -D_GNU_SOURCE -pthread -MMD -MP
 CFLAGS += -Werror=implicit-function-declaration -Werror=return-type
+CFLAGS += -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u
 
 ifeq ($(DEBUG), 1)
    CFLAGS += -O0 -DDEBUG
@@ -82,7 +90,7 @@ SCAN_OBJ = $(SCAN_SRC:.c=.o)
 # plugin as one CLAP plugin. A static archive, position-independent so a shared object can link it; lilv is never linked,
 # only its headers are read. lv2/core's own archive is internal: its tests link it, nothing installs it.
 LV2_LIB = libomx-clap-lv2.a
-LV2_VERSION = 0.4.0
+LV2_VERSION = $(VERSION)
 LV2_CORE_LIB = build/lv2/liblv2core.a
 LV2_HEADERS = lv2/clap/omx_clap_lv2.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
@@ -178,7 +186,17 @@ install: install-lib install-lv2 install_man
 
 install_man:
 	install -d $(DESTDIR)$(MANDIR)
-	install -m 644 doc/*.1 $(DESTDIR)$(MANDIR)
+	for page in doc/*.1; do sed -e 's,@VERSION@,$(VERSION),' $$page > $(DESTDIR)$(MANDIR)/$$(basename $$page); chmod 644 $(DESTDIR)$(MANDIR)/$$(basename $$page); done
+
+# the version of this tree is the newest entry of CHANGELOG.md: the spec and debian/changelog are written from that file
+.PHONY: version-check print-version-num
+print-version-num:
+	@echo $(VERSION_NUM)
+
+version-check:
+	@newest=$$(sed -n 's/^## \([0-9][0-9.]*\)\(-[0-9]*\)\{0,1\} - .*/\1/p' CHANGELOG.md | head -1); \
+	if [ "$$newest" = "$(VERSION)" ]; then echo "ok   VERSION $(VERSION) is the newest entry of CHANGELOG.md"; \
+	else echo "FAIL VERSION says $(VERSION), the newest entry of CHANGELOG.md says $$newest"; exit 1; fi
 
 # clean rule
 .PHONY: docs
@@ -239,7 +257,7 @@ tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_S
 
 tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
-	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
@@ -273,7 +291,7 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	rm -rf build/stage
 	$(MAKE) install-lib PREFIX=$(CURDIR)/build/stage/usr LIBDIR=$(CURDIR)/build/stage/usr/lib
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/stage/usr/lib/pkgconfig/clap.pc
-	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
+	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(VERSION_NUM)u -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
 
 # what one stage block costs, as the header is and with omx_clap_run's two in_cycle stores relaxed: a measurement
