@@ -18,6 +18,9 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
+/** @file
+ * @brief A single-producer single-consumer ring of length-prefixed records. */
+
 /*
  * omx_msgring.h: the variable-length SPSC message ring between an in-process plugin's RT `run()`
  * and its own non-RT worker thread. Part of the shared host-services layer: used by the CLAP
@@ -54,22 +57,23 @@
 #include <stdint.h>
 #include <string.h>
 
-#define OMX_MSGRING_WRAP 0xFFFFFFFFu
-#define OMX_MSGRING_HDR ((uint32_t)sizeof(uint32_t))
+#define OMX_MSGRING_WRAP 0xFFFFFFFFu  ///< the length word that marks a wrap to the start of the ring
+#define OMX_MSGRING_HDR ((uint32_t)sizeof(uint32_t))  ///< the size of a record header, in bytes
 
+/** @brief A single-producer single-consumer ring of length-prefixed records over caller-owned storage. */
 struct omx_msgring {
-  uint8_t *buf;          /* cap bytes, caller-owned */
-  uint32_t cap;          /* power of two, >= 16 */
-  _Atomic uint32_t head; /* producer's position, in bytes, free-running (wraps at 2^32) */
-  _Atomic uint32_t tail; /* consumer's position, same arithmetic */
+  uint8_t *buf;          /**< cap bytes, caller-owned */
+  uint32_t cap;          /**< power of two, >= 16 */
+  _Atomic uint32_t head; /**< producer's position, in bytes, free-running (wraps at 2^32) */
+  _Atomic uint32_t tail; /**< consumer's position, same arithmetic */
 };
 
-/* The bytes a record of `size` payload occupies: header + payload rounded up to 4. */
+/** The bytes a record of `size` payload occupies: header + payload rounded up to 4. */
 static inline uint32_t omx_msgring_record_bytes(uint32_t size) {
   return OMX_MSGRING_HDR + ((size + 3u) & ~3u);
 }
 
-/* Bind `buf` (cap bytes) as an empty ring. Returns -1 (and binds nothing) for a cap that is not
+/** Bind `buf` (cap bytes) as an empty ring. Returns -1 (and binds nothing) for a cap that is not
  * a power of two >= 16 or a NULL buffer. Control thread, before either end runs. */
 static inline int omx_msgring_init(struct omx_msgring *r, void *buf, uint32_t cap) {
   if (r == NULL || buf == NULL || cap < 16u || (cap & (cap - 1u)) != 0u) return -1;
@@ -80,13 +84,13 @@ static inline int omx_msgring_init(struct omx_msgring *r, void *buf, uint32_t ca
   return 0;
 }
 
-/* Bytes currently held (records, their padding and any wrap skip not yet passed). */
+/** Bytes currently held (records, their padding and any wrap skip not yet passed). */
 static inline uint32_t omx_msgring_used(const struct omx_msgring *r) {
   return atomic_load_explicit(&r->head, memory_order_acquire) -
          atomic_load_explicit(&r->tail, memory_order_acquire);
 }
 
-/*
+/**
  * PRODUCER. Append one record, or refuse it whole. Returns 0 on success, -1 when it does not fit
  * (including a record larger than the ring could ever hold). Never waits.
  */
@@ -112,7 +116,7 @@ static inline int omx_msgring_push(struct omx_msgring *r, const void *data, uint
   return 0;
 }
 
-/*
+/**
  * CONSUMER. The oldest record's payload (and its size), or NULL when the ring is empty. The
  * pointer stays valid until {@link omx_msgring_pop}. Passing a wrap marker frees the skipped
  * tail at once.
@@ -135,7 +139,7 @@ static inline const void *omx_msgring_peek(struct omx_msgring *r, uint32_t *size
   return r->buf + off + OMX_MSGRING_HDR;
 }
 
-/* CONSUMER. Release the record {@link omx_msgring_peek} returned. No-op on an empty ring. */
+/** CONSUMER. Release the record {@link omx_msgring_peek} returned. No-op on an empty ring. */
 static inline void omx_msgring_pop(struct omx_msgring *r) {
   uint32_t size;
   if (omx_msgring_peek(r, &size) == NULL) return;
