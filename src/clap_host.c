@@ -56,7 +56,11 @@
 ************************************************************************************************************************
 */
 
-#define CORE_VERSION                    (0u * 10000u + 3u * 100u + 1u)
+/* major * 10000 + minor * 100 + patch of the file VERSION, passed in by the Makefile */
+#ifndef OMX_CLAP_VERSION_NUM
+#error "build with make: the version is passed in OMX_CLAP_VERSION_NUM from the file VERSION"
+#endif
+#define CORE_VERSION                    OMX_CLAP_VERSION_NUM
 
 // the warm-up runs at most this many frames a block, whatever the bounce holds
 #define WARMUP_BLOCK_FRAMES             128u

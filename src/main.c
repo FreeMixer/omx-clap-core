@@ -54,7 +54,11 @@
 */
 
 #define PID_FILE        "/tmp/omx-clap-host.pid"
-#define VERSION         "0.3.1"
+/* the one version of the tree, from the file VERSION through the Makefile */
+#ifndef OMX_CLAP_VERSION
+#error "build with make: the version is passed in OMX_CLAP_VERSION from the file VERSION"
+#endif
+#define VERSION         OMX_CLAP_VERSION
 #define IDLE_INTERVAL_MS 20
 
 

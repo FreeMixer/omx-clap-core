@@ -23,6 +23,10 @@
  * the clamp, the scan for non-finite output with its strike, the warm-up and the restart after it, and the refusal of a
  * note input and of an instrument. Argument 1 is tests/fake.clap, argument 2 tests/fake_synth.clap. */
 
+/* the version the library must report, from the file VERSION: make passes it, a consumer compiling this file passes the same */
+#ifndef OMX_EXPECT_VERSION_NUM
+#error "compile with -DOMX_EXPECT_VERSION_NUM=<major * 10000 + minor * 100 + patch>"
+#endif
 #include <pthread.h>
 #include <stdlib.h>
 
@@ -63,7 +67,7 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    CHECK(omx_clap_core_version() == 301, "the library says 0.3.1 (%u)", omx_clap_core_version());
+    CHECK(omx_clap_core_version() == OMX_EXPECT_VERSION_NUM, "the library says the version of the tree (%u, expected %u)", omx_clap_core_version(), (unsigned)OMX_EXPECT_VERSION_NUM);
     omx_clap_host_config_default(&config);
     CHECK(config.clamp && config.nonfinite && config.warmup && !config.note_inputs && !config.preset_load,
           "the defaults: clamp, scan and warm-up on, note inputs refused, no preset-load");

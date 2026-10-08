@@ -25,6 +25,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: FreeMixer/.github/.github/actions/changelog@main
 
+      # the file VERSION is the one version the Makefile, the library and the programs carry
+      - name: VERSION is the newest entry of CHANGELOG.md
+        run: make version-check
+
   test:
     name: build and test
     runs-on: ubuntu-latest
@@ -184,7 +188,7 @@ jobs:
           for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
-            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' '/usr/lib*/libomx-clap-core.so.0.3.1' /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' "/usr/lib*/libomx-clap-core.so.0.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             # the library names no jack and no protocol library
             rpm -qp --requires "$rpm" | tee requires.txt
@@ -218,8 +222,8 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm
           make tests/fake.clap tests/fake_synth.clap
           pkg-config --modversion omx-clap-core | tee v.txt
-          grep -q '^0.3.1$' v.txt
-          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
+          grep -qx "$(cat VERSION)" v.txt
+          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
           grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
           /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
@@ -232,7 +236,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm lilv-libs
           make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
           pkg-config --modversion omx-clap-lv2 | tee v.txt
-          grep -q '^0.4.0$' v.txt
+          grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
           ! ldd /tmp/lv2-consumer | grep -q liblilv
           /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
@@ -340,8 +344,8 @@ jobs:
           set -euo pipefail
           apt-get install -y --no-install-recommends ./debs/libomx-clap-core0_*.deb ./debs/libomx-clap-core-dev_*.deb
           pkg-config --modversion omx-clap-core | tee v.txt
-          grep -q '^0.3.1$' v.txt
-          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
+          grep -qx "$(cat VERSION)" v.txt
+          gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
           grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
@@ -358,7 +362,7 @@ jobs:
           grep -q '/pkgconfig/omx-clap-lv2\.pc$' lv2-files.txt
           grep -q '/usr/include/omx-clap-lv2/omx_clap_lv2\.h$' lv2-files.txt
           pkg-config --modversion omx-clap-lv2 | tee v.txt
-          grep -q '^0.4.0$' v.txt
+          grep -qx "$(cat VERSION)" v.txt
           make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
           /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
