@@ -188,7 +188,7 @@ jobs:
           for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
-            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' "/usr/lib*/libomx-clap-core.so.0.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' "/usr/lib*/libomx-clap-core.so.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             # the library names no jack and no protocol library
             rpm -qp --requires "$rpm" | tee requires.txt
