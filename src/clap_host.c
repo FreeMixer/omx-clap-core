@@ -638,6 +638,18 @@ int omx_clap_host_has_feature(const clap_plugin_descriptor_t *desc, const char *
     return 0;
 }
 
+/* params->count(), capped at CLAP_HOST_PARAM_COUNT_MAX: the count is the plugin's own answer, so it sizes no table and
+ * bounds no scan past the cap. Every read of the count goes through here; `raw`, when not NULL, gets the uncapped one. */
+static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
+{
+    uint32_t n;
+
+    n = in->params ? in->params->count(in->plugin) : 0;
+    if (raw)
+        *raw = n;
+    return n > CLAP_HOST_PARAM_COUNT_MAX ? CLAP_HOST_PARAM_COUNT_MAX : n;
+}
+
 /* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
  * reference on `bin`. */
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
@@ -646,7 +658,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     const uint32_t n = bin->factory->get_plugin_count(bin->factory);
     struct omx_clap_instance *in;
     const char *refused;
-    uint32_t rows, i;
+    uint32_t rows, reported, i;
 
     for (i = 0; i < n; i++)
     {
@@ -685,9 +697,26 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
         why_set(why, refused);
         return -1;
     }
-    rows = in->params ? in->params->count(in->plugin) : 0;
-    in->shadow_cap = rows;
+    rows = param_count_of(in, &reported);
     in->shadow = rows ? calloc(rows, sizeof(*in->shadow)) : NULL;
+    if (rows && !in->shadow)
+    {
+        // whole or refused: never an instance whose read-back table is missing
+        in->plugin->destroy(in->plugin);
+        binary_unref(bin);
+        free(in);
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    in->shadow_cap = rows;
+    if (reported > rows)
+    {
+        // said once, at the open; every later read is capped the same, silently
+        char text[CLAP_HOST_LOG_BYTES];
+
+        snprintf(text, sizeof(text), "the plugin reports %u parameters; the host serves the first %u", reported, rows);
+        log_to_ring(in, text);
+    }
     *out = in;
     if (why)
         why[0] = '\0';
@@ -812,7 +841,7 @@ static int info_of(struct omx_clap_instance *in, clap_id id, clap_param_info_t *
 
     if (!in->params)
         return -1;
-    n = in->params->count(in->plugin);
+    n = param_count_of(in, NULL);
     for (i = 0; i < n; i++)
     {
         memset(info, 0, sizeof(*info));
@@ -826,7 +855,8 @@ static void row_of(const clap_param_info_t *info, struct omx_clap_param_row *row
 {
     memset(row, 0, sizeof(*row));
     row->id = info->id;
-    snprintf(row->name, sizeof(row->name), "%s", info->name);
+    // the plugin's own buffer, which it need not have terminated: read no further than its size
+    snprintf(row->name, sizeof(row->name), "%.*s", (int)sizeof(info->name), info->name);
     row->min = info->min_value;
     row->max = info->max_value;
     row->def = info->default_value;
@@ -1367,7 +1397,7 @@ static int roster_walk(struct omx_clap_instance *in, uint32_t want, struct omx_c
         *found = 0;
     if (!in->params)
         return 0;
-    n = in->params->count(in->plugin);
+    n = param_count_of(in, NULL);
     for (i = 0; i < n; i++)
     {
         clap_param_info_t info;
@@ -1413,7 +1443,7 @@ int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_par
     *rows = NULL;
     if (!in->params)
         return 0;
-    n = in->params->count(in->plugin);
+    n = param_count_of(in, NULL);
     if (n == 0)
         return 0;
     out = calloc(n, sizeof(*out));
