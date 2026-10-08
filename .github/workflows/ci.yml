@@ -37,7 +37,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
-            pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng
+            pipewire-jack-audio-connection-kit-devel pipewire pipewire-utils iproute util-linux procps-ng libasan libubsan
 
       - uses: actions/checkout@v4
 
@@ -57,6 +57,9 @@ jobs:
 
       - name: Test the plugin lifecycle and the scanner against the fake plugins
         run: make test-fake
+
+      - name: Test what a plugin reports about its parameters under AddressSanitizer
+        run: make test-untrusted-asan
 
       # The host over jack with an instrument, in a PipeWire of its own. It needs a private user
       # namespace with its own /proc; a runner that refuses one cannot run it, and the step says so.

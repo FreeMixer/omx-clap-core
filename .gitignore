@@ -21,3 +21,5 @@ tests/fault-*.clap
 tests/clap_stage_test
 tests/clap_core_test
 tests/msgring_test
+tests/clap_untrusted_test
+tests/clap_untrusted_asan
