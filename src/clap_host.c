@@ -1377,6 +1377,11 @@ void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap
     in->tempo = tempo;
 }
 
+void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_clap_transport_src *src)
+{
+    in->transport_src = src;
+}
+
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)
 {
     return in->bypass_wanted != 0;

@@ -67,11 +67,11 @@
 */
 
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
- * raises it (2: the instance's tempo and transport, 0.3). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
+ * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport, 0.4). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
  * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
  * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
  * the library. */
-#define OMX_CLAP_CORE_ABI               2u
+#define OMX_CLAP_CORE_ABI               3u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** How many bytes a refusal's hosting code needs, with its NUL. */
@@ -234,6 +234,10 @@ struct omx_clap_instance
     // warming up or held
     const struct omx_clap_tempo *tempo;  ///< the tempo word carried by omx_clap_host_run, NULL for none
     clap_event_transport_t transport;  ///< the transport record handed to the plugin
+    // the host's published transport, set by omx_clap_host_set_transport (NULL: the tempo word alone decides), and the
+    // last whole record the audio role read from it, kept for a block whose read does not come whole
+    const struct omx_clap_transport_src *transport_src;  ///< the published transport omx_clap_host_run reads, NULL for none
+    struct omx_clap_transport transport_rec;  ///< the last whole record read from transport_src
 };
 
 
@@ -438,6 +442,11 @@ OMX_CLAP_EXPORT int omx_clap_host_has_feature(const clap_plugin_descriptor_t *de
  * outlive the instance's publication. */
 OMX_CLAP_EXPORT void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo);
 
+/** Control thread, before publish: the host's published transport omx_clap_host_run hands the plugin from now on (NULL:
+ * none, and the tempo word decides again). It carries the position, the playing state, the bar and the time signature as
+ * well as the tempo, so it supersedes the tempo word while set. The storage must outlive the instance's publication. */
+OMX_CLAP_EXPORT void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_clap_transport_src *src);
+
 
 /*
 ************************************************************************************************************************
@@ -466,14 +475,32 @@ static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
 }
 
 /** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
- * transport carrying the tempo the instance was given (NULL when it has none or the word holds none). Read once per
- * block, relaxed: a change is seen by the next block. The transport record is written only inside the stage's cycle,
- * on a processing block (omx_clap_run_transport); this function itself writes nothing of the instance. */
+ * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
+ * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
+ * come whole keeps the last record it read. A change is seen by the next block. The transport record is written only
+ * inside the stage's cycle, on a processing block (omx_clap_run_transport); this function itself writes nothing of the
+ * instance's stage. */
 static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
 {
-    const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+    struct omx_clap_transport rec;
 
-    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, bpm);
+    if (in->transport_src)
+    {
+        omx_clap_transport_read(in->transport_src, &in->transport_rec);
+        rec = in->transport_rec;
+    }
+    else
+    {
+        const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+
+        memset(&rec, 0, sizeof rec);
+        if (bpm > 0.0)
+        {
+            rec.flags = CLAP_TRANSPORT_HAS_TEMPO;
+            rec.tempo = bpm;
+        }
+    }
+    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, &rec);
 }
 
 #endif
