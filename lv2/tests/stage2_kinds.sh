@@ -12,7 +12,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
-fixtures=$here/fixtures
+fixtures=${STAGE2_FIXTURES:-$here/fixtures}
 
 # kind;the pattern a fixture carries for it;what the kind is (';' separates them: the patterns use '|')
 kinds="events;AtomPort;an atom port: MIDI or another event sequence
