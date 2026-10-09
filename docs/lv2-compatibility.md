@@ -52,8 +52,9 @@ Ports
 |---|---|---|
 | Audio, one input and one output | supported: one mono main port each way (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
 | Audio, two inputs and two outputs | supported: one stereo main port each way (`lv2_clap_test` core: the 2×2 plugin on a mono lane) | unsupported |
-| Audio, any other layout (mono to stereo, more than two channels, side chains) | unsupported (stage 2); refused with the verdict's code (`lv2_host_test` and `lv2_clap_test` refusals) | unsupported |
-| Port groups (`pg:Group`, `pg:mainInput`, `pg:sideChainOf`) | unsupported (stage 2) | unsupported |
+| Audio, side chains (`lv2:isSideChain`, or `pg:sideChainOf` on a port or group) | supported: one CLAP input per side chain, of one or two channels, named by its group's label or its port's name, silent until the host binds a buffer to it (`lv2_clap_test` side chain, `lv2_host_test` side chain) | unsupported |
+| Audio, any other layout (mono to stereo, more than two channels, an input that is neither main nor a side chain) | unsupported (stage 2); refused with the verdict's code (`lv2_host_test` and `lv2_clap_test` refusals) | unsupported |
+| Port groups (`pg:mainInput`, `pg:group`, `pg:sideChainOf`) | supported for the main input and side chains: the members of `pg:mainInput` are the main pair, the members of one `pg:group` one CLAP input (`lv2_host_test` side chain). Output groups and other groups are read as ungrouped ports (unsupported) | unsupported |
 | Control input ports | supported: a CLAP parameter each, id = port index, name, range and default from the TTL, written before the block's run (`lv2_clap_test` fixture) | unsupported |
 | Control output ports | supported: a read-only CLAP parameter each, read back after every block (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
 | Latency port (`lv2:latency`, `lv2:reportsLatency`) | supported: `clap.latency` (`lv2_clap_test` latency and fixture, `lv2_run_test` pad) | unsupported |
