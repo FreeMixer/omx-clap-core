@@ -68,4 +68,5 @@ OMX_CLAP_CORE_0.5
 {
   global:
     omx_clap_host_set_transport;
+    omx_clap_host_bind_aux_input;
 } OMX_CLAP_CORE_0.3;
