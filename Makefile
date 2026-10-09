@@ -398,7 +398,7 @@ LV2_FIXTURE_DIR = lv2/tests/fixtures
 # fuses a multiply into an add; aarch64's GCC fuses by default and the product's rounding then reads as an error
 LV2_FIXTURE_CFLAGS = -O2 -g -Wall -Wextra -Werror -std=gnu99 -fPIC -shared -D_GNU_SOURCE -pthread -ffp-contract=off $(LV2_CFLAGS)
 LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-worker-gain.lv2/omx-worker-gain.so \
-              build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
+              build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so build/lv2/omx-midi-echo.lv2/omx-midi-echo.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -414,6 +414,11 @@ build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so: $(LV2_FIXTURE_DIR)/lv2_fakes.c $(L
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-lv2-fakes.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -fvisibility=hidden -o $@ $< -lm
+
+build/lv2/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_echo.c $(wildcard $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 LV2_TEST_CFLAGS = -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests $(LV2_CFLAGS) $(CFLAGS) -Werror -ffp-contract=off
 LV2_WRAP = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free

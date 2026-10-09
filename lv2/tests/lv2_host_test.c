@@ -58,7 +58,7 @@
 #define N_BLOCKS 16u
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
-static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX];
+static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX];
 static const char *g_lilv;
 static pthread_t g_main;
 static volatile int g_in_run;      // the main thread holds the audio role only inside a block
@@ -275,6 +275,27 @@ static void t_refusals(void)
     }
 }
 
+/* ---- the MIDI ports ---- */
+
+/* the echo's MIDI input and output are its two atom ports, found by what they support; a twin with two MIDI inputs is
+ * refused from the TTL alone, and the fixture's atom port that supports nothing stays refused too */
+static void t_midi_ports(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_midi, "urn:openmixer:test:midi-echo", why);
+
+    CHECK(p && p->midi_in_port == 2 && p->midi_out_port == 3 && p->legs == 1,
+          "midi: the echo's atom ports are its MIDI input (2) and MIDI output (3), its audio one mono pair (%d, %d)",
+          p ? p->midi_in_port : -1, p ? p->midi_out_port : -1);
+    lv2_plugin_close(p);
+    p = open_plugin(g_fixture, FIXTURE_URI "#atom", why);
+    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: an atom port that supports no MIDI is still refused (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
+    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: a second MIDI input is refused (%s)", why);
+    lv2_plugin_close(p);
+}
+
 /* ---- the worker gain ---- */
 
 static struct lv2_worker_gain_probe *probe(void)
@@ -474,6 +495,9 @@ int main(int argc, char **argv)
     if (abs_dir(dir, g_wg) != 0)
         return 1;
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
+    snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", g_build);
+    if (abs_dir(dir, g_midi) != 0)
+        return 1;
     setenv("LV2_PATH", g_build, 1);     // what load_all would find: every bundle is there
 
     in_child("lazy", lazy);
@@ -486,6 +510,7 @@ int main(int argc, char **argv)
     t_one_bundle();
     t_fixture();
     t_refusals();
+    t_midi_ports();
     for (r = 0; r < N_RATES; r++)
         t_worker(RATES[r]);
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");

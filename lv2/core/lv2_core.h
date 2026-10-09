@@ -152,6 +152,8 @@ struct lv2_plugin
     uint32_t legs;                  // 1 or 2
     uint32_t in_ports[2], out_ports[2];
     int32_t latency_port;           // -1: none
+    int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
+    int32_t midi_out_port;          // the one MIDI output atom port, -1: none
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
     char **required;                // lv2:requiredFeature, NULL-terminated
