@@ -180,6 +180,7 @@ struct omx_clap_instance
     uint32_t aux_channels[CLAP_HOST_AUX_OUTPUTS];  ///< the channel count of each auxiliary output port
     uint32_t note_inputs;       ///< 0 or 1; the dialect the host feeds it
     uint32_t note_dialect;  ///< the note dialect the host feeds the plugin
+    uint32_t note_dialects;  ///< every dialect the note input's port declared, not just note_dialect
     double rate;  ///< the sample rate the instance is activated at
     uint32_t max_block;  ///< the largest block in frames
     int active;  ///< nonzero while the plugin is active

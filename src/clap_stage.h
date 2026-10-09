@@ -99,12 +99,22 @@ enum omx_clap_state
 #define omx_clap_queue_push omx_hosted_queue_push  ///< omx_hosted_queue_push
 #define omx_clap_queue_pending omx_hosted_queue_pending  ///< omx_hosted_queue_pending
 
+/** the sysex messages one block may carry; a sysex past it is counted in sysex_dropped */
+#define OMX_CLAP_SYSEX_PER_BLOCK        8u
+/** the longest sysex the stage carries; a longer one is counted in notes_unmappable, never held past its block */
+#define OMX_CLAP_SYSEX_MAX_BYTES        256u
+
+/** the pitch-bend range in semitones a stage starts with: MIDI's default, since RPN 0 (pitch bend sensitivity) is not tracked */
+#define OMX_CLAP_BEND_SEMITONES_DEFAULT 2.0
+
 /** Every event the host hands a plugin ahead of a block besides the parameter writes */
 union omx_clap_note
 {
     clap_event_header_t header;     ///< the common header
     clap_event_note_t note;         ///< a CLAP note event
     clap_event_midi_t midi;         ///< a MIDI event
+    clap_event_note_expression_t expr;  ///< a CLAP note expression: pitch bend and pressure in the CLAP dialect
+    clap_event_midi_sysex_t sysex;  ///< a sysex message, its bytes in the stage's pool
 };
 
 /** The RT stage of one hosted CLAP instance: the hosted core, the bound plugin, the block's events and the counters. */
@@ -125,9 +135,14 @@ struct omx_clap_stage
     uint32_t n_events;                                  ///< the events in `events`
     union omx_clap_note notes[CLAP_HOST_NOTES_PER_BLOCK];  ///< this block's notes, written ahead of it by the RT thread
     uint32_t n_notes;                                   ///< the notes in `notes`
+    uint8_t sysex_bytes[OMX_CLAP_SYSEX_PER_BLOCK][OMX_CLAP_SYSEX_MAX_BYTES];  ///< the bytes this block's sysex slots point at
+    uint32_t n_sysex;                                   ///< the sysex messages in `sysex_bytes`
     _Atomic uint32_t notes_visible;                     ///< 1 only while the plugin is inside process()
     uint32_t note_inputs;                               ///< 0 or 1 note input
-    uint32_t note_dialect;                              ///< CLAP_NOTE_DIALECT_CLAP or CLAP_NOTE_DIALECT_MIDI
+    uint32_t note_dialect;                              ///< CLAP_NOTE_DIALECT_CLAP or CLAP_NOTE_DIALECT_MIDI: how notes travel
+    uint32_t note_dialects;                             ///< every dialect the note input's port declared, not just note_dialect
+    double bend_semitones;                              ///< full-scale pitch bend as CLAP tuning, in semitones either way; the host sets it
+                                                        ///< before arming, the RT reads it with no lock (default OMX_CLAP_BEND_SEMITONES_DEFAULT)
     clap_input_events_t in_events;                      ///< the input event list handed to process()
     clap_output_events_t out_events;                    ///< the counting sink handed to process()
     clap_process_t proc;                                ///< the process structure handed to the plugin
@@ -147,6 +162,8 @@ struct omx_clap_stage
     _Atomic uint32_t events_delivered;                  ///< parameter events drained into process()
     _Atomic uint32_t notes_delivered;                   ///< note events handed to process()
     _Atomic uint32_t notes_dropped;                     ///< note events past CLAP_HOST_NOTES_PER_BLOCK
+    _Atomic uint32_t sysex_dropped;                     ///< a sysex message past OMX_CLAP_SYSEX_PER_BLOCK
+    _Atomic uint32_t notes_unmappable;                  ///< a channel message with no mapping into the plugin's dialect: counted, never silently dropped
     _Atomic uint32_t out_events_seen;                   ///< events the plugin pushed at the counting sink
     _Atomic uint32_t plugin_changed;                    ///< a CLAP_EVENT_PARAM_VALUE came back: read-back due
     _Atomic uint32_t resets;                            ///< reset() calls on re-engage, made by the control thread
@@ -219,6 +236,7 @@ static inline int omx_clap_stage_init(struct omx_clap_stage *s, const struct omx
     s->in_ptrs[1] = s->h.in_r;
     s->out_ptrs[0] = s->h.out_l;
     s->out_ptrs[1] = s->h.out_r;
+    s->bend_semitones = OMX_CLAP_BEND_SEMITONES_DEFAULT;
     s->in_events.ctx = s;
     s->in_events.size = omx_clap_in_size;
     s->in_events.get = omx_clap_in_get;
@@ -405,43 +423,136 @@ static inline union omx_clap_note *omx_clap_note_slot(struct omx_clap_stage *s, 
     return slot;
 }
 
+/** RT: fill a CLAP_EVENT_MIDI slot with one raw channel message, one to three bytes. */
+static inline void omx_clap_midi_slot(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
+{
+    union omx_clap_note *slot = omx_clap_note_slot(s, time, CLAP_EVENT_MIDI, sizeof(clap_event_midi_t));
+
+    if (!slot)
+        return;
+    slot->midi.port_index = 0;
+    slot->midi.data[0] = data[0];
+    slot->midi.data[1] = size > 1 ? data[1] : 0;
+    slot->midi.data[2] = size > 2 ? data[2] : 0;
+}
+
+/** RT: fill a CLAP_EVENT_NOTE_EXPRESSION slot; `key` -1 for a channel-wide expression. */
+static inline void omx_clap_expr_slot(struct omx_clap_stage *s, uint32_t time, int32_t expression_id, int16_t channel,
+                                      int16_t key, double value)
+{
+    union omx_clap_note *slot = omx_clap_note_slot(s, time, CLAP_EVENT_NOTE_EXPRESSION, sizeof(clap_event_note_expression_t));
+
+    if (!slot)
+        return;
+    slot->expr.expression_id = expression_id;
+    slot->expr.note_id = -1;
+    slot->expr.port_index = 0;
+    slot->expr.channel = channel;
+    slot->expr.key = key;
+    slot->expr.value = value;
+}
+
 /**
  * RT, ahead of the block they belong to and in the order they arrived: one MIDI message of the note input, as the event
- * the input's dialect wants. A plugin that reads only the CLAP dialect gets notes, and only notes: a note on (velocity
- * above 0) and a note off (or a note on with velocity 0). A plugin that reads MIDI gets every channel message of one to
- * three bytes. System messages are dropped. Past CLAP_HOST_NOTES_PER_BLOCK a message is counted and dropped. A stage
- * with no note input takes none.
+ * the input's dialect wants.
+ *  - A MIDI-dialect input: every channel message of one to three bytes, raw, as CLAP_EVENT_MIDI; a sysex (0xf0..0xf7, any
+ *    length: JACK hands one complete message) the same, as CLAP_EVENT_MIDI_SYSEX.
+ *  - A CLAP-dialect input: note on (velocity above 0) and note off (or a note on with velocity 0) as CLAP note events.
+ *    Every other channel message and a sysex go the same way the MIDI-dialect input takes them when the port's declared
+ *    dialects also include MIDI; when they do not, pitch bend and channel or poly pressure become the
+ *    CLAP_NOTE_EXPRESSION_TUNING and _PRESSURE expressions (channel-wide, or one key for poly aftertouch). A bend's
+ *    full scale is `bend_semitones` either way (default 2, MIDI's default range; RPN 0 is not tracked, so a host that
+ *    wants another range sets the field before arming): value = (bend14 - 8192) / 8192 * bend_semitones. Anything
+ *    still unmappable (a controller, a program change, a sysex) is counted, never silently dropped.
+ * A system real-time byte besides sysex is dropped; a channel message longer than three bytes is counted as unmappable. Past CLAP_HOST_NOTES_PER_BLOCK a message is counted and dropped, and
+ * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is the same. A stage with no note input takes none.
  */
 static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
 {
-    const uint8_t type = size ? data[0] & 0xf0 : 0;
-    const int16_t channel = size ? data[0] & 0x0f : 0;
+    const int also_midi = (s->note_dialects & CLAP_NOTE_DIALECT_MIDI) != 0;
+    uint8_t type, channel;
     union omx_clap_note *slot;
 
-    if (!s->note_inputs || size == 0 || size > 3 || data[0] < 0x80 || data[0] >= 0xf0)
+    if (!s->note_inputs || size == 0 || data[0] < 0x80)
         return;
 
-    if (s->note_dialect == CLAP_NOTE_DIALECT_MIDI)
+    if (data[0] == 0xf0)        // sysex: one complete message, any length
     {
-        slot = omx_clap_note_slot(s, time, CLAP_EVENT_MIDI, sizeof(clap_event_midi_t));
+        if (!also_midi || size > OMX_CLAP_SYSEX_MAX_BYTES)
+        {
+            omx_hosted_count(&s->notes_unmappable, 1);
+            return;
+        }
+        if (s->n_sysex >= OMX_CLAP_SYSEX_PER_BLOCK)
+        {
+            omx_hosted_count(&s->sysex_dropped, 1);
+            return;
+        }
+        slot = omx_clap_note_slot(s, time, CLAP_EVENT_MIDI_SYSEX, sizeof(clap_event_midi_sysex_t));
         if (!slot)
             return;
-        slot->midi.data[0] = data[0];
-        slot->midi.data[1] = size > 1 ? data[1] : 0;
-        slot->midi.data[2] = size > 2 ? data[2] : 0;
+        memcpy(s->sysex_bytes[s->n_sysex], data, size);
+        slot->sysex.port_index = 0;
+        slot->sysex.buffer = s->sysex_bytes[s->n_sysex];
+        slot->sysex.size = (uint32_t)size;
+        s->n_sysex++;
         return;
     }
 
-    if ((type != 0x80 && type != 0x90) || size != 3)
+    if (data[0] >= 0xf0)
+        return;                 // a system real-time byte: not ours
+    if (size > 3)
+    {
+        omx_hosted_count(&s->notes_unmappable, 1);  // a channel message longer than one can be: no dialect carries it
         return;
-    slot = omx_clap_note_slot(s, time, type == 0x90 && data[2] ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
-    if (!slot)
+    }
+
+    type = data[0] & 0xf0;
+    channel = data[0] & 0x0f;
+
+    if (s->note_dialect == CLAP_NOTE_DIALECT_MIDI)
+    {
+        omx_clap_midi_slot(s, time, data, size);
         return;
-    slot->note.note_id = -1;
-    slot->note.port_index = 0;
-    slot->note.channel = channel;
-    slot->note.key = data[1];
-    slot->note.velocity = (double)data[2] / 127.0;
+    }
+
+    if ((type == 0x80 || type == 0x90) && size == 3)
+    {
+        slot = omx_clap_note_slot(s, time, type == 0x90 && data[2] ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
+        if (!slot)
+            return;
+        slot->note.note_id = -1;
+        slot->note.port_index = 0;
+        slot->note.channel = (int16_t)channel;
+        slot->note.key = data[1];
+        slot->note.velocity = (double)data[2] / 127.0;
+        return;
+    }
+
+    if (also_midi)
+    {
+        omx_clap_midi_slot(s, time, data, size);
+        return;
+    }
+
+    if (type == 0xe0 && size == 3)              // pitch bend -> relative tuning, the whole channel
+    {
+        const int bend14 = ((int)data[2] << 7 | data[1]) - 8192;
+
+        omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_TUNING, (int16_t)channel, -1, (double)bend14 / 8192.0 * s->bend_semitones);
+        return;
+    }
+    if (type == 0xd0 && size == 2)              // channel pressure -> the whole channel
+    {
+        omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, (int16_t)channel, -1, (double)data[1] / 127.0);
+        return;
+    }
+    if (type == 0xa0 && size == 3)              // poly aftertouch -> one key of the channel
+    {
+        omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, (int16_t)channel, (int16_t)data[1], (double)data[2] / 127.0);
+        return;
+    }
+    omx_hosted_count(&s->notes_unmappable, 1);  // a controller or a program change: no CLAP note expression carries it
 }
 
 /** RT: fill every output channel the plugin reported constant from its sample 0. */
@@ -589,11 +700,18 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
 static inline void omx_clap_run_transport(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
                                           clap_event_transport_t *t, double bpm)
 {
-    if (s == NULL || s->plugin == NULL || l == NULL || n == 0)
+    if (s == NULL)
         return;
+    if (s->plugin == NULL || l == NULL || n == 0)
+    {
+        s->n_notes = 0;     // no block follows these events: they must not reach the next one with their old frame times
+        s->n_sysex = 0;
+        return;
+    }
     atomic_store(&s->in_cycle, 1);
     omx_clap_run_locked(s, l, r, n, t, bpm);
     s->n_notes = 0;
+    s->n_sysex = 0;
     atomic_store(&s->in_cycle, 0);
 }
 

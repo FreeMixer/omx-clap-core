@@ -587,6 +587,198 @@ static void t_alloc_witness(void) {
   rt_allocs = before; /* the witness's own count is not the stage's */
 }
 
+/* ---- 9. CHANNEL MESSAGES: what each kind of message becomes, by the dialect the note input wants and the dialects its port declares ---- */
+static struct omx_clap_stage NS;
+
+static void ns_up(uint32_t inputs, uint32_t dialect, uint32_t dialects) {
+  memset(&NS, 0, sizeof NS);
+  NS.note_inputs = inputs;
+  NS.note_dialect = dialect;
+  NS.note_dialects = dialects;
+  NS.bend_semitones = OMX_CLAP_BEND_SEMITONES_DEFAULT;
+}
+
+static void ns_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in(&NS, time, m, n); }
+
+static void t_channel_messages(void) {
+  static const uint8_t NOTE_ON[] = {0x93, 60, 100}, NOTE_OFF[] = {0x80, 60, 0}, ON_VEL0[] = {0x92, 60, 0};
+  static const uint8_t CTRL[] = {0xb0, 7, 100}, PROG[] = {0xc1, 5}, BEND_MIN[] = {0xe5, 0x00, 0x00};
+  static const uint8_t BEND_MID[] = {0xe5, 0x00, 0x40}, BEND_MAX[] = {0xe5, 0x7f, 0x7f}, CHAN_PRESS[] = {0xd2, 127};
+  static const uint8_t POLY[] = {0xa4, 61, 64}, CLOCK[] = {0xf8}, LONG[] = {0x90, 60, 100, 1}, SYSEX[] = {0xf0, 1, 2, 3, 0xf7};
+  uint8_t big[OMX_CLAP_SYSEX_MAX_BYTES + 1];
+  uint32_t k;
+
+  /* a CLAP-dialect input whose port declares only CLAP: notes, and pitch bend and pressure as expressions */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, NOTE_ON, sizeof NOTE_ON);
+  CHECK(NS.n_notes == 1 && NS.notes[0].header.type == CLAP_EVENT_NOTE_ON && NS.notes[0].header.time == 10,
+        "CLAP: a note on is a CLAP note on at its frame (%u)", NS.n_notes);
+  CHECK(NS.notes[0].note.channel == 3 && NS.notes[0].note.key == 60 && NS.notes[0].note.velocity == 100.0 / 127.0,
+        "CLAP: the note on carries channel 3, key 60, velocity 100/127");
+  ns_in(11, NOTE_OFF, sizeof NOTE_OFF);
+  ns_in(12, ON_VEL0, sizeof ON_VEL0);
+  CHECK(NS.n_notes == 3 && NS.notes[1].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[2].header.type == CLAP_EVENT_NOTE_OFF,
+        "CLAP: a note off and a note on with velocity 0 are both CLAP note offs");
+
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, BEND_MIN, sizeof BEND_MIN);
+  CHECK(NS.n_notes == 1 && NS.notes[0].header.type == CLAP_EVENT_NOTE_EXPRESSION, "CLAP: pitch bend is a note expression (%u)", NS.n_notes);
+  CHECK(NS.notes[0].expr.expression_id == CLAP_NOTE_EXPRESSION_TUNING && NS.notes[0].expr.channel == 5 && NS.notes[0].expr.key == -1,
+        "CLAP: the bend is tuning on channel 5, the whole channel");
+  CHECK(NS.notes[0].expr.value == -2.0, "CLAP: the bottom of the bend is -2 semitones (%g)", NS.notes[0].expr.value);
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, BEND_MID, sizeof BEND_MID);
+  CHECK(NS.notes[0].expr.value == 0.0, "CLAP: the centre of the bend is no tuning (%g)", NS.notes[0].expr.value);
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, BEND_MAX, sizeof BEND_MAX);
+  CHECK(NS.notes[0].expr.value == 8191.0 / 8192.0 * 2.0, "CLAP: the top of the bend is 8191/8192 x 2 semitones (%g)", NS.notes[0].expr.value);
+
+  /* a host-set range: full scale is the range, to the bit */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  NS.bend_semitones = 12.0;
+  ns_in(10, BEND_MAX, sizeof BEND_MAX);
+  ns_in(11, BEND_MIN, sizeof BEND_MIN);
+  CHECK(NS.notes[0].expr.value == 8191.0 / 8192.0 * 12.0 && NS.notes[1].expr.value == -12.0,
+        "CLAP: with a 12 semitone range the bend spans -12 .. 8191/8192 x 12 (%g, %g)", NS.notes[0].expr.value, NS.notes[1].expr.value);
+
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, CHAN_PRESS, sizeof CHAN_PRESS);
+  CHECK(NS.n_notes == 1 && NS.notes[0].expr.expression_id == CLAP_NOTE_EXPRESSION_PRESSURE && NS.notes[0].expr.channel == 2 &&
+        NS.notes[0].expr.key == -1 && NS.notes[0].expr.value == 1.0,
+        "CLAP: channel pressure 127 is pressure 1.0 on channel 2, the whole channel");
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, POLY, sizeof POLY);
+  CHECK(NS.n_notes == 1 && NS.notes[0].expr.expression_id == CLAP_NOTE_EXPRESSION_PRESSURE && NS.notes[0].expr.channel == 4 &&
+        NS.notes[0].expr.key == 61 && NS.notes[0].expr.value == 64.0 / 127.0,
+        "CLAP: poly aftertouch is pressure on key 61 of channel 4");
+
+  /* what no CLAP expression carries is counted, a clock is not ours, and a sysex a CLAP-only port cannot take is counted */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, CTRL, sizeof CTRL);
+  ns_in(10, PROG, sizeof PROG);
+  ns_in(10, CLOCK, sizeof CLOCK);
+  ns_in(10, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_notes == 0 && atomic_load(&NS.notes_unmappable) == 3 && NS.n_sysex == 0,
+        "CLAP only: a controller, a program change and a sysex are counted, none forwarded (%u notes, %u unmappable)", NS.n_notes,
+        atomic_load(&NS.notes_unmappable));
+
+  /* a channel message longer than three bytes is counted whatever the dialect, never forwarded */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, LONG, sizeof LONG);
+  CHECK(NS.n_notes == 0 && atomic_load(&NS.notes_unmappable) == 1, "CLAP: a 4-byte channel message is counted (%u)", atomic_load(&NS.notes_unmappable));
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, LONG, sizeof LONG);
+  CHECK(NS.n_notes == 0 && atomic_load(&NS.notes_unmappable) == 1, "MIDI: a 4-byte channel message is counted (%u)", atomic_load(&NS.notes_unmappable));
+
+  /* a port that also declares MIDI: every channel message and sysex goes as CLAP_EVENT_MIDI, notes stay CLAP notes */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI);
+  ns_in(10, CTRL, sizeof CTRL);
+  CHECK(NS.n_notes == 1 && NS.notes[0].header.type == CLAP_EVENT_MIDI && NS.notes[0].midi.data[0] == 0xb0 &&
+        NS.notes[0].midi.data[1] == 7 && NS.notes[0].midi.data[2] == 100 && NS.notes[0].midi.port_index == 0 && NS.notes[0].header.time == 10,
+        "CLAP+MIDI: a controller reaches the input as CLAP_EVENT_MIDI, bytes and frame intact");
+  ns_in(11, PROG, sizeof PROG);
+  CHECK(NS.notes[1].header.type == CLAP_EVENT_MIDI && NS.notes[1].midi.data[0] == 0xc1 && NS.notes[1].midi.data[1] == 5 &&
+        NS.notes[1].midi.data[2] == 0, "CLAP+MIDI: a program change keeps its one data byte, the second zero");
+  ns_in(12, BEND_MID, sizeof BEND_MID);
+  CHECK(NS.notes[2].header.type == CLAP_EVENT_MIDI && NS.notes[2].midi.data[0] == 0xe5 && NS.notes[2].midi.data[2] == 0x40,
+        "CLAP+MIDI: a pitch bend is raw MIDI, not an expression");
+  ns_in(13, CHAN_PRESS, sizeof CHAN_PRESS);
+  ns_in(14, POLY, sizeof POLY);
+  CHECK(NS.n_notes == 5 && NS.notes[3].header.type == CLAP_EVENT_MIDI && NS.notes[4].header.type == CLAP_EVENT_MIDI &&
+        NS.notes[4].midi.data[1] == 61, "CLAP+MIDI: channel and poly pressure are raw MIDI too");
+  ns_in(15, NOTE_ON, sizeof NOTE_ON);
+  CHECK(NS.n_notes == 6 && NS.notes[5].header.type == CLAP_EVENT_NOTE_ON && NS.notes[5].note.key == 60,
+        "CLAP+MIDI: a note on is still a CLAP note on");
+  ns_in(16, CLOCK, sizeof CLOCK);
+  CHECK(NS.n_notes == 6 && atomic_load(&NS.notes_unmappable) == 0, "CLAP+MIDI: a clock is dropped, not counted");
+  ns_in(17, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_notes == 7 && NS.notes[6].header.type == CLAP_EVENT_MIDI_SYSEX && NS.notes[6].sysex.size == sizeof SYSEX &&
+        NS.notes[6].sysex.port_index == 0 && NS.notes[6].sysex.buffer != SYSEX && NS.n_sysex == 1,
+        "CLAP+MIDI: a sysex is CLAP_EVENT_MIDI_SYSEX, copied into the block's own bytes");
+  CHECK(NS.n_notes == 7 && memcmp(NS.notes[6].sysex.buffer, SYSEX, sizeof SYSEX) == 0, "CLAP+MIDI: the sysex bytes arrive intact");
+  memset(big, 0xf0, sizeof big);
+  big[OMX_CLAP_SYSEX_MAX_BYTES] = 0xf7;
+  ns_in(18, big, sizeof big);
+  CHECK(NS.n_sysex == 1 && atomic_load(&NS.notes_unmappable) == 1, "CLAP+MIDI: a sysex past %u bytes is counted, not held (%u)",
+        OMX_CLAP_SYSEX_MAX_BYTES, atomic_load(&NS.notes_unmappable));
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI);
+  for (k = 0; k < OMX_CLAP_SYSEX_PER_BLOCK + 1; k++) ns_in(20 + k, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_sysex == OMX_CLAP_SYSEX_PER_BLOCK && atomic_load(&NS.sysex_dropped) == 1,
+        "CLAP+MIDI: a sysex past %u per block is counted and dropped (%u, %u)", OMX_CLAP_SYSEX_PER_BLOCK, NS.n_sysex,
+        atomic_load(&NS.sysex_dropped));
+
+  /* a MIDI-dialect input: every channel message raw, notes included, and sysex the same */
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI);
+  ns_in(10, NOTE_ON, sizeof NOTE_ON);
+  ns_in(11, ON_VEL0, sizeof ON_VEL0);
+  ns_in(12, CTRL, sizeof CTRL);
+  ns_in(13, PROG, sizeof PROG);
+  CHECK(NS.n_notes == 4 && NS.notes[0].header.type == CLAP_EVENT_MIDI && NS.notes[0].midi.data[0] == 0x93 && NS.notes[1].midi.data[0] == 0x92 &&
+        NS.notes[2].midi.data[1] == 7 && NS.notes[3].midi.data[0] == 0xc1 && NS.notes[3].midi.data[2] == 0,
+        "MIDI: every channel message reaches the input raw, in order (%u)", NS.n_notes);
+  ns_in(14, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_notes == 5 && NS.notes[4].header.type == CLAP_EVENT_MIDI_SYSEX && NS.notes[4].sysex.size == sizeof SYSEX,
+        "MIDI: a sysex is CLAP_EVENT_MIDI_SYSEX");
+
+  /* no note input: nothing is forwarded or counted, whatever the port declares */
+  ns_up(0, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI);
+  ns_in(10, NOTE_ON, sizeof NOTE_ON);
+  ns_in(10, CTRL, sizeof CTRL);
+  ns_in(10, BEND_MIN, sizeof BEND_MIN);
+  ns_in(10, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_notes == 0 && NS.n_sysex == 0 && atomic_load(&NS.notes_unmappable) == 0 && atomic_load(&NS.sysex_dropped) == 0,
+        "no note input: no message reaches the stage, none counted");
+  ns_up(0, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI);
+  ns_in(10, CTRL, sizeof CTRL);
+  CHECK(NS.n_notes == 0, "no note input, MIDI dialect: nothing reaches the stage");
+}
+
+/** Events queued ahead of a block that never runs (a zero-length call) do not reach the next block. */
+static void t_stale_events(void) {
+  static const uint8_t NOTE_ON[] = {0x90, 60, 100}, SYSEX[] = {0xf0, 1, 2, 3, 0xf7};
+  struct rig g;
+  float l[MAXB], r[MAXB];
+  rig_up(&g, K_PAD, 2, QCAP);
+  g.st.note_inputs = 1;
+  g.st.note_dialect = CLAP_NOTE_DIALECT_CLAP;
+  g.st.note_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+  omx_clap_note_in(&g.st, 90, NOTE_ON, sizeof NOTE_ON);
+  omx_clap_note_in(&g.st, 91, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_notes == 2 && g.st.n_sysex == 1, "two events queued (%u notes, %u sysex)", g.st.n_notes, g.st.n_sysex);
+  ramp(l, 64), ramp(r, 64);
+  run(&g, l, r, 0);
+  CHECK(g.st.n_notes == 0 && g.st.n_sysex == 0, "the early-return path clears the queue (%u notes, %u sysex)", g.st.n_notes, g.st.n_sysex);
+  run(&g, l, r, 64);
+  CHECK(g.f.blocks == 1 && g.f.ev_per_block[0] == 0, "the next block sees none of the stale events (%u)", g.f.ev_per_block[0]);
+}
+
+/** The sysex pool is a block's: a full pool is empty again after omx_clap_run and after omx_clap_run_io. */
+static void t_sysex_pool_resets(void) {
+  static const uint8_t SYSEX[] = {0xf0, 9, 8, 7, 0xf7};
+  struct rig g;
+  float a[MAXB], b[MAXB], c[MAXB], d[MAXB];
+  const float *ins[2] = {a, b};
+  float *outs[2] = {c, d};
+  uint32_t k;
+  rig_up(&g, K_PAD, 2, QCAP);
+  g.st.note_inputs = 1;
+  g.st.note_dialect = CLAP_NOTE_DIALECT_CLAP;
+  g.st.note_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+  ramp(a, 64), ramp(b, 64), ramp(c, 64), ramp(d, 64);
+  for (k = 0; k < OMX_CLAP_SYSEX_PER_BLOCK; k++) omx_clap_note_in(&g.st, k, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_sysex == OMX_CLAP_SYSEX_PER_BLOCK, "the pool is full (%u)", g.st.n_sysex);
+  run(&g, c, d, 64);
+  CHECK(g.st.n_sysex == 0 && g.st.n_notes == 0, "omx_clap_run empties the pool (%u sysex, %u notes)", g.st.n_sysex, g.st.n_notes);
+  for (k = 0; k < OMX_CLAP_SYSEX_PER_BLOCK; k++) omx_clap_note_in(&g.st, k, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_sysex == OMX_CLAP_SYSEX_PER_BLOCK && atomic_load(&g.st.sysex_dropped) == 0,
+        "the next block takes a full pool again, none dropped (%u)", atomic_load(&g.st.sysex_dropped));
+  omx_clap_run_io(&g.st, ins, outs, 64);
+  CHECK(g.st.n_sysex == 0 && g.st.n_notes == 0, "omx_clap_run_io empties the pool (%u sysex, %u notes)", g.st.n_sysex, g.st.n_notes);
+  omx_clap_note_in(&g.st, 0, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_sysex == 1 && g.st.notes[0].sysex.buffer == g.st.sysex_bytes[0] && atomic_load(&g.st.sysex_dropped) == 0,
+        "and a sysex lands in slot 0 again");
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -603,6 +795,9 @@ int main(void) {
     t_state();
     t_out_events();
     t_xfade();
+    t_channel_messages();
+    t_stale_events();
+    t_sysex_pool_resets();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

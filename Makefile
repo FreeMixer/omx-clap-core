@@ -47,6 +47,16 @@ endif
 # CLAP headers: pkg-config when clap-devel is installed, CLAP_CFLAGS=-I<dir> otherwise
 CLAP_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags clap 2>/dev/null)
 
+# JACK headers and library: pkg-config when jack is installed, a JACK_DIR tree (its include and lib) otherwise
+ifeq ($(shell $(PKG_CONFIG) --exists jack && echo true), true)
+JACK_CFLAGS = $(shell $(PKG_CONFIG) --cflags jack)
+JACK_LIBS = $(shell $(PKG_CONFIG) --libs jack)
+else
+JACK_DIR ?= ../jack-dev
+JACK_CFLAGS = -I$(JACK_DIR)/include
+JACK_LIBS = -L$(JACK_DIR)/lib -ljack -Wl,-rpath,$(abspath $(JACK_DIR)/lib)
+endif
+
 # plugin the test loads
 CLAP_TEST_PLUGIN ?= ../openmixer/packages/omx-plugins/bin/omx-delay.clap
 
@@ -69,10 +79,10 @@ CORE_LINK = -L. -l$(CORE) $(RPATH)
 CORE_LINK_TEST = -L. -l$(CORE) -Wl,-rpath,$(CURDIR)
 
 # libraries
-LIBS = $(shell $(PKG_CONFIG) --libs jack 2>/dev/null) -ldl -lpthread -lm
+LIBS = $(JACK_LIBS) -ldl -lpthread -lm
 
 # include paths
-INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags jack 2>/dev/null)
+INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 
 LDFLAGS += -Wl,--no-undefined
 
