@@ -25,6 +25,7 @@ tests/clap_untrusted_test
 tests/clap_untrusted_asan
 lv2/tests/lv2_run_test
 lv2/tests/lv2_host_test
+lv2/tests/lv2_patch_test
 lv2/tests/lv2_clap_test
 /libomx-clap-lv2.a
 lv2/*/*.o

@@ -35,10 +35,12 @@
 *                   events written into the control ports, run, end_run, the flush-to-zero bits, the output copied out
 *   deactivate      the worker stopped and joined, LV2 deactivate
 *
-* Parameters. The clap_id of a parameter is its port index. An input control port is a parameter; the plugin's own
-* bypass is one flagged IS_BYPASS and held at its processing value, never written; every other output control port is
-* a read-only parameter whose value is what the last process() read. A parameter write is block-rate: every
-* CLAP_EVENT_PARAM_VALUE of a process() call lands before that call's run(), whatever its time.
+* Parameters. The clap_id of a control parameter is its port index. An input control port is a parameter; the plugin's
+* own bypass is one flagged IS_BYPASS and held at its processing value, never written; every other output control port
+* is a read-only parameter whose value is what the last process() read. A numeric patch:writable property is a
+* parameter too, its clap_id its port count plus its index in patch:writable order, so the two never collide. A parameter
+* write is block-rate: every CLAP_EVENT_PARAM_VALUE of a process() call lands before that call's run(), whatever its
+* time. A patch:Set or patch:Put the plugin emits is an output CLAP_EVENT_PARAM_VALUE of that call, at time 0.
 *
 * Latency. latency.get answers the figure taken at the last activate. A different reading is held: only once it has
 * read unchanged for latency_hold_ms of blocks does the shim call host->request_restart, and the restart's activate
@@ -191,9 +193,34 @@ static int32_t control_of_id(const struct shim *s, clap_id id)
     return id < s->lv2->n_ports ? s->control_of_port[id] : -1;
 }
 
+/* the patch parameter of a clap_id, or -1: the ids above the port indices, one per numeric patch:writable property */
+static int32_t patch_of_id(const struct shim *s, clap_id id)
+{
+    uint32_t j;
+
+    for (j = 0; j < s->lv2->n_patches; j++)
+        if (s->lv2->patches[j].id == id)
+            return (int32_t)j;
+    return -1;
+}
+
+/* the control parameters first, then the patch parameters, in the order the parameter list reads them */
 static uint32_t params_count(const clap_plugin_t *plugin)
 {
-    return SHIM_OF(plugin)->lv2->n_controls;
+    return SHIM_OF(plugin)->lv2->n_controls + SHIM_OF(plugin)->lv2->n_patches;
+}
+
+static void patch_info(const struct lv2_patch *pp, clap_param_info_t *info)
+{
+    memset(info, 0, sizeof(*info));
+    info->id = pp->id;
+    snprintf(info->name, sizeof(info->name), "%s", pp->name);
+    info->min_value = pp->min;
+    info->max_value = pp->max;
+    info->default_value = pp->def;
+    info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+    if (pp->props & (LV2_PROP_INTEGER | LV2_PROP_TOGGLED))
+        info->flags |= CLAP_PARAM_IS_STEPPED;
 }
 
 static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_param_info_t *info)
@@ -202,7 +229,12 @@ static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_pa
     const struct lv2_control *c;
 
     if (index >= s->lv2->n_controls)
-        return false;
+    {
+        if (index - s->lv2->n_controls >= s->lv2->n_patches)
+            return false;
+        patch_info(&s->lv2->patches[index - s->lv2->n_controls], info);
+        return true;
+    }
     c = &s->lv2->controls[index];
     memset(info, 0, sizeof(*info));
     info->id = c->port;
@@ -241,11 +273,11 @@ static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_pa
 static bool params_get_value(const clap_plugin_t *plugin, clap_id id, double *value)
 {
     const struct shim *s = SHIM_OF(plugin);
-    const int32_t k = control_of_id(s, id);
+    const int32_t k = control_of_id(s, id), j = k < 0 ? patch_of_id(s, id) : -1;
 
-    if (k < 0)
+    if (k < 0 && j < 0)
         return false;
-    *value = lv2_instance_control_get(s->in, (uint32_t)k);
+    *value = k >= 0 ? lv2_instance_control_get(s->in, (uint32_t)k) : lv2_instance_patch_get(s->in, (uint32_t)j);
     return true;
 }
 
@@ -256,8 +288,15 @@ static bool params_value_to_text(const clap_plugin_t *plugin, clap_id id, double
     const struct lv2_control *c;
     uint32_t i;
 
-    if (k < 0 || size == 0)
+    if (size == 0)
         return false;
+    if (k < 0)
+    {
+        if (patch_of_id(s, id) < 0)
+            return false;
+        snprintf(out, size, "%g", value);
+        return true;
+    }
     c = &s->lv2->controls[k];
     for (i = 0; i < c->n_points; i++)
     {
@@ -279,8 +318,15 @@ static bool params_text_to_value(const clap_plugin_t *plugin, clap_id id, const 
     char *end;
     uint32_t i;
 
-    if (k < 0 || !text)
+    if (!text)
         return false;
+    if (k < 0)
+    {
+        if (patch_of_id(s, id) < 0)
+            return false;
+        *value = strtod(text, &end);
+        return end != text;
+    }
     c = &s->lv2->controls[k];
     for (i = 0; i < c->n_points; i++)
     {
@@ -294,7 +340,7 @@ static bool params_text_to_value(const clap_plugin_t *plugin, clap_id id, const 
     return end != text;
 }
 
-/* every CLAP_EVENT_PARAM_VALUE of the list into the control it names; any other event is not taken */
+/* every CLAP_EVENT_PARAM_VALUE of the list into the control or patch parameter it names; any other event is not taken */
 static void apply_events(struct shim *s, const clap_input_events_t *events)
 {
     const uint32_t n = events ? events->size(events) : 0;
@@ -304,14 +350,40 @@ static void apply_events(struct shim *s, const clap_input_events_t *events)
     {
         const clap_event_header_t *h = events->get(events, i);
         const clap_event_param_value_t *e;
-        int32_t k;
+        int32_t k, j;
 
         if (!h || h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE)
             continue;
         e = (const clap_event_param_value_t *)h;
         k = control_of_id(s, e->param_id);
+        j = k < 0 ? patch_of_id(s, e->param_id) : -1;
         if (k >= 0)
             lv2_instance_control_set(s->in, (uint32_t)k, (float)e->value);
+        else if (j >= 0)
+            lv2_instance_patch_write(s->in, (uint32_t)j, (float)e->value);
+    }
+}
+
+/* every patch:Set or patch:Put the last run's output carried, as a CLAP_EVENT_PARAM_VALUE at time 0 */
+static void emit_patch_changes(struct shim *s, const clap_output_events_t *out)
+{
+    uint32_t j;
+
+    for (j = 0; out && j < s->lv2->n_patches; j++)
+    {
+        clap_event_param_value_t e;
+        float v;
+
+        if (!lv2_instance_patch_changed(s->in, j, &v))
+            continue;
+        memset(&e, 0, sizeof(e));
+        e.header.size = sizeof(e);
+        e.header.time = 0;
+        e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        e.header.type = CLAP_EVENT_PARAM_VALUE;
+        e.param_id = s->lv2->patches[j].id;
+        e.value = (double)v;
+        out->try_push(out, &e.header);
     }
 }
 
@@ -511,6 +583,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     s->events = process->in_events;
     lv2_instance_run(s->in, n, write_controls, s);
     s->events = NULL;
+    emit_patch_changes(s, process->out_events);
     if (process->audio_outputs_count && process->audio_outputs[0].data32)
     {
         const clap_audio_buffer_t *b = &process->audio_outputs[0];
@@ -550,8 +623,8 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     if (memcmp(&c, &s->logged, sizeof(c)) == 0)
         return;
     snprintf(line, sizeof(line),
-             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u",
-             c.schedule_refused, c.responses_refused, c.respond_strikes, c.map_on_audio, c.schedule_off_audio, c.log_on_audio);
+             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u patch_dropped %u",
+             c.schedule_refused, c.responses_refused, c.respond_strikes, c.map_on_audio, c.schedule_off_audio, c.log_on_audio, c.patch_dropped);
     host_log(s->host, CLAP_LOG_WARNING, line);
     s->logged = c;
 }

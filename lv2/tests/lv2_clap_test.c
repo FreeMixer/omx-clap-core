@@ -61,6 +61,7 @@
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
+#define FIXTURE_PATCH_URI "urn:openmixer:test:patch-fixture"
 #define BLOCK 64u
 #define N_BLOCKS 16u
 #define MAXB 256u
@@ -78,6 +79,7 @@ void *__wrap_realloc(void *p, size_t n) { rt_allocs += in_rt; return __real_real
 void __wrap_free(void *p) { rt_allocs += in_rt; __real_free(p); }
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
+static char g_patch[PATH_MAX];
 
 /* ---- the test's host ---- */
 
@@ -175,10 +177,21 @@ static const clap_event_header_t *ev_get(const clap_input_events_t *list, uint32
     return i < e->n ? &e->ev[i].header : NULL;
 }
 
+/* the parameter events of the last process() call's output, as the plugin wrote them */
+static clap_id g_out_id[8];
+static double g_out_value[8];
+static uint32_t g_out_n;
+
 static bool out_push(const clap_output_events_t *list, const clap_event_header_t *event)
 {
+    const clap_event_param_value_t *v = (const clap_event_param_value_t *)event;
+
     (void)list;
-    (void)event;
+    if (event->type == CLAP_EVENT_PARAM_VALUE && g_out_n < 8u)
+    {
+        g_out_id[g_out_n] = v->param_id;
+        g_out_value[g_out_n++] = v->value;
+    }
     return true;
 }
 
@@ -491,6 +504,51 @@ static void t_fixture(double rate)
     g.plugin->deactivate(g.plugin);
     CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK) && g.latency->get(g.plugin) == 7, "fixture %.0f: the restart's activate takes 7 frames (%u)", rate, g.latency->get(g.plugin));
     CHECK(param(&g, 3) == -10.0, "fixture %.0f: the row keeps its value across the restart", rate);
+    rig_down(&g);
+}
+
+/* ---- the numeric patch parameters through the face: ids above the ports, a write before the block, the echo after ---- */
+
+/* the parameter named `name`, its info filled: 1 when the plugin lists one */
+static int patch_info(struct rig *g, const char *name, clap_param_info_t *info)
+{
+    uint32_t k;
+
+    for (k = 0; k < g->params->count(g->plugin); k++)
+        if (g->params->get_info(g->plugin, k, info) && strcmp(info->name, name) == 0)
+            return 1;
+    return 0;
+}
+
+static void t_patch(double rate)
+{
+    struct rig g;
+    struct evlist e;
+    clap_id gain = 0;
+    clap_param_info_t i;
+    float in[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    uint32_t k;
+    int halved = 1, echoed = 0;
+
+    if (rig_up(&g, g_patch, FIXTURE_PATCH_URI, rate, MAXB) != 0)
+        return;
+    CHECK(patch_info(&g, "Gain", &i) && i.id >= 4u, "patch face: Gain is a parameter above the four port indices (%u)", i.id);
+    gain = i.id;
+    CHECK(i.min_value == 0.0 && i.max_value == 2.0 && i.default_value == 1.0,
+          "patch face: Gain's range and default are the patch:writable's, 0..2 and 1");
+    CHECK(param(&g, gain) == 1.0, "patch face: the value read is the default 1 (%g)", param(&g, gain));
+    for (k = 0; k < BLOCK; k++)
+        in[k] = 1.0f;
+    ev_init(&e);
+    ev_param(&e, gain, 0.5);
+    g_out_n = 0;
+    process(&g, in, in, out_l, out_r, BLOCK, &e);
+    for (k = 0; k < BLOCK; k++)
+        halved = halved && out_l[k] == 0.5f;
+    CHECK(halved, "patch face: a parameter write of 0.5 lands before the block, so the audio is halved");
+    for (k = 0; k < g_out_n; k++)
+        echoed += g_out_id[k] == gain && g_out_value[k] == 0.5;
+    CHECK(echoed == 1, "patch face: the plugin's patch:Set comes back as one output parameter event for Gain's id (%d of %u events)", echoed, g_out_n);
     rig_down(&g);
 }
 
@@ -890,7 +948,7 @@ static void t_core(double rate)
 
 int main(int argc, char **argv)
 {
-    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, HOLD_MS, NULL };
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL };
     char dir[PATH_MAX + 32], build[PATH_MAX], why[OMX_CLAP_LV2_WHY_MAX];
     void *volatile probe;
     size_t r;
@@ -906,6 +964,8 @@ int main(int argc, char **argv)
     abs_dir(dir, g_wg);
     snprintf(dir, sizeof(dir), "%somx-lv2-fakes.lv2", build);
     abs_dir(dir, g_fakes);
+    snprintf(dir, sizeof(dir), "%somx-patch-fixture.lv2", build);
+    abs_dir(dir, g_patch);
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     in_rt = 1;
@@ -925,6 +985,7 @@ int main(int argc, char **argv)
         const int before = g_failures;
 
         t_fixture(RATES[r]);
+        t_patch(RATES[r]);
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);

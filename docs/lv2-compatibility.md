@@ -7,7 +7,8 @@ to run bit-identically through the adapter, `libomx-clap-lv2`. The proof of that
 identity run in the console, at every declared rate and quantum; until its results are published,
 this page claims only what the tests of this repository prove. MIDI, transport, state and presets
 are supported where the matrix below names a passing test, and today it names none. Not supported:
-CV ports, non-MIDI atom messages, `state:makePath`, fixed or power-of-two block lengths. A latency
+CV ports, atom messages other than MIDI and the numeric `patch:` properties, `state:makePath`, fixed or power-of-two
+block lengths. A latency
 that moves under a parameter sweep is applied after a hold and a restart rather than per cycle.
 
 Features the in-process adapter does not carry are available by running the plugin in an isolated
@@ -44,6 +45,7 @@ The tests named below:
 | `lv2_host_test` | `lv2/tests/lv2_host_test.c`: bundles, ports, refusals and features against the fixture bundles |
 | `lv2_clap_test` | `lv2/tests/lv2_clap_test.c`: the CLAP face, and libomx-clap-core's CLAP body around it |
 | `lv2_link_test` | `lv2/tests/lv2_link_test.c`: a program built against the installed package |
+| `lv2_patch_test` | `lv2/tests/lv2_patch_test.c`: the patch ports of the LV2 half, against the patch fixture bundle |
 
 Ports
 -----
@@ -60,9 +62,9 @@ Ports
 | A latency that changes while running | lossy: held until it has read unchanged for `latency_hold_ms`, then one restart; a change that comes back inside the hold is ignored (`lv2_clap_test` latency) | unsupported |
 | The plugin's own bypass (`lv2:enabled`, a `bypass` port) | lossy: held at the value that keeps the plugin processing; the host's crossfade is the bypass. Turning the bypass off after a steady bypass resets the plugin (LV2 deactivate then activate, the worker joined before and started after) on the host's control thread, never in the audio path (`lv2_clap_test` fixture, core and worker, `lv2_host_test` fixture) | unsupported |
 | CV ports | unsupported; refused with `hosting.features.cv-ports` (`lv2_host_test` refusals) | unsupported |
-| Atom and event ports, MIDI | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals) | unsupported |
+| Atom and event ports, MIDI | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals, `lv2_patch_test` MIDI twin) | unsupported |
 | `time:Position` | unsupported (stage 2; lossy when it comes, built from the CLAP transport) | unsupported |
-| `patch:` numeric parameters | unsupported (stage 2) | unsupported |
+| `patch:` numeric parameters | partial: the LV2 half is proven (`lv2_patch_test`): a `patch:Set` forged before each block's run, `patch:Set` and `patch:Put` read back after it, the ids above the port indices. The CLAP face maps them as parameters, but no test in this repository proves that yet | unsupported |
 | `patch:` file paths and strings | unsupported (stage 3) | unsupported |
 | Other atom messages | unsupported | unsupported |
 
