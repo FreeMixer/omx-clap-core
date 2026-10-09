@@ -17,16 +17,15 @@ env:
   PLUGIN_HOSTD_REF: v0.1.3
 
 jobs:
-  changelog:
-    name: CHANGELOG.md agrees with the spec and debian/changelog
+  version:
+    name: VERSION agrees with the spec and debian/changelog
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - uses: FreeMixer/.github/.github/actions/changelog@v1
 
       # the file VERSION is the one version the Makefile, the library and the programs carry
-      - name: VERSION is the newest entry of CHANGELOG.md
+      - name: VERSION is the spec's Version and the newest debian/changelog entry
         run: make version-check
 
   docs:

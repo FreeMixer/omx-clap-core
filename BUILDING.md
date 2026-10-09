@@ -217,8 +217,7 @@ The version
 The file `VERSION` holds the one version of the whole tree: the programs, `libomx-clap-core`
 (its file is `libomx-clap-core.so.<major>.<minor>.<patch>`) and `libomx-clap-lv2`, with the
 `.pc` files and the manual pages. The Makefile reads it and hands it to the compiler, so no
-source file spells it. A release is: add the version's section to `CHANGELOG.md`, put the
-same version in `VERSION`, run `changelog.sh sync` (from FreeMixer/.github) to write the
-spec's `%changelog` and `debian/changelog`, set the spec's `Version`, run `make
-abi-baseline`, and tag `v<version>`. `make version-check` and the changelog check in CI
-refuse a tree whose files disagree.
+source file spells it. A release is: put the
+version in `VERSION`, the spec's `Version` and a new top entry of `debian/changelog`, run `make
+abi-baseline`, and tag `v<version>`. `make version-check` and the version job in CI refuse a tree
+whose files disagree. There is no changelog file: git history is the changelog.

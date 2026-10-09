@@ -2,8 +2,8 @@
 # compiler
 CC ?= gcc
 
-# the one version of the library, the adapter and the programs: VERSION holds it, and the spec's Version, debian/changelog
-# and the release notes are written from CHANGELOG.md, whose newest entry `make version-check` holds to it
+# the one version of the library, the adapter and the programs: VERSION holds it, and `make version-check` holds the
+# spec's Version and the newest debian/changelog entry to it
 VERSION := $(strip $(shell cat VERSION))
 # the library reports it as major * 10000 + minor * 100 + patch (omx_clap_core_version())
 VERSION_NUM := $(shell echo $(VERSION) | awk -F. '{ print $$1 * 10000 + $$2 * 100 + $$3 }')
@@ -198,15 +198,16 @@ install_man:
 	install -d $(DESTDIR)$(MANDIR)
 	for page in doc/*.1; do sed -e 's,@VERSION@,$(VERSION),' $$page > $(DESTDIR)$(MANDIR)/$$(basename $$page); chmod 644 $(DESTDIR)$(MANDIR)/$$(basename $$page); done
 
-# the version of this tree is the newest entry of CHANGELOG.md: the spec and debian/changelog are written from that file
+# the version of this tree is VERSION: the spec's Version and the newest debian/changelog entry must say the same
 .PHONY: version-check print-version-num
 print-version-num:
 	@echo $(VERSION_NUM)
 
 version-check:
-	@newest=$$(sed -n 's/^## \([0-9][0-9.]*\)\(-[0-9]*\)\{0,1\} - .*/\1/p' CHANGELOG.md | head -1); \
-	if [ "$$newest" = "$(VERSION)" ]; then echo "ok   VERSION $(VERSION) is the newest entry of CHANGELOG.md"; \
-	else echo "FAIL VERSION says $(VERSION), the newest entry of CHANGELOG.md says $$newest"; exit 1; fi
+	@spec=$$(sed -n 's/^Version:[[:space:]]*//p' packaging/omx-clap-host.spec | head -1); \
+	deb=$$(sed -n '1s/^[^(]*(\([0-9][0-9.]*\).*/\1/p' debian/changelog); \
+	if [ "$$spec" = "$(VERSION)" ] && [ "$$deb" = "$(VERSION)" ]; then echo "ok   VERSION $(VERSION) is the spec's Version and the newest debian/changelog entry"; \
+	else echo "FAIL VERSION says $(VERSION), the spec says $$spec, debian/changelog says $$deb"; exit 1; fi
 
 # clean rule
 .PHONY: docs
