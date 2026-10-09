@@ -77,7 +77,8 @@
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
     X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
     X(lilv_state_new_from_world) X(lilv_state_restore) X(lilv_state_free) X(lilv_state_new_from_instance) \
-    X(lilv_state_to_string) X(lilv_state_new_from_string)
+    X(lilv_state_to_string) X(lilv_state_new_from_string) X(lilv_world_find_nodes) \
+    X(lilv_world_load_resource) X(lilv_world_unload_resource)
 
 
 /*
@@ -830,6 +831,54 @@ int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, floa
     L.lilv_state_restore(state, &instance, state_set, &io, 0, features);
     L.lilv_state_free(state);
     return 0;
+}
+
+char *lv2_plugin_preset_text(const struct lv2_plugin *p, const char *uri, LV2_URID_Map *map, LV2_URID_Unmap *unmap)
+{
+    static const char APPLIES_TO[] = "http://lv2plug.in/ns/lv2core#appliesTo";
+    LilvNode *node, *applies;
+    LilvNodes *nodes;
+    LilvState *state;
+    char *text, *out;
+    int ours;
+
+    if (!p || !p->uri_node || !g.world || !uri || !map || !unmap)
+        return NULL;
+    node = L.lilv_new_uri(g.world, uri);
+    applies = L.lilv_new_uri(g.world, APPLIES_TO);
+    if (!node || !applies)
+    {
+        if (node)
+            L.lilv_node_free(node);
+        if (applies)
+            L.lilv_node_free(applies);
+        return NULL;
+    }
+    // the preset must apply to THIS plugin: a preset of the bundle for another plugin is not this plugin's to load
+    nodes = L.lilv_world_find_nodes(g.world, node, applies, NULL);
+    ours = nodes && L.lilv_nodes_contains(nodes, p->uri_node);
+    if (nodes)
+        L.lilv_nodes_free(nodes);
+    L.lilv_node_free(applies);
+    if (!ours)
+    {
+        L.lilv_node_free(node);
+        return NULL;
+    }
+    // lilv reads a preset's statements on demand: the resource is loaded for the state, then unloaded
+    L.lilv_world_load_resource(g.world, node);
+    state = L.lilv_state_new_from_world(g.world, map, node);
+    L.lilv_world_unload_resource(g.world, node);
+    L.lilv_node_free(node);
+    if (!state)
+        return NULL;
+    text = L.lilv_state_to_string(g.world, map, unmap, state, uri, NULL);
+    L.lilv_state_free(state);
+    if (!text)
+        return NULL;
+    out = strdup(text);
+    L.lilv_free(text);
+    return out;
 }
 
 int lv2_plugin_state_check(const char *text, LV2_URID_Map *map)
