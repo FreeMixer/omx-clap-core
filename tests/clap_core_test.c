@@ -41,7 +41,11 @@
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
  *     block stays the plugin's output.
- *  7. THE ABI: configure accepts a consumer of the 0.2 header (ABI 1) and of this one, and refuses 0 and a newer one.
+ *  7. THE ABI: configure accepts a consumer of the 0.2 header (ABI 1) and refuses 0 and a newer one.
+ *  8. THE SIDE CHAIN: a plugin with a stereo auxiliary input is admitted, reads silence until the caller binds a pair,
+ *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
+ *     binding while it runs, a bad port or a stereo port with one channel is refused; two auxiliary inputs beyond the
+ *     core's count, or one of three channels, are refused.
  */
 #include <pthread.h>
 #include <sched.h>
@@ -87,7 +91,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 2u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 2, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 3u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 3, the oldest accepted 1 (%u)", config.abi);
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
@@ -440,6 +444,171 @@ static void t_roster_count_is_ceilinged(void) {
         1000u + OMX_CLAP_PARAM_COUNT_MAX - 1u);
 }
 
+/* ---- 8. the side chain ---- */
+/* A stereo effect whose output is its main input plus its auxiliary input, one or more of them: the count and the width
+ * are set per test. g_sc_seen records what process() was handed, the count of its audio inputs and whether the first
+ * auxiliary input's first channel was present. */
+static uint32_t g_sc_side = 1, g_sc_width = 2;
+static uint32_t g_sc_seen_inputs = 0;
+static int g_sc_side_read = 0;
+static uint32_t sc_ports_count(const clap_plugin_t *p, bool is_input) { (void)p; return is_input ? 1 + g_sc_side : 1; }
+static bool sc_ports_get(const clap_plugin_t *p, uint32_t i, bool is_input, clap_audio_port_info_t *info) {
+  (void)p;
+  if (i >= sc_ports_count(p, is_input)) return false;
+  memset(info, 0, sizeof *info);
+  info->id = i;
+  if (i == 0) {
+    snprintf(info->name, sizeof info->name, "main");
+    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+    info->channel_count = 2;
+    info->port_type = CLAP_PORT_STEREO;
+  } else {
+    snprintf(info->name, sizeof info->name, "side %u", i);
+    info->channel_count = g_sc_width;
+    info->port_type = g_sc_width == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+  }
+  info->in_place_pair = CLAP_INVALID_ID;
+  return true;
+}
+static const clap_plugin_audio_ports_t SC_PORTS = {sc_ports_count, sc_ports_get};
+static bool sc_init(const clap_plugin_t *p) { (void)p; return true; }
+static clap_process_status sc_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  (void)p;
+  g_sc_seen_inputs = pr->audio_inputs_count;
+  g_sc_side_read = pr->audio_inputs_count >= 2 && pr->audio_inputs[1].data32 != NULL && pr->audio_inputs[1].data32[0] != NULL;
+  for (uint32_t c = 0; c < 2; c++) {
+    const float *main = pr->audio_inputs[0].data32[c];
+    const float *side = g_sc_side_read ? pr->audio_inputs[1].data32[g_sc_width == 2 ? c : 0] : NULL;
+    float *out = pr->audio_outputs[0].data32[c];
+    for (uint32_t i = 0; i < pr->frames_count; i++) out[i] = main[i] + (side ? side[i] : 0.0f);
+  }
+  return CLAP_PROCESS_CONTINUE;
+}
+static const void *sc_ext(const clap_plugin_t *p, const char *id) {
+  (void)p;
+  return strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0 ? &SC_PORTS : NULL;
+}
+static const char *const SC_FEATURES[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL};
+static const clap_plugin_descriptor_t SC_DESC = {CLAP_VERSION_INIT, "org.omx-clap-host.test.core-sidechain", "core sidechain", "omx-clap-host", "", "", "", "0", "",
+                                                 SC_FEATURES};
+static uint32_t sc_count(const clap_plugin_factory_t *f) { (void)f; return 1; }
+static const clap_plugin_descriptor_t *sc_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i == 0 ? &SC_DESC : NULL; }
+static const clap_plugin_t *sc_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
+  (void)f, (void)host;
+  if (strcmp(id, SC_DESC.id) != 0) return NULL;
+  clap_plugin_t *p = calloc(1, sizeof *p);
+  *p = (clap_plugin_t){&SC_DESC, NULL, sc_init, ask_destroy, ask_activate, ask_nop, ask_start, ask_nop, ask_nop, sc_process, sc_ext, ask_nop};
+  return p;
+}
+static const clap_plugin_factory_t SC_FACTORY = {sc_count, sc_desc, sc_create};
+static const void *sc_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &SC_FACTORY : NULL; }
+static const clap_plugin_entry_t SC_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, sc_factory};
+
+static void sc_prime(struct omx_clap_instance *in, float l, float r) {
+  float bl[64], br[64];
+  for (uint32_t i = 0; i < 64; i++) bl[i] = l, br[i] = r;
+  omx_clap_host_run(in, bl, br, 64);  /* the first cycle after arming fades the plugin in */
+}
+static int sc_expect(struct omx_clap_instance *in, float l, float r, float want_l, float want_r, const char *what) {
+  float bl[64], br[64];
+  int ok = 1;
+  for (uint32_t i = 0; i < 64; i++) bl[i] = l, br[i] = r;
+  omx_clap_host_run(in, bl, br, 64);
+  for (uint32_t i = 0; i < 64; i++) ok = ok && fabsf(bl[i] - want_l) < 1e-6f && fabsf(br[i] - want_r) < 1e-6f;
+  CHECK(ok, "%s: the lane reads %g, %g (wanted %g, %g)", what, bl[0], br[0], want_l, want_r);
+  return ok;
+}
+
+/* Stop a running instance the way the stage takes it: a request, then one cycle that acknowledges it, then the unpublish */
+static void sc_stop(struct omx_clap_instance *in) {
+  omx_clap_request_stop(&in->stage);
+  sc_prime(in, 0.0f, 0.0f);
+  CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "unpublish the side-chain instance");
+}
+
+static void t_side_chain(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  float side_l[64], side_r[64];
+  float dummy_l[64], dummy_r[64];
+
+  g_sc_side = 1;
+  g_sc_width = 2;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0, "a stereo effect with a stereo side chain is admitted (%s)", why);
+  if (!in) return;
+  CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "one stereo auxiliary input beside the stereo pair (%u, %u, %u)",
+        in->aux_inputs, in->aux_in_channels[0], in->in_channels);
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate (%s)", why);
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  CHECK(g_sc_seen_inputs == 2 && g_sc_side_read, "the plugin is handed two inputs, the second with its channels (%u, %d)", g_sc_seen_inputs, g_sc_side_read);
+  sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound: the side chain is silence");
+
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r) == -1, "binding while the instance runs is refused");
+  sc_stop(in);
+  CHECK(omx_clap_host_bind_aux_input(in, 1, dummy_l, dummy_r) == -1, "a port past the auxiliary inputs is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, NULL) == -1, "a stereo port bound without its second channel is refused");
+  for (uint32_t i = 0; i < 64; i++) side_l[i] = 0.25f, side_r[i] = 0.125f;
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side_l, side_r) == 0, "bind a stereo pair to the side chain");
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "bound: the plugin reads the caller's pair");
+  sc_stop(in);
+
+  omx_clap_host_deactivate(in);
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate again (%s)", why);
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "the binding outlives a deactivate and activate");
+  sc_stop(in);
+
+  CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL) == 0, "unbind the side chain");
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound again: silence");
+  sc_stop(in);
+  omx_clap_host_close(in);
+}
+
+static void t_side_chain_mono(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  float side[64];
+
+  g_sc_side = 1;
+  g_sc_width = 1;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in_channels[0] == 1, "a mono side chain is admitted (%s)", why);
+  if (!in) return;
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the mono side chain (%s)", why);
+  for (uint32_t i = 0; i < 64; i++) side[i] = 0.25f;
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side, NULL) == 0, "a mono port binds its first channel alone");
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, 0.5f);
+  sc_expect(in, 0.5f, 0.5f, 0.75f, 0.75f, "a mono side chain feeds both channels of the stereo effect");
+  sc_stop(in);
+  omx_clap_host_close(in);
+  g_sc_width = 2;
+}
+
+static void t_side_chain_refused(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+
+  g_sc_side = CLAP_HOST_AUX_INPUTS + 1;
+  g_sc_width = 2;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "one side chain past the core's count is refused");
+  CHECK(strcmp(why, CLAP_HOST_CODE_EXTRA_INPUTS) == 0, "and the code is %s (%s)", CLAP_HOST_CODE_EXTRA_INPUTS, why);
+  g_sc_side = 1;
+  g_sc_width = 3;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of three channels is refused");
+  CHECK(strcmp(why, CLAP_HOST_CODE_WIDER_THAN_STRIP) == 0, "and the code is %s (%s)", CLAP_HOST_CODE_WIDER_THAN_STRIP, why);
+  g_sc_width = 2;
+  g_sc_side = CLAP_HOST_AUX_INPUTS;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_inputs == CLAP_HOST_AUX_INPUTS, "exactly the core's count is admitted (%s)", why);
+  if (in) omx_clap_host_close(in);
+  g_sc_side = 1;
+}
+
 /* ---- 5. the tempo ---- */
 
 /* The tempo fake: a stereo pass-through that records the transport its last process() was given. */
@@ -706,6 +875,9 @@ int main(int argc, char **argv) {
   t_tempo();
   t_transport_in_the_cycle();
   t_reset_off_rt();
+  t_side_chain();
+  t_side_chain_mono();
+  t_side_chain_refused();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
   if (failures) {
     fprintf(stderr, "clap_core: %d failure(s)\n", failures);

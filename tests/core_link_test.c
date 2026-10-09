@@ -82,10 +82,17 @@ int main(int argc, char **argv)
     check_refused(argv[1], FAKE_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
     check_refused(argv[2], SYNTH, CLAP_HOST_CODE_NOT_AUDIO_EFFECT);
     check_refused(argv[1], FAKE_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
-    check_refused(argv[1], FAKE_SIDECHAIN, CLAP_HOST_CODE_EXTRA_INPUTS);
     CHECK(omx_clap_host_binaries_open() == 0, "nothing stays loaded after the refusals (%u open)", omx_clap_host_binaries_open());
     omx_clap_host_config_default(&config);
     CHECK(omx_clap_host_configure(&config) == -1, "and the process cannot be configured once a binary was opened");
+
+    CHECK(open_ok(argv[1], FAKE_SIDECHAIN, &instance, why), "open %s: a side chain is admitted", FAKE_SIDECHAIN);
+    if (instance)
+    {
+        CHECK(instance->aux_inputs == 1, "one auxiliary input (%u)", instance->aux_inputs);
+        omx_clap_host_close(instance);
+        instance = NULL;
+    }
 
     CHECK(open_ok(argv[1], FAKE_PASSTHROUGH, &instance, why), "open %s", FAKE_PASSTHROUGH);
     if (!instance)
