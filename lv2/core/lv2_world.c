@@ -106,7 +106,8 @@ enum
     N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC,
     N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
-    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_MIDI_EVENT, N_COUNT
+    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_MIDI_EVENT, N_TIME_POSITION,
+    N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -148,6 +149,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_ATOM_LONG] = LV2_ATOM__Long,
     [N_ATOM_BOOL] = LV2_ATOM__Bool,
     [N_MIDI_EVENT] = LV2_MIDI__MidiEvent,
+    [N_TIME_POSITION] = LV2_TIME__Position,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -533,8 +535,8 @@ static char *world_string(const LilvNode *subject, int predicate)
 }
 
 /* An atom port is the patch port of its direction when it is a sequence that supports patch:Message and nothing else,
- * and the first one of its direction. A MIDI port is read before this; any other atom port is refused with the MIDI
- * refusal, which stays until the transport mapping takes the ports it carries. */
+ * and the first one of its direction. A MIDI port and the time:Position input are read before this; any other atom port
+ * is refused with the MIDI refusal. */
 static const char *atom_port(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t index)
 {
     LilvNodes *sup = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
@@ -688,6 +690,21 @@ static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
     return NULL;
 }
 
+/* An atom port whose atom:supports names time:Position and nothing else */
+static int port_takes_time(const LilvPlugin *pl, const LilvPort *port)
+{
+    LilvNodes *s = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
+    LilvIter *it;
+    unsigned n = 0;
+    int only = 1;
+
+    for (it = s ? L.lilv_nodes_begin(s) : NULL; s && !L.lilv_nodes_is_end(s, it); it = L.lilv_nodes_next(s, it), n++)
+        only = only && L.lilv_node_equals(L.lilv_nodes_get(s, it), g.node[N_TIME_POSITION]);
+    if (s)
+        L.lilv_nodes_free(s);
+    return n > 0 && only;
+}
+
 /* Read every port, or name the refusal, before any binary, with the codes of lv2_core.h. */
 static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
 {
@@ -702,6 +719,7 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     p->patch_in = p->patch_out = -1;
     p->midi_in_port = -1;
     p->midi_out_port = -1;
+    p->time_port = -1;
     p->n_ports = n;
     for (i = 0; i < n; i++)
     {
@@ -724,6 +742,12 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
                 p->midi_in_port = (int32_t)i;
             else
                 p->midi_out_port = (int32_t)i;
+            continue;
+        }
+        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && input && p->time_port < 0 && port_takes_time(pl, port))
+        {
+            // the transport's port: an input that takes time:Position and nothing else (§6.6)
+            p->time_port = (int32_t)i;
             continue;
         }
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]))
