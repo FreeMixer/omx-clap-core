@@ -640,12 +640,12 @@ struct omx_clap_transport_src
     _Atomic uint32_t seq;  ///< odd while a publish is under way
     _Atomic uint32_t flags;  ///< the CLAP_TRANSPORT_* bits that are valid
     _Atomic uint64_t tempo_bits;  ///< the bpm as the bits of a double
-    _Atomic clap_beattime song_pos_beats;
-    _Atomic clap_sectime song_pos_seconds;
-    _Atomic clap_beattime bar_start;
-    _Atomic int32_t bar_number;
-    _Atomic uint16_t tsig_num;
-    _Atomic uint16_t tsig_denom;
+    _Atomic clap_beattime song_pos_beats;  ///< position in beats
+    _Atomic clap_sectime song_pos_seconds;  ///< position in seconds
+    _Atomic clap_beattime bar_start;  ///< start of the current bar
+    _Atomic int32_t bar_number;  ///< the bar number
+    _Atomic uint16_t tsig_num;  ///< time signature numerator
+    _Atomic uint16_t tsig_denom;  ///< time signature denominator
 };
 
 /** Control thread: publish `t` whole. Seen by the next block that reads it; the sequence is odd while it is written. */
