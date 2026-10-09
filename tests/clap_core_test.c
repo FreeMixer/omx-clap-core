@@ -87,7 +87,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 2u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 2, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 3u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 3, the oldest accepted 1 (%u)", config.abi);
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
@@ -445,6 +445,8 @@ static void t_roster_count_is_ceilinged(void) {
 /* The tempo fake: a stereo pass-through that records the transport its last process() was given. */
 static struct {
   int saw_transport;   /* 1: a transport was passed, 0: NULL */
+  int t_present;       /* the same, for the copy below */
+  clap_event_transport_t t_copy;  /* the whole transport record, as delivered */
   double saw_tempo;    /* its tempo when it carried CLAP_TRANSPORT_HAS_TEMPO, else 0 */
   uint32_t saw_tflags;
   int saw_theader_ok;  /* size, space, type and time 0 as CLAP fixes them */
@@ -455,6 +457,8 @@ static clap_process_status tp_process(const clap_plugin_t *p, const clap_process
   const clap_event_transport_t *t = pr->transport;
   g_tp.runs++;
   g_tp.saw_transport = t != NULL;
+  g_tp.t_present = t != NULL;
+  if (t) g_tp.t_copy = *t;
   g_tp.saw_tempo = t && (t->flags & CLAP_TRANSPORT_HAS_TEMPO) ? t->tempo : 0.0;
   g_tp.saw_tflags = t ? t->flags : 0u;
   g_tp.saw_theader_ok = t && t->header.size == sizeof *t && t->header.space_id == CLAP_CORE_EVENT_SPACE_ID &&
@@ -543,6 +547,94 @@ static void t_tempo(void) {
   CHECK(l[255] == 0.0f, "withdrawn: the fixture is silent (%g)", (double)l[255]);
   omx_clap_request_stop(&in->stage);
   omx_clap_host_run(in, l, r, 256);
+  CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "unpublished");
+  omx_clap_host_close(in);
+}
+
+/* ---- 5b. the host's published transport ---- */
+
+/* The published record reaches the plugin whole: flags, tempo, beats, seconds, bar and time signature. A withdrawn
+ * record is no transport; the tempo word decides again once the source is unset; a read that does not come whole keeps
+ * the block's last whole record. */
+static void t_transport_record(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  CHECK(omx_clap_host_open_entry(&TP_ENTRY, TP_DESC.id, &in, why) == 0 && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "the transport reader opens for the record (%s)", why);
+  if (!in) return;
+  omx_clap_host_publish(in, pthread_self());
+
+  struct omx_clap_transport_src src;
+  memset(&src, 0, sizeof src);
+  struct omx_clap_transport rec;
+  memset(&rec, 0, sizeof rec);
+  rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_SECONDS_TIMELINE |
+              CLAP_TRANSPORT_HAS_TIME_SIGNATURE | CLAP_TRANSPORT_IS_PLAYING;
+  rec.tempo = 120.0;
+  rec.song_pos_beats = 5 * (CLAP_BEATTIME_FACTOR / 2);  /* 2.5 beats */
+  rec.song_pos_seconds = 3 * (CLAP_SECTIME_FACTOR / 2); /* 1.5 seconds */
+  rec.bar_start = 4 * CLAP_BEATTIME_FACTOR;             /* the bar starts at beat 4 */
+  rec.bar_number = 1;
+  rec.tsig_num = 7;
+  rec.tsig_denom = 8;
+  omx_clap_transport_publish(&src, &rec);
+  omx_clap_host_set_transport(in, &src);
+  tp_run(in);
+  const clap_event_transport_t *t = &g_tp.t_copy;
+  CHECK(g_tp.t_present, "a published transport reaches the plugin");
+  CHECK(t->flags == rec.flags, "the flags as published (0x%x)", t->flags);
+  CHECK(t->tempo == 120.0, "the tempo as published (%g)", t->tempo);
+  CHECK(t->song_pos_beats == rec.song_pos_beats && t->song_pos_seconds == rec.song_pos_seconds, "the position in beats and seconds as published");
+  CHECK(t->bar_start == rec.bar_start && t->bar_number == 1, "the bar start and number as published");
+  CHECK(t->tsig_num == 7 && t->tsig_denom == 8, "the time signature 7/8 as published (%u/%u)", t->tsig_num, t->tsig_denom);
+  CHECK(g_tp.saw_theader_ok, "the transport's header is CLAP_EVENT_TRANSPORT, its size, time 0");
+
+  /* a later publish: the playing state and the position change at the next block */
+  rec.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
+  rec.song_pos_beats += CLAP_BEATTIME_FACTOR;
+  omx_clap_transport_publish(&src, &rec);
+  tp_run(in);
+  CHECK(!(g_tp.t_copy.flags & CLAP_TRANSPORT_IS_PLAYING) && g_tp.t_copy.song_pos_beats == rec.song_pos_beats,
+        "a stopped position arrives at the next block (flags 0x%x)", g_tp.t_copy.flags);
+
+  /* the tempo word is superseded while the source is set, and decides again once it is unset */
+  struct omx_clap_tempo word;
+  memset(&word, 0, sizeof word);
+  omx_clap_tempo_publish(&word, 90.0);
+  omx_clap_host_set_tempo(in, &word);
+  tp_run(in);
+  CHECK(g_tp.t_copy.tempo == 120.0, "the published transport supersedes the tempo word (%g)", g_tp.t_copy.tempo);
+  omx_clap_host_set_transport(in, NULL);
+  tp_run(in);
+  CHECK(g_tp.t_present && g_tp.t_copy.flags == CLAP_TRANSPORT_HAS_TEMPO && g_tp.t_copy.tempo == 90.0,
+        "unset, the tempo word decides again: HAS_TEMPO at 90 and nothing else");
+  omx_clap_host_set_transport(in, &src);
+
+  /* a withdrawn record is no transport at all */
+  memset(&rec, 0, sizeof rec);
+  omx_clap_transport_publish(&src, &rec);
+  tp_run(in);
+  CHECK(!g_tp.t_present, "a record with no flags passes transport NULL");
+
+  /* the read: whole when no publish runs over it, and left alone when one does */
+  struct omx_clap_transport out;
+  memset(&out, 0, sizeof out);
+  rec.flags = CLAP_TRANSPORT_HAS_TEMPO;
+  rec.tempo = 77.0;
+  omx_clap_transport_publish(&src, &rec);
+  CHECK(omx_clap_transport_read(&src, &out) == 1 && out.tempo == 77.0, "a read between publishes is whole");
+  tp_run(in);
+  CHECK(g_tp.t_present && g_tp.t_copy.tempo == 77.0, "the block reads the whole record (%g)", g_tp.t_copy.tempo);
+  atomic_fetch_add(&src.seq, 1u); /* a publish under way: the sequence is odd */
+  struct omx_clap_transport torn;
+  memset(&torn, 0, sizeof torn);
+  CHECK(omx_clap_transport_read(&src, &torn) == 0 && torn.flags == 0, "a read over a publish under way does not come whole");
+  atomic_store(&src.tempo_bits, 0);
+  tp_run(in);
+  CHECK(g_tp.t_present && g_tp.t_copy.tempo == 77.0, "a block that does not read whole keeps the last whole record (%g)", g_tp.t_copy.tempo);
+  atomic_fetch_add(&src.seq, 1u);
+  omx_clap_host_set_transport(in, NULL);
+  omx_clap_request_stop(&in->stage);
+  tp_run(in);
   CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "unpublished");
   omx_clap_host_close(in);
 }
@@ -704,6 +796,7 @@ int main(int argc, char **argv) {
   t_roster_whole_or_refused();
   t_roster_count_is_ceilinged();
   t_tempo();
+  t_transport_record();
   t_transport_in_the_cycle();
   t_reset_off_rt();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
