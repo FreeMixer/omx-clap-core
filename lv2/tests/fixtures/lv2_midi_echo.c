@@ -47,7 +47,7 @@
 
 enum { P_IN, P_OUT, P_MIDI_IN, P_MIDI_OUT };
 
-enum { EXTRA_NONE, EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST };
+enum { EXTRA_NONE, EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST, EXTRA_BEATS };
 
 struct echo
 {
@@ -126,6 +126,12 @@ static void append_extra(struct echo *e, uint32_t cap)
     case EXTRA_4_BYTES: raw.ev.body.size = sizeof(four); memcpy(raw.data, four, sizeof(four)); break;
     case EXTRA_EMPTY: raw.ev.body.size = 0; break;
     case EXTRA_DATA_FIRST: raw.ev.body.size = sizeof(data_first); memcpy(raw.data, data_first, sizeof(data_first)); break;
+    case EXTRA_BEATS:
+        // a sequence in beats: the adapter passes none of its events
+        e->midi_out->body.unit = 1;
+        raw.ev.body.size = 3;
+        memcpy(raw.data, four, 3);
+        break;
     default: return;
     }
     lv2_atom_sequence_append_event(e->midi_out, cap, &raw.ev);

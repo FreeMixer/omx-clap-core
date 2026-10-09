@@ -756,9 +756,9 @@ static void t_midi(double rate)
     // block 4: a malformed output of the plugin, one kind at a time, is not passed on
     if (extra)
     {
-        static const int kinds[3] = { 1, 2, 3 };       // EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST
+        static const int kinds[4] = { 1, 2, 3, 4 };    // EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST, EXTRA_BEATS
 
-        for (k = 0; k < 3; k++)
+        for (k = 0; k < 4; k++)
         {
             mi_init(&mi);
             mo_init(&mo);
