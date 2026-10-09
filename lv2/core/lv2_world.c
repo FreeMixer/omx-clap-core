@@ -714,8 +714,11 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             return LV2_CODE_MIDI_IN;
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
         {
-            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most
+            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most; a port that
+            // also takes patch:Message is refused, since neither mapping carries both on one port
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
+                return LV2_CODE_MIDI_IN;
+            if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
                 return LV2_CODE_MIDI_IN;
             if (input)
                 p->midi_in_port = (int32_t)i;
