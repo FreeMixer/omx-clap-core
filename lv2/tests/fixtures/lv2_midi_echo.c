@@ -47,7 +47,7 @@
 
 enum { P_IN, P_OUT, P_MIDI_IN, P_MIDI_OUT };
 
-enum { EXTRA_NONE, EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST, EXTRA_BEATS };
+enum { EXTRA_NONE, EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST, EXTRA_BEATS, EXTRA_OVERSIZE };
 
 struct echo
 {
@@ -143,6 +143,13 @@ static void echo_run(LV2_Handle h, uint32_t n)
     const uint32_t cap = e->midi_out->atom.size;
 
     memcpy(e->out, e->in, n * sizeof(float));
+    if (g_extra == EXTRA_OVERSIZE)
+    {
+        // a sequence that declares more than its buffer holds: zeros inside the buffer, a size far past its end
+        memset(e->midi_out, 0, cap + sizeof(LV2_Atom));
+        e->midi_out->atom.size = 1u << 20;
+        return;
+    }
     g_seen.n = 0;
     lv2_atom_sequence_clear(e->midi_out);
     LV2_ATOM_SEQUENCE_FOREACH(e->midi_in, ev)
