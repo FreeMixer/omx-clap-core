@@ -77,7 +77,7 @@ void *__wrap_calloc(size_t a, size_t b) { rt_allocs += in_rt; return __real_call
 void *__wrap_realloc(void *p, size_t n) { rt_allocs += in_rt; return __real_realloc(p, n); }
 void __wrap_free(void *p) { rt_allocs += in_rt; __real_free(p); }
 
-static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
+static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32], g_sc[PATH_MAX];
 
 /* ---- the test's host ---- */
 
@@ -695,6 +695,73 @@ static void t_worker(double rate)
     }
 }
 
+/* ---- the side chain: one CLAP input per side chain, fed the caller's buffers through the face and through the core ---- */
+
+#define SC_URI "urn:openmixer:test:sidechain-fixture"
+
+/* one process() call of the side-chain plugin: `in` the main pair, `side` the side chain's pair (NULL: none handed) */
+static clap_process_status sc_process(struct rig *g, float *in_l, float *in_r, float *side_l, float *side_r, float *out_l, float *out_r, uint32_t n)
+{
+    float *ins[2] = { in_l, in_r }, *sides[2] = { side_l, side_r }, *outs[2] = { out_l, out_r };
+    clap_audio_buffer_t ib[2] = { { ins, NULL, 2, 0, 0 }, { sides, NULL, 2, 0, 0 } }, ob = { outs, NULL, 2, 0, 0 };
+    struct evlist none;
+    clap_process_t p;
+    clap_process_status st;
+
+    ev_init(&none);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = -1;
+    p.frames_count = n;
+    p.audio_inputs = ib;
+    p.audio_outputs = &ob;
+    p.audio_inputs_count = side_l ? 2 : 1;
+    p.audio_outputs_count = 1;
+    p.in_events = &none.list;
+    p.out_events = &OUT_EVENTS;
+    g_audio = 1;
+    in_rt = 1;
+    st = g->plugin->process(g->plugin, &p);
+    in_rt = 0;
+    g_audio = 0;
+    return st;
+}
+
+static void t_sidechain(double rate)
+{
+    static float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK], side_l[BLOCK], side_r[BLOCK], none_l[BLOCK], none_r[BLOCK];
+    clap_audio_port_info_t port;
+    struct rig g;
+    uint32_t i;
+    int same;
+
+    if (rig_up(&g, g_sc, SC_URI, rate, MAXB) != 0)
+        return;
+    CHECK(g.ports && g.ports->count(g.plugin, true) == 2 && g.ports->count(g.plugin, false) == 1,
+          "side chain %.0f: two inputs (the main pair and the side chain), one output", rate);
+    CHECK(g.ports->get(g.plugin, 0, true, &port) && port.flags == CLAP_AUDIO_PORT_IS_MAIN && port.channel_count == 2,
+          "side chain %.0f: the main input is the main stereo port", rate);
+    CHECK(g.ports->get(g.plugin, 1, true, &port) && port.id == 1 && port.flags == 0 && port.channel_count == 2
+          && strcmp(port.name, "Sidechain") == 0 && strcmp(port.port_type, CLAP_PORT_STEREO) == 0 && port.in_place_pair == CLAP_INVALID_ID,
+          "side chain %.0f: the side chain is a stereo port of its group's label, not main (%s)", rate, port.name);
+    CHECK(!g.ports->get(g.plugin, 2, true, &port), "side chain %.0f: no third input", rate);
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = 0.5f, in_r[i] = -0.25f, side_l[i] = 0.25f, side_r[i] = 0.125f, none_l[i] = none_r[i] = 0.0f;
+    sc_process(&g, in_l, in_r, side_l, side_r, out_l, out_r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out_l[i] == 0.75f && out_r[i] == -0.125f;
+    CHECK(same, "side chain %.0f: out = main + side, per channel (%g, %g)", rate, out_l[0], out_r[0]);
+
+    sc_process(&g, in_l, in_r, NULL, NULL, out_l, out_r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out_l[i] == 0.5f && out_r[i] == -0.25f;
+    CHECK(same, "side chain %.0f: handed no side chain, the output is the main input alone", rate);
+
+    sc_process(&g, in_l, in_r, none_l, NULL, out_l, out_r, BLOCK);
+    CHECK(out_l[0] == 0.5f && out_r[0] == -0.25f, "side chain %.0f: a silent side chain adds nothing", rate);
+    rig_down(&g);
+}
+
 /* ---- the CLAP body of libomx-clap-core around the adapter ---- */
 
 static struct omx_clap_instance *core_open(const clap_plugin_entry_t *entry, const char *uri, double rate, char why[OMX_CLAP_WHY_MAX])
@@ -717,6 +784,59 @@ static void core_run(struct omx_clap_instance *in, float *l, float *r, uint32_t 
     in_rt = 1;
     omx_clap_run(&in->stage, l, r, n);
     in_rt = 0;
+}
+
+static void t_sidechain_core(double rate)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_sc, why);
+    struct omx_clap_instance *in = NULL;
+    static float l[BLOCK], r[BLOCK], sl[BLOCK], sr[BLOCK];
+    uint32_t i;
+    int same;
+
+    CHECK(entry && omx_clap_host_open_entry(entry, SC_URI, &in, cwhy) == 0, "core %.0f: the side-chain plugin opens through the core (%s)", rate, cwhy);
+    if (!in)
+    {
+        omx_clap_lv2_entry_release(entry);
+        return;
+    }
+    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f, sl[i] = 0.25f, sr[i] = 0.125f;
+    CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr) == 0, "core %.0f: bind the side chain before activation", rate);
+    CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "core %.0f: activate (%s)", rate, cwhy);
+    omx_clap_host_publish(in, pthread_self());
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL) == -1, "core %.0f: a binding while the instance runs is refused", rate);
+    core_run(in, l, r, BLOCK);          /* the first cycle after arming is the warm-up's: its output is not checked */
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && l[i] == 0.75f && r[i] == -0.125f;
+    CHECK(same, "core %.0f: the plugin reads the bound pair through the core (%g, %g)", rate, l[0], r[0]);
+
+    omx_clap_request_stop(&in->stage);
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL) == 0, "core %.0f: unbind the side chain", rate);
+    omx_clap_host_publish(in, pthread_self());
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && l[i] == 0.5f && r[i] == -0.25f;
+    CHECK(same, "core %.0f: unbound, the plugin reads silence again (%g, %g)", rate, l[0], r[0]);
+    omx_clap_request_stop(&in->stage);
+    core_run(in, l, r, BLOCK);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish again", rate);
+    omx_clap_host_close(in);
+    omx_clap_lv2_entry_release(entry);
 }
 
 static void t_core(double rate)
@@ -906,6 +1026,8 @@ int main(int argc, char **argv)
     abs_dir(dir, g_wg);
     snprintf(dir, sizeof(dir), "%somx-lv2-fakes.lv2", build);
     abs_dir(dir, g_fakes);
+    snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", build);
+    abs_dir(dir, g_sc);
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     in_rt = 1;
@@ -928,6 +1050,8 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
+        t_sidechain(RATES[r]);
+        t_sidechain_core(RATES[r]);
         t_core(RATES[r]);
         printf("lv2 clap @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
     }

@@ -58,7 +58,7 @@
 #define N_BLOCKS 16u
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
-static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX];
+static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_sc[PATH_MAX];
 static const char *g_lilv;
 static pthread_t g_main;
 static volatile int g_in_run;      // the main thread holds the audio role only inside a block
@@ -247,6 +247,61 @@ static void t_fixture(void)
         lv2_instance_free(inst);
     }
     lv2_plugin_close(p);
+}
+
+/* ---- the side chains: the main input, and one CLAP input per side chain ---- */
+
+#define SC_URI "urn:openmixer:test:sidechain-fixture"
+
+static void t_sidechains(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_sc, SC_URI, why);
+    static const struct { const char *uri, *code; } refused[] = {
+        { SC_URI "#wide", "hosting.topology.wider-than-strip" },
+        { SC_URI "#extra", "hosting.topology.extra-inputs-fed-silence" },
+    };
+    size_t i;
+
+    CHECK(p != NULL, "side chain: the grouped stereo effect is admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->legs == 2 && p->in_ports[0] == 0 && p->in_ports[1] == 1 && p->out_ports[0] == 2 && p->out_ports[1] == 3,
+              "side chain: the main pair is the pg:mainInput group, 0 and 1 (legs %u)", p->legs);
+        CHECK(p->n_side == 1 && p->n_side_legs == 2 && p->side_channels[0] == 2 && p->side_base[0] == 0,
+              "side chain: one side chain of two legs (%u chains, %u legs)", p->n_side, p->n_side_legs);
+        CHECK(p->side_in[0] == 4 && p->side_in[1] == 5, "side chain: its legs are ports 4 and 5, in order (%u, %u)", p->side_in[0], p->side_in[1]);
+        CHECK(p->side_name[0] && strcmp(p->side_name[0], "Sidechain") == 0, "side chain: named by its group's label (%s)", p->side_name[0] ? p->side_name[0] : "-");
+    }
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_sc, SC_URI "#mono", why);
+    CHECK(p != NULL, "side chain: a mono side chain by lv2:isSideChain alone is admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->legs == 2 && p->n_side == 1 && p->n_side_legs == 1 && p->side_channels[0] == 1 && p->side_in[0] == 4,
+              "side chain: one leg, port 4, beside the ungrouped main pair (%u chains, %u legs)", p->n_side, p->n_side_legs);
+        CHECK(p->side_name[0] && strcmp(p->side_name[0], "Side") == 0, "side chain: an ungrouped one is named by its port (%s)", p->side_name[0] ? p->side_name[0] : "-");
+    }
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_sc, SC_URI "#port-of", why);
+    CHECK(p != NULL && p->n_side == 1 && p->side_in[0] == 4 && p->legs == 2,
+          "side chain: pg:sideChainOf on the port alone makes it a side chain (%s)", why);
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_fixture, FIXTURE_URI, why);
+    CHECK(p != NULL && p->n_side == 0 && p->n_side_legs == 0, "side chain: a plugin with no side chain has none");
+    lv2_plugin_close(p);
+
+    for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    {
+        char rwhy[LV2_CORE_WHY_MAX] = "";
+        struct lv2_plugin *q = open_plugin(g_sc, refused[i].uri, rwhy);
+
+        CHECK(!q && strcmp(rwhy, refused[i].code) == 0, "side chain refusal: %s is refused %s (got '%s')", refused[i].uri, refused[i].code, rwhy);
+        lv2_plugin_close(q);
+    }
 }
 
 /* ---- the refusals ---- */
@@ -473,6 +528,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-worker-gain.lv2", g_build);
     if (abs_dir(dir, g_wg) != 0)
         return 1;
+    snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", g_build);
+    if (abs_dir(dir, g_sc) != 0)
+        return 1;
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     setenv("LV2_PATH", g_build, 1);     // what load_all would find: every bundle is there
 
@@ -486,6 +544,7 @@ int main(int argc, char **argv)
     t_one_bundle();
     t_fixture();
     t_refusals();
+    t_sidechains();
     for (r = 0; r < N_RATES; r++)
         t_worker(RATES[r]);
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");

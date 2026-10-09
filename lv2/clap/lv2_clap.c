@@ -340,25 +340,33 @@ static uint32_t latency_get(const clap_plugin_t *plugin)
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
+/* the main pair, then one input per side chain (LV2 port groups and lv2:isSideChain, lv2/core); the output is the main pair */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
-    (void)plugin;
-    (void)is_input;
-    return 1;
+    return is_input ? 1u + SHIM_OF(plugin)->lv2->n_side : 1u;
 }
 
 static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_audio_port_info_t *info)
 {
     const struct shim *s = SHIM_OF(plugin);
 
-    if (index != 0)
+    if (index >= ports_count(plugin, is_input))
         return false;
     memset(info, 0, sizeof(*info));
-    info->id = 0;
-    snprintf(info->name, sizeof(info->name), "%s", is_input ? "in" : "out");
-    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-    info->channel_count = s->lv2->legs;
-    info->port_type = s->lv2->legs == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+    info->id = index;
+    if (index == 0)
+    {
+        snprintf(info->name, sizeof(info->name), "%s", is_input ? "in" : "out");
+        info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+        info->channel_count = s->lv2->legs;
+        info->port_type = s->lv2->legs == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+    }
+    else
+    {
+        snprintf(info->name, sizeof(info->name), "%s", s->lv2->side_name[index - 1]);
+        info->channel_count = s->lv2->side_channels[index - 1];
+        info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+    }
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
 }
@@ -507,6 +515,21 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
             memcpy(dst, b->data32[leg < b->channel_count ? leg : 0], n * sizeof(float));
         else
             memset(dst, 0, n * sizeof(float));
+    }
+    for (leg = 0; leg < s->lv2->n_side; leg++)
+    {
+        const clap_audio_buffer_t *b = process->audio_inputs_count > 1 + leg ? &process->audio_inputs[1 + leg] : NULL;
+        uint32_t c;
+
+        for (c = 0; c < s->lv2->side_channels[leg]; c++)
+        {
+            float *dst = lv2_instance_side_in(s->in, s->lv2->side_base[leg] + c);
+
+            if (b && b->data32 && c < b->channel_count && b->data32[c])
+                memcpy(dst, b->data32[c], n * sizeof(float));
+            else
+                memset(dst, 0, n * sizeof(float));
+        }
     }
     s->events = process->in_events;
     lv2_instance_run(s->in, n, write_controls, s);

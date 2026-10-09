@@ -54,6 +54,7 @@
 #include <lv2/core/lv2.h>
 #include <lv2/log/log.h>
 #include <lv2/options/options.h>
+#include <lv2/port-groups/port-groups.h>
 #include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
@@ -67,6 +68,9 @@
 
 /* bytes a refusal code needs, with its NUL */
 #define LV2_CORE_WHY_MAX                96
+
+/* the side-chain legs a plugin may have, one per channel: at most this many channels, each side chain one or two of them */
+#define LV2_CORE_SIDE_LEGS              8
 
 /* the library the first bundle loads unless the configuration names another */
 #define LV2_CORE_LILV_SONAME            "liblilv-0.so.0"
@@ -149,8 +153,14 @@ struct lv2_plugin
     char *uri;
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
-    uint32_t legs;                  // 1 or 2
+    uint32_t legs;                  // the main input's channels: 1 or 2
     uint32_t in_ports[2], out_ports[2];
+    uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
+    uint32_t n_side_legs;           // the legs of all of them
+    uint32_t side_channels[LV2_CORE_SIDE_LEGS];     // the legs of each side chain
+    uint32_t side_base[LV2_CORE_SIDE_LEGS];         // the first leg of each side chain
+    uint32_t side_in[LV2_CORE_SIDE_LEGS];           // the plugin's port index of each side-chain leg
+    char *side_name[LV2_CORE_SIDE_LEGS];            // the name of each side chain: its group's label, else its port's name
     int32_t latency_port;           // -1: none
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
@@ -243,6 +253,7 @@ void lv2_instance_free(struct lv2_instance *in);
 /* The audio buffers the plugin's ports are connected to, `max_frames` each, valid from the activate that sized them. */
 float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg);
 float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t leg);
+float *lv2_instance_side_in(struct lv2_instance *in, uint32_t leg);
 
 /* [audio] Write the input control `k` (the index in plugin->controls); the bypass and the outputs are not writable. */
 void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value);
