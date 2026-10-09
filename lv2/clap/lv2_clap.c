@@ -40,6 +40,14 @@
 * a read-only parameter whose value is what the last process() read. A parameter write is block-rate: every
 * CLAP_EVENT_PARAM_VALUE of a process() call lands before that call's run(), whatever its time.
 *
+* MIDI. An LV2 MIDI input is one clap.note-ports input and an LV2 MIDI output one output, both dialect MIDI and no other.
+* Each CLAP_EVENT_MIDI and CLAP_EVENT_MIDI_SYSEX of a process() call is written into the input before that call's run(),
+* at its frame, as a midi:MidiEvent of the message's length: a channel program change or channel pressure carries two
+* bytes, every other channel message three, a system message the length its status says, a sysex its own bytes. A CLAP
+* note event is not taken: the port does not offer that dialect. Each midi:MidiEvent the plugin wrote is a CLAP_EVENT_MIDI
+* (a message of up to three bytes, the rest zero) or a CLAP_EVENT_MIDI_SYSEX (a sysex), at its frame; a frame past the
+* block is held at its last frame, and a message of more than three bytes that is not a sysex is not passed on.
+*
 * Latency. latency.get answers the figure taken at the last activate. A different reading is held: only once it has
 * read unchanged for latency_hold_ms of blocks does the shim call host->request_restart, and the restart's activate
 * takes it. A value that moves and comes back inside the hold costs nothing.
@@ -63,6 +71,7 @@
 #include <string.h>
 
 #include <clap/clap.h>
+#include <clap/ext/note-ports.h>
 
 #include "lv2_core.h"
 #include "omx_clap_lv2.h"
@@ -123,8 +132,10 @@ struct shim
     struct lv2_counters logged;
     _Atomic uint32_t counters_moved;
 
-    // the events of the process() under way, for the write before run()
+    // the events of the process() under way, for the write before run(), and the block's length and output
     const clap_input_events_t *events;
+    const clap_output_events_t *out_events;
+    uint32_t frames;
 };
 
 
@@ -368,6 +379,124 @@ static const clap_plugin_audio_ports_t g_audio_ports = { ports_count, ports_get 
 
 /*
 ************************************************************************************************************************
+*           LOCAL FUNCTIONS: clap.note-ports, MIDI
+************************************************************************************************************************
+*/
+
+static uint32_t note_ports_count(const clap_plugin_t *plugin, bool is_input)
+{
+    const struct lv2_plugin *l = SHIM_OF(plugin)->lv2;
+
+    return is_input ? l->midi_in_port >= 0 : l->midi_out_port >= 0;
+}
+
+static bool note_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_note_port_info_t *info)
+{
+    if (index != 0 || !note_ports_count(plugin, is_input))
+        return false;
+    memset(info, 0, sizeof(*info));
+    info->id = 0;
+    info->supported_dialects = CLAP_NOTE_DIALECT_MIDI;
+    info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
+    snprintf(info->name, sizeof(info->name), "%s", is_input ? "MIDI in" : "MIDI out");
+    return true;
+}
+
+static const clap_plugin_note_ports_t g_note_ports = { note_ports_count, note_ports_get };
+
+/* the bytes a message of this status byte has: 0 for a byte no message starts with, and for a sysex, which comes as a
+ * CLAP_EVENT_MIDI_SYSEX of its own. A program change and a channel pressure have two, every other channel message three. */
+static uint32_t midi_size(uint8_t status)
+{
+    if (status < 0x80)
+        return 0;
+    if (status < 0xf0)
+        return (status & 0xe0) == 0xc0 ? 2u : 3u;
+    switch (status)
+    {
+    case 0xf1: case 0xf3: return 2;
+    case 0xf2: return 3;
+    case 0xf6: case 0xf8: case 0xf9: case 0xfa: case 0xfb: case 0xfc: case 0xfd: case 0xfe: case 0xff: return 1;
+    default: return 0;
+    }
+}
+
+/* a frame of the block for an event's time: a time past the block is held at its last frame */
+static uint32_t frame_in(const struct shim *s, uint32_t time)
+{
+    if (time < s->frames)
+        return time;
+    return s->frames ? s->frames - 1 : 0;
+}
+
+/* [audio] the MIDI of the events, in the order they came, into the MIDI input of the next run. A message the input cannot
+ * carry is not written; one past the buffer is dropped and counted by the core. */
+static void midi_in_events(struct shim *s, const clap_input_events_t *events)
+{
+    const uint32_t n = events ? events->size(events) : 0;
+    uint32_t i;
+
+    for (i = 0; i < n; i++)
+    {
+        const clap_event_header_t *h = events->get(events, i);
+
+        if (!h || h->space_id != CLAP_CORE_EVENT_SPACE_ID)
+            continue;
+        if (h->type == CLAP_EVENT_MIDI)
+        {
+            const clap_event_midi_t *m = (const clap_event_midi_t *)h;
+            const uint32_t size = midi_size(m->data[0]);
+
+            if (size)
+                lv2_instance_midi_in_add(s->in, frame_in(s, h->time), m->data, size);
+        }
+        else if (h->type == CLAP_EVENT_MIDI_SYSEX)
+        {
+            const clap_event_midi_sysex_t *x = (const clap_event_midi_sysex_t *)h;
+
+            if (x->buffer && x->size)
+                lv2_instance_midi_in_add(s->in, frame_in(s, h->time), x->buffer, x->size);
+        }
+    }
+}
+
+/* [audio] one midi:MidiEvent the plugin wrote, as a CLAP event at its frame. A message of up to three bytes is a
+ * CLAP_EVENT_MIDI, a sysex a CLAP_EVENT_MIDI_SYSEX, anything else is not a message a CLAP port carries and is not passed. */
+static void midi_out_event(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    struct shim *s = ctx;
+    const uint32_t time = frame < 0 ? 0u : frame_in(s, (uint32_t)(frame > UINT32_MAX ? UINT32_MAX : frame));
+    clap_event_midi_t m;
+    clap_event_midi_sysex_t x;
+
+    if (!size || data[0] < 0x80)
+        return;
+    if (data[0] == 0xf0)
+    {
+        memset(&x, 0, sizeof(x));
+        x.header.size = sizeof(x);
+        x.header.time = time;
+        x.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        x.header.type = CLAP_EVENT_MIDI_SYSEX;
+        x.buffer = data;
+        x.size = size;
+        s->out_events->try_push(s->out_events, &x.header);
+    }
+    else if (size <= 3)
+    {
+        memset(&m, 0, sizeof(m));
+        m.header.size = sizeof(m);
+        m.header.time = time;
+        m.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        m.header.type = CLAP_EVENT_MIDI;
+        memcpy(m.data, data, size);
+        s->out_events->try_push(s->out_events, &m.header);
+    }
+}
+
+
+/*
+************************************************************************************************************************
 *           LOCAL FUNCTIONS: THE PLUGIN
 ************************************************************************************************************************
 */
@@ -509,8 +638,15 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
             memset(dst, 0, n * sizeof(float));
     }
     s->events = process->in_events;
+    s->out_events = process->out_events;
+    s->frames = n;
+    if (s->lv2->midi_in_port >= 0)
+        midi_in_events(s, process->in_events);
     lv2_instance_run(s->in, n, write_controls, s);
     s->events = NULL;
+    if (s->lv2->midi_out_port >= 0 && s->out_events)
+        lv2_instance_midi_out_each(s->in, midi_out_event, s);
+    s->out_events = NULL;
     if (process->audio_outputs_count && process->audio_outputs[0].data32)
     {
         const clap_audio_buffer_t *b = &process->audio_outputs[0];
@@ -534,6 +670,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_latency;
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS))
         return &g_audio_ports;
+    if (!strcmp(id, CLAP_EXT_NOTE_PORTS))
+        return &g_note_ports;
     return NULL;
 }
 
@@ -550,8 +688,9 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     if (memcmp(&c, &s->logged, sizeof(c)) == 0)
         return;
     snprintf(line, sizeof(line),
-             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u",
-             c.schedule_refused, c.responses_refused, c.respond_strikes, c.map_on_audio, c.schedule_off_audio, c.log_on_audio);
+             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u midi_in_dropped %u",
+             c.schedule_refused, c.responses_refused, c.respond_strikes, c.map_on_audio, c.schedule_off_audio, c.log_on_audio,
+             c.midi_in_dropped);
     host_log(s->host, CLAP_LOG_WARNING, line);
     s->logged = c;
 }
