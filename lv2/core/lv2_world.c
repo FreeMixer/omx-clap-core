@@ -47,6 +47,7 @@
 
 #include <lilv/lilv.h>
 #include <lv2/atom/atom.h>
+#include <lv2/midi/midi.h>
 #include <lv2/core/lv2.h>
 #include <lv2/port-props/port-props.h>
 #include <lv2/state/state.h>
@@ -73,6 +74,7 @@
     X(lilv_plugin_get_num_ports) X(lilv_plugin_get_port_by_index) X(lilv_plugin_get_required_features) \
     X(lilv_port_is_a) X(lilv_port_get_symbol) X(lilv_port_get_name) X(lilv_port_get_range) X(lilv_port_get_value) \
     X(lilv_port_has_property) X(lilv_port_get_scale_points) X(lilv_scale_points_begin) X(lilv_scale_points_next) \
+    X(lilv_port_supports_event) \
     X(lilv_scale_points_is_end) X(lilv_scale_points_get) X(lilv_scale_points_free) X(lilv_scale_point_get_label) \
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
     X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
@@ -96,7 +98,7 @@ static struct
 enum
 {
     N_AUDIO, N_CONTROL, N_CV, N_ATOM, N_EVENT, N_INPUT, N_OUTPUT, N_DESIGNATION, N_ENABLED, N_LATENCY,
-    N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC, N_COUNT
+    N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC, N_MIDI_EVENT, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -118,6 +120,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_NOT_ON_GUI] = LV2_PORT_PROPS__notOnGUI,
     [N_TRIGGER] = LV2_PORT_PROPS__trigger,
     [N_LOGARITHMIC] = LV2_PORT_PROPS__logarithmic,
+    [N_MIDI_EVENT] = LV2_MIDI__MidiEvent,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -477,6 +480,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     if (!p->controls)
         return LV2_CODE_NO_REALISATION;
     p->latency_port = -1;
+    p->midi_in_port = -1;
+    p->midi_out_port = -1;
     p->n_ports = n;
     for (i = 0; i < n; i++)
     {
@@ -486,7 +491,19 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         const char *symbol;
 
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) || L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
-            return LV2_CODE_MIDI_IN;
+        {
+            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most; any other
+            // atom or event port is refused until its stage maps it
+            if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]) || !L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
+                return LV2_CODE_MIDI_IN;
+            if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
+                return LV2_CODE_MIDI_IN;
+            if (input)
+                p->midi_in_port = (int32_t)i;
+            else
+                p->midi_out_port = (int32_t)i;
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_CV]))
             return LV2_CODE_CV_PORTS;
         if (L.lilv_port_is_a(pl, port, g.node[N_AUDIO]))

@@ -65,6 +65,7 @@
 #define N_BLOCKS 16u
 #define MAXB 256u
 #define HOLD_MS 250u
+#define MIDI_URI "urn:openmixer:test:midi-echo"
 
 /* ---- RT allocation witness ---- */
 static volatile int in_rt = 0, rt_allocs = 0;
@@ -78,6 +79,7 @@ void *__wrap_realloc(void *p, size_t n) { rt_allocs += in_rt; return __real_real
 void __wrap_free(void *p) { rt_allocs += in_rt; __real_free(p); }
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
+static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
 
@@ -265,16 +267,14 @@ static void rig_down(struct rig *g)
 }
 
 /* one process() call: `in` to `out` (the same buffer when the host processes in place), `events` or none */
-static clap_process_status process(struct rig *g, const float *in_l, const float *in_r, float *out_l, float *out_r, uint32_t n,
-                                   struct evlist *events)
+static clap_process_status process_with(struct rig *g, const float *in_l, const float *in_r, float *out_l, float *out_r, uint32_t n,
+                                        const clap_input_events_t *in_events, const clap_output_events_t *out_events)
 {
     float *ins[2] = { (float *)in_l, (float *)(in_r ? in_r : in_l) }, *outs[2] = { out_l, out_r ? out_r : out_l };
     clap_audio_buffer_t ib = { ins, NULL, g->legs, 0, 0 }, ob = { outs, NULL, g->legs, 0, 0 };
-    struct evlist none;
     clap_process_t p;
     clap_process_status st;
 
-    ev_init(&none);
     memset(&p, 0, sizeof(p));
     p.steady_time = -1;
     p.frames_count = n;
@@ -282,14 +282,23 @@ static clap_process_status process(struct rig *g, const float *in_l, const float
     p.audio_outputs = &ob;
     p.audio_inputs_count = 1;
     p.audio_outputs_count = 1;
-    p.in_events = events ? &events->list : &none.list;
-    p.out_events = &OUT_EVENTS;
+    p.in_events = in_events;
+    p.out_events = out_events;
     g_audio = 1;
     in_rt = 1;
     st = g->plugin->process(g->plugin, &p);
     in_rt = 0;
     g_audio = 0;
     return st;
+}
+
+static clap_process_status process(struct rig *g, const float *in_l, const float *in_r, float *out_l, float *out_r, uint32_t n,
+                                   struct evlist *events)
+{
+    struct evlist none;
+
+    ev_init(&none);
+    return process_with(g, in_l, in_r, out_l, out_r, n, events ? &events->list : &none.list, &OUT_EVENTS);
 }
 
 static double param(struct rig *g, clap_id id)
@@ -427,6 +436,28 @@ static void t_refusals(void)
     omx_clap_lv2_entry_release(e);
 }
 
+/* a plugin with two MIDI inputs is refused with its code, and the fixture with no MIDI has no note ports */
+static void t_midi_refusal(void)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_midi, why);
+    const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    struct th t;
+    struct rig g;
+    const clap_plugin_note_ports_t *np;
+
+    th_init(&t);
+    CHECK(f && f->create_plugin(f, &t.host, MIDI_URI "#two-in") == NULL && strcmp(t.log, "hosting.features.midi-in-fed-empty\n") == 0,
+          "create_plugin refuses a second MIDI input, and clap.log carries its code (got '%.*s')", (int)strcspn(t.log, "\n"), t.log);
+    omx_clap_lv2_entry_release(e);
+    if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(!np || (np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 0), "the fixture with no MIDI has no note ports");
+        rig_down(&g);
+    }
+}
+
 /* ---- the fixture through the face ---- */
 
 static double gain_db(const float *in, const float *out, uint32_t from, uint32_t to)
@@ -491,6 +522,252 @@ static void t_fixture(double rate)
     g.plugin->deactivate(g.plugin);
     CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK) && g.latency->get(g.plugin) == 7, "fixture %.0f: the restart's activate takes 7 frames (%u)", rate, g.latency->get(g.plugin));
     CHECK(param(&g, 3) == -10.0, "fixture %.0f: the row keeps its value across the restart", rate);
+    rig_down(&g);
+}
+
+/* ---- MIDI through the face ---- */
+
+#define MIDI_EVENTS 64u
+#define MIDI_SYSEX_MAX 16u
+#define MIDI_CAPACITY 42u       // a 3-byte message takes 24 bytes of the 1016 the MIDI buffer holds after its header
+
+union any_event
+{
+    clap_event_header_t h;
+    clap_event_midi_t m;
+    clap_event_midi_sysex_t x;
+    clap_event_note_t note;
+};
+
+struct midi_in
+{
+    clap_input_events_t list;
+    union any_event ev[MIDI_EVENTS];
+    uint32_t n;
+};
+
+struct midi_out
+{
+    clap_output_events_t list;
+    union any_event ev[MIDI_EVENTS];
+    uint8_t bytes[MIDI_EVENTS][MIDI_SYSEX_MAX];     // a sysex's bytes, copied out of the plugin's buffer
+    uint32_t n;
+};
+
+/* the fixture's symbols, read back from the loaded binary */
+typedef uint32_t (*echo_seen_count_fn)(void);
+typedef int (*echo_seen_fn)(uint32_t, int64_t *, uint32_t *, uint8_t *);
+typedef void (*echo_extra_fn)(int);
+
+static uint32_t mi_size(const clap_input_events_t *l)
+{
+    return ((const struct midi_in *)l->ctx)->n;
+}
+
+static const clap_event_header_t *mi_get(const clap_input_events_t *l, uint32_t i)
+{
+    const struct midi_in *m = l->ctx;
+
+    return i < m->n ? &m->ev[i].h : NULL;
+}
+
+static void mi_init(struct midi_in *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->list.ctx = m;
+    m->list.size = mi_size;
+    m->list.get = mi_get;
+}
+
+static void mi_midi(struct midi_in *m, uint32_t time, const uint8_t *bytes, uint32_t size)
+{
+    clap_event_midi_t *e = &m->ev[m->n++].m;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = CLAP_EVENT_MIDI;
+    memcpy(e->data, bytes, size);
+}
+
+static void mi_sysex(struct midi_in *m, uint32_t time, const uint8_t *bytes, uint32_t size)
+{
+    clap_event_midi_sysex_t *e = &m->ev[m->n++].x;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = CLAP_EVENT_MIDI_SYSEX;
+    e->buffer = bytes;
+    e->size = size;
+}
+
+/* a CLAP-dialect note on: the port offers no such dialect, so it must not reach the plugin */
+static void mi_note(struct midi_in *m, uint32_t time)
+{
+    clap_event_note_t *e = &m->ev[m->n++].note;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = CLAP_EVENT_NOTE_ON;
+    e->note_id = -1;
+    e->key = 60;
+    e->velocity = 0.8;
+}
+
+static bool mo_push(const clap_output_events_t *l, const clap_event_header_t *event)
+{
+    struct midi_out *o = l->ctx;
+    union any_event *e;
+
+    if (o->n >= MIDI_EVENTS)
+        return false;
+    e = &o->ev[o->n];
+    if (event->type == CLAP_EVENT_MIDI_SYSEX)
+    {
+        const clap_event_midi_sysex_t *x = (const clap_event_midi_sysex_t *)event;
+
+        memcpy(o->bytes[o->n], x->buffer, x->size < MIDI_SYSEX_MAX ? x->size : MIDI_SYSEX_MAX);
+        e->x = *x;
+        e->x.buffer = o->bytes[o->n];
+    }
+    else if (event->type == CLAP_EVENT_MIDI)
+        e->m = *(const clap_event_midi_t *)event;
+    else
+        e->h = *event;
+    o->n++;
+    return true;
+}
+
+static void mo_init(struct midi_out *o)
+{
+    memset(o, 0, sizeof(*o));
+    o->list.ctx = o;
+    o->list.try_push = mo_push;
+}
+
+/* whether output `i` is the event of `type` at `time` with these bytes: a CLAP_EVENT_MIDI compares its three bytes */
+static int out_is(const struct midi_out *o, uint32_t i, uint32_t type, uint32_t time, const uint8_t *bytes, uint32_t size)
+{
+    const union any_event *e;
+
+    if (i >= o->n)
+        return 0;
+    e = &o->ev[i];
+    if (e->h.type != type || e->h.time != time)
+        return 0;
+    if (type == CLAP_EVENT_MIDI)
+        return memcmp(e->m.data, bytes, 3) == 0;
+    return type == CLAP_EVENT_MIDI_SYSEX && e->x.size == size && memcmp(o->bytes[i], bytes, size) == 0;
+}
+
+/* the note ports, the messages of every channel status and the system bytes through the fixture's echo, the frames of
+ * the block, and nothing carried into the next block; a block past its capacity keeps what fits and counts the rest;
+ * and a malformed output of the plugin is not passed on */
+static void t_midi(double rate)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 }, pc[3] = { 0xc3, 0x05, 0x00 }, cp[3] = { 0xd5, 0x40, 0x00 };
+    static const uint8_t cc[3] = { 0xb7, 0x07, 0x7f }, bend[3] = { 0xe9, 0x00, 0x40 }, noff[3] = { 0x8f, 0x3c, 0x00 };
+    static const uint8_t poly[3] = { 0xa2, 0x3c, 0x50 }, rt[3] = { 0xf8, 0x00, 0x00 }, cc0[3] = { 0xb0, 0x01, 0x40 };
+    static const uint8_t note91[3] = { 0x91, 0x40, 0x7f }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t expect_size[11] = { 3, 2, 2, 3, 3, 3, 3, 6, 1, 3, 3 };
+    static const uint32_t expect_frame[11] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 63, 63 };
+    static const struct { uint32_t type, time; const uint8_t *bytes; uint32_t size; } want[11] =
+    {
+        { CLAP_EVENT_MIDI, 0, note, 3 }, { CLAP_EVENT_MIDI, 1, pc, 3 }, { CLAP_EVENT_MIDI, 2, cp, 3 },
+        { CLAP_EVENT_MIDI, 3, cc, 3 }, { CLAP_EVENT_MIDI, 4, bend, 3 }, { CLAP_EVENT_MIDI, 5, noff, 3 },
+        { CLAP_EVENT_MIDI, 6, poly, 3 }, { CLAP_EVENT_MIDI_SYSEX, 7, sysex, 6 }, { CLAP_EVENT_MIDI, 8, rt, 3 },
+        { CLAP_EVENT_MIDI, 63, cc0, 3 }, { CLAP_EVENT_MIDI, 63, note91, 3 },
+    };
+    static float in[BLOCK], out[BLOCK];
+    struct rig g;
+    const clap_plugin_note_ports_t *np;
+    clap_note_port_info_t info;
+    struct midi_in mi;
+    struct midi_out mo;
+    echo_seen_count_fn seen_count;
+    echo_seen_fn seen;
+    echo_extra_fn extra;
+    uint32_t i, k, all;
+    int64_t frame;
+    uint32_t size;
+    uint8_t bytes[8];
+
+    if (rig_up(&g, g_midi, MIDI_URI, rate, BLOCK) != 0)
+        return;
+    *(void **)&seen_count = loaded_symbol(g_midi_so, "lv2_midi_echo_seen_count");
+    *(void **)&seen = loaded_symbol(g_midi_so, "lv2_midi_echo_seen");
+    *(void **)&extra = loaded_symbol(g_midi_so, "lv2_midi_echo_extra");
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 1 && np->get(g.plugin, 0, true, &info)
+              && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+              && np->get(g.plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
+          "midi %.0f: one MIDI input and one MIDI output, each dialect MIDI and no other", rate);
+
+    // block 1: every channel status, a system realtime byte, a sysex, a CLAP note that is not taken, one message at the
+    // block's last frame and one past its end, which is held at the last frame
+    mi_init(&mi);
+    mi_midi(&mi, 0, note, 3);
+    mi_midi(&mi, 1, pc, 2);
+    mi_midi(&mi, 2, cp, 2);
+    mi_midi(&mi, 3, cc, 3);
+    mi_midi(&mi, 4, bend, 3);
+    mi_midi(&mi, 5, noff, 3);
+    mi_midi(&mi, 6, poly, 3);
+    mi_sysex(&mi, 7, sysex, sizeof(sysex));
+    mi_midi(&mi, 8, rt, 1);
+    mi_note(&mi, 9);
+    mi_midi(&mi, 63, cc0, 3);
+    mi_midi(&mi, 200, note91, 3);
+    mo_init(&mo);
+    process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+    for (i = 0, all = 1; i < 11 && i < mo.n; i++)
+        all &= out_is(&mo, i, want[i].type, want[i].time, want[i].bytes, want[i].size);
+    CHECK(mo.n == 11 && all, "midi %.0f: eleven messages out, each at its frame and byte for byte: channel, sysex and realtime alike, the note not taken (%u)",
+          rate, mo.n);
+    CHECK(seen_count && seen_count() == 11, "midi %.0f: the plugin saw eleven messages (%u)", rate, seen_count ? seen_count() : 0);
+    for (k = 0, all = 1; seen && k < 11; k++)
+    {
+        all &= seen(k, &frame, &size, bytes) == 0 && size == expect_size[k] && frame == (int64_t)expect_frame[k];
+        all &= memcmp(bytes, want[k].bytes, size < 8 ? size : 8) == 0;
+    }
+    CHECK(all, "midi %.0f: each arrives at its length (a program change and a channel pressure two bytes, a sysex six, a realtime byte one)", rate);
+
+    // block 2: nothing carries over, neither the input nor the output
+    mi_init(&mi);
+    mo_init(&mo);
+    process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+    CHECK(mo.n == 0 && seen_count && seen_count() == 0, "midi %.0f: a block with no input writes and sees nothing (%u out)", rate, mo.n);
+
+    // block 3: 50 messages into a buffer for 42: the first 42 are kept, the other 8 counted by the core
+    mi_init(&mi);
+    for (i = 0; i < MIDI_CAPACITY + 8u; i++)
+        mi_midi(&mi, i, note, 3);
+    mo_init(&mo);
+    process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(mo.n == MIDI_CAPACITY && mo.ev[MIDI_CAPACITY - 1u].h.time == MIDI_CAPACITY - 1u && strstr(g.host.log, "midi_in_dropped 8") != NULL,
+          "midi %.0f: %u messages fit, the 8 past them are dropped and logged as midi_in_dropped 8 (%u)", rate, MIDI_CAPACITY, mo.n);
+
+    // block 4: a malformed output of the plugin, one kind at a time, is not passed on
+    if (extra)
+    {
+        static const int kinds[4] = { 1, 2, 3, 4 };    // EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST, EXTRA_BEATS
+
+        for (k = 0; k < 4; k++)
+        {
+            mi_init(&mi);
+            mo_init(&mo);
+            extra(kinds[k]);
+            process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+            CHECK(mo.n == 0, "midi %.0f: malformed output kind %d is not passed on (%u out)", rate, kinds[k], mo.n);
+        }
+        extra(0);
+    }
     rig_down(&g);
 }
 
@@ -908,6 +1185,9 @@ int main(int argc, char **argv)
     abs_dir(dir, g_fakes);
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
+    snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
+    abs_dir(dir, g_midi);
+    snprintf(g_midi_so, sizeof(g_midi_so), "%somx-midi-echo.so", g_midi);
     in_rt = 1;
     probe = malloc(16);
     free(probe);
@@ -919,6 +1199,7 @@ int main(int argc, char **argv)
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
     t_entry();
     t_refusals();
+    t_midi_refusal();
     t_props();
     for (r = 0; r < N_RATES; r++)
     {
@@ -928,6 +1209,7 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
+        t_midi(RATES[r]);
         t_core(RATES[r]);
         printf("lv2 clap @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
     }

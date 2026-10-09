@@ -53,7 +53,9 @@
 #include <time.h>
 
 #include <lv2/atom/atom.h>
+#include <lv2/atom/util.h>
 #include <lv2/buf-size/buf-size.h>
+#include <lv2/midi/midi.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
 #include <lv2/worker/worker.h>
@@ -94,6 +96,13 @@ struct lv2_instance
     _Atomic uint32_t *shown;                // the same as bits, for a reader on another thread
     float latency_port;
     _Atomic uint32_t latency_frames;        // the latency port's last valid reading
+
+    // the MIDI ports' atom buffers, each midi_bytes long: [0] the input the host writes between runs, [1] the output the
+    // plugin writes; NULL where the plugin has no such port
+    uint8_t *midi[2];
+    uint32_t midi_bytes;
+    LV2_URID urid_sequence, urid_midi;
+    _Atomic uint32_t midi_in_dropped;
 
     // the features `instantiate` got, each the instance's own over the process's table, so a call names its instance
     LV2_URID_Map map;
@@ -156,6 +165,55 @@ static float bits_float(uint32_t u)
 
     memcpy(&v, &u, sizeof(v));
     return v;
+}
+
+/* the size of each MIDI atom buffer: the configuration's, at least LV2_CORE_ATOM_BYTES_MIN, rounded up to 8 */
+static uint32_t atom_bytes(void)
+{
+    const uint32_t b = lv2_core_config()->atom_buffer_bytes;
+    const uint32_t n = b > LV2_CORE_ATOM_BYTES_MIN ? b : LV2_CORE_ATOM_BYTES_MIN;
+
+    return (n + 7u) & ~7u;
+}
+
+/* an empty sequence in `seq`: its size is its body alone, the events are appended after it */
+static void sequence_clear(LV2_Atom_Sequence *seq, LV2_URID type)
+{
+    seq->atom.size = sizeof(LV2_Atom_Sequence_Body);
+    seq->atom.type = type;
+    seq->body.unit = 0;             // time in frames
+    seq->body.pad = 0;
+}
+
+/* an output sequence offered to a plugin: its size is the capacity it may fill, which the plugin reads before it clears */
+static void sequence_offer(LV2_Atom_Sequence *seq, LV2_URID type, uint32_t capacity)
+{
+    seq->atom.size = capacity;
+    seq->atom.type = type;
+    seq->body.unit = 0;
+    seq->body.pad = 0;
+}
+
+/* [audio] one event at the end of `seq`, whose body is `capacity` bytes at most: 0, or -1 with no room left */
+static int sequence_append(LV2_Atom_Sequence *seq, uint32_t capacity, int64_t frame, LV2_URID type, const uint8_t *data, uint32_t size)
+{
+    LV2_Atom_Event *e;
+    uint32_t total;
+
+    // a message bigger than the buffer is refused before its padding is computed: the padding of a size near 2^32 wraps
+    if (size > capacity)
+        return -1;
+    total = (uint32_t)sizeof(LV2_Atom_Event) + lv2_atom_pad_size(size);
+    if (capacity - seq->atom.size < total)
+        return -1;
+    e = lv2_atom_sequence_end(&seq->body, seq->atom.size);
+    e->time.frames = frame;
+    e->body.size = size;
+    e->body.type = type;
+    memcpy(LV2_ATOM_BODY(&e->body), data, size);
+    memset((uint8_t *)LV2_ATOM_BODY(&e->body) + size, 0, lv2_atom_pad_size(size) - size);
+    seq->atom.size += total;
+    return 0;
 }
 
 /* whether the calling thread holds the instance's audio role, by the host's predicate; -1 without one */
@@ -400,6 +458,23 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     // own bypass held at the value that keeps it processing, the rows at their values, every other output into memory
     // the host reads
     in->latency_port = 0.0f;
+    in->midi_bytes = atom_bytes();
+    in->urid_sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
+    in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
+    for (k = 0; k < 2; k++)
+    {
+        const int32_t port = k ? p->midi_out_port : p->midi_in_port;
+
+        free(in->midi[k]);
+        in->midi[k] = port >= 0 ? calloc(1, in->midi_bytes) : NULL;
+        if (port >= 0 && !in->midi[k])
+        {
+            lv2_why_set(why, LV2_CODE_NO_REALISATION);
+            return -1;
+        }
+    }
+    if (in->midi[0])
+        sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
     for (i = 0, k = 0; i < p->n_ports; i++)
     {
         void *at = NULL;
@@ -411,6 +486,10 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             else if (p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;
         }
+        if (!at && p->midi_in_port >= 0 && (uint32_t)p->midi_in_port == i)
+            at = in->midi[0];
+        if (!at && p->midi_out_port >= 0 && (uint32_t)p->midi_out_port == i)
+            at = in->midi[1];
         if (!at && p->latency_port >= 0 && (uint32_t)p->latency_port == i)
             at = &in->latency_port;
         if (!at && k < p->n_controls && p->controls[k].port == i)
@@ -554,6 +633,8 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->controls);
     free(in->shown);
     free(in->ring_mem);
+    free(in->midi[0]);
+    free(in->midi[1]);
     free(in);
 }
 
@@ -598,12 +679,18 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
             omx_msgring_pop(&in->responses);
         }
     }
+    // the output is offered with its capacity: the plugin reads that, clears the sequence and appends to it
+    if (in->midi[1])
+        sequence_offer((LV2_Atom_Sequence *)in->midi[1], in->urid_sequence, in->midi_bytes - (uint32_t)sizeof(LV2_Atom));
     if (before)
         before(ctx);
     p->desc->run(in->handle, n);
     if (in->worker && in->worker->end_run)
         in->worker->end_run(in->handle);
     omx_hosted_denormals_off();
+    // the input's messages were this run's: the next block starts empty
+    if (in->midi[0])
+        sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
     if (p->latency_port >= 0)
     {
         const float v = in->latency_port;
@@ -614,6 +701,43 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     for (k = 0; k < p->n_controls; k++)
         if (p->controls[k].kind == LV2_CONTROL_OUTPUT)
             atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
+}
+
+int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint8_t *data, uint32_t size)
+{
+    if (!in || !in->midi[0] || size == 0)
+        return -1;
+    if (sequence_append((LV2_Atom_Sequence *)in->midi[0], in->midi_bytes - (uint32_t)sizeof(LV2_Atom), frame, in->urid_midi, data, size) != 0)
+    {
+        omx_hosted_count(&in->midi_in_dropped, 1);
+        return -1;
+    }
+    return 0;
+}
+
+void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx)
+{
+    const LV2_Atom_Sequence *seq;
+    const uint32_t capacity = in && in->midi[1] ? in->midi_bytes - (uint32_t)sizeof(LV2_Atom) : 0;
+    uint32_t limit, off = (uint32_t)sizeof(LV2_Atom_Sequence_Body);
+
+    if (!capacity)
+        return;
+    seq = (const LV2_Atom_Sequence *)in->midi[1];
+    // the plugin's own size is read, and bounded by the buffer it was given: an event past it is not read
+    limit = seq->atom.size < capacity ? seq->atom.size : capacity;
+    if (seq->body.unit != 0)
+        return;
+    while (off + sizeof(LV2_Atom_Event) <= limit)
+    {
+        const LV2_Atom_Event *e = (const LV2_Atom_Event *)((const uint8_t *)&seq->body + off);
+
+        if (e->body.size > limit - off - sizeof(LV2_Atom_Event))
+            break;
+        if (e->body.type == in->urid_midi)
+            fn(ctx, e->time.frames, LV2_ATOM_BODY_CONST(&e->body), e->body.size);
+        off += (uint32_t)sizeof(LV2_Atom_Event) + lv2_atom_pad_size(e->body.size);
+    }
 }
 
 uint32_t lv2_instance_latency(const struct lv2_instance *in)
@@ -629,6 +753,7 @@ void lv2_instance_counters(const struct lv2_instance *in, struct lv2_counters *o
     out->map_on_audio = atomic_load_explicit(&in->map_on_audio, memory_order_relaxed);
     out->schedule_off_audio = atomic_load_explicit(&in->schedule_off_audio, memory_order_relaxed);
     out->log_on_audio = atomic_load_explicit(&in->log_on_audio, memory_order_relaxed);
+    out->midi_in_dropped = atomic_load_explicit(&in->midi_in_dropped, memory_order_relaxed);
 }
 
 void lv2_instance_set_role(struct lv2_instance *in, lv2_audio_role_fn is_audio, void *ctx)
