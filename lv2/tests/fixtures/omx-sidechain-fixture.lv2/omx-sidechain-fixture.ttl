@@ -1,0 +1,129 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# lv2_sidechain_fixture.c's ports, and the twins the side-chain tests read. Index 0 and 1 are the main input, 2 and 3 the
+# outputs, and every side chain comes after them: the plugin's out is its main input plus its side chain.
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix pg:   <http://lv2plug.in/ns/ext/port-groups#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# a stereo effect, its main pair in a group and a stereo side chain in a group of its own
+<urn:openmixer:test:sidechain-fixture>
+    a lv2:Plugin , lv2:AmplifierPlugin ;
+    doap:name "openmixer sidechain fixture" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    pg:mainInput <urn:openmixer:test:sidechain-fixture#main> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#main>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#main>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "side_l" ; lv2:name "Side L" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#side>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "side_r" ; lv2:name "Side R" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#side>
+    ] .
+
+<urn:openmixer:test:sidechain-fixture#main>
+    a pg:Group , pg:InputGroup ;
+    rdfs:label "Main" .
+
+<urn:openmixer:test:sidechain-fixture#side>
+    a pg:Group , pg:InputGroup ;
+    rdfs:label "Sidechain" ;
+    pg:sideChainOf <urn:openmixer:test:sidechain-fixture#main> .
+
+# the same effect with an ungrouped mono side chain, marked by its port property alone
+<urn:openmixer:test:sidechain-fixture#mono>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (mono twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "side" ; lv2:name "Side" ;
+        lv2:portProperty lv2:isSideChain
+    ] .
+
+# a side chain of three channels: refused as wider than the strip
+<urn:openmixer:test:sidechain-fixture#wide>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (three-channel twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#wide-main>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#wide-main>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "side_1" ; lv2:name "Side 1" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#wide-side>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "side_2" ; lv2:name "Side 2" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#wide-side>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 6 ; lv2:symbol "side_3" ; lv2:name "Side 3" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#wide-side>
+    ] .
+
+<urn:openmixer:test:sidechain-fixture#wide-main>
+    a pg:Group , pg:InputGroup ;
+    rdfs:label "Main" .
+
+<urn:openmixer:test:sidechain-fixture#wide-side>
+    a pg:Group , pg:InputGroup ;
+    rdfs:label "Wide sidechain" ;
+    pg:sideChainOf <urn:openmixer:test:sidechain-fixture#wide-main> .
+
+# a third ungrouped input, not in the main group and not a side chain: refused as extra
+<urn:openmixer:test:sidechain-fixture#extra>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (extra-input twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "extra" ; lv2:name "Extra"
+    ] .
+
+# the side chain named by pg:sideChainOf on its port, not on a group
+<urn:openmixer:test:sidechain-fixture#port-of>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (port-of twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "key" ; lv2:name "Key" ;
+        pg:sideChainOf <urn:openmixer:test:sidechain-fixture#port-of-main>
+    ] .
+
+<urn:openmixer:test:sidechain-fixture#port-of-main>
+    a pg:Group , pg:InputGroup ;
+    rdfs:label "Main" .
