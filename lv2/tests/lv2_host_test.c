@@ -375,6 +375,17 @@ static void t_midi_run(void)
     CHECK(same_message(&g, MIDI_CAPACITY - 1u, MIDI_CAPACITY - 1u, note, 3), "midi run: the last one that fits is at its own frame");
 
     CHECK(lv2_instance_midi_in_add(in, 0, note, 0) == -1, "midi run: a zero-byte message is no message, and counts nothing");
+
+    // a size whose padding wraps to zero is refused before anything is copied: the 3-byte buffer is never read
+    lv2_instance_counters(in, &before);
+    CHECK(lv2_instance_midi_in_add(in, 0, note, 0xFFFFFFF9u) == -1, "midi run: a 0xFFFFFFF9-byte message is refused, not copied");
+    lv2_instance_counters(in, &after);
+    CHECK(after.midi_in_dropped - before.midi_in_dropped == 1, "midi run: the oversize message is counted as dropped (%u)",
+          after.midi_in_dropped - before.midi_in_dropped);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == 0, "midi run: nothing from the refused message reaches the next block (%u)", g.n);
     lv2_instance_deactivate(in);
     lv2_instance_free(in);
     lv2_plugin_close(p);

@@ -197,9 +197,13 @@ static void sequence_offer(LV2_Atom_Sequence *seq, LV2_URID type, uint32_t capac
 /* [audio] one event at the end of `seq`, whose body is `capacity` bytes at most: 0, or -1 with no room left */
 static int sequence_append(LV2_Atom_Sequence *seq, uint32_t capacity, int64_t frame, LV2_URID type, const uint8_t *data, uint32_t size)
 {
-    const uint32_t total = (uint32_t)sizeof(LV2_Atom_Event) + lv2_atom_pad_size(size);
     LV2_Atom_Event *e;
+    uint32_t total;
 
+    // a message bigger than the buffer is refused before its padding is computed: the padding of a size near 2^32 wraps
+    if (size > capacity)
+        return -1;
+    total = (uint32_t)sizeof(LV2_Atom_Event) + lv2_atom_pad_size(size);
     if (capacity - seq->atom.size < total)
         return -1;
     e = lv2_atom_sequence_end(&seq->body, seq->atom.size);
