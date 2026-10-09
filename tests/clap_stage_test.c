@@ -595,6 +595,7 @@ static void ns_up(uint32_t inputs, uint32_t dialect, uint32_t dialects) {
   NS.note_inputs = inputs;
   NS.note_dialect = dialect;
   NS.note_dialects = dialects;
+  NS.bend_semitones = OMX_CLAP_BEND_SEMITONES_DEFAULT;
 }
 
 static void ns_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in(&NS, time, m, n); }
@@ -631,6 +632,14 @@ static void t_channel_messages(void) {
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
   ns_in(10, BEND_MAX, sizeof BEND_MAX);
   CHECK(NS.notes[0].expr.value == 8191.0 / 8192.0 * 2.0, "CLAP: the top of the bend is 8191/8192 x 2 semitones (%g)", NS.notes[0].expr.value);
+
+  /* a host-set range: full scale is the range, to the bit */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  NS.bend_semitones = 12.0;
+  ns_in(10, BEND_MAX, sizeof BEND_MAX);
+  ns_in(11, BEND_MIN, sizeof BEND_MIN);
+  CHECK(NS.notes[0].expr.value == 8191.0 / 8192.0 * 12.0 && NS.notes[1].expr.value == -12.0,
+        "CLAP: with a 12 semitone range the bend spans -12 .. 8191/8192 x 12 (%g, %g)", NS.notes[0].expr.value, NS.notes[1].expr.value);
 
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
   ns_in(10, CHAN_PRESS, sizeof CHAN_PRESS);

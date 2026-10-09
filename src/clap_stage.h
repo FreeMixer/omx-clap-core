@@ -104,6 +104,9 @@ enum omx_clap_state
 /** the longest sysex the stage carries; a longer one is counted in notes_unmappable, never held past its block */
 #define OMX_CLAP_SYSEX_MAX_BYTES        256u
 
+/** the pitch-bend range in semitones a stage starts with: MIDI's default, since RPN 0 (pitch bend sensitivity) is not tracked */
+#define OMX_CLAP_BEND_SEMITONES_DEFAULT 2.0
+
 /** Every event the host hands a plugin ahead of a block besides the parameter writes */
 union omx_clap_note
 {
@@ -138,6 +141,8 @@ struct omx_clap_stage
     uint32_t note_inputs;                               ///< 0 or 1 note input
     uint32_t note_dialect;                              ///< CLAP_NOTE_DIALECT_CLAP or CLAP_NOTE_DIALECT_MIDI: how notes travel
     uint32_t note_dialects;                             ///< every dialect the note input's port declared, not just note_dialect
+    double bend_semitones;                              ///< full-scale pitch bend as CLAP tuning, in semitones either way; the host sets it
+                                                        ///< before arming, the RT reads it with no lock (default OMX_CLAP_BEND_SEMITONES_DEFAULT)
     clap_input_events_t in_events;                      ///< the input event list handed to process()
     clap_output_events_t out_events;                    ///< the counting sink handed to process()
     clap_process_t proc;                                ///< the process structure handed to the plugin
@@ -231,6 +236,7 @@ static inline int omx_clap_stage_init(struct omx_clap_stage *s, const struct omx
     s->in_ptrs[1] = s->h.in_r;
     s->out_ptrs[0] = s->h.out_l;
     s->out_ptrs[1] = s->h.out_r;
+    s->bend_semitones = OMX_CLAP_BEND_SEMITONES_DEFAULT;
     s->in_events.ctx = s;
     s->in_events.size = omx_clap_in_size;
     s->in_events.get = omx_clap_in_get;
@@ -454,7 +460,9 @@ static inline void omx_clap_expr_slot(struct omx_clap_stage *s, uint32_t time, i
  *  - A CLAP-dialect input: note on (velocity above 0) and note off (or a note on with velocity 0) as CLAP note events.
  *    Every other channel message and a sysex go the same way the MIDI-dialect input takes them when the port's declared
  *    dialects also include MIDI; when they do not, pitch bend and channel or poly pressure become the
- *    CLAP_NOTE_EXPRESSION_TUNING and _PRESSURE expressions (channel-wide, or one key for poly aftertouch) and anything
+ *    CLAP_NOTE_EXPRESSION_TUNING and _PRESSURE expressions (channel-wide, or one key for poly aftertouch). A bend's
+ *    full scale is `bend_semitones` either way (default 2, MIDI's default range; RPN 0 is not tracked, so a host that
+ *    wants another range sets the field before arming): value = (bend14 - 8192) / 8192 * bend_semitones. Anything
  *    still unmappable (a controller, a program change, a sysex) is counted, never silently dropped.
  * A system real-time byte besides sysex is dropped. Past CLAP_HOST_NOTES_PER_BLOCK a message is counted and dropped, and
  * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is the same. A stage with no note input takes none.
@@ -526,7 +534,7 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
     {
         const int bend14 = ((int)data[2] << 7 | data[1]) - 8192;
 
-        omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_TUNING, (int16_t)channel, -1, (double)bend14 / 8192.0 * 2.0);
+        omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_TUNING, (int16_t)channel, -1, (double)bend14 / 8192.0 * s->bend_semitones);
         return;
     }
     if (type == 0xd0 && size == 2)              // channel pressure -> the whole channel
