@@ -89,7 +89,7 @@ struct lv2_instance
     uint32_t max_frames;
 
     // the instance's own memory every port is connected to
-    float *audio;                           // in L, in R, out L, out R, max_frames each
+    float *audio;                           // in L, in R, out L, out R, then one per side-chain leg; max_frames each
     float *controls;                        // one per plugin->controls
     _Atomic uint32_t *shown;                // the same as bits, for a reader on another thread
     float latency_port;
@@ -369,7 +369,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     float *audio;
     uint32_t leg, k, i;
 
-    audio = calloc(4u * (size_t)max_frames, sizeof(*audio));
+    audio = calloc((4u + p->n_side_legs) * (size_t)max_frames, sizeof(*audio));
     if (!audio)
     {
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
@@ -411,6 +411,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             else if (p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;
         }
+        for (leg = 0; leg < p->n_side_legs && !at; leg++)
+            if (p->side_in[leg] == i)
+                at = in->audio + (4u + leg) * (size_t)max_frames;
         if (!at && p->latency_port >= 0 && (uint32_t)p->latency_port == i)
             at = &in->latency_port;
         if (!at && k < p->n_controls && p->controls[k].port == i)
@@ -565,6 +568,11 @@ float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg)
 float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t leg)
 {
     return in->audio + (2u + leg) * (size_t)in->max_frames;
+}
+
+float *lv2_instance_side_in(struct lv2_instance *in, uint32_t leg)
+{
+    return in->audio + (4u + leg) * (size_t)in->max_frames;
 }
 
 void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value)

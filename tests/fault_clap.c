@@ -38,7 +38,7 @@
  *   8 nan            NaN output under the sweep                    -> hosting.output.non-finite
  *   9 overrun        writes 64 frames PAST the block into the bounce (the guard page catches it)
  *  10 alloc          malloc inside process() (the RT-wrap witness)
- *  11 sidechain      one extra non-main input                      -> hosting.topology.extra-inputs-fed-silence
+ *  11 sidechain      one extra non-main input, fed silence          -> admitted (an auxiliary input)
  *  12 note-in        a note input port                             -> hosting.clap.note-input
  *  13 hang           init() never returns                          -> hosting.stability.crashed-live-on-this-rig (timed open)
  *  14 crash-on-param a 2x2 effect at `in x gain` (param 0, default 0.1) that ABORTS when a gain

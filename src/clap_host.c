@@ -504,14 +504,15 @@ static const char *read_note_input(struct omx_clap_instance *in)
 
 /*
  * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
- * channels; an input besides those refused, an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each
- * of 1 or 2 channels); where the configuration admits note inputs, one note input, and with it no main input at all (an
- * instrument); otherwise no note input. Returns the hosting code that refuses, or NULL.
+ * channels; an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each of 1 or 2 channels); an input
+ * besides them a side chain, fed silence until the caller binds it (up to CLAP_HOST_AUX_INPUTS, each of 1 or 2 channels);
+ * where the configuration admits note inputs, one note input, and with it no main input at all (an instrument); otherwise
+ * no note input. Returns the hosting code that refuses, or NULL.
  */
 static const char *read_topology(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
-    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0, extra_in = 0;
+    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0;
     const char *code;
     int instrument;
     int dir;
@@ -548,7 +549,11 @@ static const char *read_topology(struct omx_clap_instance *in)
                 }
                 else if (is_input)
                 {
-                    extra_in++;
+                    if (info.channel_count == 0 || info.channel_count > 2)
+                        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+                    if (in->aux_inputs >= CLAP_HOST_AUX_INPUTS)
+                        return CLAP_HOST_CODE_EXTRA_INPUTS;
+                    in->aux_in_channels[in->aux_inputs++] = info.channel_count;
                 }
                 else if (info.channel_count == 0 || info.channel_count > 2 || in->aux_outputs >= CLAP_HOST_AUX_OUTPUTS)
                 {
@@ -569,8 +574,6 @@ static const char *read_topology(struct omx_clap_instance *in)
         return CLAP_HOST_CODE_WIDER_THAN_STRIP;
     if (n_main_in && main_in != main_out)
         return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-    if (extra_in > 0)
-        return CLAP_HOST_CODE_EXTRA_INPUTS;
     if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->channels = main_out;
@@ -743,13 +746,14 @@ static void *timed_open_run(void *arg)
 ************************************************************************************************************************
 */
 
-/* Six buffers of max_block floats in one mapping with a guard page at each end: the scratch pair for the auxiliary
- * outputs first, then the stage's four, the last of them flush against the guard page above, so the first sample
- * written past a block faults here, in this mapping, and never lands in a foreign buffer. */
+/* Eight buffers of max_block floats in one mapping with a guard page at each end: the silence pair the unbound auxiliary
+ * inputs read, the scratch pair for the auxiliary outputs, then the stage's four, the last of them flush against the
+ * guard page above, so the first sample written past a block faults here, in this mapping, and never lands in a foreign
+ * buffer. */
 static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
 {
     const size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    const size_t used = (size_t)6 * max_block * sizeof(float);
+    const size_t used = (size_t)8 * max_block * sizeof(float);
     const size_t body = (used + page - 1) / page * page;
     const size_t length = body + 2 * page;
     uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -766,10 +770,10 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->rec_cap = CLAP_HOST_PARAM_QUEUE_DEPTH;
     in->recs = calloc(in->rec_cap, sizeof(*in->recs));
     in->max_block = max_block;
-    bounce.in_l = b + 2 * (size_t)max_block;
-    bounce.in_r = b + 3 * (size_t)max_block;
-    bounce.out_l = b + 4 * (size_t)max_block;
-    bounce.out_r = b + 5 * (size_t)max_block;
+    bounce.in_l = b + 4 * (size_t)max_block;
+    bounce.in_r = b + 5 * (size_t)max_block;
+    bounce.out_l = b + 6 * (size_t)max_block;
+    bounce.out_r = b + 7 * (size_t)max_block;
     bounce.max_block = max_block;
     if (omx_clap_stage_init(&in->stage, &bounce, in->recs, in->rec_cap) != 0)
         return -1;
@@ -777,7 +781,9 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->stage.note_inputs = in->note_inputs;
     in->stage.note_dialect = in->note_dialect;
     in->stage.note_dialects = in->note_dialects;
-    return omx_clap_bind_aux(&in->stage, b, b + max_block, in->aux_outputs, in->aux_channels);
+    if (omx_clap_bind_aux(&in->stage, b + 2 * (size_t)max_block, b + 3 * (size_t)max_block, in->aux_outputs, in->aux_channels) != 0)
+        return -1;
+    return omx_clap_bind_aux_in(&in->stage, b, b + max_block, in->aux_inputs, in->aux_in_channels, in->aux_in_bound);
 }
 
 static void drop_bounce(struct omx_clap_instance *in)
@@ -1375,6 +1381,21 @@ void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
 void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo)
 {
     in->tempo = tempo;
+}
+
+int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r)
+{
+    if (!in || port >= in->aux_inputs)
+        return -1;
+    if (l && in->aux_in_channels[port] == 2 && r == NULL)
+        return -1;
+    if (in->active && !omx_clap_stopped(&in->stage))
+        return -1;      // unpublish first
+    in->aux_in_bound[port][0] = l;
+    in->aux_in_bound[port][1] = l ? r : NULL;
+    if (in->active)
+        omx_clap_set_aux_in(&in->stage, port, l, in->aux_in_bound[port][1]);
+    return 0;
 }
 
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)

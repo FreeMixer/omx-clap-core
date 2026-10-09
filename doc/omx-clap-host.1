@@ -36,13 +36,14 @@ on its client:
 note on and note off arrive as CLAP note events, or as MIDI events when the
 input prefers that dialect, on the frame they arrived on. Controllers, pitch
 bend, program change and system messages reach only an input that reads MIDI
-events. A sidechain, a wider main port, a main pair of different widths, a
-second note input or a note input read in neither dialect is refused at
+events. A wider main port, a main pair of different widths, a second note
+input or a note input read in neither dialect is refused at
 .B add
 with
 .B resp \-102
-and its hosting code on standard error. An extra audio output is admitted and
-left unconnected.
+and its hosting code on standard error. An extra audio input (a sidechain) is
+admitted and fed silence: nothing on the command line binds it. An extra audio
+output is admitted and left unconnected.
 .PP
 The plugin's latency is published on its JACK ports and republished when
 the plugin changes it. Bypass is the host's own one\-block crossfade to the

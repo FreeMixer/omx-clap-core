@@ -67,11 +67,11 @@
 */
 
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
- * raises it (2: the instance's tempo and transport, 0.3). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
+ * raises it (2: the instance's tempo and transport, 0.3; 3: the auxiliary inputs and their binding). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
  * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
  * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
  * the library. */
-#define OMX_CLAP_CORE_ABI               2u
+#define OMX_CLAP_CORE_ABI               3u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** How many bytes a refusal's hosting code needs, with its NUL. */
@@ -234,6 +234,11 @@ struct omx_clap_instance
     // warming up or held
     const struct omx_clap_tempo *tempo;  ///< the tempo word carried by omx_clap_host_run, NULL for none
     clap_event_transport_t transport;  ///< the transport record handed to the plugin
+
+    // the auxiliary inputs (ABI 3): one port each, 1 or 2 channels, and the caller's pair bound to it (NULL: the silence)
+    uint32_t aux_inputs;  ///< auxiliary input ports, after the main one
+    uint32_t aux_in_channels[CLAP_HOST_AUX_INPUTS];  ///< the channel count of each auxiliary input port
+    float *aux_in_bound[CLAP_HOST_AUX_INPUTS][2];  ///< the caller's buffers per port and channel, NULL: silence
 };
 
 
@@ -272,8 +277,9 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
  * Load the .clap at `path`, create the plugin `id` (NULL: the factory's first descriptor), init it and read its
  * extensions, each step judged: the descriptor must carry audio-effect (or, where the configuration admits note inputs,
  * instrument), init must succeed headless with only the declared host extensions offered, the audio ports must declare
- * one main output and one main input of the same width, 1 or 2 channels (no main input for an instrument), no extra
- * input, and no note input unless the configuration admits one. An auxiliary output is admitted and left unconnected.
+ * one main output and one main input of the same width, 1 or 2 channels (no main input for an instrument), no note input
+ * unless the configuration admits one. An auxiliary output is admitted and left unconnected; an auxiliary input (a side
+ * chain) is admitted and fed silence until the caller binds its buffers with omx_clap_host_bind_aux_input.
  * The read-back table of the parameters must be allocated, or the open is refused (CLAP_HOST_CODE_HEADLESS_FAILED).
  * Returns 0 with `*out` set, or -1 with `why` the deciding hosting code and nothing left loaded. The binary is
  * reference-counted: one dlopen per path, deinit and dlclose after its last instance.
@@ -437,6 +443,16 @@ OMX_CLAP_EXPORT int omx_clap_host_has_feature(const clap_plugin_descriptor_t *de
 /** Control thread, before publish: the tempo omx_clap_host_run hands the plugin from now on (NULL: none). The word must
  * outlive the instance's publication. */
 OMX_CLAP_EXPORT void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo);
+
+/**
+ * Control thread, while the instance is not running (never published, or unpublished): bind the buffers auxiliary input
+ * `port` reads, `l` for its first channel and `r` for its second (a mono port reads `l` only). `l` NULL unbinds it, back
+ * to the silence every unbound port reads. The buffers are not copied: each must hold as many frames as the largest block
+ * passed to omx_clap_host_activate. The caller keeps them alive until it unbinds or closes the instance, and fills them on
+ * the audio role before each block that runs the instance. The binding outlives a deactivate and activate. Returns 0, or
+ * -1 when `port` is not an auxiliary input, a stereo port is bound without `r`, or the instance is running.
+ */
+OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r);
 
 
 /*
