@@ -489,6 +489,36 @@ static void latency_watch(struct shim *s, uint32_t n)
     }
 }
 
+/* The host's transport as the time:Position fields (§6.6), the frame from steady_time: 0 when there is no transport */
+static int time_of(const clap_process_t *process, struct lv2_time *out)
+{
+    const clap_event_transport_t *t = process->transport;
+
+    if (!t)
+        return 0;
+    memset(out, 0, sizeof(*out));
+    out->frame = process->steady_time;
+    out->playing = (t->flags & CLAP_TRANSPORT_IS_PLAYING) != 0;
+    if (t->flags & CLAP_TRANSPORT_HAS_TEMPO)
+    {
+        out->has |= LV2_TIME_HAS_BPM;
+        out->bpm = t->tempo;
+    }
+    if (t->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE)
+    {
+        out->has |= LV2_TIME_HAS_BEATS;
+        out->bar = t->bar_number;
+        out->bar_beat = (double)(t->song_pos_beats - t->bar_start) / (double)CLAP_BEATTIME_FACTOR;
+    }
+    if (t->flags & CLAP_TRANSPORT_HAS_TIME_SIGNATURE)
+    {
+        out->has |= LV2_TIME_HAS_METER;
+        out->beat_unit = t->tsig_denom;
+        out->beats_per_bar = t->tsig_num;
+    }
+    return 1;
+}
+
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process)
 {
     struct shim *s = SHIM_OF(plugin);
@@ -507,6 +537,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
             memcpy(dst, b->data32[leg < b->channel_count ? leg : 0], n * sizeof(float));
         else
             memset(dst, 0, n * sizeof(float));
+    }
+    {
+        struct lv2_time tm;
+
+        lv2_instance_time(s->in, time_of(process, &tm) ? &tm : NULL);
     }
     s->events = process->in_events;
     lv2_instance_run(s->in, n, write_controls, s);

@@ -53,9 +53,11 @@
 #include <time.h>
 
 #include <lv2/atom/atom.h>
+#include <lv2/atom/forge.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
+#include <lv2/time/time.h>
 #include <lv2/worker/worker.h>
 
 #include "hosted_stage.h"
@@ -72,12 +74,21 @@
 // how often a quiesce looks at the request ring
 #define QUIESCE_POLL_US                 50u
 
+// the smallest time:Position buffer: an object with every field is about 300 bytes, so one always fits
+#define TIME_MIN_BYTES                  512u
+
 
 /*
 ************************************************************************************************************************
 *           LOCAL DATA TYPES
 ************************************************************************************************************************
 */
+
+// the URIDs a time:Position object is forged with, mapped at instantiate
+struct lv2_time_urids
+{
+    LV2_URID frame_time, position, frame, speed, bar, bar_beat, beat_unit, beats_per_bar, bpm;
+};
 
 struct lv2_instance
 {
@@ -123,6 +134,17 @@ struct lv2_instance
     _Atomic uint32_t schedule_refused;
     _Atomic uint32_t responses_refused;
     _Atomic uint32_t respond_strikes;
+
+    // the time:Position input: a sequence buffer of its own, the forge over it, and the transport last forged, so an
+    // unchanged transport forges nothing. The forge maps through lv2_urid_lookup, which every URID it names was mapped by
+    // at instantiate, so the audio role never maps one
+    LV2_Atom_Sequence *time_buf;            // NULL: the plugin has no time port
+    uint32_t time_bytes;
+    LV2_URID_Map time_map;
+    LV2_Atom_Forge time_forge;
+    struct lv2_time_urids time_urid;
+    struct lv2_time time_last;
+    int time_have;
 };
 
 
@@ -351,6 +373,42 @@ static void features_build(struct lv2_instance *in)
     in->feature_ptrs[n] = NULL;
 }
 
+/* the forge's map, over the process's table: every URID here is mapped before the audio role runs */
+static LV2_URID time_map_fn(LV2_URID_Map_Handle h, const char *uri)
+{
+    (void)h;
+    return lv2_urid_lookup(uri);
+}
+
+/* the time port's buffer, its URIDs and its forge, made on the main thread at instantiate: 0, or -1 */
+static int time_make(struct lv2_instance *in)
+{
+    const struct lv2_core_config *config = lv2_core_config();
+
+    free(in->time_buf);
+    in->time_buf = NULL;
+    in->time_have = 0;
+    if (in->plugin->time_port < 0)
+        return 0;
+    in->time_bytes = config->atom_buffer_bytes > TIME_MIN_BYTES ? config->atom_buffer_bytes : TIME_MIN_BYTES;
+    in->time_buf = calloc(1, in->time_bytes);
+    if (!in->time_buf)
+        return -1;
+    in->time_map.handle = NULL;
+    in->time_map.map = time_map_fn;
+    in->time_urid.frame_time = lv2_urid_lookup(LV2_ATOM__frameTime);
+    in->time_urid.position = lv2_urid_lookup(LV2_TIME__Position);
+    in->time_urid.frame = lv2_urid_lookup(LV2_TIME__frame);
+    in->time_urid.speed = lv2_urid_lookup(LV2_TIME__speed);
+    in->time_urid.bar = lv2_urid_lookup(LV2_TIME__bar);
+    in->time_urid.bar_beat = lv2_urid_lookup(LV2_TIME__barBeat);
+    in->time_urid.beat_unit = lv2_urid_lookup(LV2_TIME__beatUnit);
+    in->time_urid.beats_per_bar = lv2_urid_lookup(LV2_TIME__beatsPerBar);
+    in->time_urid.bpm = lv2_urid_lookup(LV2_TIME__beatsPerMinute);
+    lv2_atom_forge_init(&in->time_forge, &in->time_map);
+    return 0;
+}
+
 static void instance_drop(struct lv2_instance *in)
 {
     if (!in->handle)
@@ -381,6 +439,11 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     in->rate = rate;
     options_build(in, rate, min_frames, max_frames);
     features_build(in);
+    if (time_make(in) != 0)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
     in->handle = d->instantiate(d, rate, p->bundle_path, in->feature_ptrs);
     if (!in->handle)
     {
@@ -411,6 +474,8 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             else if (p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;
         }
+        if (!at && p->time_port >= 0 && (uint32_t)p->time_port == i)
+            at = in->time_buf;
         if (!at && p->latency_port >= 0 && (uint32_t)p->latency_port == i)
             at = &in->latency_port;
         if (!at && k < p->n_controls && p->controls[k].port == i)
@@ -554,6 +619,7 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->controls);
     free(in->shown);
     free(in->ring_mem);
+    free(in->time_buf);
     free(in);
 }
 
@@ -580,6 +646,63 @@ float lv2_instance_control_get(const struct lv2_instance *in, uint32_t k)
     if (k >= in->plugin->n_controls)
         return 0.0f;
     return bits_float(atomic_load_explicit(&in->shown[k], memory_order_relaxed));
+}
+
+/* whether two transports read the same, every field but the frame, which the object carries at each block */
+static int time_same(const struct lv2_time *a, const struct lv2_time *b)
+{
+    return a->playing == b->playing && a->has == b->has && a->bpm == b->bpm && a->bar == b->bar && a->bar_beat == b->bar_beat
+           && a->beat_unit == b->beat_unit && a->beats_per_bar == b->beats_per_bar;
+}
+
+/* one time:Position object at frame 0 of the open sequence: 0 when it does not fit */
+static int time_object(struct lv2_instance *in, const struct lv2_time *t)
+{
+    LV2_Atom_Forge *f = &in->time_forge;
+    const struct lv2_time_urids *u = &in->time_urid;
+    LV2_Atom_Forge_Frame obj;
+
+    if (!lv2_atom_forge_frame_time(f, 0) || !lv2_atom_forge_object(f, &obj, 0, u->position))
+        return 0;
+    if (!lv2_atom_forge_key(f, u->frame) || !lv2_atom_forge_long(f, t->frame))
+        return 0;
+    if (!lv2_atom_forge_key(f, u->speed) || !lv2_atom_forge_float(f, t->playing ? 1.0f : 0.0f))
+        return 0;
+    if ((t->has & LV2_TIME_HAS_BEATS)
+        && (!lv2_atom_forge_key(f, u->bar) || !lv2_atom_forge_long(f, t->bar)
+            || !lv2_atom_forge_key(f, u->bar_beat) || !lv2_atom_forge_float(f, (float)t->bar_beat)))
+        return 0;
+    if ((t->has & LV2_TIME_HAS_METER)
+        && (!lv2_atom_forge_key(f, u->beat_unit) || !lv2_atom_forge_int(f, (int32_t)t->beat_unit)
+            || !lv2_atom_forge_key(f, u->beats_per_bar) || !lv2_atom_forge_float(f, (float)t->beats_per_bar)))
+        return 0;
+    if ((t->has & LV2_TIME_HAS_BPM) && (!lv2_atom_forge_key(f, u->bpm) || !lv2_atom_forge_float(f, (float)t->bpm)))
+        return 0;
+    lv2_atom_forge_pop(f, &obj);
+    return 1;
+}
+
+void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t)
+{
+    LV2_Atom_Forge *f = &in->time_forge;
+    LV2_Atom_Forge_Frame seq;
+    const int forge = t && !(in->time_have && time_same(t, &in->time_last));
+
+    if (!in->time_buf)
+        return;
+    in->time_have = t != NULL;
+    if (t)
+        in->time_last = *t;
+    lv2_atom_forge_set_buffer(f, (uint8_t *)in->time_buf, in->time_bytes);
+    if (lv2_atom_forge_sequence_head(f, &seq, in->time_urid.frame_time) && (!forge || time_object(in, t)))
+    {
+        lv2_atom_forge_pop(f, &seq);
+        return;
+    }
+    // no room for the object (it never happens at TIME_MIN_BYTES): an empty sequence, never half of an object
+    lv2_atom_forge_set_buffer(f, (uint8_t *)in->time_buf, in->time_bytes);
+    if (lv2_atom_forge_sequence_head(f, &seq, in->time_urid.frame_time))
+        lv2_atom_forge_pop(f, &seq);
 }
 
 void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *ctx), void *ctx)

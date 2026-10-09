@@ -152,6 +152,7 @@ struct lv2_plugin
     uint32_t legs;                  // 1 or 2
     uint32_t in_ports[2], out_ports[2];
     int32_t latency_port;           // -1: none
+    int32_t time_port;              // -1: none; the atom input that takes time:Position and nothing else (§6.6)
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
     char **required;                // lv2:requiredFeature, NULL-terminated
@@ -250,6 +251,29 @@ void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value);
 /* [thread-safe] The value of control `k`: an input as last written, the bypass's hold, an output as the last run
  * published it. */
 float lv2_instance_control_get(const struct lv2_instance *in, uint32_t k);
+
+/* The transport a block hands a plugin's time:Position input, the host's own fields as LV2 names them. `frame` and
+ * `playing` (time:speed, 1 or 0) are always present; each other field is present only when its LV2_TIME_HAS_* bit is
+ * set in `has`. */
+#define LV2_TIME_HAS_BPM                (1u << 0)   // beatsPerMinute
+#define LV2_TIME_HAS_BEATS              (1u << 1)   // bar, barBeat
+#define LV2_TIME_HAS_METER              (1u << 2)   // beatUnit, beatsPerBar
+struct lv2_time
+{
+    int64_t frame;                  // time:frame: the frame at the start of the block
+    int playing;                    // time:speed: 1 when playing, 0 otherwise
+    uint32_t has;                   // LV2_TIME_HAS_* bits
+    double bpm;                     // time:beatsPerMinute
+    int64_t bar;                    // time:bar
+    double bar_beat;                // time:barBeat, in beatUnit notes from the bar's start
+    uint32_t beat_unit;             // time:beatUnit
+    uint32_t beats_per_bar;         // time:beatsPerBar
+};
+
+/* [audio] The time:Position of the block about to run, forged into the plugin's time port (NULL: no transport, and the
+ * port reads an empty sequence). An object is forged only when the transport differs from the last block's, at frame 0
+ * of the sequence. Does nothing for a plugin with no time port. */
+void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t);
 
 /* [audio] The plugin's half of a block: worker responses drained through work_response, then `before` (the caller's
  * control writes, NULL for none), run, end_run, the flush-to-zero bits re-asserted, the latency port and the outputs
