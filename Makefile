@@ -398,7 +398,7 @@ LV2_FIXTURE_DIR = lv2/tests/fixtures
 # fuses a multiply into an add; aarch64's GCC fuses by default and the product's rounding then reads as an error
 LV2_FIXTURE_CFLAGS = -O2 -g -Wall -Wextra -Werror -std=gnu99 -fPIC -shared -D_GNU_SOURCE -pthread -ffp-contract=off $(LV2_CFLAGS)
 LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-worker-gain.lv2/omx-worker-gain.so \
-              build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
+              build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so build/lv2/omx-time-probe.lv2/omx-time-probe.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -409,6 +409,11 @@ build/lv2/omx-worker-gain.lv2/omx-worker-gain.so: $(LV2_FIXTURE_DIR)/lv2_worker_
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-worker-gain.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -DLV2_WORKER_GAIN_BUNDLE -o $@ $< -lm
+
+build/lv2/omx-time-probe.lv2/omx-time-probe.so: $(LV2_FIXTURE_DIR)/lv2_time_probe.c $(LV2_FIXTURE_DIR)/lv2_time_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-time-probe.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-time-probe.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so: $(LV2_FIXTURE_DIR)/lv2_fakes.c $(LV2_FIXTURE_DIR)/lv2_fakes.h $(wildcard $(LV2_FIXTURE_DIR)/omx-lv2-fakes.lv2/*.ttl)
 	@mkdir -p $(@D)

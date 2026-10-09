@@ -60,8 +60,8 @@ Ports
 | A latency that changes while running | lossy: held until it has read unchanged for `latency_hold_ms`, then one restart; a change that comes back inside the hold is ignored (`lv2_clap_test` latency) | unsupported |
 | The plugin's own bypass (`lv2:enabled`, a `bypass` port) | lossy: held at the value that keeps the plugin processing; the host's crossfade is the bypass. Turning the bypass off after a steady bypass resets the plugin (LV2 deactivate then activate, the worker joined before and started after) on the host's control thread, never in the audio path (`lv2_clap_test` fixture, core and worker, `lv2_host_test` fixture) | unsupported |
 | CV ports | unsupported; refused with `hosting.features.cv-ports` (`lv2_host_test` refusals) | unsupported |
-| Atom and event ports, MIDI | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals) | unsupported |
-| `time:Position` | unsupported (stage 2; lossy when it comes, built from the CLAP transport) | unsupported |
+| Atom and event ports, MIDI (any atom input but a `time:Position` one) | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals, including the fixture `#atom`) | unsupported |
+| `time:Position` input | lossy: forged at frame 0 only when the host's transport changes (its fields but the frame); an unchanged transport forges nothing, no transport an empty sequence. Named by `lv2_clap_test` time: every key and value, the change rule, a withdrawal and a tempo-only transport (sabotaged: an always-forge, a dropped playing flag and a dropped bar start each go red) | unsupported |
 | `patch:` numeric parameters | unsupported (stage 2) | unsupported |
 | `patch:` file paths and strings | unsupported (stage 3) | unsupported |
 | Other atom messages | unsupported | unsupported |

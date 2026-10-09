@@ -58,6 +58,7 @@
 #include "omx_clap_lv2.h"
 #include "fixtures/lv2_fakes.h"
 #include "fixtures/lv2_worker_gain.h"
+#include "fixtures/lv2_time_probe.h"
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -78,6 +79,7 @@ void *__wrap_realloc(void *p, size_t n) { rt_allocs += in_rt; return __real_real
 void __wrap_free(void *p) { rt_allocs += in_rt; __real_free(p); }
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
+static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
 
@@ -625,6 +627,108 @@ static double max_abs_ratio(const float *y, const float *x)
     return (double)a / (double)b;
 }
 
+/* ---- time:Position from the host's transport (§6.6) ---- */
+
+static void time_run(struct omx_clap_instance *in, float *l, float *r)
+{
+    in_rt = 1;
+    omx_clap_host_run(in, l, r, BLOCK);
+    in_rt = 0;
+}
+
+static void t_time(double rate)
+{
+    char cwhy[OMX_CLAP_WHY_MAX] = "", why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_time, why);
+    struct lv2_time_probe *pr;
+    struct omx_clap_instance *in = NULL;
+    struct omx_clap_transport_src src;
+    struct omx_clap_transport rec;
+    float l[BLOCK], r[BLOCK];
+    uint32_t objects;
+    int64_t frame;
+    uint32_t i;
+
+    if (entry && omx_clap_host_open_entry(entry, LV2_TIME_PROBE_URI, &in, cwhy) == 0 && omx_clap_host_activate(in, rate, MAXB, cwhy) != 0)
+    {
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    // the binary is loaded by the open: its symbols are read after it
+    pr = in ? loaded_symbol(g_time_so, "lv2_time_probe") : NULL;
+    CHECK(in && pr, "time %.0f: the time probe opens and activates (%s)", rate, cwhy);
+    if (!in || !pr)
+        return;
+    memset(pr, 0, sizeof *pr); /* the probe is the process's own, and every rate before this one counted into it */
+    // the source is set before the publish, as the host sets it
+    memset(&src, 0, sizeof src);
+    omx_clap_host_set_transport(in, &src);
+    omx_clap_host_publish(in, pthread_self());
+    for (i = 0; i < BLOCK; i++) l[i] = r[i] = 0.25f;
+
+    time_run(in, l, r);
+    time_run(in, l, r);
+    objects = pr->objects;
+    CHECK(pr->events == 0 && objects == 0, "time %.0f: no transport, no object (%u events, %u objects)", rate, pr->events, objects);
+
+    /* playing at 120 bpm, 7/8, bar 3, 1.5 beats into the bar: the whole object, once */
+    memset(&rec, 0, sizeof rec);
+    rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE | CLAP_TRANSPORT_IS_PLAYING;
+    rec.tempo = 120.0;
+    rec.song_pos_beats = 5 * (CLAP_BEATTIME_FACTOR / 2);
+    rec.bar_start = CLAP_BEATTIME_FACTOR; /* the bar began on beat 1, so the beat in the bar is 1.5 */
+    rec.bar_number = 3;
+    rec.tsig_num = 7;
+    rec.tsig_denom = 8;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    frame = pr->frame;
+    CHECK(pr->objects == objects + 1 && pr->events == 1, "time %.0f: a new transport forges one object (%u events)", rate, pr->events);
+    CHECK(pr->keys == (LV2_TIME_PROBE_FRAME | LV2_TIME_PROBE_SPEED | LV2_TIME_PROBE_BAR | LV2_TIME_PROBE_BAR_BEAT | LV2_TIME_PROBE_BEAT_UNIT
+                       | LV2_TIME_PROBE_BEATS_PER_BAR | LV2_TIME_PROBE_BPM), "time %.0f: every field of the transport is in it (0x%x)", rate, pr->keys);
+    CHECK(pr->speed == 1.0f && pr->bpm == 120.0f && pr->bar == 3 && pr->bar_beat == 1.5f, "time %.0f: speed 1, 120 bpm, bar 3, beat 1.5 (%g %g %lld %g)", rate,
+          (double)pr->speed, (double)pr->bpm, (long long)pr->bar, (double)pr->bar_beat);
+    CHECK(pr->beat_unit == 8 && pr->beats_per_bar == 7.0f, "time %.0f: the meter 7/8 (%d/%g)", rate, pr->beat_unit, (double)pr->beats_per_bar);
+
+    /* the same transport again forges nothing: the sequence is empty */
+    time_run(in, l, r);
+    CHECK(pr->objects == objects + 1 && pr->events == 0, "time %.0f: an unchanged transport forges no object (%u events)", rate, pr->events);
+    /* stopped and one beat on: a new object, speed 0 */
+    rec.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
+    rec.song_pos_beats += CLAP_BEATTIME_FACTOR;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->objects == objects + 2 && pr->speed == 0.0f && pr->bar_beat == 2.5f, "time %.0f: stopped at beat 2.5 of the bar forges one object (speed %g, barBeat %g)", rate,
+          (double)pr->speed, (double)pr->bar_beat);
+    CHECK(pr->frame > frame, "time %.0f: the frame is the block's own (%lld, then %lld)", rate, (long long)frame, (long long)pr->frame);
+
+    /* only a tempo: the keys say so, and the bar and meter are absent */
+    memset(&rec, 0, sizeof rec);
+    rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    rec.tempo = 90.0;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->keys == (LV2_TIME_PROBE_FRAME | LV2_TIME_PROBE_SPEED | LV2_TIME_PROBE_BPM), "time %.0f: a tempo-only transport carries no bar and no meter (0x%x)", rate, pr->keys);
+    CHECK(pr->bpm == 90.0f, "time %.0f: 90 bpm (%g)", rate, (double)pr->bpm);
+
+    /* withdrawn: no transport, no object; then the same transport again is new */
+    memset(&rec, 0, sizeof rec);
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->events == 0, "time %.0f: a withdrawn transport forges nothing (%u events)", rate, pr->events);
+    rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    rec.tempo = 90.0;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->events == 1, "time %.0f: the transport back after a withdrawal forges again", rate);
+
+    omx_clap_host_set_transport(in, NULL);
+    omx_clap_request_stop(&in->stage);
+    time_run(in, l, r);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "time %.0f: unpublished", rate);
+    omx_clap_host_close(in);
+}
+
 static void t_worker(double rate)
 {
     float x[BLOCK], y[BLOCK];
@@ -906,6 +1010,9 @@ int main(int argc, char **argv)
     abs_dir(dir, g_wg);
     snprintf(dir, sizeof(dir), "%somx-lv2-fakes.lv2", build);
     abs_dir(dir, g_fakes);
+    snprintf(dir, sizeof(dir), "%somx-time-probe.lv2", build);
+    abs_dir(dir, g_time);
+    snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     in_rt = 1;
@@ -928,6 +1035,7 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
+        t_time(RATES[r]);
         t_core(RATES[r]);
         printf("lv2 clap @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
     }
