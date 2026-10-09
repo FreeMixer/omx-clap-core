@@ -123,6 +123,10 @@ struct lv2_instance
     _Atomic uint32_t schedule_refused;
     _Atomic uint32_t responses_refused;
     _Atomic uint32_t respond_strikes;
+
+    // the state held for the next activate: LV2 Turtle, NULL for none; dirty until an activate has applied a load
+    char *state_text;
+    int state_dirty;
 };
 
 
@@ -475,9 +479,23 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     return in;
 }
 
+/* the held state into the live handle, and the values it sets into the instance's controls and their shown copies: 0, or -1 */
+static int state_apply(struct lv2_instance *in)
+{
+    uint32_t k;
+
+    if (lv2_plugin_state_restore(in->plugin, in->handle, in->controls, in->state_text, in->feature_ptrs, &in->map) != 0)
+        return -1;
+    for (k = 0; k < in->plugin->n_controls; k++)
+        atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
+    in->state_dirty = 0;
+    return 0;
+}
+
 int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames, char why[LV2_CORE_WHY_MAX])
 {
     const struct lv2_core_config *config = lv2_core_config();
+    int created;
 
     if (!in || max_frames == 0 || min_frames > max_frames)
     {
@@ -496,8 +514,15 @@ int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_fra
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
-    if (!in->handle && instance_make(in, rate, min_frames, max_frames, why) != 0)
+    created = in->handle == NULL;
+    if (created && instance_make(in, rate, min_frames, max_frames, why) != 0)
         return -1;
+    // the held state after the default state, before LV2 activate: on a new handle, and on one a load has changed since
+    if ((created || in->state_dirty) && in->state_text && state_apply(in) != 0)
+    {
+        lv2_why_set(why, LV2_CODE_STATE_UNREADABLE);
+        return -1;
+    }
     if (in->plugin->desc->activate)
         in->plugin->desc->activate(in->handle);
     in->lv2_active = 1;
@@ -554,7 +579,58 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->controls);
     free(in->shown);
     free(in->ring_mem);
+    free(in->state_text);
     free(in);
+}
+
+int lv2_instance_preset_load(struct lv2_instance *in, const char *uri, char why[LV2_CORE_WHY_MAX])
+{
+    char *text;
+    int rc;
+
+    if (!in || !uri)
+    {
+        lv2_why_set(why, LV2_CODE_PRESET_NOT_FOUND);
+        return -1;
+    }
+    text = lv2_plugin_preset_text(in->plugin, uri, &in->map, &in->unmap);
+    if (!text)
+    {
+        lv2_why_set(why, LV2_CODE_PRESET_NOT_FOUND);
+        return -1;
+    }
+    rc = lv2_instance_state_load(in, text, why);
+    free(text);
+    return rc;
+}
+
+char *lv2_instance_state_save(struct lv2_instance *in)
+{
+    if (!in || !in->handle)
+        return NULL;
+    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->feature_ptrs, &in->map, &in->unmap);
+}
+
+int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX])
+{
+    char *copy;
+
+    if (!in || !text || lv2_plugin_state_check(text, &in->map) != 0)
+    {
+        lv2_why_set(why, LV2_CODE_STATE_UNREADABLE);
+        return -1;
+    }
+    copy = strdup(text);
+    if (!copy)
+    {
+        lv2_why_set(why, LV2_CODE_STATE_UNREADABLE);
+        return -1;
+    }
+    free(in->state_text);
+    in->state_text = copy;
+    in->state_dirty = 1;
+    lv2_why_set(why, "");
+    return 0;
 }
 
 float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg)

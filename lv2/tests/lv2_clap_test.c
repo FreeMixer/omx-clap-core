@@ -376,7 +376,7 @@ static void t_entry(void)
 
     CHECK(a && a == b, "the entry of a bundle, the same entry for a second reference");
     CHECK(a && a->init(g_fixture) && clap_version_is_compatible(a->clap_version), "its init answers and its CLAP version is compatible");
-    CHECK(fa && fa->get_plugin_count(fa) == 8, "its factory lists the fixture bundle's 8 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
+    CHECK(fa && fa->get_plugin_count(fa) == 10, "its factory lists the fixture bundle's 10 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
     CHECK(fa && has_plugin(fa, FIXTURE_URI, &name) && name && strcmp(name, "openmixer host fixture") == 0,
           "descriptor id = the LV2 URI, name = doap:name (%s), features: audio-effect only", name ? name : "");
     CHECK(a && a->get_factory("clap.no-such-factory") == NULL, "no factory but the plugin factory");
@@ -391,7 +391,7 @@ static void t_entry(void)
     omx_clap_lv2_entry_release(w);
     a = omx_clap_lv2_entry(g_fixture, why);
     fa = a ? a->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
-    CHECK(fa && fa->get_plugin_count(fa) == 8, "after the last release the bundle is loaded afresh for the next entry");
+    CHECK(fa && fa->get_plugin_count(fa) == 10, "after the last release the bundle is loaded afresh for the next entry");
     omx_clap_lv2_entry_release(a);
 }
 
@@ -406,6 +406,8 @@ static void t_refusals(void)
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
+        { FIXTURE_URI "#mappath", "hosting.features.missing" },
+        { FIXTURE_URI "#makepath", "hosting.features.missing" },
         { "urn:openmixer:test:not-in-this-bundle", "hosting.no-realisation" },
     };
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
@@ -492,6 +494,184 @@ static void t_fixture(double rate)
     CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK) && g.latency->get(g.plugin) == 7, "fixture %.0f: the restart's activate takes 7 frames (%u)", rate, g.latency->get(g.plugin));
     CHECK(param(&g, 3) == -10.0, "fixture %.0f: the row keeps its value across the restart", rate);
     rig_down(&g);
+}
+
+/* ---- clap.state over memory: the host's streams ---- */
+
+struct mem_out
+{
+    clap_ostream_t stream;
+    char buf[8192];
+    size_t n;
+};
+
+struct mem_in
+{
+    clap_istream_t stream;
+    const char *buf;
+    size_t n, at;
+};
+
+static int64_t mo_write(const clap_ostream_t *s, const void *b, uint64_t size)
+{
+    struct mem_out *m = s->ctx;
+
+    if (m->n + size > sizeof(m->buf))
+        return 0;
+    memcpy(m->buf + m->n, b, size);
+    m->n += size;
+    return (int64_t)size;
+}
+
+static int64_t mi_read(const clap_istream_t *s, void *b, uint64_t size)
+{
+    struct mem_in *m = s->ctx;
+    uint64_t take = m->n - m->at < size ? m->n - m->at : size;
+
+    memcpy(b, m->buf + m->at, take);
+    m->at += take;
+    return (int64_t)take;
+}
+
+static void mo_init(struct mem_out *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->stream.ctx = m;
+    m->stream.write = mo_write;
+}
+
+static void mi_init(struct mem_in *m, const char *buf, size_t n)
+{
+    memset(m, 0, sizeof(*m));
+    m->buf = buf;
+    m->n = n;
+    m->stream.ctx = m;
+    m->stream.read = mi_read;
+}
+
+/* the rig stopped, then activated again at the same rate: the restart a load while active asks for */
+static void restart(struct rig *g, double rate)
+{
+    g->plugin->stop_processing(g->plugin);
+    g->plugin->deactivate(g->plugin);
+    CHECK(g->plugin->activate(g->plugin, rate, 1, BLOCK) && g->plugin->start_processing(g->plugin), "restart at %.0f", rate);
+}
+
+static const clap_plugin_state_t *state_of(struct rig *g)
+{
+    return g->plugin->get_extension(g->plugin, CLAP_EXT_STATE);
+}
+
+/* the state a rig is saved to, loaded before its activate, and loaded while active: the same blocks, the same bits */
+static void t_state(double rate)
+{
+    static float in[N_BLOCKS * BLOCK], a[N_BLOCKS * BLOCK], b[N_BLOCKS * BLOCK], c[N_BLOCKS * BLOCK];
+    struct mem_out saved;
+    struct mem_in given;
+    struct evlist ev;
+    struct rig ra, rb, rc;
+    uint32_t blk;
+
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        tone(in + blk * BLOCK, BLOCK, 0.5f, blk * BLOCK);
+
+    // A: the gain at -10 from the first block, the default state's -6 beside it; saved as it stands
+    if (rig_up(&ra, g_fixture, FIXTURE_URI, rate, BLOCK) != 0)
+        return;
+    ev_init(&ev);
+    ev_param(&ev, 3, -10.0);
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        process(&ra, in + blk * BLOCK, NULL, a + blk * BLOCK, NULL, BLOCK, blk == 0 ? &ev : NULL);
+    CHECK(fabs(gain_db(in, a, 0, N_BLOCKS) - -16.0) < 0.01, "state %.0f: A runs at -16 dB: the row at -10, the default state at -6 (%.3f)",
+          rate, gain_db(in, a, 0, N_BLOCKS));
+    mo_init(&saved);
+    CHECK(state_of(&ra) && state_of(&ra)->save(ra.plugin, &saved.stream) && saved.n > 0, "state %.0f: A saves (%zu bytes)", rate, saved.n);
+    CHECK(strstr(saved.buf, "gain_db") != NULL && strstr(saved.buf, "offset_db") != NULL, "state %.0f: the save carries the row and the plugin's state", rate);
+
+    // B: the same state loaded before the first activate, applied by that activate
+    if (rig_up(&rb, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        mi_init(&given, saved.buf, saved.n);
+        CHECK(state_of(&rb) && state_of(&rb)->load(rb.plugin, &given.stream), "state %.0f: B loads before its activate", rate);
+        CHECK(rb.plugin->activate(rb.plugin, rate, 1, BLOCK) && rb.plugin->start_processing(rb.plugin), "state %.0f: B activates", rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&rb, in + blk * BLOCK, NULL, b + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(bits_equal(a, b, N_BLOCKS * BLOCK), "state %.0f: B's blocks are A's, bit for bit", rate);
+        CHECK(param(&rb, 3) == -10.0, "state %.0f: B reads the gain back at -10 (%.4f)", rate, param(&rb, 3));
+        rig_down(&rb);
+    }
+
+    // C: the same state loaded while active: held, a restart asked for, applied by the restart's activate
+    if (rig_up(&rc, g_fixture, FIXTURE_URI, rate, BLOCK) == 0)
+    {
+        mi_init(&given, saved.buf, saved.n);
+        CHECK(state_of(&rc)->load(rc.plugin, &given.stream), "state %.0f: C loads while active", rate);
+        CHECK(rc.host.restarts == 1, "state %.0f: C asks the host for one restart (%d)", rate, rc.host.restarts);
+        restart(&rc, rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&rc, in + blk * BLOCK, NULL, c + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(bits_equal(a, c, N_BLOCKS * BLOCK), "state %.0f: C's blocks after the restart are A's, bit for bit", rate);
+        CHECK(param(&rc, 3) == -10.0, "state %.0f: C reads the gain back at -10 after the restart (%.4f)", rate, param(&rc, 3));
+
+        // D: a text that is not a state is refused, and the held state stays C's
+        mi_init(&given, "this is not a turtle state {", strlen("this is not a turtle state {"));
+        CHECK(!state_of(&rc)->load(rc.plugin, &given.stream), "state %.0f: a text that does not parse is refused", rate);
+        CHECK(rc.host.restarts == 1, "state %.0f: a refused load asks for no restart (%d)", rate, rc.host.restarts);
+        rig_down(&rc);
+    }
+    rig_down(&ra);
+}
+
+/* ---- clap.preset-load: the bundle's pset:Preset, by its URI ---- */
+
+#define PRESET_QUIET "urn:openmixer:test:host-fixture-preset:quiet"        /* offset -3 dB, applies to the fixture */
+#define PRESET_WRONG "urn:openmixer:test:host-fixture-preset:quiet-wrong"  /* applies to the CV twin: refused */
+#define PRESET_NONE "urn:openmixer:test:host-fixture-preset:nothing"
+
+static const clap_plugin_preset_load_t *preset_of(struct rig *g)
+{
+    return g->plugin->get_extension(g->plugin, CLAP_EXT_PRESET_LOAD);
+}
+
+/* the preset loaded while active (a restart), and before the first activate: the row's -20 with the preset's -3 */
+static void t_preset(double rate)
+{
+    static float in[N_BLOCKS * BLOCK], out[N_BLOCKS * BLOCK];
+    const clap_plugin_preset_load_t *pl;
+    struct rig g;
+    uint32_t blk;
+
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        tone(in + blk * BLOCK, BLOCK, 0.5f, blk * BLOCK);
+
+    if (rig_up(&g, g_fixture, FIXTURE_URI, rate, BLOCK) == 0)
+    {
+        pl = preset_of(&g);
+        CHECK(pl && !pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_WRONG) && g.host.restarts == 0,
+              "preset %.0f: a preset that applies to another plugin is refused, and asks for no restart", rate);
+        CHECK(pl && !pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_NONE),
+              "preset %.0f: a preset the bundle does not hold is refused", rate);
+        CHECK(pl && pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_QUIET) && g.host.restarts == 1,
+              "preset %.0f: quiet loads while active, and asks for one restart (%d)", rate, g.host.restarts);
+        restart(&g, rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&g, in + blk * BLOCK, NULL, out + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(fabs(gain_db(in, out, 2, N_BLOCKS) - -23.0) < 0.01, "preset %.0f: after the restart the gain reads %.3f dB: -20 plus the preset's -3",
+              rate, gain_db(in, out, 2, N_BLOCKS));
+        rig_down(&g);
+    }
+
+    if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        pl = preset_of(&g);
+        CHECK(pl && pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_QUIET) && g.host.restarts == 0,
+              "preset %.0f: quiet loads before the first activate, and asks for no restart", rate);
+        CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK) && g.plugin->start_processing(g.plugin), "preset %.0f: activates", rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&g, in + blk * BLOCK, NULL, out + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(fabs(gain_db(in, out, 2, N_BLOCKS) - -23.0) < 0.01, "preset %.0f: the first activate applies it: %.3f dB", rate, gain_db(in, out, 2, N_BLOCKS));
+        rig_down(&g);
+    }
 }
 
 /* ---- the port properties as CLAP flags ---- */
@@ -925,6 +1105,8 @@ int main(int argc, char **argv)
         const int before = g_failures;
 
         t_fixture(RATES[r]);
+        t_state(RATES[r]);
+        t_preset(RATES[r]);
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
