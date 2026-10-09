@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The MIDI fixture of lv2_midi_echo.c: one plugin with a binary, and a twin the host must refuse from the TTL alone.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:midi-echo>
+    a lv2:Plugin ;
+    lv2:binary <omx-midi-echo.so> ;
+    rdfs:seeAlso <omx-midi-echo.ttl> .
+
+<urn:openmixer:test:midi-echo#two-in>
+    a lv2:Plugin ;
+    lv2:binary <omx-midi-echo.so> ;
+    rdfs:seeAlso <omx-midi-echo.ttl> .
