@@ -752,6 +752,33 @@ static void t_stale_events(void) {
   CHECK(g.f.blocks == 1 && g.f.ev_per_block[0] == 0, "the next block sees none of the stale events (%u)", g.f.ev_per_block[0]);
 }
 
+/** The sysex pool is a block's: a full pool is empty again after omx_clap_run and after omx_clap_run_io. */
+static void t_sysex_pool_resets(void) {
+  static const uint8_t SYSEX[] = {0xf0, 9, 8, 7, 0xf7};
+  struct rig g;
+  float a[MAXB], b[MAXB], c[MAXB], d[MAXB];
+  const float *ins[2] = {a, b};
+  float *outs[2] = {c, d};
+  uint32_t k;
+  rig_up(&g, K_PAD, 2, QCAP);
+  g.st.note_inputs = 1;
+  g.st.note_dialect = CLAP_NOTE_DIALECT_CLAP;
+  g.st.note_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+  ramp(a, 64), ramp(b, 64), ramp(c, 64), ramp(d, 64);
+  for (k = 0; k < OMX_CLAP_SYSEX_PER_BLOCK; k++) omx_clap_note_in(&g.st, k, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_sysex == OMX_CLAP_SYSEX_PER_BLOCK, "the pool is full (%u)", g.st.n_sysex);
+  run(&g, c, d, 64);
+  CHECK(g.st.n_sysex == 0 && g.st.n_notes == 0, "omx_clap_run empties the pool (%u sysex, %u notes)", g.st.n_sysex, g.st.n_notes);
+  for (k = 0; k < OMX_CLAP_SYSEX_PER_BLOCK; k++) omx_clap_note_in(&g.st, k, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_sysex == OMX_CLAP_SYSEX_PER_BLOCK && atomic_load(&g.st.sysex_dropped) == 0,
+        "the next block takes a full pool again, none dropped (%u)", atomic_load(&g.st.sysex_dropped));
+  omx_clap_run_io(&g.st, ins, outs, 64);
+  CHECK(g.st.n_sysex == 0 && g.st.n_notes == 0, "omx_clap_run_io empties the pool (%u sysex, %u notes)", g.st.n_sysex, g.st.n_notes);
+  omx_clap_note_in(&g.st, 0, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_sysex == 1 && g.st.notes[0].sysex.buffer == g.st.sysex_bytes[0] && atomic_load(&g.st.sysex_dropped) == 0,
+        "and a sysex lands in slot 0 again");
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -770,6 +797,7 @@ int main(void) {
     t_xfade();
     t_channel_messages();
     t_stale_events();
+    t_sysex_pool_resets();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);
