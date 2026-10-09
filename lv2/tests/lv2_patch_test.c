@@ -192,6 +192,40 @@ static void t_block(void)
     lv2_plugin_close(p);
 }
 
+/* ---- a value the plugin emits on its own: the host's 3 is scaled as written, the plugin echoes 2 and keeps 2 ---- */
+
+static void t_emitted(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_fx(FX_URI, why);
+    struct lv2_instance *in = p ? lv2_instance_new(p) : NULL;
+    int gain_j = p ? index_of(p, "gain") : -1;
+    float v = 0.0f;
+    uint32_t i;
+
+    CHECK(in != NULL && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "emitted: an instance activates (%s)", why);
+    if (!in)
+        return;
+    run_block(in, ramp_in, ramp_out);
+    lv2_instance_patch_write(in, (uint32_t)gain_j, 3.0f);
+    run_block(in, ramp_in, ramp_out);
+    for (i = 0; i < BLOCK; i++)
+        scratch[i] = ramp_in[i] * 3.0f;
+    CHECK(bits_equal(ramp_out, scratch, BLOCK), "emitted: the block carries the host's gain 3, so the audio is scaled by 3");
+    CHECK(echoed(p, in, "gain", &v) && v == 2.0f, "emitted: the plugin emits 2 on its own, not the 3 it received (%g)", v);
+    CHECK(lv2_instance_patch_get(in, (uint32_t)gain_j) == 2.0f, "emitted: the value read back is the emitted 2 (%g)", lv2_instance_patch_get(in, (uint32_t)gain_j));
+
+    /* a new handle is sent the value the plugin kept: 2, not the host's 3 */
+    CHECK(lv2_instance_activate(in, 96000.0, 1, BLOCK, why) == 0, "emitted: the instance re-activates at a new rate (%s)", why);
+    run_block(in, ramp_in, ramp_out);
+    for (i = 0; i < BLOCK; i++)
+        scratch[i] = ramp_in[i] * 2.0f;
+    CHECK(bits_equal(ramp_out, scratch, BLOCK), "emitted: a new handle runs at the emitted gain 2, not the host's 3");
+    CHECK(echoed(p, in, "gain", &v) && v == 2.0f, "emitted: and echoes it again (%g)", v);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 /* ---- the atom buffer of one event: the rest of a block's events are dropped and counted ---- */
 
 static void t_drops(void)
@@ -240,6 +274,7 @@ int main(int argc, char **argv)
     CHECK(lv2_core_configure(&config, why) == 0, "configure every provider (%s)", why);
     t_structure();
     t_block();
+    t_emitted();
     printf("%s\n", g_failures == 0 ? "lv2 patch test ok" : "lv2 patch test FAILED");
     return g_failures == 0 ? 0 : 1;
 }
