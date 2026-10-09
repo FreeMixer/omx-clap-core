@@ -99,7 +99,7 @@ Features and extensions
 | State save and restore (`state:interface` through `clap.state`) | supported: the state as LV2 Turtle, read after an activate and restored before the first one or by the restart a load while active asks for (`lv2_clap_test` state). Lossy: a load while active is applied by a restart, never by a call during `process()`; the bypass is not in the state | unsupported |
 | `state:mapPath` | unsupported (stage 3); a plugin that requires it is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |
 | `state:makePath`, `state:freePath` | unsupported; a plugin that requires `makePath` is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |
-| Presets (`pset:Preset`) | unsupported (stage 2) | unsupported |
+| Presets (`pset:Preset`) | supported: `clap.preset-load` with the preset's URI as the load key, held and applied as a state load is (`lv2_clap_test` preset); a preset that applies to another plugin is refused. The preset-discovery factory is not offered | unsupported |
 | `instance-access`, `data-access` | unsupported | unsupported |
 | Required features outside the configured list | refused with `hosting.features.missing` before the binary is opened (`lv2_host_test` features, `lv2_clap_test` refusals) | unsupported |
 | lilv loaded only when the first bundle is opened | supported: a missing lilv refuses the bundle and is retried next time (`lv2_host_test` lazy) | not applicable |

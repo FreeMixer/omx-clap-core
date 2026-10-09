@@ -63,7 +63,9 @@
 #include <string.h>
 
 #include <clap/clap.h>
+#include <clap/ext/preset-load.h>
 #include <clap/ext/state.h>
+#include <clap/factory/preset-discovery.h>
 
 #include "lv2_core.h"
 #include "omx_clap_lv2.h"
@@ -616,6 +618,30 @@ static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream
 
 static const clap_plugin_state_t g_state = { state_save, state_load };
 
+/* a preset of the bundle, named by its URI (the location is the bundle's own, so it is not read): held as a load is */
+static bool preset_from_location(const clap_plugin_t *plugin, uint32_t kind, const char *location, const char *key)
+{
+    struct shim *s = SHIM_OF(plugin);
+    char why[LV2_CORE_WHY_MAX];
+
+    (void)location;
+    if (kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN || !key)
+    {
+        host_log(s->host, CLAP_LOG_ERROR, LV2_CODE_PRESET_NOT_FOUND);
+        return false;
+    }
+    if (lv2_instance_preset_load(s->in, key, why) != 0)
+    {
+        host_log(s->host, CLAP_LOG_ERROR, why);
+        return false;
+    }
+    if (s->active)
+        s->host->request_restart(s->host);
+    return true;
+}
+
+static const clap_plugin_preset_load_t g_preset_load = { preset_from_location };
+
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     (void)plugin;
@@ -627,6 +653,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_audio_ports;
     if (!strcmp(id, CLAP_EXT_STATE))
         return &g_state;
+    if (!strcmp(id, CLAP_EXT_PRESET_LOAD))
+        return &g_preset_load;
     return NULL;
 }
 

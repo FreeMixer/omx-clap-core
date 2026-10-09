@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The presets of omx-host-fixture.lv2: `quiet` applies to the fixture (-3 dB on the state's offset), and
+# `quiet-wrong` applies to the CV twin, so the host must refuse it for the fixture.
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix pset:  <http://lv2plug.in/ns/ext/presets#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix state: <http://lv2plug.in/ns/ext/state#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix fx:    <urn:openmixer:test:host-fixture#> .
+
+<urn:openmixer:test:host-fixture-preset:quiet>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture> ;
+    rdfs:label "quiet" ;
+    state:state [
+        fx:offset_db "-3.0"^^xsd:float
+    ] .
+
+<urn:openmixer:test:host-fixture-preset:quiet-wrong>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture#cv> ;
+    rdfs:label "quiet, for the CV twin" ;
+    state:state [
+        fx:offset_db "-9.0"^^xsd:float
+    ] .
