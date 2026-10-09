@@ -676,7 +676,7 @@ static void t_time(double rate)
     rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE | CLAP_TRANSPORT_IS_PLAYING;
     rec.tempo = 120.0;
     rec.song_pos_beats = 5 * (CLAP_BEATTIME_FACTOR / 2);
-    rec.bar_start = CLAP_BEATTIME_FACTOR; /* the bar began on beat 1, so the beat in the bar is 1.5 */
+    rec.bar_start = CLAP_BEATTIME_FACTOR; /* the bar starts on beat 1, so the beat in the bar is 1.5 */
     rec.bar_number = 3;
     rec.tsig_num = 7;
     rec.tsig_denom = 8;
