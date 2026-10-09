@@ -91,6 +91,23 @@ static int thread_count_reaching(int want)
     return n;
 }
 
+/* the count once two samples in a row agree, or after 5 s: a thread the previous instance joined can still be listed
+   when the next baseline is taken, and a baseline taken then is one too high */
+static int thread_count_settled(void)
+{
+    int n = thread_count(), prev, i;
+
+    for (i = 0; i < 5000; i++)
+    {
+        usleep(1000);
+        prev = n;
+        n = thread_count();
+        if (n == prev)
+            break;
+    }
+    return n;
+}
+
 static double rms(const float *x, uint32_t n)
 {
     double a = 0;
@@ -334,7 +351,7 @@ static void t_worker(double rate)
     gain = control_of(p, "gain_db");
     in = lv2_instance_new(p);
     lv2_instance_set_role(in, is_main, NULL);
-    threads0 = thread_count_reaching(thread_count());
+    threads0 = thread_count_settled();
     CHECK(lv2_instance_activate(in, rate, 1, BLOCK, why) == 0, "worker %.0f: a plugin requiring urid:map, worker:schedule and options activates (%s)", rate, why);
     CHECK(pr->rate_option == rate, "worker %.0f: options carried param:sampleRate %.0f", rate, pr->rate_option);
     CHECK(pr->max_block_option == (int32_t)BLOCK && pr->min_block_option == 1,
@@ -343,7 +360,8 @@ static void t_worker(double rate)
     CHECK(pr->saw_bounded, "worker %.0f: bufsz:boundedBlockLength was in the features", rate);
     CHECK(pr->unmap_round_trip, "worker %.0f: urid:unmap gave back the URI urid:map was handed", rate);
     CHECK(pr->log_answered, "worker %.0f: log:log answered the plugin's printf", rate);
-    CHECK(thread_count() == threads0 + 1, "worker %.0f: the instance owns ONE worker thread (%d -> %d threads)", rate, threads0, thread_count());
+    threads1 = thread_count_reaching(threads0 + 1);
+    CHECK(threads1 == threads0 + 1, "worker %.0f: the instance owns ONE worker thread (%d -> %d threads)", rate, threads0, threads1);
     CHECK(render_until(in, 0.0, 200, &level) > 0, "worker %.0f: at the default the output is the input (%.3f dB)", rate, level);
     works0 = atomic_load(&pr->works);
     lv2_instance_control_set(in, (uint32_t)gain, -20.0f);
