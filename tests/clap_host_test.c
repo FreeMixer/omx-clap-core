@@ -314,9 +314,19 @@ static void fake_plugin_checks(const char *path)
 
     CHECK(CLAP_HOST_MAIN_PORT_CHANNELS == 2, "CLAP_HOST_MAIN_PORT_CHANNELS is %u", CLAP_HOST_MAIN_PORT_CHANNELS);
     check_refused(path, FAKE_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
-    check_refused(path, FAKE_SIDECHAIN, CLAP_HOST_CODE_EXTRA_INPUTS);
     check_refused(path, FAKE_WIDEN, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
+
+    CHECK(open_ok(path, FAKE_SIDECHAIN, &instance), "open %s: a side chain is admitted", FAKE_SIDECHAIN);
+    if (instance)
+    {
+        CHECK(instance->aux_inputs == 1 && instance->aux_in_channels[0] == 1, "one mono side chain (%u inputs, %u channels)",
+              instance->aux_inputs, instance->aux_in_channels[0]);
+        CHECK(instance->in_channels == 2 && instance->channels == 2, "beside the effect's audio pair (%u in, %u out)", instance->in_channels, instance->channels);
+        omx_clap_host_close(instance);
+        instance = NULL;
+    }
+    CHECK(omx_clap_host_binaries_open() == 0, "the side chain's binary is closed again (%u open)", omx_clap_host_binaries_open());
 
     CHECK(open_ok(path, FAKE_NOTES, &instance), "open %s: a note input is admitted", FAKE_NOTES);
     if (instance)
@@ -451,15 +461,26 @@ static void synth_checks(const char *path)
     static const midi_at_t held[] = { { 0, { 0x90, 69, 127 }, 3 } };
     midi_at_t flood[CLAP_HOST_NOTES_PER_BLOCK + 44];
     float out_l[BLOCK], out_r[BLOCK];
+    float stop_l[BLOCK], stop_r[BLOCK];
     struct omx_clap_instance *synth;
     uint32_t i;
 
-    check_refused(path, SYNTH_AUX, CLAP_HOST_CODE_EXTRA_INPUTS);
     check_refused(path, SYNTH_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     check_refused(path, SYNTH_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
     check_refused(path, SYNTH_MPE, CLAP_HOST_CODE_NOTE_INPUT);
     check_refused(path, SILENT, CLAP_HOST_CODE_NO_AUDIO_INPUT);
     CHECK(omx_clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
+
+    synth = open_synth(path, SYNTH_AUX, 2, CLAP_NOTE_DIALECT_CLAP);
+    if (synth)
+    {
+        CHECK(synth->aux_inputs == 1 && synth->aux_in_channels[0] == 1, "an instrument's side chain is admitted, one mono input (%u inputs, %u channels)",
+              synth->aux_inputs, synth->aux_in_channels[0]);
+        omx_clap_request_stop(&synth->stage);
+        run_block(synth, NULL, 0, stop_l, stop_r);
+        CHECK(omx_clap_host_unpublish(synth, 10, 1000000) == 0, "unpublish the instrument with a side chain");
+        omx_clap_host_close(synth);
+    }
 
     synth_notes_checks(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     synth_notes_checks(path, SYNTH_MIDI, 1, CLAP_NOTE_DIALECT_MIDI);
