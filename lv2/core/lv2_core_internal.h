@@ -53,4 +53,15 @@ const char *lv2_urid_unlookup(LV2_URID id);
 /* state:loadDefaultState over lilv-state, with the features `instantiate` was handed: 0, or -1 */
 int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features);
 
+/* the state of a live handle as LV2 Turtle (malloc'd), read from its state:interface and its input controls: NULL on failure */
+char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const float *controls,
+                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap);
+
+/* the state text restored into a live handle and its input controls: 0, or -1 when the text does not parse */
+int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, float *controls, const char *text,
+                             const LV2_Feature *const *features, LV2_URID_Map *map);
+
+/* whether the state text parses: 0, or -1 */
+int lv2_plugin_state_check(const char *text, LV2_URID_Map *map);
+
 #endif

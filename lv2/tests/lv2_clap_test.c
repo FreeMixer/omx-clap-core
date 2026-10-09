@@ -496,6 +496,132 @@ static void t_fixture(double rate)
     rig_down(&g);
 }
 
+/* ---- clap.state over memory: the host's streams ---- */
+
+struct mem_out
+{
+    clap_ostream_t stream;
+    char buf[8192];
+    size_t n;
+};
+
+struct mem_in
+{
+    clap_istream_t stream;
+    const char *buf;
+    size_t n, at;
+};
+
+static int64_t mo_write(const clap_ostream_t *s, const void *b, uint64_t size)
+{
+    struct mem_out *m = s->ctx;
+
+    if (m->n + size > sizeof(m->buf))
+        return 0;
+    memcpy(m->buf + m->n, b, size);
+    m->n += size;
+    return (int64_t)size;
+}
+
+static int64_t mi_read(const clap_istream_t *s, void *b, uint64_t size)
+{
+    struct mem_in *m = s->ctx;
+    uint64_t take = m->n - m->at < size ? m->n - m->at : size;
+
+    memcpy(b, m->buf + m->at, take);
+    m->at += take;
+    return (int64_t)take;
+}
+
+static void mo_init(struct mem_out *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->stream.ctx = m;
+    m->stream.write = mo_write;
+}
+
+static void mi_init(struct mem_in *m, const char *buf, size_t n)
+{
+    memset(m, 0, sizeof(*m));
+    m->buf = buf;
+    m->n = n;
+    m->stream.ctx = m;
+    m->stream.read = mi_read;
+}
+
+/* the rig stopped, then activated again at the same rate: the restart a load while active asks for */
+static void restart(struct rig *g, double rate)
+{
+    g->plugin->stop_processing(g->plugin);
+    g->plugin->deactivate(g->plugin);
+    CHECK(g->plugin->activate(g->plugin, rate, 1, BLOCK) && g->plugin->start_processing(g->plugin), "restart at %.0f", rate);
+}
+
+static const clap_plugin_state_t *state_of(struct rig *g)
+{
+    return g->plugin->get_extension(g->plugin, CLAP_EXT_STATE);
+}
+
+/* the state a rig is saved to, loaded before its activate, and loaded while active: the same blocks, the same bits */
+static void t_state(double rate)
+{
+    static float in[N_BLOCKS * BLOCK], a[N_BLOCKS * BLOCK], b[N_BLOCKS * BLOCK], c[N_BLOCKS * BLOCK];
+    struct mem_out saved;
+    struct mem_in given;
+    struct evlist ev;
+    struct rig ra, rb, rc;
+    uint32_t blk;
+
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        tone(in + blk * BLOCK, BLOCK, 0.5f, blk * BLOCK);
+
+    // A: the gain at -10 from the first block, the default state's -6 beside it; saved as it stands
+    if (rig_up(&ra, g_fixture, FIXTURE_URI, rate, BLOCK) != 0)
+        return;
+    ev_init(&ev);
+    ev_param(&ev, 3, -10.0);
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        process(&ra, in + blk * BLOCK, NULL, a + blk * BLOCK, NULL, BLOCK, blk == 0 ? &ev : NULL);
+    CHECK(fabs(gain_db(in, a, 0, N_BLOCKS) - -16.0) < 0.01, "state %.0f: A runs at -16 dB: the row at -10, the default state at -6 (%.3f)",
+          rate, gain_db(in, a, 0, N_BLOCKS));
+    mo_init(&saved);
+    CHECK(state_of(&ra) && state_of(&ra)->save(ra.plugin, &saved.stream) && saved.n > 0, "state %.0f: A saves (%zu bytes)", rate, saved.n);
+    CHECK(strstr(saved.buf, "gain_db") != NULL && strstr(saved.buf, "offset_db") != NULL, "state %.0f: the save carries the row and the plugin's state", rate);
+
+    // B: the same state loaded before the first activate, applied by that activate
+    if (rig_up(&rb, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        mi_init(&given, saved.buf, saved.n);
+        CHECK(state_of(&rb) && state_of(&rb)->load(rb.plugin, &given.stream), "state %.0f: B loads before its activate", rate);
+        CHECK(rb.plugin->activate(rb.plugin, rate, 1, BLOCK) && rb.plugin->start_processing(rb.plugin), "state %.0f: B activates", rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&rb, in + blk * BLOCK, NULL, b + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(bits_equal(a, b, N_BLOCKS * BLOCK), "state %.0f: B's blocks are A's, bit for bit", rate);
+        CHECK(param(&rb, 3) == -10.0, "state %.0f: B reads the gain back at -10 (%.4f)", rate, param(&rb, 3));
+        rig_down(&rb);
+    }
+
+    // C: the same state loaded while active: held, a restart asked for, applied by the restart's activate
+    if (rig_up(&rc, g_fixture, FIXTURE_URI, rate, BLOCK) == 0)
+    {
+        mi_init(&given, saved.buf, saved.n);
+        CHECK(state_of(&rc)->load(rc.plugin, &given.stream), "state %.0f: C loads while active", rate);
+        CHECK(rc.host.restarts == 1, "state %.0f: C asks the host for one restart (%d)", rate, rc.host.restarts);
+        restart(&rc, rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&rc, in + blk * BLOCK, NULL, c + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(bits_equal(a, c, N_BLOCKS * BLOCK), "state %.0f: C's blocks after the restart are A's, bit for bit", rate);
+        CHECK(param(&rc, 3) == -10.0, "state %.0f: C reads the gain back at -10 after the restart (%.4f)", rate, param(&rc, 3));
+
+        // D: a text that is not a state is refused, and the held state stays C's
+        mi_init(&given, "this is not a turtle state {", strlen("this is not a turtle state {"));
+        CHECK(!state_of(&rc)->load(rc.plugin, &given.stream), "state %.0f: a text that does not parse is refused", rate);
+        CHECK(rc.host.restarts == 1, "state %.0f: a refused load asks for no restart (%d)", rate, rc.host.restarts);
+        rig_down(&rc);
+    }
+    rig_down(&ra);
+}
+
 /* ---- the port properties as CLAP flags ---- */
 
 static int info_of(struct rig *g, clap_id id, clap_param_info_t *info)
@@ -927,6 +1053,7 @@ int main(int argc, char **argv)
         const int before = g_failures;
 
         t_fixture(RATES[r]);
+        t_state(RATES[r]);
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);

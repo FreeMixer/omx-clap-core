@@ -85,6 +85,7 @@
 #define LV2_CODE_NO_AUDIO_OUTPUT        "hosting.topology.no-audio-output"
 #define LV2_CODE_EXTRA_INPUTS           "hosting.topology.extra-inputs-fed-silence"
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
+#define LV2_CODE_STATE_UNREADABLE       "hosting.state.unreadable"
 
 /* what a control port declares, as lv2_control.props reads it */
 #define LV2_PROP_INTEGER                (1u << 0)
@@ -158,6 +159,7 @@ struct lv2_plugin
     void *binary;                   // dlopen'ed by lv2_plugin_load
     const LV2_Descriptor *desc;
     void *uri_node;                 // the lilv node of the URI, for the default state
+    void *lilv_plugin;              // the LilvPlugin, owned by the world: for the state the instance saves
 };
 
 /* One running instance of a plugin. Opaque. */
@@ -271,6 +273,16 @@ void lv2_instance_worker_quiesce(struct lv2_instance *in);
 
 /* Whether the instance runs a worker thread now. */
 int lv2_instance_has_worker(const struct lv2_instance *in);
+
+/* [main] The instance's state as LV2 Turtle, lilv's own format, malloc'd for the caller to free. NULL before the first
+ * activate (there is no handle to read), or when lilv refuses. */
+char *lv2_instance_state_save(struct lv2_instance *in);
+
+/* [main] Hold a state, as lv2_instance_state_save wrote it, for the instance: restored after the default state each time
+ * the instance is instantiated and at each activate that follows a load, before LV2 activate. The state is held, not
+ * applied, so a load while active takes effect at the activate the host's restart brings. -1 with `why` when the text
+ * does not parse; the held state is then unchanged. */
+int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX]);
 
 
 /*

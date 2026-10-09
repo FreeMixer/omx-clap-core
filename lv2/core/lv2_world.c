@@ -76,7 +76,8 @@
     X(lilv_scale_points_is_end) X(lilv_scale_points_get) X(lilv_scale_points_free) X(lilv_scale_point_get_label) \
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
     X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
-    X(lilv_state_new_from_world) X(lilv_state_restore) X(lilv_state_free)
+    X(lilv_state_new_from_world) X(lilv_state_restore) X(lilv_state_free) X(lilv_state_new_from_instance) \
+    X(lilv_state_to_string) X(lilv_state_new_from_string)
 
 
 /*
@@ -647,6 +648,7 @@ struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, c
     }
     // the plugin must be THIS bundle's: a URI another open bundle holds is not in this one
     pl = L.lilv_plugins_get_by_uri(L.lilv_world_get_all_plugins(g.world), p->uri_node);
+    p->lilv_plugin = (void *)pl;
     refusal = !pl || !L.lilv_node_equals(L.lilv_plugin_get_bundle_uri(pl), bundle->node) ? LV2_CODE_NO_REALISATION : NULL;
     if (!refusal)
         refusal = read_ports(p, pl);
@@ -730,6 +732,115 @@ int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, cons
     instance.lv2_handle = handle;
     instance.pimpl = NULL;
     L.lilv_state_restore(state, &instance, NULL, NULL, 0, features);
+    L.lilv_state_free(state);
+    return 0;
+}
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: THE STATE
+************************************************************************************************************************
+*/
+
+/* what lilv reads and writes port values through: the plugin's input controls, by symbol, as floats */
+struct state_io
+{
+    const struct lv2_plugin *p;
+    float *controls;
+    LV2_URID float_type;
+};
+
+/* the value lilv saves for a port: an input control's, the bypass and the outputs are not in the state */
+static const void *state_get(const char *symbol, void *user, uint32_t *size, uint32_t *type)
+{
+    const struct state_io *io = user;
+    uint32_t k;
+
+    for (k = 0; k < io->p->n_controls; k++)
+        if (io->p->controls[k].kind == LV2_CONTROL_INPUT && strcmp(io->p->controls[k].symbol, symbol) == 0)
+        {
+            *size = sizeof(float);
+            *type = io->float_type;
+            return &io->controls[k];
+        }
+    return NULL;
+}
+
+/* a port value the state carries, written to its input control: any other is ignored */
+static void state_set(const char *symbol, void *user, const void *value, uint32_t size, uint32_t type)
+{
+    const struct state_io *io = user;
+    uint32_t k;
+
+    if (size != sizeof(float) || type != io->float_type)
+        return;
+    for (k = 0; k < io->p->n_controls; k++)
+        if (io->p->controls[k].kind == LV2_CONTROL_INPUT && strcmp(io->p->controls[k].symbol, symbol) == 0)
+            memcpy(&io->controls[k], value, sizeof(float));
+}
+
+char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const float *controls,
+                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap)
+{
+    struct state_io io;
+    LilvInstance instance;
+    LilvState *state;
+    char *text, *out;
+
+    if (!p || !p->lilv_plugin || !g.world || !handle || !map || !unmap)
+        return NULL;
+    instance.lv2_descriptor = p->desc;
+    instance.lv2_handle = handle;
+    instance.pimpl = NULL;
+    io.p = p;
+    io.controls = (float *)controls;
+    io.float_type = map->map(map->handle, LV2_ATOM__Float);
+    state = L.lilv_state_new_from_instance(p->lilv_plugin, &instance, map, NULL, NULL, NULL, NULL, state_get, &io, 0,
+                                           features);
+    if (!state)
+        return NULL;
+    // lilv writes a state with a subject, and the state of this plugin is the plugin's own
+    text = L.lilv_state_to_string(g.world, map, unmap, state, p->uri, NULL);
+    L.lilv_state_free(state);
+    if (!text)
+        return NULL;
+    out = strdup(text);
+    L.lilv_free(text);
+    return out;
+}
+
+int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, float *controls, const char *text,
+                             const LV2_Feature *const *features, LV2_URID_Map *map)
+{
+    struct state_io io;
+    LilvInstance instance;
+    LilvState *state;
+
+    if (!p || !g.world || !text || !map)
+        return -1;
+    state = L.lilv_state_new_from_string(g.world, map, text);
+    if (!state)
+        return -1;
+    instance.lv2_descriptor = p->desc;
+    instance.lv2_handle = handle;
+    instance.pimpl = NULL;
+    io.p = p;
+    io.controls = controls;
+    io.float_type = map->map(map->handle, LV2_ATOM__Float);
+    L.lilv_state_restore(state, &instance, state_set, &io, 0, features);
+    L.lilv_state_free(state);
+    return 0;
+}
+
+int lv2_plugin_state_check(const char *text, LV2_URID_Map *map)
+{
+    LilvState *state;
+
+    if (!g.world || !text || !map)
+        return -1;
+    state = L.lilv_state_new_from_string(g.world, map, text);
+    if (!state)
+        return -1;
     L.lilv_state_free(state);
     return 0;
 }
