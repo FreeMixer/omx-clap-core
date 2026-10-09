@@ -15,7 +15,7 @@ worker, where the matrix says so.
 
 plugin-hostd runs every LV2 and CLAP plugin in a native host of its own format, with no
 translation. A CLAP plugin can show its own window, or a panel the console draws from its CLAP
-extensions. An LV2 plugin shows its modgui in the console; native LV2 desktop UIs are not hosted
+extensions. An LV2 plugin's modgui is planned in the console (until then it gets the generated panel); native LV2 desktop UIs are not hosted
 yet. A plugin with no GUI gets the console's panel generated from its parameters.
 
 How to read the matrix
@@ -109,6 +109,6 @@ Plugin GUIs
 
 | LV2 | in-process (CLAP adapter) | isolated worker (plugin-hostd → mod-host) |
 |---|---|---|
-| modgui | supported: drawn by the console, not by the adapter (FreeMixer/omx-plugins `tools/modgui-test.sh` with `tools/modgui-gen.mjs --check`; openmixer `packages/omx-plugins/test/modgui-import.test.ts` and `packages/core/src/skin-package.test.ts` on lane/modgui-skin-importer) | supported: the same console view (the same tests) |
+| modgui | planned: the console draws an imported modgui once its importer and panel renderer land; until then the console shows its generated panel. Our own plugins' modgui is generated and checked (FreeMixer/omx-plugins `tools/modgui-test.sh` with `tools/modgui-gen.mjs --check`) for hosts that draw it | planned: the same console view |
 | Native LV2 desktop UIs (`ui:X11UI`, `ui:GtkUI`, `ui:Qt5UI`) | not hosted yet | not hosted yet |
 | No GUI | the console's panel generated from the plugin's parameters | the same |
