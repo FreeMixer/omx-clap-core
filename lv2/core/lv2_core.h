@@ -68,6 +68,9 @@
 /* bytes a refusal code needs, with its NUL */
 #define LV2_CORE_WHY_MAX                96
 
+/* the smallest atom buffer an instance gets, whatever the configuration says: bytes, a multiple of 8 */
+#define LV2_CORE_ATOM_BYTES_MIN         1024u
+
 /* the library the first bundle loads unless the configuration names another */
 #define LV2_CORE_LILV_SONAME            "liblilv-0.so.0"
 
@@ -178,7 +181,11 @@ struct lv2_counters
     uint32_t map_on_audio;          // urid:map called on the audio role: a thread violation
     uint32_t schedule_off_audio;    // schedule_work called off the audio role: a thread violation
     uint32_t log_on_audio;          // log:log called on the audio role (the sink writes nothing either way)
+    uint32_t midi_in_dropped;       // a MIDI input event with no room left in the input buffer: dropped, never waited for
 };
+
+/* What lv2_instance_midi_out_each passes for each event the plugin wrote: its frame, as written, and the bytes. */
+typedef void (*lv2_midi_out_fn)(void *ctx, int64_t frame, const uint8_t *data, uint32_t size);
 
 
 /*
@@ -257,6 +264,16 @@ float lv2_instance_control_get(const struct lv2_instance *in, uint32_t k);
  * control writes, NULL for none), run, end_run, the flush-to-zero bits re-asserted, the latency port and the outputs
  * read. */
 void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *ctx), void *ctx);
+
+/* [audio] One MIDI message for the next run, at `frame` of its block: `size` bytes at `data`. Between runs, on the audio
+ * role: the input is cleared when the instance has run, so a block's messages are added before its run. 0, or -1 when the
+ * plugin has no MIDI input, `size` is 0, or the buffer has no room left: that is counted in midi_in_dropped, never waited
+ * for. */
+int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint8_t *data, uint32_t size);
+
+/* [audio] Each event the plugin wrote to its MIDI output in the last run, in order, to fn. A sequence in beats, and an
+ * event whose type is not midi:MidiEvent, is not passed. The frames are the plugin's, not clamped. */
+void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx);
 
 /* [thread-safe] The latency port's last valid reading in frames (0 without one, or before the first run). */
 uint32_t lv2_instance_latency(const struct lv2_instance *in);

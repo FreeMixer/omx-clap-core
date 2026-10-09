@@ -296,6 +296,90 @@ static void t_midi_ports(void)
     lv2_plugin_close(p);
 }
 
+/* ---- the MIDI run ---- */
+
+#define MIDI_URI "urn:openmixer:test:midi-echo"
+#define MIDI_CAPACITY 42u       // a 3-byte message takes 24 bytes of a 1016-byte body after its 8-byte sequence header
+
+struct got
+{
+    uint32_t n;
+    int64_t frame[64];
+    uint8_t data[64][8];
+    uint32_t size[64];
+};
+
+static void collect(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    struct got *g = ctx;
+
+    if (g->n < 64 && size <= 8)
+    {
+        g->frame[g->n] = frame;
+        g->size[g->n] = size;
+        memcpy(g->data[g->n], data, size);
+    }
+    g->n++;
+}
+
+static int same_message(const struct got *g, uint32_t i, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    return i < g->n && i < 64 && g->frame[i] == frame && g->size[i] == size && memcmp(g->data[i], data, size) == 0;
+}
+
+/* the echo's MIDI input and output: what goes in comes out at the same frame, byte for byte, and nothing carries over */
+static void t_midi_run(void)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 }, pc[2] = { 0xc3, 0x05 }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t cc[3] = { 0xb1, 0x07, 0x7f }, rt[1] = { 0xf8 };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_midi, MIDI_URI, why);
+    struct lv2_instance *in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    struct lv2_counters before, after;
+    struct got g;
+    uint32_t i;
+
+    CHECK(in && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "midi run: the echo instantiates and activates (%s)", why);
+    if (!in)
+    {
+        lv2_plugin_close(p);
+        return;
+    }
+    lv2_instance_midi_in_add(in, 0, note, 3);
+    lv2_instance_midi_in_add(in, 5, pc, 2);
+    lv2_instance_midi_in_add(in, 9, sysex, 6);
+    lv2_instance_midi_in_add(in, 17, rt, 1);
+    lv2_instance_midi_in_add(in, 63, cc, 3);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == 5 && same_message(&g, 0, 0, note, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
+              && same_message(&g, 3, 17, rt, 1) && same_message(&g, 4, 63, cc, 3),
+          "midi run: five messages in, the same five out at their frames: note, a 2-byte program change, sysex, a realtime byte, a CC (%u)", g.n);
+
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == 0, "midi run: a block with no input writes no output: nothing from the last block carries over (%u)", g.n);
+
+    lv2_instance_counters(in, &before);
+    for (i = 0; i < MIDI_CAPACITY + 8u; i++)
+        lv2_instance_midi_in_add(in, i, note, 3);
+    lv2_instance_counters(in, &after);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == MIDI_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
+          "midi run: a block that does not fit keeps the first %u messages and counts the 8 it dropped (%u, %u)",
+          MIDI_CAPACITY, g.n, after.midi_in_dropped - before.midi_in_dropped);
+    CHECK(same_message(&g, MIDI_CAPACITY - 1u, MIDI_CAPACITY - 1u, note, 3), "midi run: the last one that fits is at its own frame");
+
+    CHECK(lv2_instance_midi_in_add(in, 0, note, 0) == -1, "midi run: a zero-byte message is no message, and counts nothing");
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 /* ---- the worker gain ---- */
 
 static struct lv2_worker_gain_probe *probe(void)
@@ -511,6 +595,7 @@ int main(int argc, char **argv)
     t_fixture();
     t_refusals();
     t_midi_ports();
+    t_midi_run();
     for (r = 0; r < N_RATES; r++)
         t_worker(RATES[r]);
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");
