@@ -725,6 +725,25 @@ static void t_channel_messages(void) {
   CHECK(NS.n_notes == 0, "no note input, MIDI dialect: nothing reaches the stage");
 }
 
+/** Events queued ahead of a block that never runs (a zero-length call) do not reach the next block. */
+static void t_stale_events(void) {
+  static const uint8_t NOTE_ON[] = {0x90, 60, 100}, SYSEX[] = {0xf0, 1, 2, 3, 0xf7};
+  struct rig g;
+  float l[MAXB], r[MAXB];
+  rig_up(&g, K_PAD, 2, QCAP);
+  g.st.note_inputs = 1;
+  g.st.note_dialect = CLAP_NOTE_DIALECT_CLAP;
+  g.st.note_dialects = CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI;
+  omx_clap_note_in(&g.st, 90, NOTE_ON, sizeof NOTE_ON);
+  omx_clap_note_in(&g.st, 91, SYSEX, sizeof SYSEX);
+  CHECK(g.st.n_notes == 2 && g.st.n_sysex == 1, "two events queued (%u notes, %u sysex)", g.st.n_notes, g.st.n_sysex);
+  ramp(l, 64), ramp(r, 64);
+  run(&g, l, r, 0);
+  CHECK(g.st.n_notes == 0 && g.st.n_sysex == 0, "the early-return path clears the queue (%u notes, %u sysex)", g.st.n_notes, g.st.n_sysex);
+  run(&g, l, r, 64);
+  CHECK(g.f.blocks == 1 && g.f.ev_per_block[0] == 0, "the next block sees none of the stale events (%u)", g.f.ev_per_block[0]);
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -742,6 +761,7 @@ int main(void) {
     t_out_events();
     t_xfade();
     t_channel_messages();
+    t_stale_events();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

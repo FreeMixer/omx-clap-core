@@ -695,8 +695,14 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
 static inline void omx_clap_run_transport(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
                                           clap_event_transport_t *t, double bpm)
 {
-    if (s == NULL || s->plugin == NULL || l == NULL || n == 0)
+    if (s == NULL)
         return;
+    if (s->plugin == NULL || l == NULL || n == 0)
+    {
+        s->n_notes = 0;     // no block follows these events: they must not reach the next one with their old frame times
+        s->n_sysex = 0;
+        return;
+    }
     atomic_store(&s->in_cycle, 1);
     omx_clap_run_locked(s, l, r, n, t, bpm);
     s->n_notes = 0;
