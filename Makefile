@@ -462,6 +462,11 @@ lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 	./lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2
 .PHONY: lv2-cost
 
+# the stage-2 oracle's kinds, each needing a fixture: exits 1 and names the missing ones. Not in test-lv2 until all five have one.
+lv2-stage2-kinds:
+	@bash lv2/tests/stage2_kinds.sh
+.PHONY: lv2-stage2-kinds
+
 # the fixture bundles against the LV2 specifications, with lv2_validate (the lv2 package's) when it is installed
 test-lv2-validate: $(LV2_BUNDLES)
 	@if command -v lv2_validate >/dev/null && command -v sord_validate >/dev/null; then \
