@@ -437,8 +437,26 @@ test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test $(LV2_BUNDLES)
 	./lv2/tests/lv2_run_test build/lv2/omx-lv2-fakes.lv2
 	./lv2/tests/lv2_host_test build/lv2 $(LILV_LIB)
 
+# the MIDI output path under AddressSanitizer: lv2/core and the echo fixture built with it; a read past the adapter's own
+# buffer is a report that ends the test. Needs libasan, as test-untrusted-asan does.
+LV2_ASAN_DIR = build/lv2-asan
+LV2_ASAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer -g -O1 -fPIC -D_GNU_SOURCE -std=gnu99 -Wall -Wextra -Werror -ffp-contract=off $(LV2_CFLAGS)
+
+$(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_echo.c $(wildcard $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_ASAN_FLAGS) -shared -o $@ $< -lm
+
+$(LV2_ASAN_DIR)/lv2_asan_test: lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) lv2/core/lv2_core.h
+	@mkdir -p $(@D)
+	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -o $@ lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) -ldl -lpthread -lm
+
+test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so
+	ASAN_OPTIONS=detect_leaks=0 ./$(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)
+.PHONY: test-lv2-asan
+
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
-test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate
+test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -ldl -lpthread -lm
