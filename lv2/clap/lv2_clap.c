@@ -63,6 +63,7 @@
 #include <string.h>
 
 #include <clap/clap.h>
+#include <clap/ext/state.h>
 
 #include "lv2_core.h"
 #include "omx_clap_lv2.h"
@@ -525,6 +526,96 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     return CLAP_PROCESS_CONTINUE;
 }
 
+/* the whole stream, read until the host returns 0: NULL-terminated, malloc'd; false when the host fails or runs out of memory */
+static bool read_all(const clap_istream_t *stream, char **out)
+{
+    size_t cap = 4096, n = 0;
+    char *buf = malloc(cap);
+
+    if (!buf)
+        return false;
+    for (;;)
+    {
+        int64_t r;
+
+        if (n + 1 == cap)
+        {
+            char *more = realloc(buf, cap * 2);
+
+            if (!more)
+            {
+                free(buf);
+                return false;
+            }
+            buf = more;
+            cap *= 2;
+        }
+        r = stream->read(stream, buf + n, cap - 1 - n);
+        if (r < 0)
+        {
+            free(buf);
+            return false;
+        }
+        if (r == 0)
+            break;
+        n += (size_t)r;
+    }
+    buf[n] = '\0';
+    *out = buf;
+    return true;
+}
+
+/* the state as LV2 Turtle; the host's stream takes all of it or the save fails */
+static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream)
+{
+    struct shim *s = SHIM_OF(plugin);
+    char *text = lv2_instance_state_save(s->in);
+    size_t n, done = 0;
+
+    if (!text)
+    {
+        host_log(s->host, CLAP_LOG_ERROR, LV2_CODE_STATE_UNREADABLE);
+        return false;
+    }
+    n = strlen(text);
+    while (done < n)
+    {
+        int64_t w = stream->write(stream, text + done, n - done);
+
+        if (w <= 0)
+            break;
+        done += (size_t)w;
+    }
+    free(text);
+    return done == n;
+}
+
+/* a state is held and applied at the next activate: a load while active asks the host for the restart that is that activate */
+static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream)
+{
+    struct shim *s = SHIM_OF(plugin);
+    char why[LV2_CORE_WHY_MAX], *text = NULL;
+    bool ok;
+
+    if (!read_all(stream, &text))
+    {
+        host_log(s->host, CLAP_LOG_ERROR, LV2_CODE_STATE_UNREADABLE);
+        return false;
+    }
+    ok = lv2_instance_state_load(s->in, text, why) == 0;
+    free(text);
+    if (!ok)
+    {
+        host_log(s->host, CLAP_LOG_ERROR, why);
+        return false;
+    }
+    if (s->active)
+        s->host->request_restart(s->host);
+    return true;
+}
+
+static const clap_plugin_state_t g_state = { state_save, state_load };
+
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     (void)plugin;
@@ -534,6 +625,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_latency;
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS))
         return &g_audio_ports;
+    if (!strcmp(id, CLAP_EXT_STATE))
+        return &g_state;
     return NULL;
 }
 
