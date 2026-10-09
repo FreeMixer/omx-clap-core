@@ -464,7 +464,7 @@ static inline void omx_clap_expr_slot(struct omx_clap_stage *s, uint32_t time, i
  *    full scale is `bend_semitones` either way (default 2, MIDI's default range; RPN 0 is not tracked, so a host that
  *    wants another range sets the field before arming): value = (bend14 - 8192) / 8192 * bend_semitones. Anything
  *    still unmappable (a controller, a program change, a sysex) is counted, never silently dropped.
- * A system real-time byte besides sysex is dropped. Past CLAP_HOST_NOTES_PER_BLOCK a message is counted and dropped, and
+ * A system real-time byte besides sysex is dropped; a channel message longer than three bytes is counted as unmappable. Past CLAP_HOST_NOTES_PER_BLOCK a message is counted and dropped, and
  * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is the same. A stage with no note input takes none.
  */
 static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
@@ -499,8 +499,13 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
         return;
     }
 
-    if (data[0] >= 0xf0 || size > 3)
-        return;                 // a system real-time byte, or a channel message longer than one can be: not ours
+    if (data[0] >= 0xf0)
+        return;                 // a system real-time byte: not ours
+    if (size > 3)
+    {
+        omx_hosted_count(&s->notes_unmappable, 1);  // a channel message longer than one can be: no dialect carries it
+        return;
+    }
 
     type = data[0] & 0xf0;
     channel = data[0] & 0x0f;

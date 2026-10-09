@@ -604,7 +604,7 @@ static void t_channel_messages(void) {
   static const uint8_t NOTE_ON[] = {0x93, 60, 100}, NOTE_OFF[] = {0x80, 60, 0}, ON_VEL0[] = {0x92, 60, 0};
   static const uint8_t CTRL[] = {0xb0, 7, 100}, PROG[] = {0xc1, 5}, BEND_MIN[] = {0xe5, 0x00, 0x00};
   static const uint8_t BEND_MID[] = {0xe5, 0x00, 0x40}, BEND_MAX[] = {0xe5, 0x7f, 0x7f}, CHAN_PRESS[] = {0xd2, 127};
-  static const uint8_t POLY[] = {0xa4, 61, 64}, CLOCK[] = {0xf8}, SYSEX[] = {0xf0, 1, 2, 3, 0xf7};
+  static const uint8_t POLY[] = {0xa4, 61, 64}, CLOCK[] = {0xf8}, LONG[] = {0x90, 60, 100, 1}, SYSEX[] = {0xf0, 1, 2, 3, 0xf7};
   uint8_t big[OMX_CLAP_SYSEX_MAX_BYTES + 1];
   uint32_t k;
 
@@ -661,6 +661,14 @@ static void t_channel_messages(void) {
   CHECK(NS.n_notes == 0 && atomic_load(&NS.notes_unmappable) == 3 && NS.n_sysex == 0,
         "CLAP only: a controller, a program change and a sysex are counted, none forwarded (%u notes, %u unmappable)", NS.n_notes,
         atomic_load(&NS.notes_unmappable));
+
+  /* a channel message longer than three bytes is counted whatever the dialect, never forwarded */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, LONG, sizeof LONG);
+  CHECK(NS.n_notes == 0 && atomic_load(&NS.notes_unmappable) == 1, "CLAP: a 4-byte channel message is counted (%u)", atomic_load(&NS.notes_unmappable));
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP);
+  ns_in(10, LONG, sizeof LONG);
+  CHECK(NS.n_notes == 0 && atomic_load(&NS.notes_unmappable) == 1, "MIDI: a 4-byte channel message is counted (%u)", atomic_load(&NS.notes_unmappable));
 
   /* a port that also declares MIDI: every channel message and sysex goes as CLAP_EVENT_MIDI, notes stay CLAP notes */
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI);
