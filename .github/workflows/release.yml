@@ -28,12 +28,15 @@ jobs:
   abi:
     uses: ./.github/workflows/abi.yml
 
+  # Only a run on a version tag publishes. A push to a branch is a push too: keying on the event would sign and publish
+  # from main, and the dry run of ci.yml is such a push, which passes publish: false. On a tag push there is no inputs
+  # context, so inputs.publish is null, and null != false is false in expressions: format() keeps null apart from false.
   rpm:
     needs: abi
     uses: FreeMixer/.github/.github/workflows/build-rpm.yml@v1
     with:
       package-name: omx-clap-host
-      publish: ${{ github.event_name == 'push' || inputs.publish == true }}
+      publish: ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}', inputs.publish) != 'false' }}
     secrets: inherit
 
   # after the RPMs: both publish into one tree, and a push that loses a race is refused
@@ -43,12 +46,12 @@ jobs:
     uses: FreeMixer/.github/.github/workflows/build-deb.yml@v1
     with:
       package-name: omx-clap-host
-      publish: ${{ github.event_name == 'push' || inputs.publish == true }}
+      publish: ${{ startsWith(github.ref, 'refs/tags/v') && format('{0}', inputs.publish) != 'false' }}
     secrets: inherit
 
-  # the generated C API reference, fetched by the website from the release assets
+  # the generated C API reference, fetched by the website from the release assets: it attaches to a release, so a tag only
   api-docs:
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     needs: [rpm, deb]
     runs-on: ubuntu-latest
     timeout-minutes: 10
