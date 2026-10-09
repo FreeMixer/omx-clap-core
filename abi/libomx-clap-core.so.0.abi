@@ -696,7 +696,7 @@
         <var-decl name='remote_controls' type-id='type-id-24' visibility='default' filepath='src/clap_host.h' line='113' column='1'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='142976' filepath='src/clap_host.h' line='163' column='1' hash='6baf08dffb1e75ca' id='type-id-118'>
+    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='143040' filepath='src/clap_host.h' line='163' column='1' hash='9ff2f15fbfaba280' id='type-id-118'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='bin' type-id='type-id-119' visibility='default' filepath='src/clap_host.h' line='165' column='1'/>
       </data-member>
@@ -730,91 +730,91 @@
       <data-member access='public' layout-offset-in-bits='1280'>
         <var-decl name='stage' type-id='type-id-128' visibility='default' filepath='src/clap_host.h' line='176' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='133824'>
+      <data-member access='public' layout-offset-in-bits='133888'>
         <var-decl name='channels' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='177' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='133856'>
+      <data-member access='public' layout-offset-in-bits='133920'>
         <var-decl name='in_channels' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='178' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='133888'>
+      <data-member access='public' layout-offset-in-bits='133952'>
         <var-decl name='aux_outputs' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='179' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='133920'>
+      <data-member access='public' layout-offset-in-bits='133984'>
         <var-decl name='aux_channels' type-id='type-id-129' visibility='default' filepath='src/clap_host.h' line='180' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134176'>
+      <data-member access='public' layout-offset-in-bits='134240'>
         <var-decl name='note_inputs' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='181' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134208'>
+      <data-member access='public' layout-offset-in-bits='134272'>
         <var-decl name='note_dialect' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='182' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134240'>
+      <data-member access='public' layout-offset-in-bits='134304'>
         <var-decl name='note_dialects' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='183' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134272'>
+      <data-member access='public' layout-offset-in-bits='134336'>
         <var-decl name='rate' type-id='type-id-19' visibility='default' filepath='src/clap_host.h' line='184' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134336'>
+      <data-member access='public' layout-offset-in-bits='134400'>
         <var-decl name='max_block' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='185' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134368'>
+      <data-member access='public' layout-offset-in-bits='134432'>
         <var-decl name='active' type-id='type-id-24' visibility='default' filepath='src/clap_host.h' line='186' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134400'>
+      <data-member access='public' layout-offset-in-bits='134464'>
         <var-decl name='bounce_map' type-id='type-id-21' visibility='default' filepath='src/clap_host.h' line='187' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134464'>
+      <data-member access='public' layout-offset-in-bits='134528'>
         <var-decl name='bounce_map_len' type-id='type-id-130' visibility='default' filepath='src/clap_host.h' line='188' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134528'>
+      <data-member access='public' layout-offset-in-bits='134592'>
         <var-decl name='recs' type-id='type-id-131' visibility='default' filepath='src/clap_host.h' line='189' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134592'>
+      <data-member access='public' layout-offset-in-bits='134656'>
         <var-decl name='rec_cap' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='190' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134656'>
+      <data-member access='public' layout-offset-in-bits='134720'>
         <var-decl name='main_thread' type-id='type-id-132' visibility='default' filepath='src/clap_host.h' line='193' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134720'>
+      <data-member access='public' layout-offset-in-bits='134784'>
         <var-decl name='audio_thread' type-id='type-id-132' visibility='default' filepath='src/clap_host.h' line='194' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134784'>
+      <data-member access='public' layout-offset-in-bits='134848'>
         <var-decl name='audio_role_held' type-id='type-id-24' visibility='default' filepath='src/clap_host.h' line='195' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134816'>
+      <data-member access='public' layout-offset-in-bits='134880'>
         <var-decl name='bypass_wanted' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='197' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134848'>
+      <data-member access='public' layout-offset-in-bits='134912'>
         <var-decl name='shadow' type-id='type-id-133' visibility='default' filepath='src/clap_host.h' line='200' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134912'>
+      <data-member access='public' layout-offset-in-bits='134976'>
         <var-decl name='shadow_cap' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='201' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='134944'>
+      <data-member access='public' layout-offset-in-bits='135008'>
         <var-decl name='shadow_n' type-id='type-id-32' visibility='default' filepath='src/clap_host.h' line='202' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='135264'>
+      <data-member access='public' layout-offset-in-bits='135328'>
         <var-decl name='last_log' type-id='type-id-6' visibility='default' filepath='src/clap_host.h' line='214' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='137376'>
+      <data-member access='public' layout-offset-in-bits='137440'>
         <var-decl name='log_ring' type-id='type-id-6' visibility='default' filepath='src/clap_host.h' line='217' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='139456'>
+      <data-member access='public' layout-offset-in-bits='139520'>
         <var-decl name='track_info' type-id='type-id-134' visibility='default' filepath='src/clap_host.h' line='220' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='139520'>
+      <data-member access='public' layout-offset-in-bits='139584'>
         <var-decl name='track' type-id='type-id-135' visibility='default' filepath='src/clap_host.h' line='221' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='141760'>
+      <data-member access='public' layout-offset-in-bits='141824'>
         <var-decl name='track_set' type-id='type-id-24' visibility='default' filepath='src/clap_host.h' line='222' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='141824'>
+      <data-member access='public' layout-offset-in-bits='141888'>
         <var-decl name='remote_controls' type-id='type-id-136' visibility='default' filepath='src/clap_host.h' line='225' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='142080'>
+      <data-member access='public' layout-offset-in-bits='142144'>
         <var-decl name='tempo' type-id='type-id-137' visibility='default' filepath='src/clap_host.h' line='235' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='142144'>
+      <data-member access='public' layout-offset-in-bits='142208'>
         <var-decl name='transport' type-id='type-id-138' visibility='default' filepath='src/clap_host.h' line='236' column='1'/>
       </data-member>
     </class-decl>
@@ -869,75 +869,78 @@
         <var-decl name='valid' type-id='type-id-24' visibility='default' filepath='src/clap_host.h' line='137' column='1'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='132544' filepath='src/clap_stage.h' line='118' column='1' hash='6a2cb98f306a2ec0' id='type-id-128'>
+    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='132608' filepath='src/clap_stage.h' line='121' column='1' hash='6fef13b0180cb974' id='type-id-128'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='h' type-id='type-id-142' visibility='default' filepath='src/clap_stage.h' line='121' column='1'/>
+        <var-decl name='h' type-id='type-id-142' visibility='default' filepath='src/clap_stage.h' line='124' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='640'>
-        <var-decl name='plugin' type-id='type-id-120' visibility='default' filepath='src/clap_stage.h' line='124' column='1'/>
+        <var-decl name='plugin' type-id='type-id-120' visibility='default' filepath='src/clap_stage.h' line='127' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='704'>
-        <var-decl name='in_ptrs' type-id='type-id-22' visibility='default' filepath='src/clap_stage.h' line='125' column='1'/>
+        <var-decl name='in_ptrs' type-id='type-id-22' visibility='default' filepath='src/clap_stage.h' line='128' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='832'>
-        <var-decl name='out_ptrs' type-id='type-id-22' visibility='default' filepath='src/clap_stage.h' line='126' column='1'/>
+        <var-decl name='out_ptrs' type-id='type-id-22' visibility='default' filepath='src/clap_stage.h' line='129' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='960'>
-        <var-decl name='ain' type-id='type-id-10' visibility='default' filepath='src/clap_stage.h' line='127' column='1'/>
+        <var-decl name='ain' type-id='type-id-10' visibility='default' filepath='src/clap_stage.h' line='130' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1216'>
-        <var-decl name='aout' type-id='type-id-11' visibility='default' filepath='src/clap_stage.h' line='128' column='1'/>
+        <var-decl name='aout' type-id='type-id-11' visibility='default' filepath='src/clap_stage.h' line='131' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='3520'>
-        <var-decl name='n_aux' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='129' column='1'/>
+        <var-decl name='n_aux' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='132' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='3584'>
-        <var-decl name='aux_ptrs' type-id='type-id-22' visibility='default' filepath='src/clap_stage.h' line='130' column='1'/>
+        <var-decl name='aux_ptrs' type-id='type-id-22' visibility='default' filepath='src/clap_stage.h' line='133' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='3712'>
-        <var-decl name='events' type-id='type-id-14' visibility='default' filepath='src/clap_stage.h' line='131' column='1'/>
+        <var-decl name='events' type-id='type-id-14' visibility='default' filepath='src/clap_stage.h' line='134' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='32384'>
-        <var-decl name='n_events' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='132' column='1'/>
+        <var-decl name='n_events' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='135' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='32448'>
-        <var-decl name='notes' type-id='type-id-27' visibility='default' filepath='src/clap_stage.h' line='133' column='1'/>
+        <var-decl name='notes' type-id='type-id-27' visibility='default' filepath='src/clap_stage.h' line='136' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='114368'>
-        <var-decl name='n_notes' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='134' column='1'/>
+        <var-decl name='n_notes' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='137' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='114400'>
-        <var-decl name='sysex_bytes' type-id='type-id-143' visibility='default' filepath='src/clap_stage.h' line='135' column='1'/>
+        <var-decl name='sysex_bytes' type-id='type-id-143' visibility='default' filepath='src/clap_stage.h' line='138' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='130784'>
-        <var-decl name='n_sysex' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='136' column='1'/>
+        <var-decl name='n_sysex' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='139' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='130848'>
-        <var-decl name='note_inputs' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='138' column='1'/>
+        <var-decl name='note_inputs' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='141' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='130880'>
-        <var-decl name='note_dialect' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='139' column='1'/>
+        <var-decl name='note_dialect' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='142' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='130912'>
-        <var-decl name='note_dialects' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='140' column='1'/>
+        <var-decl name='note_dialects' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='143' column='1'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='130944'>
-        <var-decl name='in_events' type-id='type-id-144' visibility='default' filepath='src/clap_stage.h' line='141' column='1'/>
+        <var-decl name='bend_semitones' type-id='type-id-19' visibility='default' filepath='src/clap_stage.h' line='144' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='131136'>
-        <var-decl name='out_events' type-id='type-id-145' visibility='default' filepath='src/clap_stage.h' line='142' column='1'/>
+      <data-member access='public' layout-offset-in-bits='131008'>
+        <var-decl name='in_events' type-id='type-id-144' visibility='default' filepath='src/clap_stage.h' line='146' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='131264'>
-        <var-decl name='proc' type-id='type-id-146' visibility='default' filepath='src/clap_stage.h' line='143' column='1'/>
+      <data-member access='public' layout-offset-in-bits='131200'>
+        <var-decl name='out_events' type-id='type-id-145' visibility='default' filepath='src/clap_stage.h' line='147' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='131776'>
-        <var-decl name='queue' type-id='type-id-147' visibility='default' filepath='src/clap_stage.h' line='144' column='1'/>
+      <data-member access='public' layout-offset-in-bits='131328'>
+        <var-decl name='proc' type-id='type-id-146' visibility='default' filepath='src/clap_stage.h' line='148' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='131968'>
-        <var-decl name='steady_time' type-id='type-id-107' visibility='default' filepath='src/clap_stage.h' line='145' column='1'/>
+      <data-member access='public' layout-offset-in-bits='131840'>
+        <var-decl name='queue' type-id='type-id-147' visibility='default' filepath='src/clap_stage.h' line='149' column='1'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='132128'>
-        <var-decl name='need_reset' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='153' column='1'/>
+      <data-member access='public' layout-offset-in-bits='132032'>
+        <var-decl name='steady_time' type-id='type-id-107' visibility='default' filepath='src/clap_stage.h' line='150' column='1'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='132192'>
+        <var-decl name='need_reset' type-id='type-id-32' visibility='default' filepath='src/clap_stage.h' line='158' column='1'/>
       </data-member>
     </class-decl>
     <class-decl name='omx_clap_tempo' is-struct='yes' visibility='default' size-in-bits='64' filepath='src/clap_host.h' line='157' column='1' hash='df87b350dc83d260' id='type-id-148'/>
@@ -1066,21 +1069,21 @@
       <subrange length='8' lower-bound='0' upper-bound='7' type-id='type-id-4' size-in-bits='64' is-anonymous='yes' hash='6e87a8ff484907ad' id='type-id-18'/>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-4' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-7'/>
     </array-type-def>
-    <union-decl name='omx_clap_note' visibility='default' size-in-bits='320' filepath='src/clap_stage.h' line='108' column='1' hash='aa95ed7d165eed08' id='type-id-26'>
+    <union-decl name='omx_clap_note' visibility='default' size-in-bits='320' filepath='src/clap_stage.h' line='111' column='1' hash='aa95ed7d165eed08' id='type-id-26'>
       <data-member access='public'>
-        <var-decl name='header' type-id='type-id-41' visibility='default' filepath='src/clap_stage.h' line='110' column='1'/>
+        <var-decl name='header' type-id='type-id-41' visibility='default' filepath='src/clap_stage.h' line='113' column='1'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='note' type-id='type-id-170' visibility='default' filepath='src/clap_stage.h' line='111' column='1'/>
+        <var-decl name='note' type-id='type-id-170' visibility='default' filepath='src/clap_stage.h' line='114' column='1'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='midi' type-id='type-id-168' visibility='default' filepath='src/clap_stage.h' line='112' column='1'/>
+        <var-decl name='midi' type-id='type-id-168' visibility='default' filepath='src/clap_stage.h' line='115' column='1'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='expr' type-id='type-id-169' visibility='default' filepath='src/clap_stage.h' line='113' column='1'/>
+        <var-decl name='expr' type-id='type-id-169' visibility='default' filepath='src/clap_stage.h' line='116' column='1'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='sysex' type-id='type-id-167' visibility='default' filepath='src/clap_stage.h' line='114' column='1'/>
+        <var-decl name='sysex' type-id='type-id-167' visibility='default' filepath='src/clap_stage.h' line='117' column='1'/>
       </data-member>
     </union-decl>
     <union-decl name='pthread_attr_t' visibility='default' size-in-bits='448' filepath='/usr/include/bits/pthreadtypes.h' line='56' column='1' hash='f1fee08f614bcebf' id='type-id-191'>
@@ -1177,8 +1180,8 @@
     <pointer-type-def type-id='type-id-255' size-in-bits='64' hash='0d47bdb8e5577898' id='type-id-256'/>
     <qualified-type-def type-id='type-id-117' const='yes' hash='96caa8799aa17b13' id='type-id-257'/>
     <pointer-type-def type-id='type-id-257' size-in-bits='64' hash='2e164e195128152a' id='type-id-258'/>
-    <qualified-type-def type-id='type-id-118' const='yes' hash='002b33610318bd5b' id='type-id-259'/>
-    <pointer-type-def type-id='type-id-259' size-in-bits='64' hash='548f17c34330fe37' id='type-id-260'/>
+    <qualified-type-def type-id='type-id-118' const='yes' hash='9c5f0bbeb6105a53' id='type-id-259'/>
+    <pointer-type-def type-id='type-id-259' size-in-bits='64' hash='f9bea7f6887d3240' id='type-id-260'/>
     <qualified-type-def type-id='type-id-140' const='yes' hash='6a3d40e9d2336539' id='type-id-261'/>
     <pointer-type-def type-id='type-id-261' size-in-bits='64' hash='c6aa6f3782267c21' id='type-id-262'/>
     <qualified-type-def type-id='type-id-148' const='yes' hash='ae1b6631b16a6578' id='type-id-263'/>
@@ -1492,7 +1495,7 @@
       <parameter type-id='type-id-208' name='why' filepath='src/clap_host.c' line='1333' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
-    <function-decl name='omx_clap_host_latency' mangled-name='omx_clap_host_latency' filepath='src/clap_host.c' line='1343' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_latency@@OMX_CLAP_CORE_0' hash='5b02365c5b38cd83'>
+    <function-decl name='omx_clap_host_latency' mangled-name='omx_clap_host_latency' filepath='src/clap_host.c' line='1343' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_latency@@OMX_CLAP_CORE_0' hash='e6ce71a18db8f85d'>
       <parameter type-id='type-id-260' name='in' filepath='src/clap_host.c' line='1343' column='1'/>
       <return type-id='type-id-32'/>
     </function-decl>
@@ -1506,7 +1509,7 @@
       <parameter type-id='type-id-137' name='tempo' filepath='src/clap_host.c' line='1375' column='1'/>
       <return type-id='type-id-301'/>
     </function-decl>
-    <function-decl name='omx_clap_host_bypassed' mangled-name='omx_clap_host_bypassed' filepath='src/clap_host.c' line='1380' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0' hash='8ae7ff61ded35f2f'>
+    <function-decl name='omx_clap_host_bypassed' mangled-name='omx_clap_host_bypassed' filepath='src/clap_host.c' line='1380' column='1' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0' hash='f86f6fe287c969c1'>
       <parameter type-id='type-id-260' name='in' filepath='src/clap_host.c' line='1380' column='1'/>
       <return type-id='type-id-24'/>
     </function-decl>
