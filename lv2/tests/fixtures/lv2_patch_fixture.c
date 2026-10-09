@@ -21,7 +21,9 @@
 /*
  * omx-patch-fixture.ttl's plugin: a gain that scales the audio, driven by patch:Set on its input atom port. Every
  * numeric property it receives is echoed on its output atom port, as patch:Set, except mode, which is echoed as
- * patch:Put, so a test reads back what the plugin got and in which form. A test fixture, never a shipped plugin.
+ * patch:Put, so a test reads back what the plugin got and in which form. A gain above 2 scales the audio as received,
+ * but is echoed as 2: a value the plugin keeps on its own, which no host write carries. A test fixture, never a shipped
+ * plugin.
  */
 
 #include <stdlib.h>
@@ -139,7 +141,7 @@ static void run(LV2_Handle h, uint32_t n)
         {
             f->gain_value = ((const LV2_Atom_Float *)val)->body;
             echo_begin(f, &frame, f->set, key);
-            lv2_atom_forge_float(&f->forge, f->gain_value);
+            lv2_atom_forge_float(&f->forge, f->gain_value > 2.0f ? 2.0f : f->gain_value);
             lv2_atom_forge_pop(&f->forge, &frame);
         }
         else if (key == f->mode && val->type == f->int_t)
