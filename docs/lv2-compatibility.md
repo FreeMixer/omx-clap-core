@@ -97,8 +97,8 @@ Features and extensions
 | `log:log` | lossy: answered and discarded, so a log call never blocks the audio thread (`lv2_host_test` worker) | unsupported |
 | `state:loadDefaultState` | supported (`lv2_host_test` fixture: -26 dB only with the default state restored) | unsupported |
 | State save and restore (`state:interface` through `clap.state`) | unsupported (stage 2) | unsupported |
-| `state:mapPath` | unsupported (stage 3) | unsupported |
-| `state:makePath`, `state:freePath` | unsupported | unsupported |
+| `state:mapPath` | unsupported (stage 3); a plugin that requires it is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |
+| `state:makePath`, `state:freePath` | unsupported; a plugin that requires `makePath` is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |
 | Presets (`pset:Preset`) | unsupported (stage 2) | unsupported |
 | `instance-access`, `data-access` | unsupported | unsupported |
 | Required features outside the configured list | refused with `hosting.features.missing` before the binary is opened (`lv2_host_test` features, `lv2_clap_test` refusals) | unsupported |
