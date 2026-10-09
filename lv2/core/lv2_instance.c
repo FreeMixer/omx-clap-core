@@ -53,9 +53,12 @@
 #include <time.h>
 
 #include <lv2/atom/atom.h>
+#include <lv2/atom/util.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
+#include <lv2/patch/patch.h>
+#include <lv2/time/time.h>
 #include <lv2/worker/worker.h>
 
 #include "hosted_stage.h"
@@ -72,12 +75,27 @@
 // how often a quiesce looks at the request ring
 #define QUIESCE_POLL_US                 50u
 
+// the atom sequence header: the atom's own 8 bytes, and the sequence body's unit and pad
+#define SEQ_HEADER_BYTES                16u
+
+// one patch:Set or patch:Put on the wire: the event's frame and atom header (16), the object's id and type (8), and its
+// two properties, patch:property (an atom:URID) and patch:value (up to 8 bytes), 24 bytes each
+#define PATCH_PROP_BYTES                24u
+#define PATCH_EVENT_BYTES               (16u + 8u + 2u * PATCH_PROP_BYTES)
+
 
 /*
 ************************************************************************************************************************
 *           LOCAL DATA TYPES
 ************************************************************************************************************************
 */
+
+/* the URIDs the patch ports are written and read with, mapped once at creation */
+struct patch_urids
+{
+    LV2_URID set, put, property, value, object, sequence, urid, time_frame;
+    LV2_URID types[5];              // by enum lv2_patch_type
+};
 
 struct lv2_instance
 {
@@ -123,6 +141,18 @@ struct lv2_instance
     _Atomic uint32_t schedule_refused;
     _Atomic uint32_t responses_refused;
     _Atomic uint32_t respond_strikes;
+
+    // the patch ports: one atom buffer each of atom_cap bytes, connected at instantiate and written at every block
+    uint8_t *atom_in, *atom_out;
+    uint32_t atom_cap;
+    struct patch_urids urids;
+    LV2_URID *patch_key;            // per patch parameter: the URID of its property
+    float *patch_pending;           // the value a host write carries into the next block
+    uint8_t *patch_dirty;           // 1 when the next block carries patch_pending
+    _Atomic uint32_t *patch_shown;  // per patch parameter, as bits: the host's value, or the last output's
+    uint8_t *patch_out_flag;        // the last run's output set the parameter
+    float *patch_out_value;
+    _Atomic uint32_t patch_dropped;
 };
 
 
@@ -296,9 +326,270 @@ static void worker_stop(struct lv2_instance *in)
 
 /*
 ************************************************************************************************************************
+*           LOCAL FUNCTIONS: THE PATCH PORTS
+************************************************************************************************************************
+*/
+
+static void put32(uint8_t *at, uint32_t v)
+{
+    memcpy(at, &v, sizeof(v));
+}
+
+static void put64(uint8_t *at, uint64_t v)
+{
+    memcpy(at, &v, sizeof(v));
+}
+
+static uint32_t get32(const uint8_t *at)
+{
+    uint32_t v;
+
+    memcpy(&v, at, sizeof(v));
+    return v;
+}
+
+static uint32_t pad8(uint32_t n)
+{
+    return (n + 7u) & ~7u;
+}
+
+/* one property of a patch object: the key, no context, and the value atom (its size and type, then the data) */
+static void put_prop(uint8_t *at, LV2_URID key, LV2_URID type, const void *data, uint32_t size)
+{
+    put32(at, key);
+    put32(at + 4, 0);
+    put32(at + 8, size);
+    put32(at + 12, type);
+    memset(at + 16, 0, PATCH_PROP_BYTES - 16u);
+    memcpy(at + 16, data, size);
+}
+
+/* The value a host write carries, in the type the plugin's property takes. */
+static void patch_value_bytes(enum lv2_patch_type type, float v, int64_t *i64, int32_t *i32, double *f64, float *f32, uint32_t *size)
+{
+    switch (type)
+    {
+    case LV2_PATCH_FLOAT: *f32 = v; *size = sizeof(*f32); break;
+    case LV2_PATCH_DOUBLE: *f64 = (double)v; *size = sizeof(*f64); break;
+    case LV2_PATCH_INT: *i32 = (int32_t)lrintf(v); *size = sizeof(*i32); break;
+    case LV2_PATCH_LONG: *i64 = (int64_t)llrintf(v); *size = sizeof(*i64); break;
+    case LV2_PATCH_BOOL: *i32 = v != 0.0f ? 1 : 0; *size = sizeof(*i32); break;
+    }
+}
+
+/* Forge the block's input sequence: one patch:Set for every parameter written since the last block, at frame 0, in
+ * parameter order. Each block rewrites the whole sequence, so an empty block is an empty sequence. An event that does
+ * not fit is dropped and counted; the sequence never waits. */
+static void patch_forge_inputs(struct lv2_instance *in)
+{
+    const struct lv2_plugin *p = in->plugin;
+    uint8_t *buf = in->atom_in;
+    uint32_t used = SEQ_HEADER_BYTES, j;
+
+    if (!buf)
+        return;
+    put32(buf, 0);
+    put32(buf + 4, in->urids.sequence);
+    put32(buf + 8, in->urids.time_frame);
+    put32(buf + 12, 0);
+    for (j = 0; j < p->n_patches; j++)
+    {
+        const struct lv2_patch *pp = &p->patches[j];
+        uint8_t *ev = buf + used;
+        int64_t i64 = 0;
+        int32_t i32 = 0;
+        double f64 = 0.0;
+        float f32 = 0.0f;
+        uint32_t size = 0;
+
+        if (!in->patch_dirty[j])
+            continue;
+        in->patch_dirty[j] = 0;
+        if (used + PATCH_EVENT_BYTES > in->atom_cap)
+        {
+            atomic_fetch_add_explicit(&in->patch_dropped, 1u, memory_order_relaxed);
+            continue;
+        }
+        patch_value_bytes(pp->type, in->patch_pending[j], &i64, &i32, &f64, &f32, &size);
+        put64(ev, 0);
+        put32(ev + 8, 8u + 2u * PATCH_PROP_BYTES);
+        put32(ev + 12, in->urids.object);
+        put32(ev + 16, 0);
+        put32(ev + 20, in->urids.set);
+        put_prop(ev + 24, in->urids.property, in->urids.urid, &in->patch_key[j], sizeof(LV2_URID));
+        put_prop(ev + 24 + PATCH_PROP_BYTES, in->urids.value, in->urids.types[pp->type],
+                 pp->type == LV2_PATCH_FLOAT ? (const void *)&f32 : pp->type == LV2_PATCH_DOUBLE ? (const void *)&f64
+                 : pp->type == LV2_PATCH_LONG ? (const void *)&i64 : (const void *)&i32, size);
+        used += PATCH_EVENT_BYTES;
+    }
+    put32(buf, used - 8u);
+}
+
+/* The value of an output patch:value at the type its parameter takes: 1, or 0 when the atom has another type or size. */
+static int patch_read_value(enum lv2_patch_type type, uint32_t atom_type, uint32_t expect_type, uint32_t size, const uint8_t *data, float *out)
+{
+    if (atom_type != expect_type)
+        return 0;
+    switch (type)
+    {
+    case LV2_PATCH_FLOAT:
+        if (size != 4u)
+            return 0;
+        memcpy(out, data, 4u);
+        return 1;
+    case LV2_PATCH_DOUBLE:
+    {
+        double d;
+
+        if (size != 8u)
+            return 0;
+        memcpy(&d, data, 8u);
+        *out = (float)d;
+        return 1;
+    }
+    case LV2_PATCH_INT:
+    {
+        int32_t i;
+
+        if (size != 4u)
+            return 0;
+        memcpy(&i, data, 4u);
+        *out = (float)i;
+        return 1;
+    }
+    case LV2_PATCH_LONG:
+    {
+        int64_t l;
+
+        if (size != 8u)
+            return 0;
+        memcpy(&l, data, 8u);
+        *out = (float)l;
+        return 1;
+    }
+    case LV2_PATCH_BOOL:
+    {
+        int32_t b;
+
+        if (size != 4u)
+            return 0;
+        memcpy(&b, data, 4u);
+        *out = b ? 1.0f : 0.0f;
+        return 1;
+    }
+    }
+    return 0;
+}
+
+/* The properties of one patch object: the patch:property URID and the patch:value atom, each when present. Returns
+ * 0 when the object's properties run past its size. */
+static int patch_object_props(const struct lv2_instance *in, const uint8_t *props, uint32_t plen, LV2_URID *prop, uint32_t *vtype,
+                              uint32_t *vsize, const uint8_t **value)
+{
+    uint32_t q = 0;
+
+    *prop = 0;
+    *value = NULL;
+    while (q + 16u <= plen)
+    {
+        const uint8_t *pb = props + q;
+        const uint32_t key = get32(pb), size = get32(pb + 8), type = get32(pb + 12);
+        uint32_t step;
+
+        if (size > plen - q - 16u)      // the value runs past the object: the object is refused, never read further
+            return 0;
+        step = 16u + pad8(size);
+        if (key == in->urids.property && type == in->urids.urid && size == sizeof(LV2_URID))
+            *prop = get32(pb + 16);
+        else if (key == in->urids.value)
+        {
+            *vtype = type;
+            *vsize = size;
+            *value = pb + 16;
+        }
+        q += step;
+    }
+    return 1;
+}
+
+/* Read the output sequence the plugin wrote: every patch:Set or patch:Put of a numeric parameter lands in its flag and
+ * value, the last one of a block winning. Other objects, other properties and values of another type are ignored. */
+static void patch_read_outputs(struct lv2_instance *in)
+{
+    const struct lv2_plugin *p = in->plugin;
+    const uint8_t *buf = in->atom_out;
+    uint32_t end, off;
+
+    if (!buf || p->patch_out < 0 || get32(buf + 4) != in->urids.sequence)
+        return;
+    end = get32(buf) + 8u;
+    if (end > in->atom_cap)
+        end = in->atom_cap;
+    for (off = SEQ_HEADER_BYTES; off + 16u <= end; )
+    {
+        const uint8_t *body = buf + off + 8u;
+        const uint32_t size = get32(body), type = get32(body + 4);
+        uint32_t next;
+        LV2_URID prop = 0;
+        uint32_t vtype = 0, vsize = 0, j;
+        const uint8_t *value = NULL;
+
+        if (size < 8u || size > end - off - 16u)     // the event runs past the sequence: the rest is not read
+            break;
+        next = off + 16u + pad8(size);
+        if (type == in->urids.object && (get32(body + 12) == in->urids.set || get32(body + 12) == in->urids.put)
+            && patch_object_props(in, body + 16u, size - 8u, &prop, &vtype, &vsize, &value) && value)
+        {
+            for (j = 0; j < p->n_patches; j++)
+            {
+                float v;
+
+                if (in->patch_key[j] != prop)
+                    continue;
+                if (patch_read_value(p->patches[j].type, vtype, in->urids.types[p->patches[j].type], vsize, value, &v))
+                {
+                    in->patch_out_flag[j] = 1;
+                    in->patch_out_value[j] = v;
+                    in->patch_pending[j] = v;
+                    atomic_store_explicit(&in->patch_shown[j], float_bits(v), memory_order_relaxed);
+                }
+                break;
+            }
+        }
+        off = next;
+    }
+}
+
+/*
+************************************************************************************************************************
 *           LOCAL FUNCTIONS: INSTANTIATE
 ************************************************************************************************************************
 */
+
+/* The two atom buffers of the patch ports, max(atom_buffer_bytes, rsz:minimumSize) bytes each, zeroed. They are sized here,
+ * at instantiate, and never again on the audio thread. 0 when a buffer cannot be had. */
+static int patch_buffers(struct lv2_instance *in)
+{
+    const struct lv2_core_config *config = lv2_core_config();
+    const struct lv2_plugin *p = in->plugin;
+    uint32_t cap = config->atom_buffer_bytes > p->atom_min ? config->atom_buffer_bytes : p->atom_min;
+
+    free(in->atom_in);
+    free(in->atom_out);
+    in->atom_in = in->atom_out = NULL;
+    in->atom_cap = 0;
+    if (p->patch_in < 0 && p->patch_out < 0)
+        return 1;
+    if (cap < SEQ_HEADER_BYTES + PATCH_EVENT_BYTES)
+        cap = SEQ_HEADER_BYTES + PATCH_EVENT_BYTES;
+    cap = (cap + 7u) & ~7u;
+    in->atom_cap = cap;
+    if (p->patch_in >= 0 && !(in->atom_in = calloc(1, cap)))
+        return 0;
+    if (p->patch_out >= 0 && !(in->atom_out = calloc(1, cap)))
+        return 0;
+    return 1;
+}
 
 /* options:options: the rate, and the block lengths exactly as this activation's min and max say (the nominal is the
  * max, the block the host runs) */
@@ -377,6 +668,11 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     }
     free(in->audio);
     in->audio = audio;
+    if (!patch_buffers(in))
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
     in->max_frames = max_frames;
     in->rate = rate;
     options_build(in, rate, min_frames, max_frames);
@@ -411,6 +707,10 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             else if (p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;
         }
+        if (!at && p->patch_in >= 0 && (uint32_t)p->patch_in == i)
+            at = in->atom_in;
+        if (!at && p->patch_out >= 0 && (uint32_t)p->patch_out == i)
+            at = in->atom_out;
         if (!at && p->latency_port >= 0 && (uint32_t)p->latency_port == i)
             at = &in->latency_port;
         if (!at && k < p->n_controls && p->controls[k].port == i)
@@ -426,6 +726,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
+    // a new handle has never seen a patch value: the first block sends every parameter's value, as the host last had it
+    if (p->n_patches)
+        memset(in->patch_dirty, 1, p->n_patches);
     return 0;
 }
 
@@ -453,10 +756,36 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->shown = calloc(n, sizeof(*in->shown));
     if (lv2_feature_on(F_WORKER))
         in->ring_mem = malloc(2u * (size_t)config->worker_ring_bytes);
-    if (!in->controls || !in->shown || (lv2_feature_on(F_WORKER) && !in->ring_mem))
+    in->patch_key = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_key));
+    in->patch_pending = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_pending));
+    in->patch_dirty = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_dirty));
+    in->patch_shown = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_shown));
+    in->patch_out_flag = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_flag));
+    in->patch_out_value = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_value));
+    if (!in->controls || !in->shown || (lv2_feature_on(F_WORKER) && !in->ring_mem) || !in->patch_key
+        || !in->patch_pending || !in->patch_dirty || !in->patch_shown || !in->patch_out_flag || !in->patch_out_value)
     {
         lv2_instance_free(in);
         return NULL;
+    }
+    in->urids.set = lv2_urid_lookup(LV2_PATCH__Set);
+    in->urids.put = lv2_urid_lookup(LV2_PATCH__Put);
+    in->urids.property = lv2_urid_lookup(LV2_PATCH__property);
+    in->urids.value = lv2_urid_lookup(LV2_PATCH__value);
+    in->urids.object = lv2_urid_lookup(LV2_ATOM__Object);
+    in->urids.sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
+    in->urids.urid = lv2_urid_lookup(LV2_ATOM__URID);
+    in->urids.time_frame = lv2_urid_lookup(LV2_TIME__frame);
+    in->urids.types[LV2_PATCH_FLOAT] = lv2_urid_lookup(LV2_ATOM__Float);
+    in->urids.types[LV2_PATCH_DOUBLE] = lv2_urid_lookup(LV2_ATOM__Double);
+    in->urids.types[LV2_PATCH_INT] = lv2_urid_lookup(LV2_ATOM__Int);
+    in->urids.types[LV2_PATCH_LONG] = lv2_urid_lookup(LV2_ATOM__Long);
+    in->urids.types[LV2_PATCH_BOOL] = lv2_urid_lookup(LV2_ATOM__Bool);
+    for (k = 0; k < p->n_patches; k++)
+    {
+        in->patch_key[k] = lv2_urid_lookup(p->patches[k].uri);
+        in->patch_pending[k] = p->patches[k].def;
+        atomic_store_explicit(&in->patch_shown[k], float_bits(p->patches[k].def), memory_order_relaxed);
     }
     for (k = 0; k < p->n_controls; k++)
     {
@@ -554,6 +883,14 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->controls);
     free(in->shown);
     free(in->ring_mem);
+    free(in->atom_in);
+    free(in->atom_out);
+    free(in->patch_key);
+    free(in->patch_pending);
+    free(in->patch_dirty);
+    free(in->patch_shown);
+    free(in->patch_out_flag);
+    free(in->patch_out_value);
     free(in);
 }
 
@@ -582,6 +919,30 @@ float lv2_instance_control_get(const struct lv2_instance *in, uint32_t k)
     return bits_float(atomic_load_explicit(&in->shown[k], memory_order_relaxed));
 }
 
+void lv2_instance_patch_write(struct lv2_instance *in, uint32_t j, float value)
+{
+    if (j >= in->plugin->n_patches)
+        return;
+    in->patch_pending[j] = value;
+    in->patch_dirty[j] = 1;
+    atomic_store_explicit(&in->patch_shown[j], float_bits(value), memory_order_relaxed);
+}
+
+float lv2_instance_patch_get(const struct lv2_instance *in, uint32_t j)
+{
+    if (j >= in->plugin->n_patches)
+        return 0.0f;
+    return bits_float(atomic_load_explicit(&in->patch_shown[j], memory_order_relaxed));
+}
+
+int lv2_instance_patch_changed(const struct lv2_instance *in, uint32_t j, float *value)
+{
+    if (j >= in->plugin->n_patches || !in->patch_out_flag[j])
+        return 0;
+    *value = in->patch_out_value[j];
+    return 1;
+}
+
 void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *ctx), void *ctx)
 {
     const struct lv2_plugin *p = in->plugin;
@@ -598,11 +959,21 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
             omx_msgring_pop(&in->responses);
         }
     }
+    memset(in->patch_out_flag, 0, p->n_patches);
     if (before)
         before(ctx);
+    patch_forge_inputs(in);
+    if (in->atom_out)
+    {
+        put32(in->atom_out, in->atom_cap - 8u);
+        put32(in->atom_out + 4, in->urids.sequence);
+        put32(in->atom_out + 8, in->urids.time_frame);
+        put32(in->atom_out + 12, 0);
+    }
     p->desc->run(in->handle, n);
     if (in->worker && in->worker->end_run)
         in->worker->end_run(in->handle);
+    patch_read_outputs(in);
     omx_hosted_denormals_off();
     if (p->latency_port >= 0)
     {
@@ -629,6 +1000,7 @@ void lv2_instance_counters(const struct lv2_instance *in, struct lv2_counters *o
     out->map_on_audio = atomic_load_explicit(&in->map_on_audio, memory_order_relaxed);
     out->schedule_off_audio = atomic_load_explicit(&in->schedule_off_audio, memory_order_relaxed);
     out->log_on_audio = atomic_load_explicit(&in->log_on_audio, memory_order_relaxed);
+    out->patch_dropped = atomic_load_explicit(&in->patch_dropped, memory_order_relaxed);
 }
 
 void lv2_instance_set_role(struct lv2_instance *in, lv2_audio_role_fn is_audio, void *ctx)

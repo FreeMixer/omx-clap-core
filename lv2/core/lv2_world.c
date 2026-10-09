@@ -48,8 +48,12 @@
 #include <lilv/lilv.h>
 #include <lv2/atom/atom.h>
 #include <lv2/core/lv2.h>
+#include <lv2/midi/midi.h>
+#include <lv2/patch/patch.h>
 #include <lv2/port-props/port-props.h>
+#include <lv2/resize-port/resize-port.h>
 #include <lv2/state/state.h>
+#include <lv2/time/time.h>
 #include <lv2/urid/urid.h>
 
 #include "lv2_core_internal.h"
@@ -76,6 +80,7 @@
     X(lilv_scale_points_is_end) X(lilv_scale_points_get) X(lilv_scale_points_free) X(lilv_scale_point_get_label) \
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
     X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
+    X(lilv_plugin_get_value) X(lilv_world_find_nodes) X(lilv_world_ask) \
     X(lilv_state_new_from_world) X(lilv_state_restore) X(lilv_state_free)
 
 
@@ -96,7 +101,10 @@ static struct
 enum
 {
     N_AUDIO, N_CONTROL, N_CV, N_ATOM, N_EVENT, N_INPUT, N_OUTPUT, N_DESIGNATION, N_ENABLED, N_LATENCY,
-    N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC, N_COUNT
+    N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC,
+    N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
+    N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
+    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -118,6 +126,25 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_NOT_ON_GUI] = LV2_PORT_PROPS__notOnGUI,
     [N_TRIGGER] = LV2_PORT_PROPS__trigger,
     [N_LOGARITHMIC] = LV2_PORT_PROPS__logarithmic,
+    [N_SUPPORTS] = LV2_ATOM__supports,
+    [N_BUFFER_TYPE] = LV2_ATOM__bufferType,
+    [N_SEQUENCE] = LV2_ATOM__Sequence,
+    [N_PATCH_MESSAGE] = LV2_PATCH__Message,
+    [N_RSZ_MIN] = LV2_RESIZE_PORT__minimumSize,
+    [N_PATCH_WRITABLE] = LV2_PATCH__writable,
+    [N_PATCH_PARAMETER] = "http://lv2plug.in/ns/ext/patch#Parameter",
+    [N_RDF_TYPE] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+    [N_RDFS_RANGE] = "http://www.w3.org/2000/01/rdf-schema#range",
+    [N_RDFS_LABEL] = "http://www.w3.org/2000/01/rdf-schema#label",
+    [N_SYMBOL] = LV2_CORE__symbol,
+    [N_MINIMUM] = LV2_CORE__minimum,
+    [N_MAXIMUM] = LV2_CORE__maximum,
+    [N_DEFAULT] = LV2_CORE__default,
+    [N_ATOM_FLOAT] = LV2_ATOM__Float,
+    [N_ATOM_DOUBLE] = LV2_ATOM__Double,
+    [N_ATOM_INT] = LV2_ATOM__Int,
+    [N_ATOM_LONG] = LV2_ATOM__Long,
+    [N_ATOM_BOOL] = LV2_ATOM__Bool,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -466,6 +493,198 @@ static char *node_dup(LilvNode *node, const char *fallback)
     return s;
 }
 
+static uint32_t nodes_count(const LilvNodes *nodes)
+{
+    uint32_t n = 0;
+    LilvIter *it;
+
+    for (it = nodes ? L.lilv_nodes_begin(nodes) : NULL; nodes && !L.lilv_nodes_is_end(nodes, it); it = L.lilv_nodes_next(nodes, it))
+        n++;
+    return n;
+}
+
+/* The first value of `predicate` on `subject`, as a number: 0 when it has none. */
+static int world_float(const LilvNode *subject, int predicate, float *v)
+{
+    LilvNodes *nodes = L.lilv_world_find_nodes(g.world, subject, g.node[predicate], NULL);
+    LilvIter *it = nodes ? L.lilv_nodes_begin(nodes) : NULL;
+    int ok = 0;
+
+    if (nodes && !L.lilv_nodes_is_end(nodes, it))
+        *v = node_float(L.lilv_nodes_get(nodes, it), &ok);
+    L.lilv_nodes_free(nodes);
+    return ok;
+}
+
+/* The first value of `predicate` on `subject`, as a new string, or NULL. */
+static char *world_string(const LilvNode *subject, int predicate)
+{
+    LilvNodes *nodes = L.lilv_world_find_nodes(g.world, subject, g.node[predicate], NULL);
+    LilvIter *it = nodes ? L.lilv_nodes_begin(nodes) : NULL;
+    char *s = NULL;
+
+    if (nodes && !L.lilv_nodes_is_end(nodes, it) && L.lilv_node_as_string(L.lilv_nodes_get(nodes, it)))
+        s = strdup(L.lilv_node_as_string(L.lilv_nodes_get(nodes, it)));
+    L.lilv_nodes_free(nodes);
+    return s;
+}
+
+/* An atom port is the patch port of its direction when it is a sequence that supports patch:Message and nothing else,
+ * and the first one of its direction. Any other atom port is refused with the MIDI refusal, which stays until the MIDI
+ * and transport mappings take the ports they carry. */
+static const char *atom_port(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t index)
+{
+    LilvNodes *sup = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
+    LilvNodes *type = L.lilv_port_get_value(pl, port, g.node[N_BUFFER_TYPE]);
+    LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+    const int patch_only = sup && nodes_count(sup) == 1 && L.lilv_nodes_contains(sup, g.node[N_PATCH_MESSAGE]);
+    const int sequence = !type || L.lilv_nodes_contains(type, g.node[N_SEQUENCE]);
+    const int free_slot = (input ? p->patch_in : p->patch_out) < 0;
+    const char *refused = LV2_CODE_MIDI_IN;
+    LilvIter *it;
+
+    if (patch_only && sequence && free_slot && (!rsz || nodes_count(rsz) == 1))
+    {
+        refused = NULL;
+        if (input)
+            p->patch_in = (int32_t)index;
+        else
+            p->patch_out = (int32_t)index;
+        it = rsz ? L.lilv_nodes_begin(rsz) : NULL;
+        if (rsz && !L.lilv_nodes_is_end(rsz, it))
+        {
+            int ok = 0;
+            const float min = node_float(L.lilv_nodes_get(rsz, it), &ok);
+
+            if (ok && min > (float)p->atom_min)
+                p->atom_min = (uint32_t)min;
+        }
+    }
+    L.lilv_nodes_free(sup);
+    L.lilv_nodes_free(type);
+    L.lilv_nodes_free(rsz);
+    return refused;
+}
+
+/* The symbol the URI gives when the property has no lv2:symbol: the text after the last '#', else after the
+ * last '/', every character outside [A-Za-z0-9_] as '_', and a leading digit prefixed with '_'. */
+static char *symbol_of_uri(const char *uri)
+{
+    const char *tail = strrchr(uri, '#');
+    const char *slash = strrchr(uri, '/');
+    size_t n, i;
+    char *s;
+
+    if (!tail)
+        tail = slash ? slash + 1 : uri;
+    else
+        tail++;
+    n = strlen(tail);
+    s = malloc(n + 2u);
+    if (!s)
+        return NULL;
+    for (i = 0; i < n; i++)
+    {
+        const char c = tail[i];
+        s[i] = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' ? c : '_';
+    }
+    s[n] = '\0';
+    if (n == 0 || (s[0] >= '0' && s[0] <= '9'))
+    {
+        memmove(s + 1, s, n + 1u);
+        s[0] = '_';
+    }
+    return s;
+}
+
+/* A patch:writable property is a numeric patch:Parameter when it is typed so and its range is one of the numeric atoms;
+ * the type it takes is the one of that range. 0 for anything else (a string or path property, or no range). */
+static int patch_type_of(const LilvNode *prop, enum lv2_patch_type *type)
+{
+    static const struct { int node; enum lv2_patch_type type; } map[] =
+    {
+        { N_ATOM_FLOAT, LV2_PATCH_FLOAT }, { N_ATOM_DOUBLE, LV2_PATCH_DOUBLE }, { N_ATOM_INT, LV2_PATCH_INT },
+        { N_ATOM_LONG, LV2_PATCH_LONG }, { N_ATOM_BOOL, LV2_PATCH_BOOL },
+    };
+    LilvNodes *range;
+    size_t i;
+    int found = 0;
+
+    if (!L.lilv_world_ask(g.world, prop, g.node[N_RDF_TYPE], g.node[N_PATCH_PARAMETER]))
+        return 0;
+    range = L.lilv_world_find_nodes(g.world, prop, g.node[N_RDFS_RANGE], NULL);
+    for (i = 0; range && !found && i < sizeof(map) / sizeof(map[0]); i++)
+        if (L.lilv_nodes_contains(range, g.node[map[i].node]))
+        {
+            *type = map[i].type;
+            found = 1;
+        }
+    L.lilv_nodes_free(range);
+    return found;
+}
+
+/* The numeric patch:writable properties of the plugin. A property's id is the port count plus its index in patch:writable
+ * order, counting every entry, so a string property does not move the ids of the numeric ones. */
+static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
+{
+    LilvNodes *writable = L.lilv_plugin_get_value(pl, g.node[N_PATCH_WRITABLE]);
+    const uint32_t n = nodes_count(writable);
+    uint32_t i = 0, k = 0;
+    LilvIter *it;
+
+    p->patches = calloc(n ? n : 1u, sizeof(*p->patches));
+    if (!p->patches)
+    {
+        L.lilv_nodes_free(writable);
+        return LV2_CODE_NO_REALISATION;
+    }
+    for (it = writable ? L.lilv_nodes_begin(writable) : NULL; writable && !L.lilv_nodes_is_end(writable, it); it = L.lilv_nodes_next(writable, it), i++)
+    {
+        const LilvNode *prop = L.lilv_nodes_get(writable, it);
+        const char *uri = prop ? L.lilv_node_as_uri(prop) : NULL;
+        struct lv2_patch *pp = &p->patches[k];
+        enum lv2_patch_type type;
+        float min = -1e9f, max = 1e9f, def;
+
+        if (!uri || !patch_type_of(prop, &type))
+            continue;
+        pp->id = p->n_ports + i;
+        pp->uri = strdup(uri);
+        pp->type = type;
+        pp->symbol = world_string(prop, N_SYMBOL);
+        if (!pp->symbol)
+            pp->symbol = symbol_of_uri(uri);
+        pp->name = world_string(prop, N_RDFS_LABEL);
+        if (!pp->name)
+            pp->name = strdup(pp->symbol ? pp->symbol : uri);
+        if (type == LV2_PATCH_BOOL)
+        {
+            min = 0.0f;
+            max = 1.0f;
+            pp->props = LV2_PROP_TOGGLED;
+        }
+        else if (type == LV2_PATCH_INT || type == LV2_PATCH_LONG)
+            pp->props = LV2_PROP_INTEGER;
+        world_float(prop, N_MINIMUM, &min);
+        world_float(prop, N_MAXIMUM, &max);
+        def = min;
+        world_float(prop, N_DEFAULT, &def);
+        pp->min = min;
+        pp->max = max;
+        pp->def = def;
+        p->n_patches = k + 1u;
+        if (!pp->uri || !pp->symbol || !pp->name)
+        {
+            L.lilv_nodes_free(writable);
+            return LV2_CODE_NO_REALISATION;     // the entry is counted, so lv2_plugin_close frees what it holds
+        }
+        k++;
+    }
+    L.lilv_nodes_free(writable);
+    p->n_patches = k;
+    return NULL;
+}
+
 /* Read every port, or name the refusal, before any binary: the console's read_ports, its codes word for word. */
 static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
 {
@@ -477,6 +696,7 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     if (!p->controls)
         return LV2_CODE_NO_REALISATION;
     p->latency_port = -1;
+    p->patch_in = p->patch_out = -1;
     p->n_ports = n;
     for (i = 0; i < n; i++)
     {
@@ -485,8 +705,16 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         struct lv2_control *c;
         const char *symbol;
 
-        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) || L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
+        if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
             return LV2_CODE_MIDI_IN;
+        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]))
+        {
+            const char *refused = atom_port(p, pl, port, input, i);
+
+            if (refused)
+                return refused;
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_CV]))
             return LV2_CODE_CV_PORTS;
         if (L.lilv_port_is_a(pl, port, g.node[N_AUDIO]))
@@ -552,6 +780,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     p->legs = nin;
     memcpy(p->in_ports, in, sizeof(p->in_ports));
     memcpy(p->out_ports, out, sizeof(p->out_ports));
+    if (p->patch_in >= 0)
+        return read_patches(p, pl);     // a property is writable only through an input port
     return NULL;
 }
 
@@ -611,6 +841,13 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->controls[k].name);
     }
     free(p->controls);
+    for (k = 0; p->patches && k < p->n_patches; k++)
+    {
+        free(p->patches[k].uri);
+        free(p->patches[k].symbol);
+        free(p->patches[k].name);
+    }
+    free(p->patches);
     free(p->uri);
     free(p->bundle_path);
     lv2_bundle_unref(p->bundle);

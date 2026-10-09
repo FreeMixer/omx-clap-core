@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The patch fixture's bundle (lv2_patch_fixture.c): one plugin with a binary, whose numeric patch:writable properties
+# are the CLAP parameters the host maps.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:patch-fixture>
+    a lv2:Plugin ;
+    lv2:binary <omx-patch-fixture.so> ;
+    rdfs:seeAlso <omx-patch-fixture.ttl> .
+
+<urn:openmixer:test:patch-fixture#midi>
+    a lv2:Plugin ;
+    lv2:binary <omx-patch-fixture.so> ;
+    rdfs:seeAlso <omx-patch-fixture.ttl> .

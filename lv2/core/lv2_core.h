@@ -154,6 +154,10 @@ struct lv2_plugin
     int32_t latency_port;           // -1: none
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
+    int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
+    uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
+    struct lv2_patch *patches;      // the numeric patch:writable properties, in patch:writable order
+    uint32_t n_patches;
     char **required;                // lv2:requiredFeature, NULL-terminated
     void *binary;                   // dlopen'ed by lv2_plugin_load
     const LV2_Descriptor *desc;
@@ -167,6 +171,28 @@ struct lv2_instance;
  * worker of a split chain, or the control thread during the warm-up). */
 typedef int (*lv2_audio_role_fn)(void *ctx);
 
+/* A numeric patch:Parameter the plugin lists as patch:writable: a CLAP parameter with the id `id`, above the port
+ * indices. The value type is the atom type the plugin's property takes. */
+enum lv2_patch_type
+{
+    LV2_PATCH_FLOAT = 0,            // atom:Float
+    LV2_PATCH_DOUBLE = 1,           // atom:Double
+    LV2_PATCH_INT = 2,              // atom:Int
+    LV2_PATCH_LONG = 3,             // atom:Long
+    LV2_PATCH_BOOL = 4,             // atom:Bool
+};
+
+struct lv2_patch
+{
+    uint32_t id;                    // the CLAP id: lv2_plugin.n_ports plus the property's index in patch:writable order
+    char *uri;                      // the property's URI, as the patch messages name it
+    char *symbol;                   // lv2:symbol, else the URI's fragment or last segment, as a C identifier
+    char *name;                     // rdfs:label, else the symbol
+    enum lv2_patch_type type;
+    float min, max, def;            // lv2:minimum, lv2:maximum, lv2:default; absent bounds are -1e9 and 1e9
+    uint32_t props;                 // LV2_PROP_INTEGER and LV2_PROP_TOGGLED
+};
+
 /* What the instance counts, read relaxed. */
 struct lv2_counters
 {
@@ -176,6 +202,7 @@ struct lv2_counters
     uint32_t map_on_audio;          // urid:map called on the audio role: a thread violation
     uint32_t schedule_off_audio;    // schedule_work called off the audio role: a thread violation
     uint32_t log_on_audio;          // log:log called on the audio role (the sink writes nothing either way)
+    uint32_t patch_dropped;         // patch events of a block that did not fit the atom buffer
 };
 
 
@@ -265,6 +292,17 @@ void lv2_instance_counters(const struct lv2_instance *in, struct lv2_counters *o
 /* The host's audio-role predicate: urid:map, log:log and schedule_work are classified by it, never by a thread check of
  * the library's own. NULL classifies nothing. */
 void lv2_instance_set_role(struct lv2_instance *in, lv2_audio_role_fn is_audio, void *ctx);
+
+/* [audio] The value of patch parameter `j` (the index in plugin->patches) for the next block's patch:Set. The forged
+ * event is written before the block's run; the last value written before a block is the one it carries. */
+void lv2_instance_patch_write(struct lv2_instance *in, uint32_t j, float value);
+
+/* [thread-safe] The value of patch parameter `j`: as last written, or as the last run's output set it. */
+float lv2_instance_patch_get(const struct lv2_instance *in, uint32_t j);
+
+/* [audio] Whether the last run's output carried a patch:Set or patch:Put for patch parameter `j`; if so, *value is the
+ * last such value. A run clears every flag first. */
+int lv2_instance_patch_changed(const struct lv2_instance *in, uint32_t j, float *value);
 
 /* Block until the worker has serviced every pending request (a test pins the schedule with it). */
 void lv2_instance_worker_quiesce(struct lv2_instance *in);
