@@ -77,6 +77,7 @@
     X(lilv_plugin_get_num_ports) X(lilv_plugin_get_port_by_index) X(lilv_plugin_get_required_features) \
     X(lilv_port_is_a) X(lilv_port_get_symbol) X(lilv_port_get_name) X(lilv_port_get_range) X(lilv_port_get_value) \
     X(lilv_port_has_property) X(lilv_port_get_scale_points) X(lilv_scale_points_begin) X(lilv_scale_points_next) \
+    X(lilv_port_supports_event) \
     X(lilv_scale_points_is_end) X(lilv_scale_points_get) X(lilv_scale_points_free) X(lilv_scale_point_get_label) \
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
     X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
@@ -105,7 +106,7 @@ enum
     N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC,
     N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
-    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_COUNT
+    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_MIDI_EVENT, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -146,6 +147,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_ATOM_INT] = LV2_ATOM__Int,
     [N_ATOM_LONG] = LV2_ATOM__Long,
     [N_ATOM_BOOL] = LV2_ATOM__Bool,
+    [N_MIDI_EVENT] = LV2_MIDI__MidiEvent,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -531,8 +533,8 @@ static char *world_string(const LilvNode *subject, int predicate)
 }
 
 /* An atom port is the patch port of its direction when it is a sequence that supports patch:Message and nothing else,
- * and the first one of its direction. Any other atom port is refused with the MIDI refusal, which stays until the MIDI
- * and transport mappings take the ports they carry. */
+ * and the first one of its direction. A MIDI port is read before this; any other atom port is refused with the MIDI
+ * refusal, which stays until the transport mapping takes the ports it carries. */
 static const char *atom_port(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t index)
 {
     LilvNodes *sup = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
@@ -698,6 +700,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         return LV2_CODE_NO_REALISATION;
     p->latency_port = -1;
     p->patch_in = p->patch_out = -1;
+    p->midi_in_port = -1;
+    p->midi_out_port = -1;
     p->n_ports = n;
     for (i = 0; i < n; i++)
     {
@@ -708,6 +712,17 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
 
         if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
             return LV2_CODE_MIDI_IN;
+        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
+        {
+            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most
+            if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
+                return LV2_CODE_MIDI_IN;
+            if (input)
+                p->midi_in_port = (int32_t)i;
+            else
+                p->midi_out_port = (int32_t)i;
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]))
         {
             const char *refused = atom_port(p, pl, port, input, i);
