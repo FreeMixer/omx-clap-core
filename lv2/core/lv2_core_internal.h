@@ -61,6 +61,9 @@ char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const
 int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, float *controls, const char *text,
                              const LV2_Feature *const *features, LV2_URID_Map *map);
 
+/* the state of a preset (malloc'd LV2 Turtle) for this plugin, NULL when the bundle holds no such preset applying to it */
+char *lv2_plugin_preset_text(const struct lv2_plugin *p, const char *uri, LV2_URID_Map *map, LV2_URID_Unmap *unmap);
+
 /* whether the state text parses: 0, or -1 */
 int lv2_plugin_state_check(const char *text, LV2_URID_Map *map);
 

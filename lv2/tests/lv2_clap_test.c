@@ -622,6 +622,58 @@ static void t_state(double rate)
     rig_down(&ra);
 }
 
+/* ---- clap.preset-load: the bundle's pset:Preset, by its URI ---- */
+
+#define PRESET_QUIET "urn:openmixer:test:host-fixture-preset:quiet"        /* offset -3 dB, applies to the fixture */
+#define PRESET_WRONG "urn:openmixer:test:host-fixture-preset:quiet-wrong"  /* applies to the CV twin: refused */
+#define PRESET_NONE "urn:openmixer:test:host-fixture-preset:nothing"
+
+static const clap_plugin_preset_load_t *preset_of(struct rig *g)
+{
+    return g->plugin->get_extension(g->plugin, CLAP_EXT_PRESET_LOAD);
+}
+
+/* the preset loaded while active (a restart), and before the first activate: the row's -20 with the preset's -3 */
+static void t_preset(double rate)
+{
+    static float in[N_BLOCKS * BLOCK], out[N_BLOCKS * BLOCK];
+    const clap_plugin_preset_load_t *pl;
+    struct rig g;
+    uint32_t blk;
+
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        tone(in + blk * BLOCK, BLOCK, 0.5f, blk * BLOCK);
+
+    if (rig_up(&g, g_fixture, FIXTURE_URI, rate, BLOCK) == 0)
+    {
+        pl = preset_of(&g);
+        CHECK(pl && !pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_WRONG) && g.host.restarts == 0,
+              "preset %.0f: a preset that applies to another plugin is refused, and asks for no restart", rate);
+        CHECK(pl && !pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_NONE),
+              "preset %.0f: a preset the bundle does not hold is refused", rate);
+        CHECK(pl && pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_QUIET) && g.host.restarts == 1,
+              "preset %.0f: quiet loads while active, and asks for one restart (%d)", rate, g.host.restarts);
+        restart(&g, rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&g, in + blk * BLOCK, NULL, out + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(fabs(gain_db(in, out, 2, N_BLOCKS) - -23.0) < 0.01, "preset %.0f: after the restart the gain reads %.3f dB: -20 plus the preset's -3",
+              rate, gain_db(in, out, 2, N_BLOCKS));
+        rig_down(&g);
+    }
+
+    if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        pl = preset_of(&g);
+        CHECK(pl && pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_QUIET) && g.host.restarts == 0,
+              "preset %.0f: quiet loads before the first activate, and asks for no restart", rate);
+        CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK) && g.plugin->start_processing(g.plugin), "preset %.0f: activates", rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&g, in + blk * BLOCK, NULL, out + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(fabs(gain_db(in, out, 2, N_BLOCKS) - -23.0) < 0.01, "preset %.0f: the first activate applies it: %.3f dB", rate, gain_db(in, out, 2, N_BLOCKS));
+        rig_down(&g);
+    }
+}
+
 /* ---- the port properties as CLAP flags ---- */
 
 static int info_of(struct rig *g, clap_id id, clap_param_info_t *info)
@@ -1054,6 +1106,7 @@ int main(int argc, char **argv)
 
         t_fixture(RATES[r]);
         t_state(RATES[r]);
+        t_preset(RATES[r]);
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);

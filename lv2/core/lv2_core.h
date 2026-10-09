@@ -86,6 +86,7 @@
 #define LV2_CODE_EXTRA_INPUTS           "hosting.topology.extra-inputs-fed-silence"
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
 #define LV2_CODE_STATE_UNREADABLE       "hosting.state.unreadable"
+#define LV2_CODE_PRESET_NOT_FOUND       "hosting.preset.not-found"
 
 /* what a control port declares, as lv2_control.props reads it */
 #define LV2_PROP_INTEGER                (1u << 0)
@@ -283,6 +284,10 @@ char *lv2_instance_state_save(struct lv2_instance *in);
  * applied, so a load while active takes effect at the activate the host's restart brings. -1 with `why` when the text
  * does not parse; the held state is then unchanged. */
 int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX]);
+
+/* [main] Hold the state of the preset `uri` (a pset:Preset that lv2:appliesTo this plugin) as a load does: 0, or -1 with
+ * `why` (hosting.preset.not-found) when the bundle holds no such preset for this plugin. */
+int lv2_instance_preset_load(struct lv2_instance *in, const char *uri, char why[LV2_CORE_WHY_MAX]);
 
 
 /*

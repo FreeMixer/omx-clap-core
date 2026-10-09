@@ -583,6 +583,27 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in);
 }
 
+int lv2_instance_preset_load(struct lv2_instance *in, const char *uri, char why[LV2_CORE_WHY_MAX])
+{
+    char *text;
+    int rc;
+
+    if (!in || !uri)
+    {
+        lv2_why_set(why, LV2_CODE_PRESET_NOT_FOUND);
+        return -1;
+    }
+    text = lv2_plugin_preset_text(in->plugin, uri, &in->map, &in->unmap);
+    if (!text)
+    {
+        lv2_why_set(why, LV2_CODE_PRESET_NOT_FOUND);
+        return -1;
+    }
+    rc = lv2_instance_state_load(in, text, why);
+    free(text);
+    return rc;
+}
+
 char *lv2_instance_state_save(struct lv2_instance *in)
 {
     if (!in || !in->handle)
