@@ -22,8 +22,7 @@
 ************************************************************************************************************************
 *
 * One instance of an LV2 plugin (see lv2_core.h): instantiate, the ports connected once to the instance's own memory,
-* the default state, activate, the worker thread and its two rings, and the LV2 half of a block. Moved from the
-* console's mix_host_backend.c (the LV2 add, the worker thread) and mix_lv2.h (the run half, the worker callbacks).
+* the default state, activate, the worker thread and its two rings, and the LV2 half of a block.
 *
 * Every port is connected to memory the instance owns, once, on the main thread, before activate: connect_port is not
 * promised real-time safe, and an LV2 plugin may dereference any port it declares. The audio buffers are the

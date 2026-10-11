@@ -184,7 +184,7 @@ static void t_count_is_capped(void) {
   CHECK(OMX_CLAP_PARAM_COUNT_MAX == CAP, "clap_host.h's OMX_CLAP_PARAM_COUNT_MAX is the same number");
   count_is_capped(CAP);         /* exactly the cap: whole, nothing said */
   count_is_capped(CAP + 1u);    /* one past: capped */
-  count_is_capped(10000000u);   /* far past: capped, openmixer #1142's case */
+  count_is_capped(10000000u);   /* far past: capped */
 }
 
 /* ---- the layout pin refuses past the cap: a pin names the whole layout ---- */

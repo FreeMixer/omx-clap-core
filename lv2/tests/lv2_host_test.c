@@ -19,8 +19,7 @@
  */
 
 /*
- * lv2_host_test.c — the bundle half and the feature providers of the LV2 host against REAL bundles, offline. Moved from
- * the console's mix_lv2_host.test.c and the LV2 arms of mix_host_backend.test.c, every number they assert unchanged.
+ * lv2_host_test.c — the bundle half and the feature providers of the LV2 host against REAL bundles, offline.
  * This binary links NO lilv: the host dlopens it.
  *
  *   lazy      lilv is not in the process until the first bundle, and is after it; a library that cannot load refuses

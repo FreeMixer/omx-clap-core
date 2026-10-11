@@ -19,7 +19,7 @@
  */
 
 /*
- * lv2_fakes.h — the fake plugins of the console's mix_lv2.test.c, moved with it and built as the bundle
+ * lv2_fakes.h — the fake plugins of the LV2 tests, built as the bundle
  * omx-lv2-fakes.lv2, so the LV2 host and the CLAP shim rack them through lilv like any plugin. One instance shape,
  * behaviour chosen by the URI's last digit. A test reaches the instance it racked through lv2_fakes_last, taken with
  * dlsym from the binary the host loaded (dlopen RTLD_NOLOAD on the same path).

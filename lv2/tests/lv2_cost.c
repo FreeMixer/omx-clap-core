@@ -22,7 +22,7 @@
  * lv2_cost.c — what the adapter costs per process() call: the stereo pad of the fakes bundle at 96 kHz and 192 kHz,
  * quantum 128, timed through the CLAP face (the copy in, the event walk, the LV2 run, the copy out) and through
  * lv2/core's run alone, the difference being the shim's own cost. It prints figures and judges nothing: the ceiling is
- * the console's to hold.
+ * the embedding program's to hold.
  *
  *   lv2_cost <omx-lv2-fakes.lv2 directory> [calls]
  *
