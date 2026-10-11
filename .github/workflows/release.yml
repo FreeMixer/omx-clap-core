@@ -48,7 +48,7 @@ jobs:
 
   # the generated C API reference, fetched by the website from the release assets
   api-docs:
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.ref_type == 'tag' }}
     needs: [rpm, deb]
     runs-on: ubuntu-latest
     timeout-minutes: 10
