@@ -36,7 +36,7 @@
 
 enum fake_kind
 {
-    K_PAD, K_BROKEN, K_CLOBBER, K_NAN, K_HOT, K_WORKER, K_NAN_ALWAYS, K_PROPS
+    K_PAD, K_BROKEN, K_CLOBBER, K_NAN, K_HOT, K_WORKER, K_NAN_ALWAYS, K_PROPS, K_HOLD
 };
 
 #define FAKE_PAD            "urn:omx:test:pad:mono#0"
@@ -48,6 +48,9 @@ enum fake_kind
 #define FAKE_WORKER         "urn:omx:test:worker:mono#5"
 #define FAKE_PROPS          "urn:omx:test:props:mono#7"           // a pad with one control port per port property
 #define FAKE_NAN_ALWAYS     "urn:omx:test:nan-always:mono#6"     // non-finite from its first run: refuses the warm-up
+#define FAKE_HOLD           "urn:omx:test:hold:mono#8"           // a sample-and-hold whose phase runs on across run() calls
+
+#define HOLD_PERIOD         3u          // K_HOLD takes a new input sample every this many frames
 
 #define PAD_GAIN            0.1f        // -20 dB, the fake's own definition
 /* the fake's latency is a DURATION (1/6000 s) it reports in frames at its own rate, floored */
@@ -69,6 +72,8 @@ struct fake
     LV2_Worker_Respond_Handle respond_handle;
     int latency_bias;                   // added to the latency the port reports (a test moves it)
     uint32_t activations, deactivations;    // LV2 activate and deactivate calls on this instance
+    uint32_t hold_phase;                // K_HOLD: frames since the last sample taken, kept from instantiate on
+    float held;                         // K_HOLD: the sample it holds
 };
 
 /* the instance instantiated last, the trace of the worker fake, and clearing it */
