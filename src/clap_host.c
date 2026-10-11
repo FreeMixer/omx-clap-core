@@ -62,9 +62,6 @@
 #endif
 #define CORE_VERSION                    OMX_CLAP_VERSION_NUM
 
-// the warm-up runs at most this many frames a block, whatever the bounce holds
-#define WARMUP_BLOCK_FRAMES             128u
-
 
 /*
 ************************************************************************************************************************
@@ -1181,7 +1178,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     if (g_config.warmup)
     {
         omx_clap_host_take_role(in, &role);
-        bad = omx_clap_prime(&in->stage, max_block < WARMUP_BLOCK_FRAMES ? max_block : WARMUP_BLOCK_FRAMES);
+        // at the block size the host activated: a plugin whose state is counted in frames leaves the warm-up in the
+        // state a host running that quantum would leave it in
+        bad = omx_clap_prime(&in->stage, max_block);
         omx_clap_host_release_role(in, &role, role.state);
         if (bad != 0)
         {
