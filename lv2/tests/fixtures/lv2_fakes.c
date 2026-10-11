@@ -132,6 +132,15 @@ static void f_run(LV2_Handle h, uint32_t n)
             for (uint32_t i = 0; i < n; i++)
                 f->out[k][i] = f->in[k][i] * 100.0f;        // +40 dB
             break;
+        case K_HOLD:        // the state is in frames, not blocks: where a block starts in the period depends on every block before it
+            for (uint32_t i = 0; i < n; i++)
+            {
+                if (f->hold_phase == 0)
+                    f->held = f->in[k][i];
+                f->hold_phase = (f->hold_phase + 1u) % HOLD_PERIOD;
+                f->out[k][i] = f->held * PAD_GAIN;
+            }
+            break;
         default:
             for (uint32_t i = 0; i < n; i++)
                 f->out[k][i] = f->in[k][i] * PAD_GAIN;
@@ -221,6 +230,7 @@ static const LV2_Descriptor DESCRIPTORS[] =
 {
     DESC(FAKE_PAD, NULL), DESC(FAKE_PAD2, NULL), DESC(FAKE_BROKEN, NULL), DESC(FAKE_CLOBBER, NULL),
     DESC(FAKE_NAN, NULL), DESC(FAKE_HOT, NULL), DESC(FAKE_WORKER, f_extension_data), DESC(FAKE_NAN_ALWAYS, NULL), DESC(FAKE_PROPS, NULL),
+    DESC(FAKE_HOLD, NULL),
 };
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
