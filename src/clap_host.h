@@ -79,7 +79,7 @@
 
 /** The roster's refusal: an index below count() whose get_info does not answer. */
 #define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
-/** The widest params->count() the core trusts, under the name openmixer's host gave it (CLAP_HOST_PARAM_COUNT_MAX). */
+/** The widest params->count() the core trusts, under its host-limits name (CLAP_HOST_PARAM_COUNT_MAX). */
 #define OMX_CLAP_PARAM_COUNT_MAX        CLAP_HOST_PARAM_COUNT_MAX
 
 #if defined(__GNUC__)

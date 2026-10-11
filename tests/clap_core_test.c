@@ -32,7 +32,7 @@
  *     thread that ran a lane is true, a thread outside reads false, and every thread reads false once unpublished.
  *  4. THE ROSTER is whole or refused: 257 parameters give 257 rows, a hole below count() refuses with
  *     clap.param-row-unreadable and no rows, and param_count and param_row refuse it too; the same plugin without the
- *     hole gives 4. A plugin claiming 10000000 parameters is served OMX_CLAP_PARAM_COUNT_MAX rows (openmixer #1142).
+ *     hole gives 4. A plugin claiming 10000000 parameters is served OMX_CLAP_PARAM_COUNT_MAX rows.
  *  5. THE TEMPO: omx_clap_host_run hands the plugin no transport with no tempo given or none published, a transport
  *     carrying the bpm and only HAS_TEMPO once one is, a change at the next block, none once withdrawn; the tempo
  *     fixture (fault mode 16) reads 120 bpm as a level of 0.12.
@@ -429,7 +429,7 @@ static void t_roster_whole_or_refused(void) {
   omx_clap_host_close(in);
 }
 
-/* openmixer #1142's arm, as the console runs it: the plugin's own count() sizes no table past the ceiling */
+/* the ceiling's arm: the plugin's own count() sizes no table past it */
 static void t_roster_count_is_ceilinged(void) {
   const char *why = NULL;
   uint32_t last = 0;

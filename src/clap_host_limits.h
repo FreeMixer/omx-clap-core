@@ -2,12 +2,9 @@
 #define CLAP_HOST_LIMITS_H
 /*
  * GENERATED — DO NOT EDIT BY HAND.
- * Produced by openmixer's `node harness/contract-limits-gen.mjs --clap-host-limits <file>` from
- * HOSTED_STAGE_LIMITS (packages/core/src/hosted-stage-limits.ts) and CLAP_CORE_REFUSALS over
- * HOSTING_CODE (packages/plugin-qualify/src/hosting-suitability.ts).
- * Committed here because this repository builds without that tree; openmixer's
- * contract-limits-generated ratchet requires it byte-identical to a fresh render. Change a number
- * there, regenerate, commit the result here.
+ * Rendered from the FreeMixer console's declared stage limits and hosting refusal codes. The
+ * rendered file is kept in this repository so the library builds on its own; the numbers and codes
+ * are changed where they are declared and the file is re-rendered, never edited here.
  */
 
 /** @file

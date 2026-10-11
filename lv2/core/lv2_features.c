@@ -21,8 +21,7 @@
 /*
 ************************************************************************************************************************
 *
-* The configuration and the feature providers of the LV2 host (see lv2_core.h), moved from the console's
-* mix_host_backend.c: one URID table per process, lock-free for a URI already mapped, and which providers are on,
+* The configuration and the feature providers of the LV2 host (see lv2_core.h): one URID table per process, lock-free for a URI already mapped, and which providers are on,
 * which is the configured list's say. The map, the log, the options and the worker schedule an instance is handed are
 * its own structures over that table (lv2_instance.c), so a call names the instance it came from.
 *

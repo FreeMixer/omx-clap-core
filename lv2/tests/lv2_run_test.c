@@ -20,8 +20,7 @@
 
 /*
  * lv2_run_test.c — the LV2 half of a block (lv2_instance_run) against closed forms, at every declared rate, with the
- * fakes of the console's mix_lv2.test.c racked from their bundle through lilv. Moved from that test with every number
- * it asserts unchanged; the arms whose body moved to the CLAP body (the mono mirror, the bypass, the crossfade, the
+ * fakes racked from their bundle through lilv. The arms whose body moved to the CLAP body (the mono mirror, the bypass, the crossfade, the
  * non-finite strikes, the clamp, the warm-up) run through libomx-clap-core in lv2_clap_test.c.
  *
  *  1. PAD: a -20 dB 1x1 fake with a latency port reads exactly 0.1 x the input once steady, and the instance reads the

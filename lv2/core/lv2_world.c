@@ -22,7 +22,7 @@
 ************************************************************************************************************************
 *
 * The bundle half of the LV2 host (see lv2_core.h): lilv, one bundle at a time, the ports, the refusals, the binary and
-* the default state. Moved from the console's mix_lv2_host.c, its behaviour unchanged.
+* the default state.
 *
 * lilv is NOT linked: the lilv headers give the prototypes, __typeof__ turns each into a pointer type (unevaluated, so no
 * symbol reference reaches the linker), and the first bundle fills the table by dlsym from the library the
@@ -373,7 +373,7 @@ static float node_float(const LilvNode *node, int *ok)
     return *ok ? L.lilv_node_as_float(node) : 0.0f;
 }
 
-/* the range, and the default as the console's port_default reads it: lv2:default, else lv2:minimum, else 0 */
+/* the range, and the default is lv2:default, else lv2:minimum, else 0 */
 static void port_range(const LilvPlugin *pl, const LilvPort *port, struct lv2_control *c)
 {
     LilvNode *def = NULL, *min = NULL, *max = NULL;
@@ -466,7 +466,7 @@ static char *node_dup(LilvNode *node, const char *fallback)
     return s;
 }
 
-/* Read every port, or name the refusal, before any binary: the console's read_ports, its codes word for word. */
+/* Read every port, or name the refusal, before any binary, with the codes of lv2_core.h. */
 static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
 {
     const uint32_t n = L.lilv_plugin_get_num_ports(pl);

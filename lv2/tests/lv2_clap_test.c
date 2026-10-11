@@ -30,13 +30,13 @@
  *   latency   latency.get answers the figure of the last activate; a different reading is held for latency_hold_ms
  *             of blocks, then ONE request_restart, and the restart's activate takes it; a reading that moves and comes
  *             back inside the hold asks for nothing.
- *   pad       mix_lv2.test.c's pad read through process(): exactly 0.1 x, the inPlaceBroken twin identical with the
+ *   pad       the pad read through process(): exactly 0.1 x, the inPlaceBroken twin identical with the
  *             host's input and output the same buffer, MXCSR re-asserted.
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
  *             by omx_clap_lv2_worker_quiesce; the fake's drain order; a stray respond counted on clap.log.
  *   rt        no allocation inside process().
  *
- * Through libomx-clap-core's CLAP body, the arms of mix_lv2.test.c whose body moved there, every number unchanged:
+ * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
  * the warm-up (64 blocks, the live counters untouched, a non-finite plugin refused), the first block fading in, the mono
  * mirror, the bypass crossfade and the steady bypass bit-identical, the non-finite strikes and the fault, the clamp,
  * the oversize block.

@@ -26,9 +26,8 @@
 * main thread, its worker thread, and the LV2 half of a block on the audio thread. lv2/clap is the shim that presents it
 * as a CLAP plugin. Internal to the library: nothing here is installed.
 *
-* Moved from the console (packages/pipewire-native): the bundle reader and the refusals are mix_lv2_host.c's, the
-* providers and the worker mix_host_backend.c's LV2 half, the run half mix_lv2.h's. The guards that surround a run (the
-* bounce, the crossfade, the clamp, the strikes, the warm-up) are not here: they are the CLAP body's, hosted_stage.h.
+* The guards that surround a run (the bounce, the crossfade, the clamp, the strikes, the warm-up) are not here: they are
+* the CLAP body's, hosted_stage.h.
 *
 * Threads. Every function runs on the main thread unless its comment says otherwise. lv2_instance_run and the control
 * and output accessors it names run on the audio thread, and touch no lilv, no lock, no allocation and no system call.

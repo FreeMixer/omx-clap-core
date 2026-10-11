@@ -28,9 +28,11 @@ Fedora (x86_64 and aarch64):
     sudo dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
     sudo dnf install omx-clap-host
 
-Debian and Raspberry Pi OS (amd64 and arm64): add the apt line from <https://freemixer.github.io>, then
+Debian bookworm and trixie and Raspberry Pi OS (amd64 and arm64):
 
-    sudo apt install omx-clap-host
+    curl -fsSL https://freemixer.github.io/deb/freemixer.asc | sudo tee /usr/share/keyrings/freemixer.asc >/dev/null
+    echo "deb [signed-by=/usr/share/keyrings/freemixer.asc] https://freemixer.github.io/deb/debian/$(. /etc/os-release; echo $VERSION_CODENAME) ./" | sudo tee /etc/apt/sources.list.d/freemixer.list
+    sudo apt update && sudo apt install omx-clap-host
 
 Version 0.4.0 ships these packages, all from the same release:
 
@@ -43,6 +45,25 @@ Version 0.4.0 ships these packages, all from the same release:
 
 For your own program, install the `-devel` / `-dev` package and build with
 `pkg-config --cflags --libs omx-clap-core` (and `omx-clap-lv2` for the adapter).
+
+Status
+------
+
+Version 0.4.0 is released and packaged for Fedora 44 and Debian bookworm and trixie. What
+the continuous integration runs on every push, and the packages it builds:
+
+- The plugin lifecycle and the scanner against fake plugins, including a plugin that crashes.
+- The hosting core with untrusted plugins, under AddressSanitizer and UndefinedBehaviorSanitizer.
+- The LV2 adapter against fixture bundles, validated with `lv2_validate`.
+- The host in a JACK graph, over PipeWire's JACK and over JACK2's `jackd` (x86_64): port layout,
+  latency, MIDI input for instruments, meters.
+- The exported symbols of `libomx-clap-core` against a versioned baseline.
+- RPMs (Fedora 44, x86_64 and aarch64) and DEBs (bookworm and trixie, amd64 and arm64), each
+  installed in a clean root or container.
+
+LV2 support is partial: [docs/lv2-compatibility.md](docs/lv2-compatibility.md) lists what is
+claimed and the test behind each row, and MIDI, transport, state and presets are not claimed yet.
+The host has no plugin GUI.
 
 Try it
 ------
