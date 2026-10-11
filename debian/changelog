@@ -1,3 +1,15 @@
+omx-clap-host (0.4.1) unstable; urgency=medium
+
+  * A plugin is now prepared for playing at the block size your host runs it at.
+    Before, the short warm-up after a plugin was activated used blocks of at
+    most 128 frames, so a plugin that counts in frames, such as a decimator, a
+    smoother or a sample-and-hold, started playing in a slightly different state
+    than it would on a host running its own block size. The warm-up now uses the
+    size the host activated for, and those plugins sound the same from the first
+    block.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 12 Oct 2026 12:00:00 +0000
+
 omx-clap-host (0.4.0) unstable; urgency=medium
 
   * New development package, omx-clap-lv2-devel (libomx-clap-lv2-dev on
