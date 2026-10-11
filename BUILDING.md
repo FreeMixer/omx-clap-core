@@ -112,9 +112,9 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number and string the core reads, rendered from the
   declared limits and committed here; never edited by hand.
-- `omx_clap_ext.h`: the openmixer vendor extensions a plugin serves through `get_extension`,
-  `org.openmixer.meters/1` and `org.openmixer.declaration/1`, as exact C structures. Header only:
-  the library exports nothing for them.
+- `omx_clap_ext.h`: the openmixer vendor extension a plugin serves through `get_extension`,
+  `org.openmixer.declaration/1`, as an exact C structure. Header only: the library exports nothing
+  for it. A plugin's meters are CLAP's own `clap.meters/1` ([docs/meters.md](docs/meters.md)).
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a

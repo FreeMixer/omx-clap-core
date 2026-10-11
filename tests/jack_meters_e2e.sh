@@ -124,7 +124,7 @@ pids+=($source_pid)
 for _ in $(seq 50); do grep -q playing "$runtime/source.log" && break; sleep 0.1; done
 grep -q playing "$runtime/source.log"; step $? "the source plays 0.5 and 0.25 into effect_0 and effect_1"
 
-# org.openmixer.meters/1: one symbol per meter, _<channel> for a meter of two, a leading digit prefixed
+# clap.meters/1: one symbol per meter, _<channel> for a meter of two, a leading digit prefixed
 expect "monitor_output 0 gain_reduction" "resp 1"
 expect "monitor_output 0 input_level_0" "resp 1"
 expect "monitor_output 0 input_level_1" "resp 1"
@@ -170,6 +170,14 @@ value 1 gain_adjustment_metering -6 0.0001
 # a plugin with neither extension has no output
 expect "monitor_output 3 gain_adjustment_metering" "resp 0"
 expect "monitor_output 3 gain_reduction" "resp 0"
+
+# org.openmixer.meters/1 is not read, first, second or under another name: the plugin that serves only it has no output
+expect "add clap:$compressor#org.omx-clap-host.test.compressor-vendor 4" "resp 4"
+expect "monitor_output 4 gain_reduction" "resp 0"
+expect "monitor_output 4 input_level_0" "resp 0"
+expect "monitor_output 4 _0" "resp 0"
+expect "monitor_output 4 gain_adjustment_metering" "resp 0"
+expect "remove 4" "resp 0"
 
 # a symbol two meters derive refuses the plugin, naming both
 expect "add clap:$compressor#org.omx-clap-host.test.compressor-clash 2" "resp -102"
