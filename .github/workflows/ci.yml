@@ -288,9 +288,11 @@ jobs:
           chroot /tmp/clean-root omx-clap-scan /smoke/crash.clap | tee crash.txt || true
           grep -q "crashed with signal 6" crash.txt
 
+      # not named omx-clap-host-rpms-*: the release dry run collects that pattern, and these files carry the
+      # same names as the release workflow's own build, so the two merged into one corrupt RPM
       - uses: actions/upload-artifact@v4
         with:
-          name: omx-clap-host-rpms-fc44-${{ matrix.arch }}
+          name: omx-clap-host-ci-rpms-fc44-${{ matrix.arch }}
           path: |
             rpms/omx-clap-host-[0-9]*.rpm
             rpms/omx-clap-core-[0-9]*.rpm
