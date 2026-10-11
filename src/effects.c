@@ -49,7 +49,7 @@
 
 #include "effects.h"
 #include "clap_host.h"
-#include "omx_clap_ext.h"
+#include "clap_meters.h"
 #include "layout_pin.h"
 #include "host-dispatch.h"
 #include "socket.h"
@@ -84,15 +84,15 @@
 ************************************************************************************************************************
 */
 
-/* one value a plugin reports, answered to by its symbol: a channel of an org.openmixer.meters/1 meter, or the gain
- * adjustment of clap.gain-adjustment-metering/0 */
+/* one value a plugin reports, answered to by its symbol: a channel of a clap.meters/1 meter, or the gain adjustment of
+ * clap.gain-adjustment-metering/0 */
 typedef struct OUTPUT_T {
     char symbol[OUTPUT_SYMBOL_SIZE];
     char name[CLAP_NAME_SIZE];  // the meter's, for a refusal to name
     int gain_adjustment;        // the standard value, not a meter
     clap_id meter;
     uint32_t channel;
-    uint32_t channels;          // the meter's: what read fills
+    uint32_t channels;          // the meter's: what get_values fills
     int monitored;
     int notified;               // a value went out since monitor_output
     float value;                // the last value that went out
@@ -106,7 +106,7 @@ typedef struct EFFECT_T {
     jack_port_t *midi_port;
     struct omx_clap_instance *clap;
     uint32_t latency_published;
-    const omx_clap_plugin_meters_t *meters;
+    const clap_plugin_meters_t *meters;
     const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
     _Atomic uint32_t gain_adjustment_bits;  // the float the audio thread published after its last cycle
     output_t *outputs;
@@ -593,17 +593,17 @@ static int output_add(effect_t *effect, const char *name, int gain_adjustment, c
     return 0;
 }
 
-/* control thread, at load: the plugin's org.openmixer.meters/1, else its clap.gain-adjustment-metering/0, each value an
- * output symbol. A meter that can't be read or a symbol that is taken refuses the plugin. */
+/* control thread, at load: the plugin's clap.meters/1, else its clap.gain-adjustment-metering/0, each value an output
+ * symbol (docs/meters.md). A meter that can't be read or a symbol that is taken refuses the plugin. */
 static int outputs_build(effect_t *effect)
 {
     const clap_plugin_t *plugin = effect->clap->plugin;
-    const omx_clap_plugin_meters_t *meters = plugin->get_extension(plugin, OMX_CLAP_EXT_METERS);
+    const clap_plugin_meters_t *meters = plugin->get_extension(plugin, CLAP_EXT_METERS);
     const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
-    omx_clap_meter_info_t info;
+    clap_meter_info_t info;
     uint32_t count, i, c;
 
-    if (meters && meters->count && meters->get_info && meters->read)
+    if (meters && meters->count && meters->get_info && meters->get_values)
     {
         effect->meters = meters;
         count = meters->count(plugin);
@@ -647,9 +647,10 @@ static int floats_differ(float a, float b)
  * goes out as output_set on the feedback socket; a move is mod-host's for an output port, FLT_EPSILON or more */
 static void outputs_notify(effect_t *effect)
 {
-    float values[METER_CHANNELS_MAX];
+    double values[METER_CHANNELS_MAX];
     clap_id read_meter = CLAP_INVALID_ID;
-    int read = 0, have = 0;
+    uint32_t have = 0;
+    int read = 0;
     uint32_t i;
 
     for (i = 0; i < effect->outputs_count; i++)
@@ -671,11 +672,11 @@ static void outputs_notify(effect_t *effect)
             {
                 read = 1;
                 read_meter = output->meter;
-                have = effect->meters->read(effect->clap->plugin, output->meter, values, output->channels);
+                have = effect->meters->get_values(effect->clap->plugin, output->meter, values, output->channels);
             }
-            if (!have)
+            if (output->channel >= have)
                 continue;
-            value = values[output->channel];
+            value = (float)values[output->channel];
         }
         if (output->notified && !floats_differ(output->value, value))
             continue;
