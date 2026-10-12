@@ -29,6 +29,7 @@
 #define CLAP_HOST_ROLE_POLL_US 1000u  ///< the poll interval while the audio role is taken, in microseconds
 #define CLAP_HOST_ROLE_TIMEOUT_US 200000u  ///< the longest the audio role is waited for, in microseconds
 #define CLAP_HOST_PARAM_COUNT_MAX 2048u  ///< the widest parameter count the core trusts
+#define CLAP_HOST_LATENCY_HOLD_MS 250u  ///< the hold before a hosted stage's new latency takes effect, in milliseconds
 
 /** the refusals the core returns, as the hosting codes the console's verdicts use */
 #define CLAP_HOST_CODE_HEADLESS_FAILED "hosting.clap.headless-failed"
