@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.4.1
+Version:        0.4.2
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -110,6 +110,10 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Mon Oct 12 2026 Pau Aliagas <linuxnow@gmail.com> - 0.4.2-1
+- clap_host_limits.h carries CLAP_HOST_LATENCY_HOLD_MS, the hold before a hosted
+  stage's new latency takes effect.
+
 * Mon Oct 12 2026 Pau Aliagas <linuxnow@gmail.com> - 0.4.1-1
 - A plugin is now prepared for playing at the block size your host runs it at.
   Before, the short warm-up after a plugin was activated used blocks of at
