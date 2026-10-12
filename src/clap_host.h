@@ -291,10 +291,10 @@ OMX_CLAP_EXPORT int omx_clap_host_open_timed(const char *path, const char *id, u
 
 /**
  * Activate at `rate` for blocks up to `max_block`: take the bounce (guard pages around it) and the parameter ring, bind
- * the stage, and, where the configuration warms up, warm it up on this thread holding the audio role and restart the
- * plugin after it; read latency.get() and publish it. The stage is left IDLE: publishing is omx_clap_host_publish or
- * omx_clap_host_arm. -1 with `why` (CLAP_HOST_CODE_HEADLESS_FAILED when activate refuses, CLAP_HOST_CODE_OUTPUT_NON_FINITE
- * when the warm-up did).
+ * the stage, and, where the configuration warms up, warm it up in blocks of `max_block` on this thread holding the audio
+ * role and restart the plugin after it; read latency.get() and publish it. The stage is left IDLE: publishing is
+ * omx_clap_host_publish or omx_clap_host_arm. -1 with `why` (CLAP_HOST_CODE_HEADLESS_FAILED when activate refuses,
+ * CLAP_HOST_CODE_OUTPUT_NON_FINITE when the warm-up did).
  */
 OMX_CLAP_EXPORT int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX]);
 
