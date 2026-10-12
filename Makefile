@@ -329,7 +329,7 @@ tests/fake.clap: tests/fake_plugin.c
 tests/fake_synth.clap: tests/fake_synth.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
 
-tests/fake_compressor.clap: tests/fake_compressor.c src/omx_clap_ext.h
+tests/fake_compressor.clap: tests/fake_compressor.c src/clap_meters.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
 
 tests/crash.clap: tests/crash_plugin.c

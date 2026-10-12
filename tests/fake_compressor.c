@@ -22,14 +22,16 @@
 /* A compressor built for the tests, whose meters are known from its input. A block whose peak on either channel reaches
  * THRESHOLD is attenuated by exactly 6 dB and reports a gain adjustment of -6 dB; a quieter block passes untouched and
  * reports 0. Stereo in and out.
- *   org.omx-clap-host.test.compressor        both org.openmixer.meters/1 and clap.gain-adjustment-metering/0:
- *                                            meter 0 "gain reduction", the same -6 or 0 as the standard value
- *                                            meter 1 "input level", the input peak of each channel in dBFS
- *                                            meter 2 "2nd-stage GR", -3 while the first stage reduces, 0 otherwise
- *                                            meter 3 "0", the peak of the left output in dBFS
- *   org.omx-clap-host.test.compressor-std    clap.gain-adjustment-metering/0 only
- *   org.omx-clap-host.test.compressor-clash  meter 0 "level" of two channels and meter 1 "level 0" of one, which
- *                                            derive the same symbol
+ *   org.omx-clap-host.test.compressor         both clap.meters/1 and clap.gain-adjustment-metering/0:
+ *                                             meter 0 "gain reduction", the same -6 or 0 as the standard value
+ *                                             meter 1 "input level", the input peak of each channel in dBFS
+ *                                             meter 2 "2nd-stage GR", -3 while the first stage reduces, 0 otherwise
+ *                                             meter 3 "0", the peak of the left output in dBFS
+ *   org.omx-clap-host.test.compressor-std     clap.gain-adjustment-metering/0 only
+ *   org.omx-clap-host.test.compressor-clash   meter 0 "level" of two channels and meter 1 "level 0" of one, which
+ *                                             derive the same symbol
+ *   org.omx-clap-host.test.compressor-vendor  the same four meters under org.openmixer.meters/1 only, the vendor
+ *                                             extension the host no longer reads (docs/meters.md)
  * The one parameter, 0, read-only, counts the calls of clap.gain-adjustment-metering's get() from a thread other than
  * the one process() runs on; such a call answers +99 dB. */
 
@@ -42,11 +44,12 @@
 #include <clap/clap.h>
 #include <clap/ext/draft/gain-adjustment-metering.h>
 
-#include "omx_clap_ext.h"
+#include "clap_meters.h"
 
 #define ID_COMPRESSOR   "org.omx-clap-host.test.compressor"
 #define ID_STD          "org.omx-clap-host.test.compressor-std"
 #define ID_CLASH        "org.omx-clap-host.test.compressor-clash"
+#define ID_VENDOR       "org.omx-clap-host.test.compressor-vendor"
 #define THRESHOLD       0.1f
 #define REDUCTION_DB    -6.0
 #define SECOND_STAGE_DB -3.0f
@@ -59,6 +62,7 @@ typedef struct FAKE_T {
     int meters;
     int standard;
     int clash;
+    int vendor;
     float gain;                         // 10^(REDUCTION_DB / 20)
     _Atomic uint32_t values[METER_VALUES];  // the floats of the last process(), published relaxed
     _Atomic uint32_t processed;
@@ -76,6 +80,7 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("compressor", ID_COMPRESSOR),
     DESCRIPTOR("compressor-std", ID_STD),
     DESCRIPTOR("compressor-clash", ID_CLASH),
+    DESCRIPTOR("compressor-vendor", ID_VENDOR),
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
@@ -196,57 +201,108 @@ static uint32_t meters_count(const clap_plugin_t *plugin)
     return fake->clash ? 2 : 4;
 }
 
-static bool meters_get_info(const clap_plugin_t *plugin, uint32_t index, omx_clap_meter_info_t *info)
+typedef struct FAKE_METER_T { const char *name; uint32_t kind, channels; double min, max; } fake_meter_t;
+
+static const fake_meter_t g_meter_infos[] = {
+    { "gain reduction", CLAP_METER_KIND_GAIN_REDUCTION, 1, -24.0, 0.0 },
+    { "input level", CLAP_METER_KIND_LEVEL, 2, -60.0, 0.0 },
+    { "2nd-stage GR", CLAP_METER_KIND_GAIN_REDUCTION, 1, -24.0, 0.0 },
+    { "0", CLAP_METER_KIND_LEVEL, 1, -60.0, 0.0 },
+}, g_clash_infos[] = {
+    { "level", CLAP_METER_KIND_LEVEL, 2, -60.0, 0.0 },
+    { "level 0", CLAP_METER_KIND_LEVEL, 1, -60.0, 0.0 },
+};
+
+static bool meters_get_info(const clap_plugin_t *plugin, uint32_t index, clap_meter_info_t *info)
 {
-    static const struct { const char *name; uint32_t kind, channels; } meters[] = {
-        { "gain reduction", OMX_CLAP_METER_GAIN_REDUCTION_DB, 1 },
-        { "input level", OMX_CLAP_METER_LEVEL_DBFS, 2 },
-        { "2nd-stage GR", OMX_CLAP_METER_GAIN_REDUCTION_DB, 1 },
-        { "0", OMX_CLAP_METER_LEVEL_DBFS, 1 },
-    }, clash[] = {
-        { "level", OMX_CLAP_METER_LEVEL_DBFS, 2 },
-        { "level 0", OMX_CLAP_METER_LEVEL_DBFS, 1 },
-    };
     const fake_t *fake = plugin->plugin_data;
+    const fake_meter_t *meter;
 
     if (index >= meters_count(plugin))
         return false;
+    meter = fake->clash ? &g_clash_infos[index] : &g_meter_infos[index];
     memset(info, 0, sizeof(*info));
     info->id = index;
-    snprintf(info->name, sizeof(info->name), "%s", fake->clash ? clash[index].name : meters[index].name);
-    info->kind = fake->clash ? clash[index].kind : meters[index].kind;
-    info->channel_count = fake->clash ? clash[index].channels : meters[index].channels;
+    snprintf(info->name, sizeof(info->name), "%s", meter->name);
+    info->kind = meter->kind;
+    info->channel_count = meter->channels;
+    info->min_value = meter->min;
+    info->max_value = meter->max;
     return true;
 }
 
-/* [thread-safe] */
-static bool meters_read(const clap_plugin_t *plugin, clap_id id, float *values, uint32_t capacity)
+/* the values of meter `id`, up to `capacity`: how many were written, 0 before the first process() */
+static uint32_t meter_values(const fake_t *fake, clap_id id, float *values, uint32_t capacity)
 {
-    const fake_t *fake = plugin->plugin_data;
-
-    if (id >= meters_count(plugin) || !atomic_load_explicit(&fake->processed, memory_order_relaxed) || capacity == 0)
-        return false;
+    if (id >= (fake->clash ? 2u : 4u) || !atomic_load_explicit(&fake->processed, memory_order_relaxed) || capacity == 0)
+        return 0;
     switch (id)
     {
         case 0:
             values[0] = published(fake, METER_GR);
-            break;
+            return 1;
         case 1:
             values[0] = published(fake, METER_INPUT_L);
-            if (capacity > 1)
-                values[1] = published(fake, METER_INPUT_R);
-            break;
+            if (capacity < 2)
+                return 1;
+            values[1] = published(fake, METER_INPUT_R);
+            return 2;
         case 2:
             values[0] = published(fake, METER_SECOND);
-            break;
+            return 1;
         default:
             values[0] = published(fake, METER_OUTPUT_L);
-            break;
+            return 1;
     }
+}
+
+/* [thread-safe] */
+static uint32_t meters_get_values(const clap_plugin_t *plugin, clap_id id, double *values, uint32_t capacity)
+{
+    float read[2];
+    uint32_t n = meter_values(plugin->plugin_data, id, read, capacity < 2 ? capacity : 2), i;
+
+    for (i = 0; i < n; i++)
+        values[i] = read[i];
+    return n;
+}
+
+static const clap_plugin_meters_t g_meters = { meters_count, meters_get_info, meters_get_values };
+
+/* The vendor extension the host no longer reads, as it was laid out: count, get_info, and a read of floats. */
+#define VENDOR_EXT_METERS "org.openmixer.meters/1"
+
+typedef struct VENDOR_METER_INFO_T {
+    clap_id id;
+    char name[CLAP_NAME_SIZE];
+    uint32_t kind;
+    uint32_t channel_count;
+} vendor_meter_info_t;
+
+static bool vendor_get_info(const clap_plugin_t *plugin, uint32_t index, vendor_meter_info_t *info)
+{
+    clap_meter_info_t meter;
+
+    if (!meters_get_info(plugin, index, &meter))
+        return false;
+    memset(info, 0, sizeof(*info));
+    info->id = meter.id;
+    memcpy(info->name, meter.name, sizeof(info->name));
+    info->kind = meter.kind == CLAP_METER_KIND_LEVEL;   // the vendor kinds: 0 a gain reduction, 1 a level
+    info->channel_count = meter.channel_count;
     return true;
 }
 
-static const omx_clap_plugin_meters_t g_meters = { meters_count, meters_get_info, meters_read };
+static bool vendor_read(const clap_plugin_t *plugin, clap_id id, float *values, uint32_t capacity)
+{
+    return meter_values(plugin->plugin_data, id, values, capacity) > 0;
+}
+
+static const struct {
+    uint32_t(CLAP_ABI *count)(const clap_plugin_t *plugin);
+    bool(CLAP_ABI *get_info)(const clap_plugin_t *plugin, uint32_t index, vendor_meter_info_t *info);
+    bool(CLAP_ABI *read)(const clap_plugin_t *plugin, clap_id id, float *values, uint32_t capacity);
+} g_vendor_meters = { meters_count, vendor_get_info, vendor_read };
 
 static bool plugin_init(const clap_plugin_t *plugin)
 {
@@ -333,8 +389,10 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_params;
     if (!strcmp(id, CLAP_EXT_GAIN_ADJUSTMENT_METERING) && fake->standard)
         return &g_gain_adjustment;
-    if (!strcmp(id, OMX_CLAP_EXT_METERS) && fake->meters)
+    if (!strcmp(id, CLAP_EXT_METERS) && fake->meters)
         return &g_meters;
+    if (!strcmp(id, VENDOR_EXT_METERS) && fake->vendor)
+        return &g_vendor_meters;
     return NULL;
 }
 
@@ -368,9 +426,10 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
         return NULL;
 
     fake = calloc(1, sizeof(fake_t));
-    fake->meters = strcmp(plugin_id, ID_STD) != 0;
-    fake->standard = strcmp(plugin_id, ID_CLASH) != 0;
+    fake->meters = !strcmp(plugin_id, ID_COMPRESSOR) || !strcmp(plugin_id, ID_CLASH);
+    fake->standard = !strcmp(plugin_id, ID_COMPRESSOR) || !strcmp(plugin_id, ID_STD);
     fake->clash = !strcmp(plugin_id, ID_CLASH);
+    fake->vendor = !strcmp(plugin_id, ID_VENDOR);
     fake->gain = powf(10.0f, (float)REDUCTION_DB / 20.0f);
 
     fake->plugin.desc = &g_descriptors[i];
