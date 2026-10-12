@@ -19,15 +19,15 @@
  */
 
 /** @file
- * @brief The OpenMixer CLAP extensions: meters and declaration. */
+ * @brief The OpenMixer CLAP extension: declaration. */
 
 /*
 ************************************************************************************************************************
 *
-* The openmixer vendor extensions of a CLAP plugin, served by get_extension like any CLAP extension: a plugin that
-* offers them stays a valid CLAP plugin for a host that never asks. Each is an exact C structure. What CLAP covers is
-* read through CLAP: the gain adjustment of a dynamics plugin is clap.gain-adjustment-metering/0, and a plugin that
-* reports it under both extensions publishes one number, with CLAP's sign.
+* The openmixer vendor extension of a CLAP plugin, served by get_extension like any CLAP extension: a plugin that
+* offers it stays a valid CLAP plugin for a host that never asks. It is an exact C structure. What CLAP covers is read
+* through CLAP: a plugin's meters are clap.meters/1 (docs/meters.md) and the gain adjustment of a dynamics plugin is
+* clap.gain-adjustment-metering/0.
 *
 * Header only: nothing here is exported by libomx-clap-core, which declares it for the plugins and hosts that use it.
 *
@@ -53,46 +53,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-
-/*
-************************************************************************************************************************
-*           org.openmixer.meters/1
-************************************************************************************************************************
-*/
-
-/** The meters extension id. */
-static const char OMX_CLAP_EXT_METERS[] = "org.openmixer.meters/1";
-
-/** What a meter measures; the unit is implied by the kind, never a free string. */
-enum omx_clap_meter_kind
-{
-    OMX_CLAP_METER_GAIN_REDUCTION_DB = 0,   ///< dB, CLAP's sign: 0 none, negative the reduction applied
-    OMX_CLAP_METER_LEVEL_DBFS = 1,          ///< peak level in dBFS, -inf as -HUGE_VALF
-};
-
-/** One meter a plugin declares. */
-typedef struct omx_clap_meter_info
-{
-    clap_id id;                 ///< stable across versions, append-only like the parameters
-    char name[CLAP_NAME_SIZE];  ///< what a host derives the meter's symbol from
-    uint32_t kind;              ///< enum omx_clap_meter_kind
-    uint32_t channel_count;     ///< the values read fills: 1 (linked) or 2 (per leg)
-} omx_clap_meter_info_t;
-
-/** The org.openmixer.meters/1 extension a plugin offers. */
-typedef struct omx_clap_plugin_meters
-{
-    /** [main-thread] The number of meters the plugin declares. */
-    uint32_t(CLAP_ABI *count)(const clap_plugin_t *plugin);
-
-    /** [main-thread] Fills `info` with the meter at `index`; false for an index out of range. */
-    bool(CLAP_ABI *get_info)(const clap_plugin_t *plugin, uint32_t index, omx_clap_meter_info_t *info);
-
-    /** [thread-safe] The values the audio thread published at the end of the last process(), relaxed atomics: fills
-     * min(capacity, channel_count) floats, false for an unknown id or a plugin that has not processed since activate. */
-    bool(CLAP_ABI *read)(const clap_plugin_t *plugin, clap_id id, float *values, uint32_t capacity);
-} omx_clap_plugin_meters_t;
 
 
 /*

@@ -48,8 +48,9 @@ socket (`-f`) carries `output_set <N> <symbol> <value>` with the value at
 once and again whenever it moves, at most every 20 ms, never from the
 audio thread.
 
-The host asks each plugin for `org.openmixer.meters/1` (`omx_clap_ext.h`)
-first and, when it has none, for `clap.gain-adjustment-metering/0`. A
+The host asks each plugin for `clap.meters/1`, CLAP's meters extension
+([docs/meters.md](../docs/meters.md)), first and, when it has none, for
+`clap.gain-adjustment-metering/0`; it reads no other meters extension. A
 meter's symbol is its name with every character outside `[A-Za-z0-9_]`
 turned into `_` and a `_` before a leading digit; a meter of more than
 one channel has one symbol per channel, `<symbol>_<channel>` from 0. The
