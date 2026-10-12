@@ -1,4 +1,4 @@
-<abi-corpus version='2.4' path='build/abi/usr/lib/libomx-clap-core.so.0.4.1' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.0'>
+<abi-corpus version='2.4' path='build/abi/usr/lib/libomx-clap-core.so.0.4.2' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.0'>
   <elf-needed>
     <dependency name='libm.so.6'/>
     <dependency name='libc.so.6'/>
@@ -85,7 +85,7 @@
     <elf-symbol name='_ITM_registerTMCloneTable' type='no-type' binding='weak-binding' visibility='default-visibility' is-defined='no'/>
     <elf-symbol name='__gmon_start__' type='no-type' binding='weak-binding' visibility='default-visibility' is-defined='no'/>
   </undefined-elf-variable-symbols>
-  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/w' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/src' language='LANG_C99'>
     <type-decl name='bool' size-in-bits='8' hash='5ba96bb22f4237fb' id='type-id-1'/>
     <type-decl name='char' size-in-bits='8' hash='65b2d157027b431a' id='type-id-2'/>
     <array-type-def dimensions='1' type-id='type-id-2' size-in-bits='8192' hash='228e81584cfb686d' id='type-id-3'>
