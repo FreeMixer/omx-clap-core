@@ -1160,6 +1160,12 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
 
     if (!in || in->active || max_block == 0)
         return -1;
+    for (bad = 0; bad < in->aux_inputs; bad++)
+        if (in->aux_in_bound[bad][0] && in->aux_in_frames[bad] < max_block)
+        {
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // a bound pair shorter than the block: rebind it first
+            return -1;
+        }
     if (take_bounce(in, max_block) != 0)
     {
         drop_bounce(in);
@@ -1387,7 +1393,7 @@ void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_
     in->transport_src = src;
 }
 
-int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r)
+int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r, uint32_t frames)
 {
     if (!in || port >= in->aux_inputs)
         return -1;
@@ -1395,8 +1401,11 @@ int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, fl
         return -1;
     if (in->active && !omx_clap_stopped(&in->stage))
         return -1;      // unpublish first
+    if (l && in->active && frames < in->max_block)
+        return -1;      // a block would read past the pair
     in->aux_in_bound[port][0] = l;
     in->aux_in_bound[port][1] = l ? r : NULL;
+    in->aux_in_frames[port] = l ? frames : 0;
     if (in->active)
         omx_clap_set_aux_in(&in->stage, port, l, in->aux_in_bound[port][1]);
     return 0;

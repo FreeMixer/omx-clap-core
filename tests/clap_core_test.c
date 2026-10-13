@@ -544,25 +544,27 @@ static void t_side_chain(void) {
   CHECK(g_sc_seen_inputs == 2 && g_sc_side_read, "the plugin is handed two inputs, the second with its channels (%u, %d)", g_sc_seen_inputs, g_sc_side_read);
   sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound: the side chain is silence");
 
-  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r) == -1, "binding while the instance runs is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r, 64) == -1, "binding while the instance runs is refused");
   sc_stop(in);
-  CHECK(omx_clap_host_bind_aux_input(in, 1, dummy_l, dummy_r) == -1, "a port past the auxiliary inputs is refused");
-  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, NULL) == -1, "a stereo port bound without its second channel is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 1, dummy_l, dummy_r, 64) == -1, "a port past the auxiliary inputs is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, NULL, 64) == -1, "a stereo port bound without its second channel is refused");
   for (uint32_t i = 0; i < 64; i++) side_l[i] = 0.25f, side_r[i] = 0.125f;
-  CHECK(omx_clap_host_bind_aux_input(in, 0, side_l, side_r) == 0, "bind a stereo pair to the side chain");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r, 32) == -1, "a pair shorter than the active block is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side_l, side_r, 64) == 0, "bind a stereo pair to the side chain");
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, -0.25f);
   sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "bound: the plugin reads the caller's pair");
   sc_stop(in);
 
   omx_clap_host_deactivate(in);
+  CHECK(omx_clap_host_activate(in, 48000.0, 128, why) == -1, "a block longer than the bound pair is refused while it is bound");
   CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate again (%s)", why);
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, -0.25f);
   sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "the binding outlives a deactivate and activate");
   sc_stop(in);
 
-  CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL) == 0, "unbind the side chain");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "unbind the side chain");
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, -0.25f);
   sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound again: silence");
@@ -581,7 +583,7 @@ static void t_side_chain_mono(void) {
   if (!in) return;
   CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the mono side chain (%s)", why);
   for (uint32_t i = 0; i < 64; i++) side[i] = 0.25f;
-  CHECK(omx_clap_host_bind_aux_input(in, 0, side, NULL) == 0, "a mono port binds its first channel alone");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side, NULL, 64) == 0, "a mono port binds its first channel alone");
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, 0.5f);
   sc_expect(in, 0.5f, 0.5f, 0.75f, 0.75f, "a mono side chain feeds both channels of the stereo effect");
