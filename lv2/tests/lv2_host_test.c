@@ -333,7 +333,8 @@ static void t_worker(double rate)
     gain = control_of(p, "gain_db");
     in = lv2_instance_new(p);
     lv2_instance_set_role(in, is_main, NULL);
-    threads0 = thread_count_reaching(thread_count());
+    // the baseline once the last rate's worker has left /proc: a joined thread can stay listed a moment
+    threads0 = thread_count_reaching(1);
     CHECK(lv2_instance_activate(in, rate, 1, BLOCK, why) == 0, "worker %.0f: a plugin requiring urid:map, worker:schedule and options activates (%s)", rate, why);
     CHECK(pr->rate_option == rate, "worker %.0f: options carried param:sampleRate %.0f", rate, pr->rate_option);
     CHECK(pr->max_block_option == (int32_t)BLOCK && pr->min_block_option == 1,
