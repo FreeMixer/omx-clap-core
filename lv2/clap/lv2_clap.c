@@ -528,7 +528,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     return CLAP_PROCESS_CONTINUE;
 }
 
-/* the whole stream, read until the host returns 0: NULL-terminated, malloc'd; false when the host fails or runs out of memory */
+/* the longest state a load reads: the same bound as the core's CLAP_HOST_STATE_MAX_BYTES */
+#define LV2_CLAP_STATE_MAX_BYTES 1048576u
+
+/* the whole stream, read until the host returns 0: NULL-terminated, malloc'd; false when the host fails, the state runs
+ * past LV2_CLAP_STATE_MAX_BYTES, or memory runs out */
 static bool read_all(const clap_istream_t *stream, char **out)
 {
     size_t cap = 4096, n = 0;
@@ -561,6 +565,11 @@ static bool read_all(const clap_istream_t *stream, char **out)
         if (r == 0)
             break;
         n += (size_t)r;
+        if (n > LV2_CLAP_STATE_MAX_BYTES)
+        {
+            free(buf);
+            return false;
+        }
     }
     buf[n] = '\0';
     *out = buf;
