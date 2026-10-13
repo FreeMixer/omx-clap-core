@@ -244,6 +244,7 @@ struct omx_clap_instance
     uint32_t aux_in_channels[CLAP_HOST_AUX_INPUTS];  ///< the channel count of each auxiliary input port
     float *aux_in_bound[CLAP_HOST_AUX_INPUTS][2];  ///< the caller's buffers per port and channel, NULL: silence
     uint32_t aux_in_frames[CLAP_HOST_AUX_INPUTS];  ///< the frames each bound pair holds
+    struct omx_clap_aux_in aux_in;  ///< the auxiliary inputs' process list, after every field the stage had before ABI 3
 };
 
 
