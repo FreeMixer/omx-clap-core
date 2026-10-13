@@ -6,7 +6,7 @@ admits (1×1 or 2×2 audio, control ports, the latency port, the worker, the def
 to run bit-identically through the adapter, `libomx-clap-lv2`. The proof of that is the per-plugin
 identity run in the console, at every declared rate and quantum; until its results are published,
 this page claims only what the tests of this repository prove. MIDI, transport, state and presets
-are supported where the matrix below names a passing test, and today it names none. Not supported:
+are supported where the matrix below names a passing test. Not supported:
 CV ports, atom messages other than MIDI and the numeric `patch:` properties, `state:makePath`, fixed or power-of-two
 block lengths. A latency
 that moves under a parameter sweep is applied after a hold and a restart rather than per cycle.
@@ -64,7 +64,7 @@ Ports
 | CV ports | unsupported; refused with `hosting.features.cv-ports` (`lv2_host_test` refusals) | unsupported |
 | Atom and event ports, MIDI | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals, `lv2_patch_test` MIDI twin) | unsupported |
 | `time:Position` | unsupported (stage 2; lossy when it comes, built from the CLAP transport) | unsupported |
-| `patch:` numeric parameters | partial: the LV2 half is proven (`lv2_patch_test`): a `patch:Set` forged before each block's run, `patch:Set` and `patch:Put` read back after it, the ids above the port indices. The CLAP face maps them as parameters, but no test in this repository proves that yet | unsupported |
+| `patch:` numeric parameters | supported: a `patch:Set` forged before each block's run, `patch:Set` and `patch:Put` read back after it, the ids above the port indices (`lv2_patch_test`); the CLAP face lists them as parameters, a write lands before the block and the plugin's own value comes back as an output parameter event (`lv2_clap_test` patch face) | unsupported |
 | `patch:` file paths and strings | unsupported (stage 3) | unsupported |
 | Other atom messages | unsupported | unsupported |
 
