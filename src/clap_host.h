@@ -243,6 +243,7 @@ struct omx_clap_instance
     uint32_t aux_inputs;  ///< auxiliary input ports, after the main one
     uint32_t aux_in_channels[CLAP_HOST_AUX_INPUTS];  ///< the channel count of each auxiliary input port
     float *aux_in_bound[CLAP_HOST_AUX_INPUTS][2];  ///< the caller's buffers per port and channel, NULL: silence
+    uint32_t aux_in_frames[CLAP_HOST_AUX_INPUTS];  ///< the frames each bound pair holds
 };
 
 
@@ -455,13 +456,16 @@ OMX_CLAP_EXPORT void omx_clap_host_set_transport(struct omx_clap_instance *in, c
 
 /**
  * Control thread, while the instance is not running (never published, or unpublished): bind the buffers auxiliary input
- * `port` reads, `l` for its first channel and `r` for its second (a mono port reads `l` only). `l` NULL unbinds it, back
- * to the silence every unbound port reads. The buffers are not copied: each must hold as many frames as the largest block
- * passed to omx_clap_host_activate. The caller keeps them alive until it unbinds or closes the instance, and fills them on
- * the audio role before each block that runs the instance. The binding outlives a deactivate and activate. Returns 0, or
- * -1 when `port` is not an auxiliary input, a stereo port is bound without `r`, or the instance is running.
+ * `port` reads, `l` for its first channel and `r` for its second (a mono port reads `l` only), each `frames` long. `l` NULL
+ * unbinds it, back to the silence every unbound port reads. The buffers are not copied: a block never reads past
+ * `frames`, since the binding is refused while the instance is active at a larger block, and omx_clap_host_activate (and
+ * so omx_clap_host_set_rate) refuses a larger block while it is bound. The caller keeps them alive until it unbinds or
+ * closes the instance, and fills them on the audio role before each block that runs the instance. The binding outlives a
+ * deactivate and activate. Returns 0, or -1 when `port` is not an auxiliary input, a stereo port is bound without `r`,
+ * `frames` is shorter than the active instance's largest block, or the instance is running.
  */
-OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r);
+OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r,
+                                                 uint32_t frames);
 
 
 /*

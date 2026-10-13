@@ -1457,7 +1457,7 @@ static void t_sidechain_core(double rate)
     char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
     const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_sc, why);
     struct omx_clap_instance *in = NULL;
-    static float l[BLOCK], r[BLOCK], sl[BLOCK], sr[BLOCK];
+    static float l[BLOCK], r[BLOCK], sl[MAXB], sr[MAXB];
     uint32_t i;
     int same;
 
@@ -1470,10 +1470,10 @@ static void t_sidechain_core(double rate)
     CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f, sl[i] = 0.25f, sr[i] = 0.125f;
-    CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr) == 0, "core %.0f: bind the side chain before activation", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
     CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "core %.0f: activate (%s)", rate, cwhy);
     omx_clap_host_publish(in, pthread_self());
-    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL) == -1, "core %.0f: a binding while the instance runs is refused", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == -1, "core %.0f: a binding while the instance runs is refused", rate);
     core_run(in, l, r, BLOCK);          /* the first cycle after arming is the warm-up's: its output is not checked */
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f;
@@ -1487,7 +1487,7 @@ static void t_sidechain_core(double rate)
         l[i] = 0.5f, r[i] = -0.25f;
     core_run(in, l, r, BLOCK);
     CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish", rate);
-    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL) == 0, "core %.0f: unbind the side chain", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "core %.0f: unbind the side chain", rate);
     omx_clap_host_publish(in, pthread_self());
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f;
