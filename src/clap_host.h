@@ -67,7 +67,7 @@
 */
 
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
- * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport, 0.4). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
+ * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport, 0.5). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
  * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
  * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
  * the library. */
