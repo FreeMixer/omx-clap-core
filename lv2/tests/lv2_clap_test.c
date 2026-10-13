@@ -1650,6 +1650,8 @@ int main(int argc, char **argv)
     void *volatile probe;
     size_t r;
 
+    // one line at a time, also into a pipe: a run that stops shows the last check it passed
+    setvbuf(stdout, NULL, _IOLBF, 0);
     if (argc < 2 || abs_dir(argv[1], build) != 0)
     {
         printf("FAIL usage: lv2_clap_test <build/lv2>\n");
