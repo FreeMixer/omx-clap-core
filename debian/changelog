@@ -2,7 +2,9 @@ omx-clap-host (0.5.0) unstable; urgency=medium
 
   * omx_clap_host_set_transport publishes the host's whole transport to every
     hosted plugin, and an LV2 plugin reads it as time:Position. The LV2 adapter
-    also carries state, presets, numeric patch parameters and MIDI.
+    also carries state, presets, numeric patch parameters and MIDI, and a
+    side chain is a CLAP auxiliary input the caller binds with
+    omx_clap_host_bind_aux_input.
 
  -- Pau Aliagas <linuxnow@gmail.com>  Tue, 13 Oct 2026 12:00:00 +0000
 
