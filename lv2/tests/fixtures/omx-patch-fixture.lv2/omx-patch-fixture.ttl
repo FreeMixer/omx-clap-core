@@ -13,7 +13,7 @@
 @prefix fx:    <urn:openmixer:test:patch-fixture#> .
 
 fx:gain
-    a patch:Parameter ;
+    a lv2:Parameter ;
     rdfs:range atom:Float ;
     rdfs:label "Gain" ;
     lv2:symbol "gain" ;
@@ -22,7 +22,7 @@ fx:gain
     lv2:default 1.0 .
 
 fx:mode
-    a patch:Parameter ;
+    a lv2:Parameter ;
     rdfs:range atom:Int ;
     rdfs:label "Mode" ;
     lv2:symbol "mode" ;
@@ -31,18 +31,18 @@ fx:mode
     lv2:default 0 .
 
 fx:flag
-    a patch:Parameter ;
+    a lv2:Parameter ;
     rdfs:range atom:Bool ;
     rdfs:label "Flag" ;
     lv2:symbol "flag" .
 
 # no lv2:symbol, no label and no bounds: the symbol comes from the URI, the bounds from the host's defaults
 fx:level
-    a patch:Parameter ;
+    a lv2:Parameter ;
     rdfs:range atom:Float .
 
 fx:name
-    a patch:Parameter ;
+    a lv2:Parameter ;
     rdfs:range atom:String ;
     rdfs:label "Name" ;
     lv2:symbol "name" .

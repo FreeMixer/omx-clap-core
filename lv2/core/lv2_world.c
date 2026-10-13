@@ -133,7 +133,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_PATCH_MESSAGE] = LV2_PATCH__Message,
     [N_RSZ_MIN] = LV2_RESIZE_PORT__minimumSize,
     [N_PATCH_WRITABLE] = LV2_PATCH__writable,
-    [N_PATCH_PARAMETER] = "http://lv2plug.in/ns/ext/patch#Parameter",
+    [N_PATCH_PARAMETER] = LV2_CORE_PREFIX "Parameter",
     [N_RDF_TYPE] = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
     [N_RDFS_RANGE] = "http://www.w3.org/2000/01/rdf-schema#range",
     [N_RDFS_LABEL] = "http://www.w3.org/2000/01/rdf-schema#label",
@@ -598,7 +598,7 @@ static char *symbol_of_uri(const char *uri)
     return s;
 }
 
-/* A patch:writable property is a numeric patch:Parameter when it is typed so and its range is one of the numeric atoms;
+/* A patch:writable property is a numeric lv2:Parameter when it is typed so and its range is one of the numeric atoms;
  * the type it takes is the one of that range. 0 for anything else (a string or path property, or no range). */
 static int patch_type_of(const LilvNode *prop, enum lv2_patch_type *type)
 {
