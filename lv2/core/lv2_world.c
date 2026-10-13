@@ -644,7 +644,7 @@ static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
         const LilvNode *prop = L.lilv_nodes_get(writable, it);
         const char *uri = prop ? L.lilv_node_as_uri(prop) : NULL;
         struct lv2_patch *pp = &p->patches[k];
-        enum lv2_patch_type type;
+        enum lv2_patch_type type = LV2_PATCH_FLOAT;     // set by patch_type_of whenever it is read
         float min = -1e9f, max = 1e9f, def;
 
         if (!uri || !patch_type_of(prop, &type))
