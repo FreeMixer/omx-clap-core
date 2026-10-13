@@ -60,6 +60,7 @@
 #include <math.h>
 
 #include "../src/clap_host.h"
+#include "../src/clap_meters.h"
 
 static int failures = 0;
 #define CHECK(cond, ...)                                   \
@@ -91,7 +92,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 3u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 3, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 4u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 4, the oldest accepted 1 (%u)", config.abi);
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
@@ -954,6 +955,140 @@ static void t_reset_off_rt(void) {
   omx_clap_host_close(g_rs.in);
 }
 
+/* ---- 9. the meters, in process ---- */
+/* A stereo pass-through declaring clap.meters/1: meter 7 "gain reduction" of one channel, -6 dB while the input's peak
+ * reaches 0.5 and 0 otherwise, and meter 9 "input level" of two channels, each channel's peak. g_mt_shape breaks the
+ * declarations: 1 a meter of no channel, 2 a meter with no info, 3 more meters than the library reads. */
+static int g_mt_shape = 0;
+static _Atomic int g_mt_processed = 0;
+static _Atomic uint64_t g_mt_bits[3];
+static uint32_t g_mt_capacity_asked = 0;
+static void mt_publish(int at, double v) { uint64_t b; memcpy(&b, &v, sizeof b); atomic_store(&g_mt_bits[at], b); }
+static double mt_read(int at) { uint64_t b = atomic_load(&g_mt_bits[at]); double v; memcpy(&v, &b, sizeof v); return v; }
+static clap_process_status mt_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  (void)p;
+  float peak[2] = {0.0f, 0.0f};
+  for (uint32_t c = 0; c < 2; c++) {
+    const float *in = pr->audio_inputs[0].data32[c];
+    float *out = pr->audio_outputs[0].data32[c];
+    for (uint32_t i = 0; i < pr->frames_count; i++) {
+      out[i] = in[i];
+      if (fabsf(in[i]) > peak[c]) peak[c] = fabsf(in[i]);
+    }
+  }
+  mt_publish(0, (peak[0] >= 0.5f || peak[1] >= 0.5f) ? -6.0 : 0.0);
+  mt_publish(1, peak[0] > 0.0f ? 20.0 * log10(peak[0]) : -120.0);
+  mt_publish(2, peak[1] > 0.0f ? 20.0 * log10(peak[1]) : -120.0);
+  atomic_store(&g_mt_processed, 1);
+  return CLAP_PROCESS_CONTINUE;
+}
+static uint32_t mt_meters_count(const clap_plugin_t *p) { (void)p; return g_mt_shape == 3 ? OMX_CLAP_METER_COUNT_MAX + 1u : 2u; }
+static bool mt_meters_info(const clap_plugin_t *p, uint32_t index, clap_meter_info_t *info) {
+  (void)p;
+  if (index >= mt_meters_count(p) || (g_mt_shape == 2 && index == 1)) return false;
+  memset(info, 0, sizeof *info);
+  info->id = index == 0 ? 7 : index == 1 ? 9 : 100 + index;
+  snprintf(info->name, sizeof info->name, "%s", index == 0 ? "gain reduction" : "input level");
+  info->kind = index == 0 ? CLAP_METER_KIND_GAIN_REDUCTION : CLAP_METER_KIND_LEVEL;
+  info->flags = CLAP_METER_IS_COHERENT;
+  info->channel_count = index == 0 ? 1 : (g_mt_shape == 1 ? 0 : 2);
+  info->min_value = index == 0 ? -24.0 : -60.0;
+  info->max_value = 0.0;
+  return true;
+}
+static uint32_t mt_meters_values(const clap_plugin_t *p, clap_id id, double *values, uint32_t capacity) {
+  (void)p;
+  g_mt_capacity_asked = capacity;
+  if (!atomic_load(&g_mt_processed) || capacity == 0) return 0;
+  if (id == 7) { values[0] = mt_read(0); return 1; }
+  if (id != 9) return 0;
+  values[0] = mt_read(1);
+  if (capacity < 2) return 1;
+  values[1] = mt_read(2);
+  return 2;
+}
+static const clap_plugin_meters_t MT_METERS = {mt_meters_count, mt_meters_info, mt_meters_values};
+static const void *mt_ext(const clap_plugin_t *p, const char *id) {
+  (void)p;
+  if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &SC_PORTS;
+  if (strcmp(id, CLAP_EXT_METERS) == 0) return &MT_METERS;
+  return NULL;
+}
+static const clap_plugin_descriptor_t MT_DESC = {CLAP_VERSION_INIT, "org.omx-clap-host.test.core-meters", "core meters", "omx-clap-host", "", "", "", "0", "",
+                                                 SC_FEATURES};
+static const clap_plugin_descriptor_t *mt_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i == 0 ? &MT_DESC : NULL; }
+static const clap_plugin_t *mt_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
+  (void)f, (void)host;
+  if (strcmp(id, MT_DESC.id) != 0) return NULL;
+  clap_plugin_t *p = calloc(1, sizeof *p);
+  *p = (clap_plugin_t){&MT_DESC, NULL, sc_init, ask_destroy, ask_activate, ask_nop, ask_start, ask_nop, ask_nop, mt_process, mt_ext, ask_nop};
+  return p;
+}
+static const clap_plugin_factory_t MT_FACTORY = {sc_count, mt_desc, mt_create};
+static const void *mt_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &MT_FACTORY : NULL; }
+static const clap_plugin_entry_t MT_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, mt_factory};
+
+/* the telemetry thread: one read of meter 7 off the audio thread */
+struct mt_read_job { struct omx_clap_instance *in; double gr; uint32_t n; };
+static void *mt_telemetry(void *arg) {
+  struct mt_read_job *job = arg;
+  job->n = omx_clap_host_meter_values(job->in, 7, &job->gr, 1);
+  return NULL;
+}
+
+static void t_meters(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  struct omx_clap_meter m;
+  double v[4] = {99.0, 99.0, 99.0, 99.0};
+
+  g_sc_side = 0;
+  g_mt_shape = 0;
+  atomic_store(&g_mt_processed, 0);
+  CHECK(omx_clap_host_open_entry(&MT_ENTRY, MT_DESC.id, &in, why) == 0, "the metering plugin opens (%s)", why);
+  if (!in) { g_sc_side = 1; return; }
+  CHECK(omx_clap_host_meter_count(in) == 2, "two meters are read at open (%u)", omx_clap_host_meter_count(in));
+  CHECK(omx_clap_host_meter_info(in, 0, &m) == 0 && m.id == 7 && strcmp(m.name, "gain reduction") == 0 && m.kind == CLAP_METER_KIND_GAIN_REDUCTION
+          && m.channel_count == 1 && m.flags == CLAP_METER_IS_COHERENT && m.min_value == -24.0 && m.max_value == 0.0,
+        "meter 0 is the gain reduction as declared (%u \"%s\" kind %u, %u channel)", m.id, m.name, m.kind, m.channel_count);
+  CHECK(omx_clap_host_meter_info(in, 1, &m) == 0 && m.id == 9 && m.kind == CLAP_METER_KIND_LEVEL && m.channel_count == 2,
+        "meter 1 is the stereo input level (%u, %u channels)", m.id, m.channel_count);
+  CHECK(omx_clap_host_meter_info(in, 2, &m) == -1, "an index past the count has no meter");
+  CHECK(omx_clap_host_meter_values(in, 7, v, 4) == 0, "before the plugin processed, a read writes nothing");
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the metering plugin (%s)", why);
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.75f, -0.25f);
+  sc_expect(in, 0.75f, -0.25f, 0.75f, -0.25f, "the metering plugin passes the lane through");
+
+  struct mt_read_job job = {in, 99.0, 0};
+  pthread_t tele;
+  pthread_create(&tele, NULL, mt_telemetry, &job);
+  pthread_join(tele, NULL);
+  CHECK(job.n == 1 && job.gr == -6.0, "the telemetry thread reads the plugin's gain reduction (%u: %g)", job.n, job.gr);
+  CHECK(omx_clap_host_meter_values(in, 9, v, 4) == 2 && fabs(v[0] - 20.0 * log10(0.75)) < 1e-6 && fabs(v[1] - 20.0 * log10(0.25)) < 1e-6
+          && v[2] == 99.0 && g_mt_capacity_asked == 2,
+        "the stereo level writes its two channels, asked for no more than it declares (%g, %g; asked %u)", v[0], v[1], g_mt_capacity_asked);
+  v[1] = 99.0;
+  CHECK(omx_clap_host_meter_values(in, 9, v, 1) == 1 && v[1] == 99.0, "a capacity of one writes one channel");
+  CHECK(omx_clap_host_meter_values(in, 8, v, 4) == 0, "an id the plugin did not declare writes nothing");
+  sc_expect(in, 0.125f, 0.125f, 0.125f, 0.125f, "a quiet block");
+  CHECK(omx_clap_host_meter_values(in, 7, v, 1) == 1 && v[0] == 0.0, "the reduction follows the plugin's report (%g)", v[0]);
+  sc_stop(in);
+  omx_clap_host_close(in);
+
+  for (int shape = 1; shape <= 3; shape++) {
+    g_mt_shape = shape;
+    in = NULL;
+    CHECK(omx_clap_host_open_entry(&MT_ENTRY, MT_DESC.id, &in, why) == 0 && in, "declarations broken (%d): the plugin still opens (%s)", shape, why);
+    if (!in) continue;
+    CHECK(omx_clap_host_meter_count(in) == 0 && omx_clap_host_meter_info(in, 0, &m) == -1 && omx_clap_host_meter_values(in, 7, v, 1) == 0,
+          "declarations broken (%d): no meters, none read (%u)", shape, omx_clap_host_meter_count(in));
+    omx_clap_host_close(in);
+  }
+  g_mt_shape = 0;
+  g_sc_side = 1;
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s <fault dir>\n", argv[0]);
@@ -973,6 +1108,7 @@ int main(int argc, char **argv) {
   t_side_chain();
   t_side_chain_mono();
   t_side_chain_refused();
+  t_meters();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
   if (failures) {
     fprintf(stderr, "clap_core: %d failure(s)\n", failures);
