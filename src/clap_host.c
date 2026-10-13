@@ -48,6 +48,7 @@
 #include <unistd.h>
 
 #include "clap_host.h"
+#include "clap_meters.h"
 
 
 /*
@@ -655,6 +656,44 @@ static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
     return n > CLAP_HOST_PARAM_COUNT_MAX ? CLAP_HOST_PARAM_COUNT_MAX : n;
 }
 
+/* At open, on the opening thread: the plugin's clap.meters/1 declarations, whole or not at all (docs/meters.md, In
+ * process). A meter is drawn, never judged: an extension that cannot be read whole leaves the instance with no meters,
+ * and the plugin is opened as before. */
+static void meters_read(struct omx_clap_instance *in)
+{
+    const clap_plugin_meters_t *meters = in->plugin->get_extension(in->plugin, CLAP_EXT_METERS);
+    clap_meter_info_t info;
+    uint32_t n, i;
+
+    in->meters = NULL;
+    in->meter_count = 0;
+    if (!meters || !meters->count || !meters->get_info || !meters->get_values)
+        return;
+    n = meters->count(in->plugin);
+    if (n > OMX_CLAP_METER_COUNT_MAX)
+        return;
+    for (i = 0; i < n; i++)
+    {
+        struct omx_clap_meter *m = &in->meter[i];
+
+        memset(&info, 0, sizeof(info));
+        if (!meters->get_info(in->plugin, i, &info))
+            return;
+        info.name[sizeof(info.name) - 1] = '\0';
+        if (info.name[0] == '\0' || info.channel_count == 0 || info.channel_count > OMX_CLAP_METER_CHANNELS_MAX)
+            return;
+        m->id = info.id;
+        memcpy(m->name, info.name, sizeof(m->name));
+        m->kind = info.kind;
+        m->flags = info.flags;
+        m->channel_count = info.channel_count;
+        m->min_value = info.min_value;
+        m->max_value = info.max_value;
+    }
+    in->meter_count = n;
+    in->meters = n ? meters : NULL;
+}
+
 /* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
  * reference on `bin`. */
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
@@ -722,6 +761,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
         snprintf(text, sizeof(text), "the plugin reports %u parameters; the host serves the first %u", reported, rows);
         log_to_ring(in, text);
     }
+    meters_read(in);
     *out = in;
     if (why)
         why[0] = '\0';
@@ -971,6 +1011,44 @@ int omx_clap_host_track_info_set(struct omx_clap_instance *in, const char *name,
     if (in->track_info)
         in->track_info->changed(in->plugin);
     return 0;
+}
+
+uint32_t omx_clap_host_meter_count(const struct omx_clap_instance *in)
+{
+    return in ? in->meter_count : 0;
+}
+
+int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index, struct omx_clap_meter *meter)
+{
+    if (!in || !meter || index >= in->meter_count)
+        return -1;
+    *meter = in->meter[index];
+    return 0;
+}
+
+uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity)
+{
+    double read[OMX_CLAP_METER_CHANNELS_MAX];
+    uint32_t i, n, channels = 0;
+
+    if (!in || !in->meters || !values || capacity == 0)
+        return 0;
+    for (i = 0; i < in->meter_count; i++)
+        if (in->meter[i].id == id)
+        {
+            channels = in->meter[i].channel_count;
+            break;
+        }
+    if (channels == 0)
+        return 0;
+    // the plugin writes into the library's own array, never past the meter's declared channels into the caller's
+    n = in->meters->get_values(in->plugin, id, read, channels);
+    if (n > channels)
+        n = channels;
+    if (n > capacity)
+        n = capacity;
+    memcpy(values, read, n * sizeof(*values));
+    return n;
 }
 
 int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in)

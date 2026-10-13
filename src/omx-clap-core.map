@@ -70,3 +70,12 @@ OMX_CLAP_CORE_0.5
     omx_clap_host_set_transport;
     omx_clap_host_bind_aux_input;
 } OMX_CLAP_CORE_0.3;
+
+/* added in 0.6.0 */
+OMX_CLAP_CORE_0.6
+{
+  global:
+    omx_clap_host_meter_count;
+    omx_clap_host_meter_info;
+    omx_clap_host_meter_values;
+} OMX_CLAP_CORE_0.5;
