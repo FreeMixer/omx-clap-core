@@ -33,10 +33,12 @@
 
 <urn:openmixer:test:sidechain-fixture#main>
     a pg:Group , pg:InputGroup ;
+    lv2:symbol "main" ;
     rdfs:label "Main" .
 
 <urn:openmixer:test:sidechain-fixture#side>
     a pg:Group , pg:InputGroup ;
+    lv2:symbol "side" ;
     rdfs:label "Sidechain" ;
     pg:sideChainOf <urn:openmixer:test:sidechain-fixture#main> .
 
@@ -84,10 +86,12 @@
 
 <urn:openmixer:test:sidechain-fixture#wide-main>
     a pg:Group , pg:InputGroup ;
+    lv2:symbol "wide_main" ;
     rdfs:label "Main" .
 
 <urn:openmixer:test:sidechain-fixture#wide-side>
     a pg:Group , pg:InputGroup ;
+    lv2:symbol "wide_side" ;
     rdfs:label "Wide sidechain" ;
     pg:sideChainOf <urn:openmixer:test:sidechain-fixture#wide-main> .
 
@@ -126,4 +130,5 @@
 
 <urn:openmixer:test:sidechain-fixture#port-of-main>
     a pg:Group , pg:InputGroup ;
+    lv2:symbol "port_of_main" ;
     rdfs:label "Main" .
