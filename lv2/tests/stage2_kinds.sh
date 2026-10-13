@@ -4,8 +4,7 @@
 #
 # The stage-2 oracle's kinds (openmixer docs/design/specs/2026-10-02-lv2-as-clap-adapter.md §10.2): each kind must be
 # represented by at least one fixture bundle, or the run says which is missing. This checks the fixtures only. The
-# comparison itself, through mod-host, is not run here: mod-host is not installed by this tree, and the adapter does not
-# yet carry the kinds (lv2/core refuses an event port, and state, presets, transport and patch: are stage 2).
+# comparison itself, through mod-host, is not run here: mod-host is not installed by this tree.
 #
 # Exit 0 only when every kind has a fixture. Not part of `make test-lv2`: until a fixture exists for each kind, that is a gap.
 
