@@ -533,6 +533,40 @@ static int64_t mi_read(const clap_istream_t *s, void *b, uint64_t size)
     return (int64_t)take;
 }
 
+/* a state followed by pad bytes of blank, or by blanks for ever when pad is UINT64_MAX */
+struct pad_in
+{
+    clap_istream_t stream;
+    struct mem_in head;
+    uint64_t pad;
+};
+
+static int64_t pi_read(const clap_istream_t *s, void *b, uint64_t size)
+{
+    struct pad_in *p = s->ctx;
+    int64_t r = mi_read(&p->head.stream, b, size);
+
+    if (r > 0)
+        return r;
+    if (size > p->pad)
+        size = p->pad;
+    memset(b, ' ', size);
+    if (p->pad != UINT64_MAX)
+        p->pad -= size;
+    return (int64_t)size;
+}
+
+static void pi_init(struct pad_in *p, const char *buf, size_t n, uint64_t pad)
+{
+    memset(p, 0, sizeof(*p));
+    p->head.buf = buf;
+    p->head.n = n;
+    p->head.stream.ctx = &p->head;
+    p->pad = pad;
+    p->stream.ctx = p;
+    p->stream.read = pi_read;
+}
+
 static void mo_init(struct mem_out *m)
 {
     memset(m, 0, sizeof(*m));
@@ -617,6 +651,18 @@ static void t_state(double rate)
         mi_init(&given, "this is not a turtle state {", strlen("this is not a turtle state {"));
         CHECK(!state_of(&rc)->load(rc.plugin, &given.stream), "state %.0f: a text that does not parse is refused", rate);
         CHECK(rc.host.restarts == 1, "state %.0f: a refused load asks for no restart (%d)", rate, rc.host.restarts);
+
+        // E: a state that runs past 1 MiB is refused, though it parses, and so is a stream that never ends
+        {
+            struct pad_in long_in;
+
+            pi_init(&long_in, saved.buf, saved.n, 1048576u);
+            CHECK(!state_of(&rc)->load(rc.plugin, &long_in.stream), "state %.0f: A's state padded past 1 MiB is refused", rate);
+            pi_init(&long_in, saved.buf, saved.n, UINT64_MAX);
+            CHECK(!state_of(&rc)->load(rc.plugin, &long_in.stream), "state %.0f: a stream that never ends is refused", rate);
+            pi_init(&long_in, saved.buf, saved.n, 1048576u - saved.n);
+            CHECK(state_of(&rc)->load(rc.plugin, &long_in.stream), "state %.0f: A's state padded to 1 MiB loads", rate);
+        }
         rig_down(&rc);
     }
     rig_down(&ra);
