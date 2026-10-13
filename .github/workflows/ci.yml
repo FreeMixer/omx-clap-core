@@ -85,7 +85,7 @@ jobs:
       - name: What the LV2 adapter costs per process() call
         run: make lv2-cost
 
-      # the stage-2 oracle's kinds each need a fixture: fails until the transport and patch fixtures land (#31, #29)
+      # the stage-2 oracle's kinds each need a fixture: a kind with none fails the job
       - name: Every stage-2 kind has a fixture
         run: make lv2-stage2-kinds
 
