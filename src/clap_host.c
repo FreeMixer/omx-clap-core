@@ -659,6 +659,10 @@ static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
 /* At open, on the opening thread: the plugin's clap.meters/1 declarations, whole or not at all (docs/meters.md, In
  * process). A meter is drawn, never judged: an extension that cannot be read whole leaves the instance with no meters,
  * and the plugin is opened as before. */
+_Static_assert(OMX_CLAP_METER_KIND_OTHER == CLAP_METER_KIND_OTHER && OMX_CLAP_METER_KIND_GAIN_REDUCTION == CLAP_METER_KIND_GAIN_REDUCTION
+                   && OMX_CLAP_METER_KIND_LEVEL == CLAP_METER_KIND_LEVEL,
+               "the public kinds are clap.meters/1's");
+
 static void meters_read(struct omx_clap_instance *in)
 {
     const clap_plugin_meters_t *meters = in->plugin->get_extension(in->plugin, CLAP_EXT_METERS);

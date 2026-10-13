@@ -79,6 +79,11 @@
 #define OMX_CLAP_METER_COUNT_MAX        16u
 /** The most channels one meter may have; a meter with more leaves the plugin with no meters in process. */
 #define OMX_CLAP_METER_CHANNELS_MAX     64u
+/** clap.meters/1's kinds, as struct omx_clap_meter's `kind` carries them: no unit, a gain reduction in dB (0 none,
+ * negative a reduction), a level in dBFS. */
+#define OMX_CLAP_METER_KIND_OTHER           0u
+#define OMX_CLAP_METER_KIND_GAIN_REDUCTION  1u  ///< a gain reduction in dB, 0 none and negative a reduction
+#define OMX_CLAP_METER_KIND_LEVEL           2u  ///< a level in dBFS
 
 /** How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
@@ -172,7 +177,7 @@ struct omx_clap_meter
 {
     clap_id id;  ///< the meter's id, what omx_clap_host_meter_values takes
     char name[CLAP_NAME_SIZE];  ///< the meter's displayable name
-    uint32_t kind;  ///< clap.meters/1's kind: 0 other, 1 a gain reduction in dB (0 none, negative a reduction), 2 a level in dBFS
+    uint32_t kind;  ///< clap.meters/1's kind, one of OMX_CLAP_METER_KIND_*
     uint32_t flags;  ///< clap.meters/1's flags (1: every value of one read comes from the same block)
     uint32_t channel_count;  ///< the values the meter has, 1 to OMX_CLAP_METER_CHANNELS_MAX
     double min_value;  ///< the display range the plugin suggests, in the meter's unit

@@ -1048,10 +1048,10 @@ static void t_meters(void) {
   CHECK(omx_clap_host_open_entry(&MT_ENTRY, MT_DESC.id, &in, why) == 0, "the metering plugin opens (%s)", why);
   if (!in) { g_sc_side = 1; return; }
   CHECK(omx_clap_host_meter_count(in) == 2, "two meters are read at open (%u)", omx_clap_host_meter_count(in));
-  CHECK(omx_clap_host_meter_info(in, 0, &m) == 0 && m.id == 7 && strcmp(m.name, "gain reduction") == 0 && m.kind == CLAP_METER_KIND_GAIN_REDUCTION
+  CHECK(omx_clap_host_meter_info(in, 0, &m) == 0 && m.id == 7 && strcmp(m.name, "gain reduction") == 0 && m.kind == OMX_CLAP_METER_KIND_GAIN_REDUCTION
           && m.channel_count == 1 && m.flags == CLAP_METER_IS_COHERENT && m.min_value == -24.0 && m.max_value == 0.0,
         "meter 0 is the gain reduction as declared (%u \"%s\" kind %u, %u channel)", m.id, m.name, m.kind, m.channel_count);
-  CHECK(omx_clap_host_meter_info(in, 1, &m) == 0 && m.id == 9 && m.kind == CLAP_METER_KIND_LEVEL && m.channel_count == 2,
+  CHECK(omx_clap_host_meter_info(in, 1, &m) == 0 && m.id == 9 && m.kind == OMX_CLAP_METER_KIND_LEVEL && m.channel_count == 2,
         "meter 1 is the stereo input level (%u, %u channels)", m.id, m.channel_count);
   CHECK(omx_clap_host_meter_info(in, 2, &m) == -1, "an index past the count has no meter");
   CHECK(omx_clap_host_meter_values(in, 7, v, 4) == 0, "before the plugin processed, a read writes nothing");
