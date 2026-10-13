@@ -127,7 +127,7 @@ struct omx_clap_stage
     const clap_plugin_t *plugin;                        ///< the hosted plugin
     float *in_ptrs[2],                                  ///< what the input buffer's data32 points at
           *out_ptrs[2];                                 ///< what the output buffer's data32 points at
-    clap_audio_buffer_t ain;                            ///< unused since ABI 3: the process list is `ains`, its first entry the main input
+    clap_audio_buffer_t ain;                            ///< distinct from the outputs, over the bounce
     clap_audio_buffer_t aout[1 + CLAP_HOST_AUX_OUTPUTS];///< the main output, then one scratch-backed buffer per auxiliary output
     uint32_t n_aux;                                     ///< auxiliary output ports, after aout[0]
     float *aux_ptrs[2];                                 ///< the scratch pair every auxiliary output's data32 points at
@@ -168,9 +168,16 @@ struct omx_clap_stage
     _Atomic uint32_t plugin_changed;                    ///< a CLAP_EVENT_PARAM_VALUE came back: read-back due
     _Atomic uint32_t resets;                            ///< reset() calls on re-engage, made by the control thread
     _Atomic uint32_t start_refused;                     ///< start_processing() answered false
+};
 
-    // the audio inputs (ABI 3): the process list, the main input first when the plugin has one, then the auxiliary
-    // inputs in port order; an instrument's list starts at the first auxiliary input
+/**
+ * The audio inputs of a stage with auxiliary inputs (ABI 3): the process list, the main input first when the plugin has
+ * one, then the auxiliary inputs in port order; an instrument's list starts at the first auxiliary input. It is kept
+ * apart from struct omx_clap_stage, whose layout a consumer's inline code reads, so no field of the stage moves; the
+ * instance appends it after its own fields.
+ */
+struct omx_clap_aux_in
+{
     clap_audio_buffer_t ains[1 + CLAP_HOST_AUX_INPUTS]; ///< the main input (when there is one), then one per auxiliary input
     uint32_t n_aux_in;                                  ///< auxiliary input ports, after the main one
     float *aux_in_ptrs[CLAP_HOST_AUX_INPUTS][2];        ///< what each auxiliary input's data32 points at: the caller's pair or the silence
@@ -284,10 +291,10 @@ static inline int omx_clap_bind_aux(struct omx_clap_stage *s, float *scratch_l, 
  * Control thread, with no cycle running: point auxiliary input `port` at the caller's pair `l` and `r`, or back at the
  * silence when `l` is NULL. A mono port reads `l` only.
  */
-static inline void omx_clap_set_aux_in(struct omx_clap_stage *s, uint32_t port, float *l, float *r)
+static inline void omx_clap_set_aux_in(struct omx_clap_aux_in *a, uint32_t port, float *l, float *r)
 {
-    s->aux_in_ptrs[port][0] = l ? l : s->aux_silence[0];
-    s->aux_in_ptrs[port][1] = r ? r : s->aux_silence[1];
+    a->aux_in_ptrs[port][0] = l ? l : a->aux_silence[0];
+    a->aux_in_ptrs[port][1] = r ? r : a->aux_silence[1];
 }
 
 /**
@@ -296,49 +303,56 @@ static inline void omx_clap_set_aux_in(struct omx_clap_stage *s, uint32_t port, 
  * caller binds its own; `bound[i]` is the caller's pair for port i, NULL for none. Returns -1 on a width or a count the
  * stage cannot hold.
  */
-static inline int omx_clap_bind_aux_in(struct omx_clap_stage *s, float *silence_l, float *silence_r, uint32_t count,
+static inline int omx_clap_bind_aux_in(struct omx_clap_aux_in *a, float *silence_l, float *silence_r, uint32_t count,
                                        const uint32_t *channels, float *(*bound)[2])
 {
     uint32_t i;
 
     if (count > CLAP_HOST_AUX_INPUTS || (count && channels == NULL) || silence_l == NULL || silence_r == NULL)
         return -1;
-    s->aux_silence[0] = silence_l;
-    s->aux_silence[1] = silence_r;
+    a->aux_silence[0] = silence_l;
+    a->aux_silence[1] = silence_r;
     for (i = 0; i < count; i++)
     {
         if (channels[i] == 0 || channels[i] > 2)
             return -1;
-        omx_clap_set_aux_in(s, i, bound ? bound[i][0] : NULL, bound ? bound[i][1] : NULL);
-        s->ains[1 + i].data32 = s->aux_in_ptrs[i];
-        s->ains[1 + i].data64 = NULL;
-        s->ains[1 + i].channel_count = channels[i];
-        s->ains[1 + i].latency = 0;
-        s->ains[1 + i].constant_mask = 0;
+        omx_clap_set_aux_in(a, i, bound ? bound[i][0] : NULL, bound ? bound[i][1] : NULL);
+        a->ains[1 + i].data32 = a->aux_in_ptrs[i];
+        a->ains[1 + i].data64 = NULL;
+        a->ains[1 + i].channel_count = channels[i];
+        a->ains[1 + i].latency = 0;
+        a->ains[1 + i].constant_mask = 0;
     }
-    s->n_aux_in = count;
+    a->n_aux_in = count;
     return 0;
 }
 
 /**
  * Control thread, after init and activate: bind the plugin and its main port widths, `n_in` 0 (an instrument), 1 or 2
- * and `n_out` 1 or 2. The audio buffers point at the bounce once, the addresses never move, and every fixed field of
- * clap_process_t is set here, so the RT writes only frames_count and steady_time.
+ * and `n_out` 1 or 2, and its auxiliary inputs `aux` as omx_clap_bind_aux_in bound them (NULL: none). The audio buffers
+ * point at the bounce once, the addresses never move, and every fixed field of clap_process_t is set here, so the RT
+ * writes only frames_count and steady_time.
  */
-static inline int omx_clap_bind_ports(struct omx_clap_stage *s, const clap_plugin_t *plugin, uint32_t n_in, uint32_t n_out)
+static inline int omx_clap_bind_ports_aux(struct omx_clap_stage *s, const clap_plugin_t *plugin, uint32_t n_in, uint32_t n_out,
+                                          struct omx_clap_aux_in *aux)
 {
+    clap_audio_buffer_t *main_in;
+
     if (s == NULL || plugin == NULL || plugin->process == NULL)
         return -1;
     if (n_in > 2 || n_out < 1 || n_out > 2)
         return -1;
+    if (aux && aux->n_aux_in == 0)
+        aux = NULL;
+    main_in = aux ? &aux->ains[0] : &s->ain;
     s->plugin = plugin;
     s->h.n_in = n_in;
     s->h.n_out = n_out;
-    s->ains[0].data32 = s->in_ptrs;
-    s->ains[0].data64 = NULL;
-    s->ains[0].channel_count = n_in;
-    s->ains[0].latency = 0;
-    s->ains[0].constant_mask = 0;
+    main_in->data32 = s->in_ptrs;
+    main_in->data64 = NULL;
+    main_in->channel_count = n_in;
+    main_in->latency = 0;
+    main_in->constant_mask = 0;
     s->aout[0].data32 = s->out_ptrs;
     s->aout[0].data64 = NULL;
     s->aout[0].channel_count = n_out;
@@ -346,9 +360,9 @@ static inline int omx_clap_bind_ports(struct omx_clap_stage *s, const clap_plugi
     s->aout[0].constant_mask = 0;
     memset(&s->proc, 0, sizeof(s->proc));
     s->proc.transport = NULL;
-    s->proc.audio_inputs = n_in ? s->ains : &s->ains[1];
+    s->proc.audio_inputs = n_in ? main_in : aux ? &aux->ains[1] : NULL;
     s->proc.audio_outputs = s->aout;
-    s->proc.audio_inputs_count = (n_in ? 1 : 0) + s->n_aux_in;
+    s->proc.audio_inputs_count = (n_in ? 1 : 0) + (aux ? aux->n_aux_in : 0);
     s->proc.audio_outputs_count = 1 + s->n_aux;
     s->proc.in_events = &s->in_events;
     s->proc.out_events = &s->out_events;
@@ -356,6 +370,12 @@ static inline int omx_clap_bind_ports(struct omx_clap_stage *s, const clap_plugi
     atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_relaxed);
     s->need_reset = 0;
     return 0;
+}
+
+/** The same with no auxiliary input. */
+static inline int omx_clap_bind_ports(struct omx_clap_stage *s, const clap_plugin_t *plugin, uint32_t n_in, uint32_t n_out)
+{
+    return omx_clap_bind_ports_aux(s, plugin, n_in, n_out, NULL);
 }
 
 /** The same for an effect: `channels` in and out, 1 or 2. */
@@ -636,8 +656,9 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
 
     omx_clap_drain(s);
     s->aout[0].constant_mask = 0;   ///< the plugin's to set; never carried from the last block
-    for (uint32_t i = 0; i <= s->n_aux_in; i++)
-        s->ains[i].constant_mask = 0;
+    // the inputs' masks are the plugin's to set too: the process list is the stage's `ain` or the instance's `ains`
+    for (uint32_t i = 0; i < s->proc.audio_inputs_count; i++)
+        ((clap_audio_buffer_t *)s->proc.audio_inputs)[i].constant_mask = 0;
     s->proc.steady_time = s->steady_time;
     s->proc.frames_count = n;
     if (s->note_inputs)
