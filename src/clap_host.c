@@ -780,7 +780,7 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->stage.note_dialects = in->note_dialects;
     if (omx_clap_bind_aux(&in->stage, b + 2 * (size_t)max_block, b + 3 * (size_t)max_block, in->aux_outputs, in->aux_channels) != 0)
         return -1;
-    return omx_clap_bind_aux_in(&in->stage, b, b + max_block, in->aux_inputs, in->aux_in_channels, in->aux_in_bound);
+    return omx_clap_bind_aux_in(&in->aux_in, b, b + max_block, in->aux_inputs, in->aux_in_channels, in->aux_in_bound);
 }
 
 static void drop_bounce(struct omx_clap_instance *in)
@@ -794,7 +794,7 @@ static void drop_bounce(struct omx_clap_instance *in)
 
 static int bind_stage(struct omx_clap_instance *in)
 {
-    return omx_clap_bind_ports(&in->stage, in->plugin, in->in_channels, in->channels);
+    return omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_in);
 }
 
 static void publish_latency(struct omx_clap_instance *in)
@@ -1407,7 +1407,7 @@ int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, fl
     in->aux_in_bound[port][1] = l ? r : NULL;
     in->aux_in_frames[port] = l ? frames : 0;
     if (in->active)
-        omx_clap_set_aux_in(&in->stage, port, l, in->aux_in_bound[port][1]);
+        omx_clap_set_aux_in(&in->aux_in, port, l, in->aux_in_bound[port][1]);
     return 0;
 }
 
