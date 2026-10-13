@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.5.0
+Version:        0.6.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -112,6 +112,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Tue Oct 13 2026 Pau Aliagas <linuxnow@gmail.com> - 0.6.0-1
+- omx_clap_host_meter_count, omx_clap_host_meter_info and
+  omx_clap_host_meter_values read a plugin's clap.meters/1 in process: the
+  declarations once at open, the values from any thread but the audio role.
+
 * Tue Oct 13 2026 Pau Aliagas <linuxnow@gmail.com> - 0.5.0-1
 - omx_clap_host_set_transport publishes the host's whole transport to every
   hosted plugin, and an LV2 plugin reads it as time:Position. The LV2 adapter

@@ -1,3 +1,11 @@
+omx-clap-host (0.6.0) unstable; urgency=medium
+
+  * omx_clap_host_meter_count, omx_clap_host_meter_info and
+    omx_clap_host_meter_values read a plugin's clap.meters/1 in process: the
+    declarations once at open, the values from any thread but the audio role.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 13 Oct 2026 21:00:00 +0000
+
 omx-clap-host (0.5.0) unstable; urgency=medium
 
   * omx_clap_host_set_transport publishes the host's whole transport to every
