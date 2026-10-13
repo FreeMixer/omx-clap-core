@@ -553,6 +553,8 @@ static void midi_out_event(void *ctx, int64_t frame, const uint8_t *data, uint32
         x.header.time = time;
         x.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
         x.header.type = CLAP_EVENT_MIDI_SYSEX;
+        // the bytes stay in the plugin's output buffer: valid for this process() call only, as CLAP gives an output
+        // event's buffer; the next run() writes over them
         x.buffer = data;
         x.size = size;
         s->out_events->try_push(s->out_events, &x.header);
