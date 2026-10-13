@@ -173,7 +173,7 @@ struct lv2_instance;
  * worker of a split chain, or the control thread during the warm-up). */
 typedef int (*lv2_audio_role_fn)(void *ctx);
 
-/* A numeric patch:Parameter the plugin lists as patch:writable: a CLAP parameter with the id `id`, above the port
+/* A numeric lv2:Parameter the plugin lists as patch:writable: a CLAP parameter with the id `id`, above the port
  * indices. The value type is the atom type the plugin's property takes. */
 enum lv2_patch_type
 {
