@@ -59,6 +59,11 @@ thread right after the plugin's `process()`; a cycle that does not call
 it, bypassed, reads 0. A plugin whose meters derive a symbol twice, or one
 a parameter answers to, is refused, and the host names both.
 
+A program that hosts the plugin in its own process through the library reads
+the same `clap.meters/1` with `omx_clap_host_meter_count`,
+`omx_clap_host_meter_info` and `omx_clap_host_meter_values`
+([docs/meters.md](../docs/meters.md), In process).
+
 Bypass
 ------
 
