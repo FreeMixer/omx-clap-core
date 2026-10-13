@@ -4,6 +4,8 @@
 #   spdx-check.sh        (from the root of a git checkout)
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# A CI container checks the tree out as another uid; name this tree safe for these reads only.
+git() { command git -c safe.directory="$PWD" "$@"; }
 
 mapfile -t sources < <(git ls-files -- '*.c' '*.h' '*.sh' '*.py')
 [ "${#sources[@]}" -gt 0 ] || { echo "spdx-check: no tracked source found" >&2; exit 1; }
