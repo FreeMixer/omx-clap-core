@@ -42,7 +42,8 @@ The tests named below:
 | name | what it is |
 |---|---|
 | `lv2_run_test` | `lv2/tests/lv2_run_test.c`: the LV2 half of a block against the fake plugins |
-| `lv2_host_test` | `lv2/tests/lv2_host_test.c`: bundles, ports, refusals and features against the fixture bundles |
+| `lv2_host_test` | `lv2/tests/lv2_host_test.c`: bundles, ports, refusals and features against the fixture bundles, and the feature options as the feature probe sees them through the console's instances |
+| `lv2_features_test` | `lv2/tests/lv2_features_test.c`: the feature provider of a host of its own (`omx_lv2_features.h`), each option as the feature probe sees it, no lilv |
 | `lv2_clap_test` | `lv2/tests/lv2_clap_test.c`: the CLAP face, and libomx-clap-core's CLAP body around it |
 | `lv2_link_test` | `lv2/tests/lv2_link_test.c`: a program built against the installed package |
 | `lv2_patch_test` | `lv2/tests/lv2_patch_test.c`: the patch ports of the LV2 half, against the patch fixture bundle |
@@ -95,9 +96,9 @@ Features and extensions
 | `urid:unmap` | supported (`lv2_host_test` worker) | unsupported |
 | `options:options` | supported: `param:sampleRate`, `bufsz:minBlockLength`, `bufsz:maxBlockLength` and `bufsz:nominalBlockLength` as the activation says (`lv2_host_test` worker) | unsupported |
 | `bufsz:boundedBlockLength` | supported (`lv2_host_test` worker) | unsupported |
-| `bufsz:fixedBlockLength`, `bufsz:powerOf2BlockLength` | unsupported; a plugin requiring one is refused with `hosting.features.missing` (`lv2_host_test` refusals and the configure arm) | unsupported |
+| `bufsz:fixedBlockLength`, `bufsz:powerOf2BlockLength` | unsupported by default; a plugin requiring one is refused with `hosting.features.missing` (`lv2_host_test` refusals and the configure arm). A host that pins its block declares them through the feature options' block declarations (`lv2_host_test` options, `lv2_features_test` block) | unsupported |
 | `worker:schedule` and `worker:interface` | lossy: one worker thread per instance, which polls instead of being woken, so a response lands on a later block than in a host that wakes its worker (`lv2_run_test` worker, `lv2_host_test` worker, `lv2_clap_test` worker) | unsupported |
-| `log:log` | lossy: answered and discarded, so a log call never blocks the audio thread (`lv2_host_test` worker) | unsupported |
+| `log:log` | lossy: answered and discarded by default, so a log call never blocks the audio thread (`lv2_host_test` worker). The feature options route a line to a host sink or capture it into a buffer, off the audio role only (`lv2_host_test` options, `lv2_features_test` log) | unsupported |
 | `state:loadDefaultState` | supported (`lv2_host_test` fixture: -26 dB only with the default state restored) | unsupported |
 | State save and restore (`state:interface` through `clap.state`) | supported: the state as LV2 Turtle, read after an activate and restored before the first one or by the restart a load while active asks for (`lv2_clap_test` state). Lossy: a load while active is applied by a restart, never by a call during `process()`; the bypass is not in the state. A state longer than 1 MiB is refused | unsupported |
 | `state:mapPath` | unsupported (stage 3); a plugin that requires it is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |

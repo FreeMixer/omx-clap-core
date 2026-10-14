@@ -194,24 +194,37 @@ never needs it.
 `lv2/core` is the LV2 host, with no CLAP in it: the bundle and its ports, the
 refusals, the features the plugin is given, the worker thread and the LV2 half of a
 block. `lv2/clap` is the shim that makes it a CLAP plugin; its header,
-`lv2/clap/omx_clap_lv2.h`, is the whole public surface:
+`lv2/clap/omx_clap_lv2.h`, and the feature provider's, `lv2/core/omx_lv2_features.h`,
+are the whole public surface:
 
     omx_clap_lv2_configure(&cfg, why);           /* once per process: the features to provide, the numbers */
+    omx_clap_lv2_feature_options(&opts, why);    /* any time: which of them to offer, strictness, block, log */
     entry = omx_clap_lv2_entry("/usr/lib64/lv2/some.lv2", why);
     /* entry->init, entry->get_factory(CLAP_PLUGIN_FACTORY_ID), factory->create_plugin(..., "<LV2 URI>") */
     omx_clap_lv2_entry_release(entry);
 
 A plugin the adapter cannot run is refused by `create_plugin`, which writes the
 reason (the verdict's code, such as `hosting.features.cv-ports`) to the host's
-`clap.log`. `make install` installs the archive, `omx-clap-lv2/omx_clap_lv2.h` and
-`omx-clap-lv2.pc`; the packages are `omx-clap-lv2-devel` (RPM) and
-`libomx-clap-lv2-dev` (deb).
+`clap.log`.
+
+The feature options are one struct, `omx_lv2_feature_options`, which
+`omx_lv2_feature_options_init` fills with the adapter's own behaviour: every
+configured feature offered, a plugin requiring one that is not offered refused, the
+activation's block lengths declared bounded, and a log that writes nothing. A host
+that instantiates LV2 plugins itself (a test host, a qualifier) builds the same
+feature array with `omx_lv2_features_build`, checks a plugin's required features with
+`omx_lv2_features_admit` and opens its binary with `omx_lv2_open`, all without CLAP.
+
+`make install` installs the archive, `omx-clap-lv2/omx_clap_lv2.h`,
+`omx-clap-lv2/omx_lv2_features.h` and `omx-clap-lv2.pc`; the packages are
+`omx-clap-lv2-devel` (RPM) and `libomx-clap-lv2-dev` (deb).
 
     make test-lv2
 
 builds the fixture bundles into `build/lv2/` and runs the adapter's tests:
 `lv2/tests/lv2_run_test` (the LV2 half of a block against fake plugins),
 `lv2/tests/lv2_host_test` (bundles, ports, refusals, features and the worker),
+`lv2/tests/lv2_features_test` (each feature option as a probe plugin sees it, no lilv),
 `lv2/tests/lv2_clap_test` (the CLAP face, and libomx-clap-core's body around it),
 `lv2/tests/lv2_link_test` (a program built against the installed files through
 pkg-config alone) and, when `lv2_validate` is installed, the fixture bundles against

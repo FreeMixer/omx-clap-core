@@ -20,14 +20,18 @@
 
 /* The adapter as a program outside this tree sees it: compiled against the installed omx_clap_lv2.h, linked by
  * `pkg-config --libs omx-clap-lv2` alone. It configures with the adapter's own list, takes the entry of the fixture
- * bundle (argument 1), creates the fixture and runs one block of it at -26 dB. */
+ * bundle (argument 1), creates the fixture and runs one block of it at -26 dB. It also takes the feature provider's
+ * installed header: the defaults set as the adapter's options, an array built from them, and the fixture's binary opened
+ * through the provider's door, as a host that instantiates LV2 itself does. */
 
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include <clap/clap.h>
+#include <dlfcn.h>
 #include <omx_clap_lv2.h>
+#include <omx_lv2_features.h>
 
 static const void *ext(const clap_host_t *h, const char *id)
 {
@@ -77,6 +81,22 @@ int main(int argc, char **argv)
     double ex = 0, ey = 0, db;
     int i;
 
+    struct omx_lv2_feature_options opts;
+    static struct omx_lv2_feature_block block;
+    LV2_Worker_Schedule schedule = { NULL, NULL };
+    char so_path[4096];
+    const char *step = NULL;
+    void *so = NULL;
+
+    omx_lv2_feature_options_init(&opts);
+    snprintf(so_path, sizeof(so_path), "%s/omx-host-fixture.so", argc > 1 ? argv[1] : ".");
+    if (omx_clap_lv2_feature_options(&opts, why) != 0 || !omx_lv2_features_build(&block, &opts, 48000.0, 1, 64, &schedule)
+        || !omx_lv2_open(&so, so_path, "urn:openmixer:test:host-fixture", &step))
+    {
+        printf("FAIL the feature provider does not take the defaults (%s, %s)\n", why, step ? step : "");
+        return 1;
+    }
+    dlclose(so);
     if (argc < 2 || omx_clap_lv2_configure(&config, why) != 0 || !(entry = omx_clap_lv2_entry(argv[1], why)))
     {
         printf("FAIL the adapter does not take %s (%s)\n", argc > 1 ? argv[1] : "", why);

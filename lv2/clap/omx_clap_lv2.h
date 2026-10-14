@@ -38,6 +38,8 @@
 
 #include <clap/entry.h>
 
+#include "omx_lv2_features.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -59,6 +61,12 @@ typedef struct omx_clap_lv2_config {
 /* [main-thread] 0, or -1 with `why` naming the refusal. Called once per process; a second call
  * with another list is refused. */
 int omx_clap_lv2_configure(const omx_clap_lv2_config_t *cfg, char why[OMX_CLAP_LV2_WHY_MAX]);
+
+/* [main-thread] The feature options of the plugins created from now on (omx_lv2_features.h), NULL being the defaults,
+ * which are what the adapter did before it had options: 0, or -1 with `why` when they do not check, the options then
+ * unchanged. A feature the configured list does not name is never offered, whatever the options say. The sink and the
+ * capture buffer they name must outlive every plugin created under them. */
+int omx_clap_lv2_feature_options(const struct omx_lv2_feature_options *o, char why[OMX_CLAP_LV2_WHY_MAX]);
 
 /* Every feature URI the adapter can provide, NULL-terminated: what the worker hands back. */
 extern const char *const omx_clap_lv2_provided[];
