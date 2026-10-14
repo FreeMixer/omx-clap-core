@@ -166,6 +166,10 @@ LIBDIR = $(PREFIX)/lib
 INCLUDEDIR = $(PREFIX)/include
 DATADIR = $(PREFIX)/share
 MANDIR = $(DATADIR)/man/man1
+LIBEXECDIR = $(PREFIX)/libexec
+# the test fixtures, in a directory of their own so no plugin scanner finds them
+TESTDIR = $(LIBEXECDIR)/$(PROG)/tests
+TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_source
 
 # the library, its headers, the pkg-config file and the export list: what a program that hosts CLAP plugins builds against
 install-lib: $(CORE_SO)
@@ -190,7 +194,13 @@ install-lv2: $(LV2_LIB)
 	    -e 's,@VERSION@,$(LV2_VERSION),' omx-clap-lv2.pc.in > $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-lv2.pc
 	chmod 644 $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-lv2.pc
 
-install: install-lib install-lv2 install_man
+# the fixtures a program that drives the worker tests itself against: a plugin that reads clap.track-info, a compressor
+# that reports meters, and a constant jack source
+install-tests: $(TEST_FIXTURES)
+	install -d $(DESTDIR)$(TESTDIR)
+	install -m 755 $(TEST_FIXTURES) $(DESTDIR)$(TESTDIR)/
+
+install: install-lib install-lv2 install-tests install_man
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
 
