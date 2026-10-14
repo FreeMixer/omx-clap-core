@@ -115,6 +115,8 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `omx_clap_ext.h`: the openmixer vendor extension a plugin serves through `get_extension`,
   `org.openmixer.declaration/1`, as an exact C structure. Header only: the library exports nothing
   for it. A plugin's meters are CLAP's own `clap.meters/1` ([docs/meters.md](docs/meters.md)).
+- `clap_meters.h`: `clap.meters/1`, the CLAP meters extension, for an SDK that does not ship it yet.
+  A plugin includes this installed copy instead of carrying its own.
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a
