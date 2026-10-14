@@ -396,7 +396,7 @@ test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 test-jack-info: $(PROG) tests/fake.clap
 	$(PHD_DECLARED) ./tests/jack_info_e2e.sh
 
-tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h
+tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h
 	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
 
 # the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
