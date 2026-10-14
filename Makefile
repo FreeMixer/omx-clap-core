@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h src/clap_meters.h
 CORE_MAP = src/omx-clap-core.map
 
 PKG_CONFIG ?= pkg-config
@@ -470,7 +470,7 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
-	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -ldl -lpthread -lm
+	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
 test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)

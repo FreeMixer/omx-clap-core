@@ -34,15 +34,18 @@
  *             host's input and output the same buffer, MXCSR re-asserted.
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
  *             by omx_clap_lv2_worker_quiesce; the fake's drain order; a stray respond counted on clap.log.
+ *             A reset whose worker cannot start again fails process() and says so on clap.log until the next activate.
  *   rt        no allocation inside process().
  *
  * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
  * the warm-up (64 blocks, the live counters untouched, a non-finite plugin refused), the first block fading in, the mono
  * mirror, the bypass crossfade and the steady bypass bit-identical, the non-finite strikes and the fault, the clamp,
- * the oversize block, and the warm-up run at the activated block size, bit-identical with a plain LV2 loop after it.
+ * the oversize block, and the warm-up run at the activated block size, bit-identical with a plain LV2 loop after it,
+ * activated at the live block size and at twice it.
  *
  *   lv2_clap_test <build/lv2 directory>
  */
+#include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -65,6 +68,8 @@
 #define BLOCK 64u
 #define N_BLOCKS 16u
 #define MAXB 256u
+#define WARMB 512u      // an activation larger than the live blocks (a host that activates at its largest quantum); not
+                        // 1024: 64 x 1024 and 64 x 256 frames leave the HOLD_PERIOD of 3 at the same phase
 #define HOLD_MS 250u
 #define MIDI_URI "urn:openmixer:test:midi-echo"
 
@@ -78,6 +83,14 @@ void *__wrap_malloc(size_t n) { rt_allocs += in_rt; return __real_malloc(n); }
 void *__wrap_calloc(size_t a, size_t b) { rt_allocs += in_rt; return __real_calloc(a, b); }
 void *__wrap_realloc(void *p, size_t n) { rt_allocs += in_rt; return __real_realloc(p, n); }
 void __wrap_free(void *p) { rt_allocs += in_rt; __real_free(p); }
+
+/* ---- a worker thread that cannot start, on demand ---- */
+static volatile int g_refuse_threads = 0;
+int __real_pthread_create(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
+int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(void *), void *arg)
+{
+    return g_refuse_threads ? EAGAIN : __real_pthread_create(t, a, fn, arg);
+}
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
 static char g_patch[PATH_MAX];
@@ -1256,21 +1269,67 @@ static void t_worker(double rate)
     }
 }
 
+/* a reset whose worker cannot start again: the instance is broken, process() fails and clap.log says why, until the
+ * next activate brings the worker back */
+static void t_reset_no_worker(double rate)
+{
+    float l[32] = { 0 };
+    struct fake *f;
+    struct rig g;
+    uint32_t acts, deacts, seq;
+    char want[64];
+
+    if (rig_up(&g, g_fakes, FAKE_WORKER, rate, MAXB) != 0)
+        return;
+    f = fake_last();
+    CHECK(f && process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_CONTINUE, "reset %.0f: the worker fake processes", rate);
+    omx_clap_lv2_worker_quiesce(g.plugin);
+    acts = f ? f->activations : 0;
+    deacts = f ? f->deactivations : 0;
+    g_refuse_threads = 1;
+    g.plugin->reset(g.plugin);
+    g_refuse_threads = 0;
+    CHECK(f && f->activations == acts + 1 && f->deactivations == deacts + 2,
+          "reset %.0f: the worker that cannot start leaves the plugin LV2 deactivated (activate %u -> %u, deactivate %u -> %u)",
+          rate, acts, f ? f->activations : 0, deacts, f ? f->deactivations : 0);
+    CHECK(strstr(g.host.log, "could not start again") != NULL, "reset %.0f: clap.log says the worker could not start (%s)", rate, g.host.log);
+    CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_ERROR, "reset %.0f: process() fails while the instance is broken", rate);
+    CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_ERROR, "reset %.0f: and keeps failing", rate);
+
+    g.plugin->stop_processing(g.plugin);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && g.plugin->start_processing(g.plugin), "reset %.0f: the next activate succeeds", rate);
+    fake_trace_clear();
+    seq = f ? f->seq : 0;
+    CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_CONTINUE, "reset %.0f: and process() runs again", rate);
+    omx_clap_lv2_worker_quiesce(g.plugin);
+    process(&g, l, NULL, l, NULL, 32, NULL);
+    snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
+    CHECK(!strcmp(fake_trace(), want), "reset %.0f: with the worker answering again: %s", rate, fake_trace());
+    rig_down(&g);
+}
+
 /* ---- the CLAP body of libomx-clap-core around the adapter ---- */
 
-static struct omx_clap_instance *core_open(const clap_plugin_entry_t *entry, const char *uri, double rate, char why[OMX_CLAP_WHY_MAX])
+static struct omx_clap_instance *core_open_at(const clap_plugin_entry_t *entry, const char *uri, double rate, uint32_t max_block,
+                                              char why[OMX_CLAP_WHY_MAX])
 {
     struct omx_clap_instance *in = NULL;
 
     if (omx_clap_host_open_entry(entry, uri, &in, why) != 0)
         return NULL;
-    if (omx_clap_host_activate(in, rate, MAXB, why) != 0)
+    if (omx_clap_host_activate(in, rate, max_block, why) != 0)
     {
         omx_clap_host_close(in);
         return NULL;
     }
     omx_clap_host_publish(in, pthread_self());
     return in;
+}
+
+static struct omx_clap_instance *core_open(const clap_plugin_entry_t *entry, const char *uri, double rate, char why[OMX_CLAP_WHY_MAX])
+{
+    return core_open_at(entry, uri, rate, MAXB, why);
 }
 
 static void core_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
@@ -1451,18 +1510,19 @@ static void t_core(double rate)
 
 /* ---- the warm-up at the host's block size ---- */
 
-/* A plain LV2 run loop, the way a host with no CLAP body runs a plugin: instantiate, activate, the warm-up at the
- * quantum it will run, deactivate and activate, then `live` blocks of `n` frames of the tone into `out`. */
-static int plain_lv2_run(const char *uri, double rate, uint32_t n, uint32_t live, float *out)
+/* A plain LV2 run loop, the way a host with no CLAP body runs a plugin: instantiate, activate, the warm-up in blocks of
+ * `warm` frames (the activated size), deactivate and activate, then `live` blocks of `n` frames of the tone into `out`. */
+static int plain_lv2_run(const char *uri, double rate, uint32_t warm, uint32_t n, uint32_t live, float *out)
 {
     void *so = dlopen(g_fakes_so, RTLD_NOW);
     const LV2_Descriptor *(*descriptor)(uint32_t);
     const LV2_Descriptor *d = NULL;
     LV2_Handle h;
-    float in[MAXB], lat = 0.0f;
+    static float in[WARMB], o[WARMB];
+    float lat = 0.0f;
     uint32_t i, b;
 
-    if (!so || n > MAXB)
+    if (!so || warm > WARMB || n > warm)
         return -1;
     *(void **)&descriptor = dlsym(so, "lv2_descriptor");
     for (i = 0; descriptor && (d = descriptor(i)) && strcmp(d->URI, uri); i++)
@@ -1479,12 +1539,11 @@ static int plain_lv2_run(const char *uri, double rate, uint32_t n, uint32_t live
     for (b = 0; b < CLAP_HOST_WARMUP_BLOCKS; b++)
     {
         const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_hosted_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
-        float o[MAXB];
 
-        for (i = 0; i < n; i++)
+        for (i = 0; i < warm; i++)
             in[i] = v;
         d->connect_port(h, 1, o);
-        d->run(h, n);
+        d->run(h, warm);
     }
     d->deactivate(h);
     d->activate(h);
@@ -1502,19 +1561,21 @@ static int plain_lv2_run(const char *uri, double rate, uint32_t n, uint32_t live
 
 /*
  * A plugin whose state is counted in frames (here a sample-and-hold whose phase runs on across run() calls) comes out of
- * the warm-up in the state the warm-up's block size left it in. The CLAP body activated at MAXB must warm it up at
- * MAXB, so that from the first live block on it is sample for sample what a plain LV2 loop at that quantum gives.
+ * the warm-up in the state the warm-up's block size left it in. The CLAP body activated at `act` must warm it up at
+ * `act`, so that from the first live block of `n` frames on it is sample for sample what a plain LV2 loop primed at
+ * `act` gives: with `act` the live block size, and with `act` larger (a host that activates at its largest quantum and
+ * runs smaller periods).
  */
-static void t_warmup_block(double rate)
+static void t_warmup_block(double rate, uint32_t act, uint32_t n)
 {
     enum { LIVE = 4 };
     char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
     const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_fakes, why);
-    struct omx_clap_instance *in = entry ? core_open(entry, FAKE_HOLD, rate, cwhy) : NULL;
+    struct omx_clap_instance *in = entry ? core_open_at(entry, FAKE_HOLD, rate, act, cwhy) : NULL;
     static float want[LIVE * MAXB], got[LIVE * MAXB];
     uint32_t b, first = UINT32_MAX;
 
-    CHECK(in != NULL, "warm-up %.0f: the sample-and-hold through the CLAP body at %u frames (%s)", rate, MAXB, cwhy);
+    CHECK(in != NULL, "warm-up %.0f: the sample-and-hold through the CLAP body activated at %u frames (%s)", rate, act, cwhy);
     if (!in)
     {
         if (entry)
@@ -1523,19 +1584,20 @@ static void t_warmup_block(double rate)
     }
     for (b = 0; b < LIVE; b++)
     {
-        tone(got + b * MAXB, MAXB, 0.5f, b * MAXB);
-        core_run(in, got + b * MAXB, NULL, MAXB);
+        tone(got + b * n, n, 0.5f, b * n);
+        core_run(in, got + b * n, NULL, n);
     }
     omx_clap_host_unpublish(in, CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
     omx_clap_host_close(in);
     omx_clap_lv2_entry_release(entry);
-    CHECK(plain_lv2_run(FAKE_HOLD, rate, MAXB, LIVE, want) == 0, "warm-up %.0f: the plain LV2 loop ran the sample-and-hold", rate);
+    CHECK(plain_lv2_run(FAKE_HOLD, rate, act, n, LIVE, want) == 0, "warm-up %.0f: the plain LV2 loop ran the sample-and-hold", rate);
     // the first live block fades in from dry: compare from the second on
-    for (b = MAXB; b < LIVE * MAXB && first == UINT32_MAX; b++)
+    for (b = n; b < LIVE * n && first == UINT32_MAX; b++)
         if (memcmp(&got[b], &want[b], sizeof(float)) != 0)
             first = b;
-    CHECK(first == UINT32_MAX, "warm-up %.0f: blocks 2..%d bit-identical with a plain LV2 loop at %u frames (first difference at frame %d: %.9g vs %.9g)",
-          rate, LIVE, MAXB, first == UINT32_MAX ? -1 : (int)first, first == UINT32_MAX ? 0.0 : (double)got[first],
+    CHECK(first == UINT32_MAX,
+          "warm-up %.0f: activated at %u, blocks 2..%d of %u frames bit-identical with a plain LV2 loop warmed at %u (first difference at frame %d: %.9g vs %.9g)",
+          rate, act, LIVE, n, act, first == UINT32_MAX ? -1 : (int)first, first == UINT32_MAX ? 0.0 : (double)got[first],
           first == UINT32_MAX ? 0.0 : (double)want[first]);
 }
 
@@ -1588,9 +1650,11 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
+        t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
         t_core(RATES[r]);
-        t_warmup_block(RATES[r]);
+        t_warmup_block(RATES[r], MAXB, MAXB);
+        t_warmup_block(RATES[r], WARMB, MAXB);
         printf("lv2 clap @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
     }
     CHECK(rt_allocs == 0, "no allocation inside process() or the CLAP body's run (%d)", rt_allocs);

@@ -955,13 +955,13 @@ void lv2_instance_deactivate(struct lv2_instance *in)
     in->lv2_active = 0;
 }
 
-void lv2_instance_reset(struct lv2_instance *in)
+int lv2_instance_reset(struct lv2_instance *in)
 {
     const struct lv2_core_config *config = lv2_core_config();
     const LV2_Descriptor *d;
 
     if (!in || !in->lv2_active)
-        return;
+        return 0;
     d = in->plugin->desc;
     // deactivate and activate are LV2 instantiation-class calls: no work() may run beside them, so the worker is
     // stopped and joined first. A request or a response from before the reset belongs to the state it clears: both
@@ -976,7 +976,13 @@ void lv2_instance_reset(struct lv2_instance *in)
     }
     if (d->activate)
         d->activate(in->handle);
-    worker_start(in);
+    // as at activate: an instance whose worker cannot start is not left active with nothing to answer its requests
+    if (worker_start(in) != 0)
+    {
+        lv2_instance_deactivate(in);
+        return -1;
+    }
+    return 0;
 }
 
 void lv2_instance_free(struct lv2_instance *in)

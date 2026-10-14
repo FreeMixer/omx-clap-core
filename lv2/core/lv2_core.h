@@ -272,8 +272,9 @@ void lv2_instance_deactivate(struct lv2_instance *in);
 
 /* [control] The re-engage after a steady bypass, called by the host's bypass-off verb holding the audio role, never
  * from process(): the worker stopped and joined, LV2 deactivate, both worker rings emptied, LV2 activate, the worker
- * started again. */
-void lv2_instance_reset(struct lv2_instance *in);
+ * started again. 0, or -1 when the worker cannot start again: the instance is then LV2 deactivated, as a failed
+ * activate leaves it, until the next activate. */
+int lv2_instance_reset(struct lv2_instance *in);
 
 /* Deactivate when active, LV2 cleanup, free. */
 void lv2_instance_free(struct lv2_instance *in);
