@@ -247,7 +247,8 @@ int lv2_core_lilv_loaded(void);
 /* Every feature URI a provider here serves, NULL-terminated. */
 extern const char *const lv2_core_provided[];
 
-/* The bundle at `path` (an absolute directory, with or without its trailing '/'), loaded on its first reference, lilv
+/* The bundle at `path` (an absolute directory, with or without its trailing '/'), loaded on its first reference and kept
+ * loaded for the life of the process (lv2_bundle_unref drops a reference, not the bundle), lilv
  * loaded on the first bundle: all or nothing, and a failed load does not latch. NULL with `why` set when lilv cannot be
  * loaded, the library is not configured, or the bundle holds no plugin. */
 struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX]);

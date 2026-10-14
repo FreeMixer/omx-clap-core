@@ -359,20 +359,12 @@ struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX])
 
 void lv2_bundle_unref(struct lv2_bundle *b)
 {
-    struct lv2_bundle **link;
-
-    if (!b || --b->refs > 0)
-        return;
-    L.lilv_world_unload_bundle(g.world, b->node);
-    for (link = &g.bundles; *link; link = &(*link)->next)
-    {
-        if (*link == b)
-        {
-            *link = b->next;
-            break;
-        }
-    }
-    bundle_free(b);
+    /* The bundle stays loaded when its last reference goes, and the next reference to its directory takes it as it is.
+     * lilv hands a bundle's statements to sord, whose node table is a zix hash: zix 0.8.0 marks every removal with a
+     * tombstone and does not reclaim them in a small table, so a world that unloads and reloads bundles ends in a
+     * zix_hash_find that probes a full table for ever. A process uses a handful of bundles and reads each once. */
+    if (b && b->refs > 0)
+        b->refs--;
 }
 
 uint32_t lv2_bundle_count(const struct lv2_bundle *b)
