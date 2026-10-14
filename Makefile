@@ -518,12 +518,12 @@ test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
 	./lv2/tests/lv2_clap_test build/lv2
 
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged
-lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h
+lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h src/omx_clap_raw.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
 
 # the adapter as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config
 # file and linked by that alone
-lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in omx-clap-core.pc.in
+lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in omx-clap-core.pc.in src/omx_clap_raw.h
 	rm -rf build/lv2-stage
 	$(MAKE) install-lib install-lv2 PREFIX=$(CURDIR)/build/lv2-stage/usr LIBDIR=$(CURDIR)/build/lv2-stage/usr/lib
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/lv2-stage/usr/lib/pkgconfig/clap.pc
