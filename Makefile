@@ -239,7 +239,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -424,7 +424,8 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so build/lv2/omx-patch-fixture.lv2/omx-patch-fixture.so \
               build/lv2/omx-midi-echo.lv2/omx-midi-echo.so \
               build/lv2/omx-time-probe.lv2/omx-time-probe.so \
-              build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so
+              build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so \
+              build/lv2/omx-feature-probe.lv2/omx-feature-probe.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -445,6 +446,11 @@ build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so: $(LV2_FIXTURE_DIR)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-sidechain-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-feature-probe.lv2/omx-feature-probe.so: $(LV2_FIXTURE_DIR)/lv2_feature_probe.c $(LV2_FIXTURE_DIR)/lv2_feature_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-feature-probe.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-feature-probe.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -fvisibility=hidden -o $@ $< -lm
 
 build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so: $(LV2_FIXTURE_DIR)/lv2_fakes.c $(LV2_FIXTURE_DIR)/lv2_fakes.h $(wildcard $(LV2_FIXTURE_DIR)/omx-lv2-fakes.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -473,14 +479,18 @@ lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2
 lv2/tests/lv2_patch_test: lv2/tests/lv2_patch_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) -ldl -lpthread -lm
 
+lv2/tests/lv2_features_test: lv2/tests/lv2_features_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_feature_probe.h
+	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) -ldl -lpthread -lm
+
 # lv2/core: the run half against the console's fakes, the bundle half and the providers against real bundles; no lilv
 # is linked into either test, and lv2/core names no CLAP header
-test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test $(LV2_BUNDLES)
+test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test $(LV2_BUNDLES)
 	@! grep -n -E '#include [<"]clap' lv2/core/*.c lv2/core/*.h && echo "ok   lv2/core includes no CLAP header"
-	@! readelf -d lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test | grep -q 'liblilv' && echo "ok   no test links lilv: the host dlopens it"
+	@! readelf -d lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test | grep -q 'liblilv' && echo "ok   no test links lilv: the host dlopens it"
 	./lv2/tests/lv2_run_test build/lv2/omx-lv2-fakes.lv2
 	./lv2/tests/lv2_host_test build/lv2 $(LILV_LIB)
 	./lv2/tests/lv2_patch_test build/lv2
+	./lv2/tests/lv2_features_test build/lv2/omx-feature-probe.lv2/omx-feature-probe.so
 
 # the MIDI output path under AddressSanitizer: lv2/core and the echo fixture built with it; a read past the adapter's own
 # buffer is a report that ends the test. Needs libasan, as test-untrusted-asan does.
