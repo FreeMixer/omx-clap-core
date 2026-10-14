@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.5.0
+Version:        0.6.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -25,6 +25,17 @@ an instrument gets a MIDI input as well. Anything that already controls
 mod-host can control it over the same socket with the same commands. It comes
 with omx-clap-scan, which lists what is in a CLAP bundle and survives a plugin
 that crashes while loading.
+
+%package tests
+Summary: Fixtures to test a program that drives omx-clap-host
+Requires: %{name}%{?_isa} = %{version}-%{release}
+
+%description tests
+Plugins and a signal source for testing a program that runs omx-clap-host as
+its CLAP worker: a plugin that reads the track information the host passes
+it, a compressor that reports meters, and a JACK client that plays a constant
+level. They are installed in %{_libexecdir}/omx-clap-host/tests, away from the
+directories CLAP hosts scan, and are of no use to anyone else.
 
 %package -n omx-clap-core
 Summary: The engine that runs CLAP plugins for omx-clap-host, as a library
@@ -92,6 +103,10 @@ make test-lv2
 %{_mandir}/man1/omx-clap-host.1*
 %{_mandir}/man1/omx-clap-scan.1*
 
+%files tests
+%license COPYING
+%{_libexecdir}/omx-clap-host/tests/
+
 %files -n omx-clap-core
 %license COPYING
 %{_libdir}/libomx-clap-core.so.0
@@ -110,6 +125,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Oct 14 2026 Pau Aliagas <linuxnow@gmail.com> - 0.6.0-1
+- LV2 numeric patch properties appear as CLAP parameters, and a value the plugin
+  emits on its own is kept.
+- The headers install clap_meters.h with the other core headers.
+- A new package, omx-clap-host-tests, carries the worker's test fixtures for a
+  program that tests itself against the worker.
+
 * Wed Oct 14 2026 Pau Aliagas <linuxnow@gmail.com> - 0.5.0-1
 - LV2 plugins keep their state: the adapter saves and restores it through
   clap.state and loads a preset through clap.preset-load. A state longer than

@@ -26,6 +26,12 @@ and runs it with the defaults, and runs the lifecycle test against a plugin with
 layouts the host refuses and a passthrough with a latency, and against
 `tests/fake_synth.clap`, a synth whose notes are exact to the sample.
 
+    make install-tests DESTDIR=<root> PREFIX=/usr
+
+puts the fixtures a program that drives the worker tests itself against
+(`fake.clap`, `fake_compressor.clap` and `jack_meter_source`) in
+`<PREFIX>/libexec/omx-clap-host/tests`; the omx-clap-host-tests package carries them.
+
     make test-jack CLAP_TEST_PLUGIN=<omx-delay>.clap
 
 runs `tests/jack_e2e.sh`: the host over jack inside a PipeWire of its own

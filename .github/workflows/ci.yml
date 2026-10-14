@@ -224,6 +224,16 @@ jobs:
             rpm -qp --provides "$rpm" | tee provides.txt
             grep -q 'pkgconfig(omx-clap-lv2)' provides.txt
           done
+          # the fixtures a program that drives the worker tests itself against, and nothing else
+          for rpm in rpms/omx-clap-host-tests-[0-9]*.${{ matrix.arch }}.rpm; do
+            rpm -qlp "$rpm"
+            files "$rpm" > files.txt
+            printf '%s\n' /usr/libexec/omx-clap-host/tests/fake.clap /usr/libexec/omx-clap-host/tests/fake_compressor.clap \
+              /usr/libexec/omx-clap-host/tests/jack_meter_source /usr/share/licenses/omx-clap-host-tests/COPYING | sort > expected.txt
+            diff -u expected.txt files.txt
+            rpm -qp --requires "$rpm" | tee requires.txt
+            grep -q '^omx-clap-host' requires.txt
+          done
           ls rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm
           ls rpms/omx-clap-host-*.src.rpm
 
@@ -298,6 +308,7 @@ jobs:
             rpms/omx-clap-core-[0-9]*.rpm
             rpms/omx-clap-core-devel-[0-9]*.rpm
             rpms/omx-clap-lv2-devel-[0-9]*.rpm
+            rpms/omx-clap-host-tests-[0-9]*.rpm
           if-no-files-found: error
           retention-days: 7
 
@@ -381,6 +392,16 @@ jobs:
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o /tmp/lv2-consumer lv2/tests/lv2_link_test.c $(pkg-config --cflags --libs omx-clap-lv2)
           /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
           grep -q 'lv2 link test ok' lv2-consumer.txt
+
+      # the fixtures package: the three fixtures under libexec, and the worker it depends on
+      - name: The tests package carries the fixtures and depends on the worker
+        run: |
+          set -euo pipefail
+          dpkg -c debs/omx-clap-host-tests_*.deb | awk '$1 !~ /^d/ && $NF ~ /libexec/ {print $NF}' | sort | tee tests-files.txt
+          printf '%s\n' ./usr/libexec/omx-clap-host/tests/fake.clap ./usr/libexec/omx-clap-host/tests/fake_compressor.clap \
+            ./usr/libexec/omx-clap-host/tests/jack_meter_source | sort > tests-expected.txt
+          diff -u tests-expected.txt tests-files.txt
+          dpkg -I debs/omx-clap-host-tests_*.deb | grep -E '^ Depends:.*omx-clap-host \(= '
 
       - uses: actions/upload-artifact@v4
         with:
