@@ -34,6 +34,7 @@
  *             host's input and output the same buffer, MXCSR re-asserted.
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
  *             by omx_clap_lv2_worker_quiesce; the fake's drain order; a stray respond counted on clap.log.
+ *             A reset whose worker cannot start again fails process() and says so on clap.log until the next activate.
  *   rt        no allocation inside process().
  *
  * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
@@ -44,6 +45,7 @@
  *
  *   lv2_clap_test <build/lv2 directory>
  */
+#include <errno.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -79,6 +81,14 @@ void *__wrap_malloc(size_t n) { rt_allocs += in_rt; return __real_malloc(n); }
 void *__wrap_calloc(size_t a, size_t b) { rt_allocs += in_rt; return __real_calloc(a, b); }
 void *__wrap_realloc(void *p, size_t n) { rt_allocs += in_rt; return __real_realloc(p, n); }
 void __wrap_free(void *p) { rt_allocs += in_rt; __real_free(p); }
+
+/* ---- a worker thread that cannot start, on demand ---- */
+static volatile int g_refuse_threads = 0;
+int __real_pthread_create(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
+int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(void *), void *arg)
+{
+    return g_refuse_threads ? EAGAIN : __real_pthread_create(t, a, fn, arg);
+}
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
 
@@ -698,6 +708,46 @@ static void t_worker(double rate)
     }
 }
 
+/* a reset whose worker cannot start again: the instance is broken, process() fails and clap.log says why, until the
+ * next activate brings the worker back */
+static void t_reset_no_worker(double rate)
+{
+    float l[32] = { 0 };
+    struct fake *f;
+    struct rig g;
+    uint32_t acts, deacts, seq;
+    char want[64];
+
+    if (rig_up(&g, g_fakes, FAKE_WORKER, rate, MAXB) != 0)
+        return;
+    f = fake_last();
+    CHECK(f && process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_CONTINUE, "reset %.0f: the worker fake processes", rate);
+    omx_clap_lv2_worker_quiesce(g.plugin);
+    acts = f ? f->activations : 0;
+    deacts = f ? f->deactivations : 0;
+    g_refuse_threads = 1;
+    g.plugin->reset(g.plugin);
+    g_refuse_threads = 0;
+    CHECK(f && f->activations == acts + 1 && f->deactivations == deacts + 2,
+          "reset %.0f: the worker that cannot start leaves the plugin LV2 deactivated (activate %u -> %u, deactivate %u -> %u)",
+          rate, acts, f ? f->activations : 0, deacts, f ? f->deactivations : 0);
+    CHECK(strstr(g.host.log, "could not start again") != NULL, "reset %.0f: clap.log says the worker could not start (%s)", rate, g.host.log);
+    CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_ERROR, "reset %.0f: process() fails while the instance is broken", rate);
+    CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_ERROR, "reset %.0f: and keeps failing", rate);
+
+    g.plugin->stop_processing(g.plugin);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && g.plugin->start_processing(g.plugin), "reset %.0f: the next activate succeeds", rate);
+    fake_trace_clear();
+    seq = f ? f->seq : 0;
+    CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_CONTINUE, "reset %.0f: and process() runs again", rate);
+    omx_clap_lv2_worker_quiesce(g.plugin);
+    process(&g, l, NULL, l, NULL, 32, NULL);
+    snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
+    CHECK(!strcmp(fake_trace(), want), "reset %.0f: with the worker answering again: %s", rate, fake_trace());
+    rig_down(&g);
+}
+
 /* ---- the CLAP body of libomx-clap-core around the adapter ---- */
 
 static struct omx_clap_instance *core_open_at(const clap_plugin_entry_t *entry, const char *uri, double rate, uint32_t max_block,
@@ -1030,6 +1080,7 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
+        t_reset_no_worker(RATES[r]);
         t_core(RATES[r]);
         t_warmup_block(RATES[r], MAXB, MAXB);
         t_warmup_block(RATES[r], WARMB, MAXB);
