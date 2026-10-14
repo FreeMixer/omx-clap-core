@@ -64,6 +64,8 @@ jobs:
         run: |
           set -euo pipefail
           make docs
-          version=$(sed -n 's/^CORE_VERSION = //p' Makefile)
+          version=$(tr -d '[:space:]' < VERSION)
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
           tar -czf "omx-clap-core-api-docs-${version}.tar.gz" -C build/docs html
+          [ -f "omx-clap-core-api-docs-${version}.tar.gz" ]
           gh release upload "$GITHUB_REF_NAME" omx-clap-core-api-docs-*.tar.gz --clobber
