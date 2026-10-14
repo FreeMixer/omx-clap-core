@@ -446,7 +446,7 @@ test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patc
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
-	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -ldl -lpthread -lm
+	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
 test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
