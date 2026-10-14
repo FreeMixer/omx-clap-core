@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.6.0
+Version:        0.7.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -15,6 +15,8 @@ BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
+# make test-lv2 runs the MIDI output path under AddressSanitizer
+BuildRequires: libasan
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 
@@ -125,6 +127,16 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 15 2026 Pau Aliagas <linuxnow@gmail.com> - 0.7.0-1
+- The host's whole transport (position, bar, time signature, loop) reaches the
+  plugins, and the LV2 adapter forges it as time:Position.
+- A plugin with auxiliary inputs (side chains) can have them: they are fed
+  silence until the host binds a pair, and LV2 port groups become CLAP inputs.
+- A program hosting in process reads a plugin's clap.meters/1 through the
+  library: omx_clap_host_meter_count, _info and _values.
+- LV2 MIDI ports carry MIDI through clap.note-ports.
+- The new library functions are in the OMX_CLAP_CORE_0.7 version node.
+
 * Wed Oct 14 2026 Pau Aliagas <linuxnow@gmail.com> - 0.6.0-1
 - LV2 numeric patch properties appear as CLAP parameters, and a value the plugin
   emits on its own is kept.

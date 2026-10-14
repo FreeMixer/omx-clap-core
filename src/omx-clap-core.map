@@ -62,3 +62,14 @@ OMX_CLAP_CORE_0.3
     omx_clap_host_param_roster;
     omx_clap_host_set_tempo;
 } OMX_CLAP_CORE_0;
+
+/* added in 0.7.0 */
+OMX_CLAP_CORE_0.7
+{
+  global:
+    omx_clap_host_bind_aux_input;
+    omx_clap_host_meter_count;
+    omx_clap_host_meter_info;
+    omx_clap_host_meter_values;
+    omx_clap_host_set_transport;
+} OMX_CLAP_CORE_0.3;

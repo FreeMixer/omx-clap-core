@@ -1,3 +1,23 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * This file is part of omx-clap-host.
+ *
+ * omx-clap-host is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * omx-clap-host is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with omx-clap-host.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ */
+
 #ifndef CLAP_HOST_LIMITS_H
 #define CLAP_HOST_LIMITS_H
 /*
@@ -24,6 +44,7 @@
 #define CLAP_HOST_NOTES_PER_BLOCK 256u  ///< the note events delivered in one block
 #define CLAP_HOST_MAIN_PORT_CHANNELS 2u  ///< the channels the main port is limited to
 #define CLAP_HOST_AUX_OUTPUTS 8u  ///< the auxiliary output ports the core accepts
+#define CLAP_HOST_AUX_INPUTS 8u  ///< the auxiliary input ports (side chains) the core accepts
 #define CLAP_HOST_STATE_MAX_BYTES 1048576u  ///< the largest plugin state the core saves or loads, in bytes
 #define CLAP_HOST_LOG_BYTES 256u  ///< the size of a plugin log message, in bytes
 #define CLAP_HOST_ROLE_POLL_US 1000u  ///< the poll interval while the audio role is taken, in microseconds
@@ -38,7 +59,7 @@
 #define CLAP_HOST_CODE_NO_AUDIO_INPUT "hosting.topology.no-audio-input"  ///< the plugin has no audio input
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT "hosting.topology.no-audio-output"  ///< the plugin has no audio output
 #define CLAP_HOST_CODE_WIDER_THAN_STRIP "hosting.topology.wider-than-strip"  ///< the plugin is wider than the strip
-#define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has extra inputs, fed silence
+#define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has more auxiliary inputs than the core holds
 #define CLAP_HOST_CODE_CRASHED_LIVE "hosting.stability.crashed-live-on-this-rig"  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE "hosting.output.non-finite"  ///< the plugin produced non-finite output
 

@@ -57,7 +57,7 @@
 #define N_BLOCKS 16u
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
-static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX];
+static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
 static const char *g_lilv;
 static pthread_t g_main;
 static volatile int g_in_run;      // the main thread holds the audio role only inside a block
@@ -248,6 +248,61 @@ static void t_fixture(void)
     lv2_plugin_close(p);
 }
 
+/* ---- the side chains: the main input, and one CLAP input per side chain ---- */
+
+#define SC_URI "urn:openmixer:test:sidechain-fixture"
+
+static void t_sidechains(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_sc, SC_URI, why);
+    static const struct { const char *uri, *code; } refused[] = {
+        { SC_URI "#wide", "hosting.topology.wider-than-strip" },
+        { SC_URI "#extra", "hosting.topology.extra-inputs-fed-silence" },
+    };
+    size_t i;
+
+    CHECK(p != NULL, "side chain: the grouped stereo effect is admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->legs == 2 && p->in_ports[0] == 0 && p->in_ports[1] == 1 && p->out_ports[0] == 2 && p->out_ports[1] == 3,
+              "side chain: the main pair is the pg:mainInput group, 0 and 1 (legs %u)", p->legs);
+        CHECK(p->n_side == 1 && p->n_side_legs == 2 && p->side_channels[0] == 2 && p->side_base[0] == 0,
+              "side chain: one side chain of two legs (%u chains, %u legs)", p->n_side, p->n_side_legs);
+        CHECK(p->side_in[0] == 4 && p->side_in[1] == 5, "side chain: its legs are ports 4 and 5, in order (%u, %u)", p->side_in[0], p->side_in[1]);
+        CHECK(p->side_name[0] && strcmp(p->side_name[0], "Sidechain") == 0, "side chain: named by its group's label (%s)", p->side_name[0] ? p->side_name[0] : "-");
+    }
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_sc, SC_URI "#mono", why);
+    CHECK(p != NULL, "side chain: a mono side chain by lv2:isSideChain alone is admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->legs == 2 && p->n_side == 1 && p->n_side_legs == 1 && p->side_channels[0] == 1 && p->side_in[0] == 4,
+              "side chain: one leg, port 4, beside the ungrouped main pair (%u chains, %u legs)", p->n_side, p->n_side_legs);
+        CHECK(p->side_name[0] && strcmp(p->side_name[0], "Side") == 0, "side chain: an ungrouped one is named by its port (%s)", p->side_name[0] ? p->side_name[0] : "-");
+    }
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_sc, SC_URI "#port-of", why);
+    CHECK(p != NULL && p->n_side == 1 && p->side_in[0] == 4 && p->legs == 2,
+          "side chain: pg:sideChainOf on the port alone makes it a side chain (%s)", why);
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_fixture, FIXTURE_URI, why);
+    CHECK(p != NULL && p->n_side == 0 && p->n_side_legs == 0, "side chain: a plugin with no side chain has none");
+    lv2_plugin_close(p);
+
+    for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    {
+        char rwhy[LV2_CORE_WHY_MAX] = "";
+        struct lv2_plugin *q = open_plugin(g_sc, refused[i].uri, rwhy);
+
+        CHECK(!q && strcmp(rwhy, refused[i].code) == 0, "side chain refusal: %s is refused %s (got '%s')", refused[i].uri, refused[i].code, rwhy);
+        lv2_plugin_close(q);
+    }
+}
+
 /* ---- the refusals ---- */
 
 static void t_refusals(void)
@@ -272,6 +327,122 @@ static void t_refusals(void)
         CHECK(!p && strcmp(why, cases[i].code) == 0, "refusal: %s is refused %s from the TTL (got '%s'; the binary has no descriptor for it)", cases[i].uri, cases[i].code, why);
         lv2_plugin_close(p);
     }
+}
+
+/* ---- the MIDI ports ---- */
+
+/* the echo's MIDI input and output are its two atom ports, found by what they support; a twin with two MIDI inputs is
+ * refused from the TTL alone, and the fixture's atom port that supports nothing stays refused too */
+static void t_midi_ports(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_midi, "urn:openmixer:test:midi-echo", why);
+
+    CHECK(p && p->midi_in_port == 2 && p->midi_out_port == 3 && p->legs == 1,
+          "midi: the echo's atom ports are its MIDI input (2) and MIDI output (3), its audio one mono pair (%d, %d)",
+          p ? p->midi_in_port : -1, p ? p->midi_out_port : -1);
+    lv2_plugin_close(p);
+    p = open_plugin(g_fixture, FIXTURE_URI "#atom", why);
+    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: an atom port that supports no MIDI is still refused (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
+    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: a second MIDI input is refused (%s)", why);
+    lv2_plugin_close(p);
+}
+
+/* ---- the MIDI run ---- */
+
+#define MIDI_URI "urn:openmixer:test:midi-echo"
+#define MIDI_CAPACITY 42u       // a 3-byte message takes 24 bytes of a 1016-byte body after its 8-byte sequence header
+
+struct got
+{
+    uint32_t n;
+    int64_t frame[64];
+    uint8_t data[64][8];
+    uint32_t size[64];
+};
+
+static void collect(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    struct got *g = ctx;
+
+    if (g->n < 64 && size <= 8)
+    {
+        g->frame[g->n] = frame;
+        g->size[g->n] = size;
+        memcpy(g->data[g->n], data, size);
+    }
+    g->n++;
+}
+
+static int same_message(const struct got *g, uint32_t i, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    return i < g->n && i < 64 && g->frame[i] == frame && g->size[i] == size && memcmp(g->data[i], data, size) == 0;
+}
+
+/* the echo's MIDI input and output: what goes in comes out at the same frame, byte for byte, and nothing carries over */
+static void t_midi_run(void)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 }, pc[2] = { 0xc3, 0x05 }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t cc[3] = { 0xb1, 0x07, 0x7f }, rt[1] = { 0xf8 };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_midi, MIDI_URI, why);
+    struct lv2_instance *in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    struct lv2_counters before, after;
+    struct got g;
+    uint32_t i;
+
+    CHECK(in && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "midi run: the echo instantiates and activates (%s)", why);
+    if (!in)
+    {
+        lv2_plugin_close(p);
+        return;
+    }
+    lv2_instance_midi_in_add(in, 0, note, 3);
+    lv2_instance_midi_in_add(in, 5, pc, 2);
+    lv2_instance_midi_in_add(in, 9, sysex, 6);
+    lv2_instance_midi_in_add(in, 17, rt, 1);
+    lv2_instance_midi_in_add(in, 63, cc, 3);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == 5 && same_message(&g, 0, 0, note, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
+              && same_message(&g, 3, 17, rt, 1) && same_message(&g, 4, 63, cc, 3),
+          "midi run: five messages in, the same five out at their frames: note, a 2-byte program change, sysex, a realtime byte, a CC (%u)", g.n);
+
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == 0, "midi run: a block with no input writes no output: nothing from the last block carries over (%u)", g.n);
+
+    lv2_instance_counters(in, &before);
+    for (i = 0; i < MIDI_CAPACITY + 8u; i++)
+        lv2_instance_midi_in_add(in, i, note, 3);
+    lv2_instance_counters(in, &after);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == MIDI_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
+          "midi run: a block that does not fit keeps the first %u messages and counts the 8 it dropped (%u, %u)",
+          MIDI_CAPACITY, g.n, after.midi_in_dropped - before.midi_in_dropped);
+    CHECK(same_message(&g, MIDI_CAPACITY - 1u, MIDI_CAPACITY - 1u, note, 3), "midi run: the last one that fits is at its own frame");
+
+    CHECK(lv2_instance_midi_in_add(in, 0, note, 0) == -1, "midi run: a zero-byte message is no message, and counts nothing");
+
+    // a size whose padding wraps to zero is refused before anything is copied: the 3-byte buffer is never read
+    lv2_instance_counters(in, &before);
+    CHECK(lv2_instance_midi_in_add(in, 0, note, 0xFFFFFFF9u) == -1, "midi run: a 0xFFFFFFF9-byte message is refused, not copied");
+    lv2_instance_counters(in, &after);
+    CHECK(after.midi_in_dropped - before.midi_in_dropped == 1, "midi run: the oversize message is counted as dropped (%u)",
+          after.midi_in_dropped - before.midi_in_dropped);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(g.n == 0, "midi run: nothing from the refused message reaches the next block (%u)", g.n);
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
 }
 
 /* ---- the worker gain ---- */
@@ -473,7 +644,13 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-worker-gain.lv2", g_build);
     if (abs_dir(dir, g_wg) != 0)
         return 1;
+    snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", g_build);
+    if (abs_dir(dir, g_sc) != 0)
+        return 1;
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
+    snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", g_build);
+    if (abs_dir(dir, g_midi) != 0)
+        return 1;
     setenv("LV2_PATH", g_build, 1);     // what load_all would find: every bundle is there
 
     in_child("lazy", lazy);
@@ -486,6 +663,9 @@ int main(int argc, char **argv)
     t_one_bundle();
     t_fixture();
     t_refusals();
+    t_midi_ports();
+    t_midi_run();
+    t_sidechains();
     for (r = 0; r < N_RATES; r++)
         t_worker(RATES[r]);
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");

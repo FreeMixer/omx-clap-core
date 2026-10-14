@@ -37,6 +37,26 @@ For each plugin, at load, in this order:
 range and the flags are the plugin's to declare and the console's to draw: mod-host's `output_set` has no field
 for them, so the host does not forward them.
 
+## In process
+
+A program that links libomx-clap-core and runs a plugin in its own process reads the same extension through the
+library, never through the plugin itself:
+
+- `omx_clap_host_meter_count(in)` and `omx_clap_host_meter_info(in, index, &meter)` answer the meters the plugin
+  declared, read once when the instance is opened (`count()` and `get_info()` are main-thread calls). The answer
+  carries everything `clap_meter_info_t` does: the id, the name, the kind, the flags, the channel count and the
+  display range. The declarations are fixed for the instance's life, so any thread may read them.
+- `omx_clap_host_meter_values(in, id, values, capacity)` calls the plugin's `get_values()`, which the extension
+  declares thread-safe, lock-free and wait-free: a telemetry thread reads it at its own rate, never the audio thread.
+  It answers how many channels it wrote, at most `capacity` and the meter's channel count, and 0 for an id the
+  instance did not declare, or a plugin that has not processed since it was activated.
+
+The order is the one above, without the second step: in process only `clap.meters/1` is read. A plugin that serves
+none, or whose declarations cannot be read whole (a meter with no info, no name, no channel or more than
+`OMX_CLAP_METER_CHANNELS_MAX`, or more meters than `OMX_CLAP_METER_COUNT_MAX`), has no meters there, and it is still
+opened: a meter is something the console draws, never a reason to refuse the plugin. The library reads no meter on its
+own and passes nothing to the audio thread; the caller decides what to read and when.
+
 ## While the draft is not in the SDK
 
 No released CLAP SDK ships `clap/ext/draft/meters.h` yet. Until one does, `src/clap_meters.h` declares the draft's
@@ -49,4 +69,5 @@ SDK's header, and `src/clap_meters.h` is removed once the oldest SDK the host bu
 `tests/fake_compressor.c` serves `clap.meters/1`, and one of its plugins serves only `org.openmixer.meters/1`.
 `tests/jack_meters_e2e.sh` holds the host to the order above over jack: every meter of `clap.meters/1` answers
 `monitor_output` and arrives as `output_set`, the standard gain adjustment is not an output beside it, and the
-plugin that offers only the vendor extension has no output at all.
+plugin that offers only the vendor extension has no output at all. `tests/clap_core_test.c` holds the in-process read
+to the same declarations and values, and to a plugin whose declarations cannot be read whole having none.

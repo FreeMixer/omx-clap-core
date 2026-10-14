@@ -54,19 +54,20 @@ Ports
 |---|---|---|
 | Audio, one input and one output | supported: one mono main port each way (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
 | Audio, two inputs and two outputs | supported: one stereo main port each way (`lv2_clap_test` core: the 2×2 plugin on a mono lane) | unsupported |
-| Audio, any other layout (mono to stereo, more than two channels, side chains) | unsupported (stage 2); refused with the verdict's code (`lv2_host_test` and `lv2_clap_test` refusals) | unsupported |
-| Port groups (`pg:Group`, `pg:mainInput`, `pg:sideChainOf`) | unsupported (stage 2) | unsupported |
+| Audio, side chains (`lv2:isSideChain`, or `pg:sideChainOf` on a port or group) | supported: one CLAP input per side chain, of one or two channels, named by its group's label or its port's name, silent until the host binds a buffer to it (`lv2_clap_test` side chain, `lv2_host_test` side chain) | unsupported |
+| Audio, any other layout (mono to stereo, more than two channels, an input that is neither main nor a side chain) | unsupported (stage 2); refused with the verdict's code (`lv2_host_test` and `lv2_clap_test` refusals) | unsupported |
+| Port groups (`pg:mainInput`, `pg:group`, `pg:sideChainOf`) | supported for the main input and side chains: the members of `pg:mainInput` are the main pair, the members of one `pg:group` one CLAP input (`lv2_host_test` side chain). Output groups and other groups are read as ungrouped ports (unsupported) | unsupported |
 | Control input ports | supported: a CLAP parameter each, id = port index, name, range and default from the TTL, written before the block's run (`lv2_clap_test` fixture) | unsupported |
 | Control output ports | supported: a read-only CLAP parameter each, read back after every block (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
 | Latency port (`lv2:latency`, `lv2:reportsLatency`) | supported: `clap.latency` (`lv2_clap_test` latency and fixture, `lv2_run_test` pad) | unsupported |
 | A latency that changes while running | lossy: held until it has read unchanged for `latency_hold_ms`, then one restart; a change that comes back inside the hold is ignored (`lv2_clap_test` latency) | unsupported |
 | The plugin's own bypass (`lv2:enabled`, a `bypass` port) | lossy: held at the value that keeps the plugin processing; the host's crossfade is the bypass. Turning the bypass off after a steady bypass resets the plugin (LV2 deactivate then activate, the worker joined before and started after) on the host's control thread, never in the audio path (`lv2_clap_test` fixture, core and worker, `lv2_host_test` fixture) | unsupported |
 | CV ports | unsupported; refused with `hosting.features.cv-ports` (`lv2_host_test` refusals) | unsupported |
-| Atom and event ports, MIDI | unsupported (stage 2); refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` refusals, `lv2_patch_test` MIDI twin) | unsupported |
-| `time:Position` | unsupported (stage 2; lossy when it comes, built from the CLAP transport) | unsupported |
+| Atom and event ports, MIDI (`midi:MidiEvent`) | supported: one MIDI input and one MIDI output, each a `clap.note-ports` port that offers the MIDI dialect only. Every channel message, sysex and system realtime byte arrives at its own length (a program change or channel pressure is two bytes) at its frame, and a frame past the block is held at its last. An input message past the atom buffer (at least 1024 bytes; `rsz:minimumSize` is not read yet) is dropped and counted as `midi_in_dropped`. An output message of up to three bytes, or a sysex, is passed on; anything else is not. A second MIDI port, a port that takes both MIDI and `patch:Message`, and an `ev:EventPort` are refused with `hosting.features.midi-in-fed-empty` (`lv2_clap_test` midi and refusals, `lv2_host_test` midi ports and midi run, `lv2_patch_test` MIDI twin) | unsupported |
+| `time:Position` input | lossy: forged at frame 0 only when the host's transport changes (its fields but the frame); an unchanged transport forges nothing, no transport an empty sequence. Named by `lv2_clap_test` time: every key and value, the change rule, a withdrawal and a tempo-only transport (sabotaged: an always-forge, a dropped playing flag and a dropped bar start each go red) | unsupported |
 | `patch:` numeric parameters | supported: a `patch:Set` forged before each block's run, `patch:Set` and `patch:Put` read back after it, the ids above the port indices (`lv2_patch_test`); the CLAP face lists them as parameters, a write lands before the block and the plugin's own value comes back as an output parameter event (`lv2_clap_test` patch face) | unsupported |
 | `patch:` file paths and strings | unsupported (stage 3) | unsupported |
-| Other atom messages | unsupported | unsupported |
+| Other atom messages (an atom port that supports no MIDI) | unsupported; refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` midi ports) | unsupported |
 
 Port properties
 ---------------

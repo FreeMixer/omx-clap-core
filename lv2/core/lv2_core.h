@@ -53,6 +53,7 @@
 #include <lv2/core/lv2.h>
 #include <lv2/log/log.h>
 #include <lv2/options/options.h>
+#include <lv2/port-groups/port-groups.h>
 #include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
@@ -66,6 +67,12 @@
 
 /* bytes a refusal code needs, with its NUL */
 #define LV2_CORE_WHY_MAX                96
+
+/* the smallest atom buffer an instance gets, whatever the configuration says: bytes, a multiple of 8 */
+#define LV2_CORE_ATOM_BYTES_MIN         1024u
+
+/* the side-chain legs a plugin may have, one per channel: at most this many channels, each side chain one or two of them */
+#define LV2_CORE_SIDE_LEGS              8
 
 /* the library the first bundle loads unless the configuration names another */
 #define LV2_CORE_LILV_SONAME            "liblilv-0.so.0"
@@ -150,9 +157,18 @@ struct lv2_plugin
     char *uri;
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
-    uint32_t legs;                  // 1 or 2
+    uint32_t legs;                  // the main input's channels: 1 or 2
     uint32_t in_ports[2], out_ports[2];
+    uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
+    uint32_t n_side_legs;           // the legs of all of them
+    uint32_t side_channels[LV2_CORE_SIDE_LEGS];     // the legs of each side chain
+    uint32_t side_base[LV2_CORE_SIDE_LEGS];         // the first leg of each side chain
+    uint32_t side_in[LV2_CORE_SIDE_LEGS];           // the plugin's port index of each side-chain leg
+    char *side_name[LV2_CORE_SIDE_LEGS];            // the name of each side chain: its group's label, else its port's name
     int32_t latency_port;           // -1: none
+    int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
+    int32_t midi_out_port;          // the one MIDI output atom port, -1: none
+    int32_t time_port;              // -1: none; the atom input that takes time:Position and nothing else (§6.6)
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
@@ -205,7 +221,11 @@ struct lv2_counters
     uint32_t schedule_off_audio;    // schedule_work called off the audio role: a thread violation
     uint32_t log_on_audio;          // log:log called on the audio role (the sink writes nothing either way)
     uint32_t patch_dropped;         // patch events of a block that did not fit the atom buffer
+    uint32_t midi_in_dropped;       // a MIDI input event with no room left in the input buffer: dropped, never waited for
 };
+
+/* What lv2_instance_midi_out_each passes for each event the plugin wrote: its frame, as written, and the bytes. */
+typedef void (*lv2_midi_out_fn)(void *ctx, int64_t frame, const uint8_t *data, uint32_t size);
 
 
 /*
@@ -227,7 +247,8 @@ int lv2_core_lilv_loaded(void);
 /* Every feature URI a provider here serves, NULL-terminated. */
 extern const char *const lv2_core_provided[];
 
-/* The bundle at `path` (an absolute directory, with or without its trailing '/'), loaded on its first reference, lilv
+/* The bundle at `path` (an absolute directory, with or without its trailing '/'), loaded on its first reference and kept
+ * loaded for the life of the process (lv2_bundle_unref drops a reference, not the bundle), lilv
  * loaded on the first bundle: all or nothing, and a failed load does not latch. NULL with `why` set when lilv cannot be
  * loaded, the library is not configured, or the bundle holds no plugin. */
 struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX]);
@@ -273,6 +294,7 @@ void lv2_instance_free(struct lv2_instance *in);
 /* The audio buffers the plugin's ports are connected to, `max_frames` each, valid from the activate that sized them. */
 float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg);
 float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t leg);
+float *lv2_instance_side_in(struct lv2_instance *in, uint32_t leg);
 
 /* [audio] Write the input control `k` (the index in plugin->controls); the bypass and the outputs are not writable. */
 void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value);
@@ -281,10 +303,43 @@ void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value);
  * published it. */
 float lv2_instance_control_get(const struct lv2_instance *in, uint32_t k);
 
+/* The transport a block hands a plugin's time:Position input, the host's own fields as LV2 names them. `frame` and
+ * `playing` (time:speed, 1 or 0) are always present; each other field is present only when its LV2_TIME_HAS_* bit is
+ * set in `has`. */
+#define LV2_TIME_HAS_BPM                (1u << 0)   // beatsPerMinute
+#define LV2_TIME_HAS_BEATS              (1u << 1)   // bar, barBeat
+#define LV2_TIME_HAS_METER              (1u << 2)   // beatUnit, beatsPerBar
+struct lv2_time
+{
+    int64_t frame;                  // time:frame: the frame at the start of the block
+    int playing;                    // time:speed: 1 when playing, 0 otherwise
+    uint32_t has;                   // LV2_TIME_HAS_* bits
+    double bpm;                     // time:beatsPerMinute
+    int64_t bar;                    // time:bar
+    double bar_beat;                // time:barBeat, in beatUnit notes from the bar's start
+    uint32_t beat_unit;             // time:beatUnit
+    uint32_t beats_per_bar;         // time:beatsPerBar
+};
+
+/* [audio] The time:Position of the block about to run, forged into the plugin's time port (NULL: no transport, and the
+ * port reads an empty sequence). An object is forged only when the transport differs from the last block's, at frame 0
+ * of the sequence. Does nothing for a plugin with no time port. */
+void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t);
+
 /* [audio] The plugin's half of a block: worker responses drained through work_response, then `before` (the caller's
  * control writes, NULL for none), run, end_run, the flush-to-zero bits re-asserted, the latency port and the outputs
  * read. */
 void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *ctx), void *ctx);
+
+/* [audio] One MIDI message for the next run, at `frame` of its block: `size` bytes at `data`. Between runs, on the audio
+ * role: the input is cleared when the instance has run, so a block's messages are added before its run. 0, or -1 when the
+ * plugin has no MIDI input, `size` is 0, or the buffer has no room left: that is counted in midi_in_dropped, never waited
+ * for. */
+int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint8_t *data, uint32_t size);
+
+/* [audio] Each event the plugin wrote to its MIDI output in the last run, in order, to fn. A sequence in beats, and an
+ * event whose type is not midi:MidiEvent, is not passed. The frames are the plugin's, not clamped. */
+void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx);
 
 /* [thread-safe] The latency port's last valid reading in frames (0 without one, or before the first run). */
 uint32_t lv2_instance_latency(const struct lv2_instance *in);

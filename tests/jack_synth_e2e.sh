@@ -136,8 +136,8 @@ instrument() {
 instrument 0 synth 2 "the CLAP dialect"
 instrument 1 synth-midi 1 "the MIDI dialect"
 
-expect "add clap:$synth#org.omx-clap-host.test.synth-aux 2" "resp -102"
-grep -q "hosting.topology.extra-inputs-fed-silence" "$runtime/host.log"; step $? "an instrument with a sidechain is refused with its reason"
+expect "add clap:$synth#org.omx-clap-host.test.synth-aux 2" "resp 2"
+expect "remove 2" "resp 0"
 expect "add clap:$synth#org.omx-clap-host.test.synth-wide 2" "resp -102"
 grep -q "hosting.topology.wider-than-strip" "$runtime/host.log"; step $? "an instrument wider than stereo is refused with its reason"
 expect "add clap:$synth#org.omx-clap-host.test.synth-notes 2" "resp -102"

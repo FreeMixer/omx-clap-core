@@ -67,12 +67,23 @@
 */
 
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
- * raises it (2: the instance's tempo and transport, 0.3). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
+ * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
+ * 4: the plugin's clap.meters/1 declarations, 0.7). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
  * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
  * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
  * the library. */
-#define OMX_CLAP_CORE_ABI               2u
+#define OMX_CLAP_CORE_ABI               4u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
+
+/** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
+#define OMX_CLAP_METER_COUNT_MAX        16u
+/** The most channels one meter may have; a meter with more leaves the plugin with no meters in process. */
+#define OMX_CLAP_METER_CHANNELS_MAX     64u
+/** clap.meters/1's kinds, as struct omx_clap_meter's `kind` carries them: no unit, a gain reduction in dB (0 none,
+ * negative a reduction), a level in dBFS. */
+#define OMX_CLAP_METER_KIND_OTHER           0u
+#define OMX_CLAP_METER_KIND_GAIN_REDUCTION  1u  ///< a gain reduction in dB, 0 none and negative a reduction
+#define OMX_CLAP_METER_KIND_LEVEL           2u  ///< a level in dBFS
 
 /** How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
@@ -159,6 +170,20 @@ struct omx_clap_tempo
     _Atomic uint64_t bpm_bits;  ///< the bpm as the bits of a double, 0 for none
 };
 
+struct clap_plugin_meters;
+
+/** One meter the plugin declares through clap.meters/1, as the instance read it at open (docs/meters.md). */
+struct omx_clap_meter
+{
+    clap_id id;  ///< the meter's id, what omx_clap_host_meter_values takes
+    char name[CLAP_NAME_SIZE];  ///< the meter's displayable name
+    uint32_t kind;  ///< clap.meters/1's kind, one of OMX_CLAP_METER_KIND_*
+    uint32_t flags;  ///< clap.meters/1's flags (1: every value of one read comes from the same block)
+    uint32_t channel_count;  ///< the values the meter has, 1 to OMX_CLAP_METER_CHANNELS_MAX
+    double min_value;  ///< the display range the plugin suggests, in the meter's unit
+    double max_value;  ///< the top of that range
+};
+
 /** One hosted instance. Opaque to the RT except for `stage`, which the consumer's RT thread runs. */
 struct omx_clap_instance
 {
@@ -234,6 +259,22 @@ struct omx_clap_instance
     // warming up or held
     const struct omx_clap_tempo *tempo;  ///< the tempo word carried by omx_clap_host_run, NULL for none
     clap_event_transport_t transport;  ///< the transport record handed to the plugin
+    // the host's published transport, set by omx_clap_host_set_transport (NULL: the tempo word alone decides), and the
+    // last whole record the audio role read from it, kept for a block whose read does not come whole
+    const struct omx_clap_transport_src *transport_src;  ///< the published transport omx_clap_host_run reads, NULL for none
+    struct omx_clap_transport transport_rec;  ///< the last whole record read from transport_src
+
+    // the auxiliary inputs (ABI 3): one port each, 1 or 2 channels, and the caller's pair bound to it (NULL: the silence)
+    uint32_t aux_inputs;  ///< auxiliary input ports, after the main one
+    uint32_t aux_in_channels[CLAP_HOST_AUX_INPUTS];  ///< the channel count of each auxiliary input port
+    float *aux_in_bound[CLAP_HOST_AUX_INPUTS][2];  ///< the caller's buffers per port and channel, NULL: silence
+    uint32_t aux_in_frames[CLAP_HOST_AUX_INPUTS];  ///< the frames each bound pair holds
+    struct omx_clap_aux_in aux_in;  ///< the auxiliary inputs' process list, after every field the stage had before ABI 3
+
+    // the plugin's clap.meters/1 (ABI 4): read once at open and fixed for the instance's life, so any thread reads them
+    const struct clap_plugin_meters *meters;  ///< the plugin's clap.meters/1 extension, NULL when it has none read whole
+    uint32_t meter_count;  ///< the meters declared, 0 with no extension
+    struct omx_clap_meter meter[OMX_CLAP_METER_COUNT_MAX];  ///< the declarations, meter_count of them
 };
 
 
@@ -272,8 +313,9 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
  * Load the .clap at `path`, create the plugin `id` (NULL: the factory's first descriptor), init it and read its
  * extensions, each step judged: the descriptor must carry audio-effect (or, where the configuration admits note inputs,
  * instrument), init must succeed headless with only the declared host extensions offered, the audio ports must declare
- * one main output and one main input of the same width, 1 or 2 channels (no main input for an instrument), no extra
- * input, and no note input unless the configuration admits one. An auxiliary output is admitted and left unconnected.
+ * one main output and one main input of the same width, 1 or 2 channels (no main input for an instrument), no note input
+ * unless the configuration admits one. An auxiliary output is admitted and left unconnected; an auxiliary input (a side
+ * chain) is admitted and fed silence until the caller binds its buffers with omx_clap_host_bind_aux_input.
  * The read-back table of the parameters must be allocated, or the open is refused (CLAP_HOST_CODE_HEADLESS_FAILED).
  * Returns 0 with `*out` set, or -1 with `why` the deciding hosting code and nothing left loaded. The binary is
  * reference-counted: one dlopen per path, deinit and dlclose after its last instance.
@@ -417,6 +459,18 @@ OMX_CLAP_EXPORT int omx_clap_host_track_info_set(struct omx_clap_instance *in, c
 /** Whether the plugin called the host's remote_controls.changed since the last call; reading clears it. */
 OMX_CLAP_EXPORT int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in);
 
+/** The meters the plugin declared through clap.meters/1, read at open: 0 when it has none, or none read whole. Any thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_count(const struct omx_clap_instance *in);
+
+/** The `index`-th meter's declaration into `*meter`: 0, or -1 for an index past omx_clap_host_meter_count. Any thread. */
+OMX_CLAP_EXPORT int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index, struct omx_clap_meter *meter);
+
+/** The latest values of meter `id`, one per channel, into `values`: how many were written, at most `capacity` and the
+ * meter's channel count; 0 for an id the plugin did not declare, or a plugin that has not processed since it was
+ * activated. Calls the plugin's thread-safe get_values(), so any thread but the audio role reads it: a telemetry
+ * thread, at its own rate. The caller keeps the instance open while it reads. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity);
+
 /** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency. Returns
  * nonzero when the plugin asked for a restart (the caller performs it). */
 OMX_CLAP_EXPORT int omx_clap_host_tick(struct omx_clap_instance *in);
@@ -437,6 +491,24 @@ OMX_CLAP_EXPORT int omx_clap_host_has_feature(const clap_plugin_descriptor_t *de
 /** Control thread, before publish: the tempo omx_clap_host_run hands the plugin from now on (NULL: none). The word must
  * outlive the instance's publication. */
 OMX_CLAP_EXPORT void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo);
+
+/** Control thread, before publish: the host's published transport omx_clap_host_run hands the plugin from now on (NULL:
+ * none, and the tempo word decides again). It carries the position, the playing state, the bar and the time signature as
+ * well as the tempo, so it supersedes the tempo word while set. The storage must outlive the instance's publication. */
+OMX_CLAP_EXPORT void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_clap_transport_src *src);
+
+/**
+ * Control thread, while the instance is not running (never published, or unpublished): bind the buffers auxiliary input
+ * `port` reads, `l` for its first channel and `r` for its second (a mono port reads `l` only), each `frames` long. `l` NULL
+ * unbinds it, back to the silence every unbound port reads. The buffers are not copied: a block never reads past
+ * `frames`, since the binding is refused while the instance is active at a larger block, and omx_clap_host_activate (and
+ * so omx_clap_host_set_rate) refuses a larger block while it is bound. The caller keeps them alive until it unbinds or
+ * closes the instance, and fills them on the audio role before each block that runs the instance. The binding outlives a
+ * deactivate and activate. Returns 0, or -1 when `port` is not an auxiliary input, a stereo port is bound without `r`,
+ * `frames` is shorter than the active instance's largest block, or the instance is running.
+ */
+OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r,
+                                                 uint32_t frames);
 
 
 /*
@@ -466,14 +538,32 @@ static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
 }
 
 /** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
- * transport carrying the tempo the instance was given (NULL when it has none or the word holds none). Read once per
- * block, relaxed: a change is seen by the next block. The transport record is written only inside the stage's cycle,
- * on a processing block (omx_clap_run_transport); this function itself writes nothing of the instance. */
+ * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
+ * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
+ * come whole keeps the last record it read. A change is seen by the next block. The transport record is written only
+ * inside the stage's cycle, on a processing block (omx_clap_run_transport); this function itself writes nothing of the
+ * instance's stage. */
 static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
 {
-    const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+    struct omx_clap_transport rec;
 
-    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, bpm);
+    if (in->transport_src)
+    {
+        omx_clap_transport_read(in->transport_src, &in->transport_rec);
+        rec = in->transport_rec;
+    }
+    else
+    {
+        const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+
+        memset(&rec, 0, sizeof rec);
+        if (bpm > 0.0)
+        {
+            rec.flags = CLAP_TRANSPORT_HAS_TEMPO;
+            rec.tempo = bpm;
+        }
+    }
+    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, &rec);
 }
 
 #endif

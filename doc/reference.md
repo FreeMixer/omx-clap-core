@@ -59,6 +59,11 @@ thread right after the plugin's `process()`; a cycle that does not call
 it, bypassed, reads 0. A plugin whose meters derive a symbol twice, or one
 a parameter answers to, is refused, and the host names both.
 
+A program that hosts the plugin in its own process through the library reads
+the same `clap.meters/1` with `omx_clap_host_meter_count`,
+`omx_clap_host_meter_info` and `omx_clap_host_meter_values`
+([docs/meters.md](../docs/meters.md), In process).
+
 Bypass
 ------
 
@@ -96,16 +101,16 @@ arrived on, in the dialect the note port prefers:
 A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`); the surplus is
 counted and dropped. Nothing is allocated or locked on the audio thread.
 
-An extra audio input (a sidechain), a main port wider than stereo, a main
-pair of different widths, a second note input, a note input that reads
-neither the CLAP nor the MIDI dialect, or no audio input and no note input
-is refused at `add` with `resp -102` and the `hosting.*` code on stderr:
-`<id>: hosting.topology.extra-inputs-fed-silence`,
-`hosting.topology.wider-than-strip`, `hosting.clap.note-input`,
-`hosting.topology.no-audio-input`. A sidechain is not fed silence, because a
-plugin behaving on a silent sidechain is not the plugin the same core gives
-in-process. An extra audio output is admitted and left unconnected: the
-plugin is handed a scratch buffer for it. A plugin is admitted with the
+A main port wider than stereo, a main pair of different widths, a second
+note input, a note input that reads neither the CLAP nor the MIDI dialect, or
+no audio input and no note input is refused at `add` with `resp -102` and the
+`hosting.*` code on stderr: `hosting.topology.wider-than-strip`,
+`hosting.clap.note-input`, `hosting.topology.no-audio-input`. An extra audio
+input (a sidechain, one or two channels, up to eight) is admitted and fed
+silence: the command line has no verb that binds it, so the plugin reads
+zeros on it. The library's caller binds a buffer to it with
+`omx_clap_host_bind_aux_input`. An extra audio output is admitted and left
+unconnected: the plugin is handed a scratch buffer for it. A plugin is admitted with the
 `audio-effect` or the `instrument` feature and refused with neither.
 
 `bypass <N> 1` on an instrument fades its output to silence over one block

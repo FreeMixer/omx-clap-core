@@ -57,6 +57,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      - name: Every source names its licence
+        run: bash tests/spdx-check.sh
+
       - uses: FreeMixer/.github/.github/actions/mod-host-protocol@v1
 
       - name: Install plugin-hostd's headers and build its daemon
@@ -84,6 +87,10 @@ jobs:
 
       - name: What the LV2 adapter costs per process() call
         run: make lv2-cost
+
+      # the stage-2 oracle's kinds each need a fixture: a kind with none fails the job
+      - name: Every stage-2 kind has a fixture
+        run: make lv2-stage2-kinds
 
       # The host over jack with an instrument, in a PipeWire of its own. It needs a private user
       # namespace with its own /proc; a runner that refuses one cannot run it, and the step says so.

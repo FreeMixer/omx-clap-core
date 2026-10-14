@@ -409,7 +409,10 @@ LV2_FIXTURE_DIR = lv2/tests/fixtures
 # fuses a multiply into an add; aarch64's GCC fuses by default and the product's rounding then reads as an error
 LV2_FIXTURE_CFLAGS = -O2 -g -Wall -Wextra -Werror -std=gnu99 -fPIC -shared -D_GNU_SOURCE -pthread -ffp-contract=off $(LV2_CFLAGS)
 LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-worker-gain.lv2/omx-worker-gain.so \
-              build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so build/lv2/omx-patch-fixture.lv2/omx-patch-fixture.so
+              build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so build/lv2/omx-patch-fixture.lv2/omx-patch-fixture.so \
+              build/lv2/omx-midi-echo.lv2/omx-midi-echo.so \
+              build/lv2/omx-time-probe.lv2/omx-time-probe.so \
+              build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -421,6 +424,16 @@ build/lv2/omx-worker-gain.lv2/omx-worker-gain.so: $(LV2_FIXTURE_DIR)/lv2_worker_
 	cp $(LV2_FIXTURE_DIR)/omx-worker-gain.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -DLV2_WORKER_GAIN_BUNDLE -o $@ $< -lm
 
+build/lv2/omx-time-probe.lv2/omx-time-probe.so: $(LV2_FIXTURE_DIR)/lv2_time_probe.c $(LV2_FIXTURE_DIR)/lv2_time_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-time-probe.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-time-probe.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so: $(LV2_FIXTURE_DIR)/lv2_sidechain_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-sidechain-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-sidechain-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
 build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so: $(LV2_FIXTURE_DIR)/lv2_fakes.c $(LV2_FIXTURE_DIR)/lv2_fakes.h $(wildcard $(LV2_FIXTURE_DIR)/omx-lv2-fakes.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-lv2-fakes.lv2/*.ttl $(@D)/
@@ -429,6 +442,11 @@ build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so: $(LV2_FIXTURE_DIR)/lv2_fakes.c $(L
 build/lv2/omx-patch-fixture.lv2/omx-patch-fixture.so: $(LV2_FIXTURE_DIR)/lv2_patch_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-patch-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-patch-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_echo.c $(wildcard $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 LV2_TEST_CFLAGS = -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests $(LV2_CFLAGS) $(CFLAGS) -Werror -ffp-contract=off
@@ -452,8 +470,26 @@ test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patc
 	./lv2/tests/lv2_host_test build/lv2 $(LILV_LIB)
 	./lv2/tests/lv2_patch_test build/lv2
 
+# the MIDI output path under AddressSanitizer: lv2/core and the echo fixture built with it; a read past the adapter's own
+# buffer is a report that ends the test. Needs libasan, as test-untrusted-asan does.
+LV2_ASAN_DIR = build/lv2-asan
+LV2_ASAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer -g -O1 -fPIC -D_GNU_SOURCE -std=gnu99 -Wall -Wextra -Werror -ffp-contract=off $(LV2_CFLAGS)
+
+$(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_echo.c $(wildcard $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_ASAN_FLAGS) -shared -o $@ $< -lm
+
+$(LV2_ASAN_DIR)/lv2_asan_test: lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) lv2/core/lv2_core.h
+	@mkdir -p $(@D)
+	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -o $@ lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) -ldl -lpthread -lm
+
+test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so
+	ASAN_OPTIONS=detect_leaks=0 ./$(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)
+.PHONY: test-lv2-asan
+
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
-test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate
+test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
@@ -481,6 +517,14 @@ test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-f
 lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 	./lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2
 .PHONY: lv2-cost
+
+# the stage-2 oracle's kinds, each needing a fixture: exits 1 and names the missing ones. Not in test-lv2 until all five have one.
+lv2-stage2-kinds:
+	@bash lv2/tests/stage2_kinds.sh
+	@mkdir -p build/lv2/empty-fixtures && if STAGE2_FIXTURES=$(abspath build/lv2/empty-fixtures) bash lv2/tests/stage2_kinds.sh >/dev/null 2>&1; then \
+	    echo "FAIL lv2-stage2-kinds passes with no fixture at all: the check's exit status is not trusted"; exit 1; fi; \
+	echo "ok   the kinds check fails on an empty fixture tree"
+.PHONY: lv2-stage2-kinds
 
 # the fixture bundles against the LV2 specifications, with lv2_validate (the lv2 package's) when it is installed
 test-lv2-validate: $(LV2_BUNDLES)

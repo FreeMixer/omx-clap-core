@@ -61,6 +61,7 @@
 #include "omx_clap_lv2.h"
 #include "fixtures/lv2_fakes.h"
 #include "fixtures/lv2_worker_gain.h"
+#include "fixtures/lv2_time_probe.h"
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -71,6 +72,7 @@
 #define WARMB 512u      // an activation larger than the live blocks (a host that activates at its largest quantum); not
                         // 1024: 64 x 1024 and 64 x 256 frames leave the HOLD_PERIOD of 3 at the same phase
 #define HOLD_MS 250u
+#define MIDI_URI "urn:openmixer:test:midi-echo"
 
 /* ---- RT allocation witness ---- */
 static volatile int in_rt = 0, rt_allocs = 0;
@@ -93,6 +95,9 @@ int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(voi
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
 static char g_patch[PATH_MAX];
+static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
+static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
+static char g_sc[PATH_MAX];
 
 /* ---- the test's host ---- */
 
@@ -291,16 +296,14 @@ static void rig_down(struct rig *g)
 }
 
 /* one process() call: `in` to `out` (the same buffer when the host processes in place), `events` or none */
-static clap_process_status process(struct rig *g, const float *in_l, const float *in_r, float *out_l, float *out_r, uint32_t n,
-                                   struct evlist *events)
+static clap_process_status process_with(struct rig *g, const float *in_l, const float *in_r, float *out_l, float *out_r, uint32_t n,
+                                        const clap_input_events_t *in_events, const clap_output_events_t *out_events)
 {
     float *ins[2] = { (float *)in_l, (float *)(in_r ? in_r : in_l) }, *outs[2] = { out_l, out_r ? out_r : out_l };
     clap_audio_buffer_t ib = { ins, NULL, g->legs, 0, 0 }, ob = { outs, NULL, g->legs, 0, 0 };
-    struct evlist none;
     clap_process_t p;
     clap_process_status st;
 
-    ev_init(&none);
     memset(&p, 0, sizeof(p));
     p.steady_time = -1;
     p.frames_count = n;
@@ -308,14 +311,23 @@ static clap_process_status process(struct rig *g, const float *in_l, const float
     p.audio_outputs = &ob;
     p.audio_inputs_count = 1;
     p.audio_outputs_count = 1;
-    p.in_events = events ? &events->list : &none.list;
-    p.out_events = &OUT_EVENTS;
+    p.in_events = in_events;
+    p.out_events = out_events;
     g_audio = 1;
     in_rt = 1;
     st = g->plugin->process(g->plugin, &p);
     in_rt = 0;
     g_audio = 0;
     return st;
+}
+
+static clap_process_status process(struct rig *g, const float *in_l, const float *in_r, float *out_l, float *out_r, uint32_t n,
+                                   struct evlist *events)
+{
+    struct evlist none;
+
+    ev_init(&none);
+    return process_with(g, in_l, in_r, out_l, out_r, n, events ? &events->list : &none.list, &OUT_EVENTS);
 }
 
 static double param(struct rig *g, clap_id id)
@@ -453,6 +465,28 @@ static void t_refusals(void)
               (int)(strlen(t.log) ? strlen(t.log) - 1 : 0), t.log);
     }
     omx_clap_lv2_entry_release(e);
+}
+
+/* a plugin with two MIDI inputs is refused with its code, and the fixture with no MIDI has no note ports */
+static void t_midi_refusal(void)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_midi, why);
+    const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    struct th t;
+    struct rig g;
+    const clap_plugin_note_ports_t *np;
+
+    th_init(&t);
+    CHECK(f && f->create_plugin(f, &t.host, MIDI_URI "#two-in") == NULL && strcmp(t.log, "hosting.features.midi-in-fed-empty\n") == 0,
+          "create_plugin refuses a second MIDI input, and clap.log carries its code (got '%.*s')", (int)strcspn(t.log, "\n"), t.log);
+    omx_clap_lv2_entry_release(e);
+    if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(!np || (np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 0), "the fixture with no MIDI has no note ports");
+        rig_down(&g);
+    }
 }
 
 /* ---- the fixture through the face ---- */
@@ -791,6 +825,252 @@ static void t_patch(double rate)
     rig_down(&g);
 }
 
+/* ---- MIDI through the face ---- */
+
+#define MIDI_EVENTS 64u
+#define MIDI_SYSEX_MAX 16u
+#define MIDI_CAPACITY 42u       // a 3-byte message takes 24 bytes of the 1016 the MIDI buffer holds after its header
+
+union any_event
+{
+    clap_event_header_t h;
+    clap_event_midi_t m;
+    clap_event_midi_sysex_t x;
+    clap_event_note_t note;
+};
+
+struct midi_in
+{
+    clap_input_events_t list;
+    union any_event ev[MIDI_EVENTS];
+    uint32_t n;
+};
+
+struct midi_out
+{
+    clap_output_events_t list;
+    union any_event ev[MIDI_EVENTS];
+    uint8_t bytes[MIDI_EVENTS][MIDI_SYSEX_MAX];     // a sysex's bytes, copied out of the plugin's buffer
+    uint32_t n;
+};
+
+/* the fixture's symbols, read back from the loaded binary */
+typedef uint32_t (*echo_seen_count_fn)(void);
+typedef int (*echo_seen_fn)(uint32_t, int64_t *, uint32_t *, uint8_t *);
+typedef void (*echo_extra_fn)(int);
+
+static uint32_t mi_size(const clap_input_events_t *l)
+{
+    return ((const struct midi_in *)l->ctx)->n;
+}
+
+static const clap_event_header_t *mi_get(const clap_input_events_t *l, uint32_t i)
+{
+    const struct midi_in *m = l->ctx;
+
+    return i < m->n ? &m->ev[i].h : NULL;
+}
+
+static void midi_in_init(struct midi_in *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->list.ctx = m;
+    m->list.size = mi_size;
+    m->list.get = mi_get;
+}
+
+static void mi_midi(struct midi_in *m, uint32_t time, const uint8_t *bytes, uint32_t size)
+{
+    clap_event_midi_t *e = &m->ev[m->n++].m;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = CLAP_EVENT_MIDI;
+    memcpy(e->data, bytes, size);
+}
+
+static void mi_sysex(struct midi_in *m, uint32_t time, const uint8_t *bytes, uint32_t size)
+{
+    clap_event_midi_sysex_t *e = &m->ev[m->n++].x;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = CLAP_EVENT_MIDI_SYSEX;
+    e->buffer = bytes;
+    e->size = size;
+}
+
+/* a CLAP-dialect note on: the port offers no such dialect, so it must not reach the plugin */
+static void mi_note(struct midi_in *m, uint32_t time)
+{
+    clap_event_note_t *e = &m->ev[m->n++].note;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = CLAP_EVENT_NOTE_ON;
+    e->note_id = -1;
+    e->key = 60;
+    e->velocity = 0.8;
+}
+
+static bool mo_push(const clap_output_events_t *l, const clap_event_header_t *event)
+{
+    struct midi_out *o = l->ctx;
+    union any_event *e;
+
+    if (o->n >= MIDI_EVENTS)
+        return false;
+    e = &o->ev[o->n];
+    if (event->type == CLAP_EVENT_MIDI_SYSEX)
+    {
+        const clap_event_midi_sysex_t *x = (const clap_event_midi_sysex_t *)event;
+
+        memcpy(o->bytes[o->n], x->buffer, x->size < MIDI_SYSEX_MAX ? x->size : MIDI_SYSEX_MAX);
+        e->x = *x;
+        e->x.buffer = o->bytes[o->n];
+    }
+    else if (event->type == CLAP_EVENT_MIDI)
+        e->m = *(const clap_event_midi_t *)event;
+    else
+        e->h = *event;
+    o->n++;
+    return true;
+}
+
+static void midi_out_init(struct midi_out *o)
+{
+    memset(o, 0, sizeof(*o));
+    o->list.ctx = o;
+    o->list.try_push = mo_push;
+}
+
+/* whether output `i` is the event of `type` at `time` with these bytes: a CLAP_EVENT_MIDI compares its three bytes */
+static int out_is(const struct midi_out *o, uint32_t i, uint32_t type, uint32_t time, const uint8_t *bytes, uint32_t size)
+{
+    const union any_event *e;
+
+    if (i >= o->n)
+        return 0;
+    e = &o->ev[i];
+    if (e->h.type != type || e->h.time != time)
+        return 0;
+    if (type == CLAP_EVENT_MIDI)
+        return memcmp(e->m.data, bytes, 3) == 0;
+    return type == CLAP_EVENT_MIDI_SYSEX && e->x.size == size && memcmp(o->bytes[i], bytes, size) == 0;
+}
+
+/* the note ports, the messages of every channel status and the system bytes through the fixture's echo, the frames of
+ * the block, and nothing carried into the next block; a block past its capacity keeps what fits and counts the rest;
+ * and a malformed output of the plugin is not passed on */
+static void t_midi(double rate)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 }, pc[3] = { 0xc3, 0x05, 0x00 }, cp[3] = { 0xd5, 0x40, 0x00 };
+    static const uint8_t cc[3] = { 0xb7, 0x07, 0x7f }, bend[3] = { 0xe9, 0x00, 0x40 }, noff[3] = { 0x8f, 0x3c, 0x00 };
+    static const uint8_t poly[3] = { 0xa2, 0x3c, 0x50 }, rt[3] = { 0xf8, 0x00, 0x00 }, cc0[3] = { 0xb0, 0x01, 0x40 };
+    static const uint8_t note91[3] = { 0x91, 0x40, 0x7f }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t expect_size[11] = { 3, 2, 2, 3, 3, 3, 3, 6, 1, 3, 3 };
+    static const uint32_t expect_frame[11] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 63, 63 };
+    static const struct { uint32_t type, time; const uint8_t *bytes; uint32_t size; } want[11] =
+    {
+        { CLAP_EVENT_MIDI, 0, note, 3 }, { CLAP_EVENT_MIDI, 1, pc, 3 }, { CLAP_EVENT_MIDI, 2, cp, 3 },
+        { CLAP_EVENT_MIDI, 3, cc, 3 }, { CLAP_EVENT_MIDI, 4, bend, 3 }, { CLAP_EVENT_MIDI, 5, noff, 3 },
+        { CLAP_EVENT_MIDI, 6, poly, 3 }, { CLAP_EVENT_MIDI_SYSEX, 7, sysex, 6 }, { CLAP_EVENT_MIDI, 8, rt, 3 },
+        { CLAP_EVENT_MIDI, 63, cc0, 3 }, { CLAP_EVENT_MIDI, 63, note91, 3 },
+    };
+    static float in[BLOCK], out[BLOCK];
+    struct rig g;
+    const clap_plugin_note_ports_t *np;
+    clap_note_port_info_t info;
+    struct midi_in mi;
+    struct midi_out mo;
+    echo_seen_count_fn seen_count;
+    echo_seen_fn seen;
+    echo_extra_fn extra;
+    uint32_t i, k, all;
+    int64_t frame;
+    uint32_t size;
+    uint8_t bytes[8];
+
+    if (rig_up(&g, g_midi, MIDI_URI, rate, BLOCK) != 0)
+        return;
+    *(void **)&seen_count = loaded_symbol(g_midi_so, "lv2_midi_echo_seen_count");
+    *(void **)&seen = loaded_symbol(g_midi_so, "lv2_midi_echo_seen");
+    *(void **)&extra = loaded_symbol(g_midi_so, "lv2_midi_echo_extra");
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 1 && np->get(g.plugin, 0, true, &info)
+              && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+              && np->get(g.plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
+          "midi %.0f: one MIDI input and one MIDI output, each dialect MIDI and no other", rate);
+
+    // block 1: every channel status, a system realtime byte, a sysex, a CLAP note that is not taken, one message at the
+    // block's last frame and one past its end, which is held at the last frame
+    midi_in_init(&mi);
+    mi_midi(&mi, 0, note, 3);
+    mi_midi(&mi, 1, pc, 2);
+    mi_midi(&mi, 2, cp, 2);
+    mi_midi(&mi, 3, cc, 3);
+    mi_midi(&mi, 4, bend, 3);
+    mi_midi(&mi, 5, noff, 3);
+    mi_midi(&mi, 6, poly, 3);
+    mi_sysex(&mi, 7, sysex, sizeof(sysex));
+    mi_midi(&mi, 8, rt, 1);
+    mi_note(&mi, 9);
+    mi_midi(&mi, 63, cc0, 3);
+    mi_midi(&mi, 200, note91, 3);
+    midi_out_init(&mo);
+    process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+    for (i = 0, all = 1; i < 11 && i < mo.n; i++)
+        all &= out_is(&mo, i, want[i].type, want[i].time, want[i].bytes, want[i].size);
+    CHECK(mo.n == 11 && all, "midi %.0f: eleven messages out, each at its frame and byte for byte: channel, sysex and realtime alike, the note not taken (%u)",
+          rate, mo.n);
+    CHECK(seen_count && seen_count() == 11, "midi %.0f: the plugin saw eleven messages (%u)", rate, seen_count ? seen_count() : 0);
+    for (k = 0, all = 1; seen && k < 11; k++)
+    {
+        all &= seen(k, &frame, &size, bytes) == 0 && size == expect_size[k] && frame == (int64_t)expect_frame[k];
+        all &= memcmp(bytes, want[k].bytes, size < 8 ? size : 8) == 0;
+    }
+    CHECK(all, "midi %.0f: each arrives at its length (a program change and a channel pressure two bytes, a sysex six, a realtime byte one)", rate);
+
+    // block 2: nothing carries over, neither the input nor the output
+    midi_in_init(&mi);
+    midi_out_init(&mo);
+    process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+    CHECK(mo.n == 0 && seen_count && seen_count() == 0, "midi %.0f: a block with no input writes and sees nothing (%u out)", rate, mo.n);
+
+    // block 3: 50 messages into a buffer for 42: the first 42 are kept, the other 8 counted by the core
+    midi_in_init(&mi);
+    for (i = 0; i < MIDI_CAPACITY + 8u; i++)
+        mi_midi(&mi, i, note, 3);
+    midi_out_init(&mo);
+    process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(mo.n == MIDI_CAPACITY && mo.ev[MIDI_CAPACITY - 1u].h.time == MIDI_CAPACITY - 1u && strstr(g.host.log, "midi_in_dropped 8") != NULL,
+          "midi %.0f: %u messages fit, the 8 past them are dropped and logged as midi_in_dropped 8 (%u)", rate, MIDI_CAPACITY, mo.n);
+
+    // block 4: a malformed output of the plugin, one kind at a time, is not passed on
+    if (extra)
+    {
+        static const int kinds[4] = { 1, 2, 3, 4 };    // EXTRA_4_BYTES, EXTRA_EMPTY, EXTRA_DATA_FIRST, EXTRA_BEATS
+
+        for (k = 0; k < 4; k++)
+        {
+            midi_in_init(&mi);
+            midi_out_init(&mo);
+            extra(kinds[k]);
+            process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list);
+            CHECK(mo.n == 0, "midi %.0f: malformed output kind %d is not passed on (%u out)", rate, kinds[k], mo.n);
+        }
+        extra(0);
+    }
+    rig_down(&g);
+}
+
 /* ---- the port properties as CLAP flags ---- */
 
 static int info_of(struct rig *g, clap_id id, clap_param_info_t *info)
@@ -922,6 +1202,108 @@ static double max_abs_ratio(const float *y, const float *x)
     return (double)a / (double)b;
 }
 
+/* ---- time:Position from the host's transport (§6.6) ---- */
+
+static void time_run(struct omx_clap_instance *in, float *l, float *r)
+{
+    in_rt = 1;
+    omx_clap_host_run(in, l, r, BLOCK);
+    in_rt = 0;
+}
+
+static void t_time(double rate)
+{
+    char cwhy[OMX_CLAP_WHY_MAX] = "", why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_time, why);
+    struct lv2_time_probe *pr;
+    struct omx_clap_instance *in = NULL;
+    struct omx_clap_transport_src src;
+    struct omx_clap_transport rec;
+    float l[BLOCK], r[BLOCK];
+    uint32_t objects;
+    int64_t frame;
+    uint32_t i;
+
+    if (entry && omx_clap_host_open_entry(entry, LV2_TIME_PROBE_URI, &in, cwhy) == 0 && omx_clap_host_activate(in, rate, MAXB, cwhy) != 0)
+    {
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    // the binary is loaded by the open: its symbols are read after it
+    pr = in ? loaded_symbol(g_time_so, "lv2_time_probe") : NULL;
+    CHECK(in && pr, "time %.0f: the time probe opens and activates (%s)", rate, cwhy);
+    if (!in || !pr)
+        return;
+    memset(pr, 0, sizeof *pr); /* the probe is the process's own, and every rate before this one counted into it */
+    // the source is set before the publish, as the host sets it
+    memset(&src, 0, sizeof src);
+    omx_clap_host_set_transport(in, &src);
+    omx_clap_host_publish(in, pthread_self());
+    for (i = 0; i < BLOCK; i++) l[i] = r[i] = 0.25f;
+
+    time_run(in, l, r);
+    time_run(in, l, r);
+    objects = pr->objects;
+    CHECK(pr->events == 0 && objects == 0, "time %.0f: no transport, no object (%u events, %u objects)", rate, pr->events, objects);
+
+    /* playing at 120 bpm, 7/8, bar 3, 1.5 beats into the bar: the whole object, once */
+    memset(&rec, 0, sizeof rec);
+    rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE | CLAP_TRANSPORT_IS_PLAYING;
+    rec.tempo = 120.0;
+    rec.song_pos_beats = 5 * (CLAP_BEATTIME_FACTOR / 2);
+    rec.bar_start = CLAP_BEATTIME_FACTOR; /* the bar starts on beat 1, so the beat in the bar is 1.5 */
+    rec.bar_number = 3;
+    rec.tsig_num = 7;
+    rec.tsig_denom = 8;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    frame = pr->frame;
+    CHECK(pr->objects == objects + 1 && pr->events == 1, "time %.0f: a new transport forges one object (%u events)", rate, pr->events);
+    CHECK(pr->keys == (LV2_TIME_PROBE_FRAME | LV2_TIME_PROBE_SPEED | LV2_TIME_PROBE_BAR | LV2_TIME_PROBE_BAR_BEAT | LV2_TIME_PROBE_BEAT_UNIT
+                       | LV2_TIME_PROBE_BEATS_PER_BAR | LV2_TIME_PROBE_BPM), "time %.0f: every field of the transport is in it (0x%x)", rate, pr->keys);
+    CHECK(pr->speed == 1.0f && pr->bpm == 120.0f && pr->bar == 3 && pr->bar_beat == 1.5f, "time %.0f: speed 1, 120 bpm, bar 3, beat 1.5 (%g %g %lld %g)", rate,
+          (double)pr->speed, (double)pr->bpm, (long long)pr->bar, (double)pr->bar_beat);
+    CHECK(pr->beat_unit == 8 && pr->beats_per_bar == 7.0f, "time %.0f: the meter 7/8 (%d/%g)", rate, pr->beat_unit, (double)pr->beats_per_bar);
+
+    /* the same transport again forges nothing: the sequence is empty */
+    time_run(in, l, r);
+    CHECK(pr->objects == objects + 1 && pr->events == 0, "time %.0f: an unchanged transport forges no object (%u events)", rate, pr->events);
+    /* stopped and one beat on: a new object, speed 0 */
+    rec.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
+    rec.song_pos_beats += CLAP_BEATTIME_FACTOR;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->objects == objects + 2 && pr->speed == 0.0f && pr->bar_beat == 2.5f, "time %.0f: stopped at beat 2.5 of the bar forges one object (speed %g, barBeat %g)", rate,
+          (double)pr->speed, (double)pr->bar_beat);
+    CHECK(pr->frame > frame, "time %.0f: the frame is the block's own (%lld, then %lld)", rate, (long long)frame, (long long)pr->frame);
+
+    /* only a tempo: the keys say so, and the bar and meter are absent */
+    memset(&rec, 0, sizeof rec);
+    rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    rec.tempo = 90.0;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->keys == (LV2_TIME_PROBE_FRAME | LV2_TIME_PROBE_SPEED | LV2_TIME_PROBE_BPM), "time %.0f: a tempo-only transport carries no bar and no meter (0x%x)", rate, pr->keys);
+    CHECK(pr->bpm == 90.0f, "time %.0f: 90 bpm (%g)", rate, (double)pr->bpm);
+
+    /* withdrawn: no transport, no object; then the same transport again is new */
+    memset(&rec, 0, sizeof rec);
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->events == 0, "time %.0f: a withdrawn transport forges nothing (%u events)", rate, pr->events);
+    rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    rec.tempo = 90.0;
+    omx_clap_transport_publish(&src, &rec);
+    time_run(in, l, r);
+    CHECK(pr->events == 1, "time %.0f: the transport back after a withdrawal forges again", rate);
+
+    omx_clap_host_set_transport(in, NULL);
+    omx_clap_request_stop(&in->stage);
+    time_run(in, l, r);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "time %.0f: unpublished", rate);
+    omx_clap_host_close(in);
+}
+
 static void t_worker(double rate)
 {
     float x[BLOCK], y[BLOCK];
@@ -1032,6 +1414,73 @@ static void t_reset_no_worker(double rate)
     rig_down(&g);
 }
 
+/* ---- the side chain: one CLAP input per side chain, fed the caller's buffers through the face and through the core ---- */
+
+#define SC_URI "urn:openmixer:test:sidechain-fixture"
+
+/* one process() call of the side-chain plugin: `in` the main pair, `side` the side chain's pair (NULL: none handed) */
+static clap_process_status sc_process(struct rig *g, float *in_l, float *in_r, float *side_l, float *side_r, float *out_l, float *out_r, uint32_t n)
+{
+    float *ins[2] = { in_l, in_r }, *sides[2] = { side_l, side_r }, *outs[2] = { out_l, out_r };
+    clap_audio_buffer_t ib[2] = { { ins, NULL, 2, 0, 0 }, { sides, NULL, 2, 0, 0 } }, ob = { outs, NULL, 2, 0, 0 };
+    struct evlist none;
+    clap_process_t p;
+    clap_process_status st;
+
+    ev_init(&none);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = -1;
+    p.frames_count = n;
+    p.audio_inputs = ib;
+    p.audio_outputs = &ob;
+    p.audio_inputs_count = side_l ? 2 : 1;
+    p.audio_outputs_count = 1;
+    p.in_events = &none.list;
+    p.out_events = &OUT_EVENTS;
+    g_audio = 1;
+    in_rt = 1;
+    st = g->plugin->process(g->plugin, &p);
+    in_rt = 0;
+    g_audio = 0;
+    return st;
+}
+
+static void t_sidechain(double rate)
+{
+    static float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK], side_l[BLOCK], side_r[BLOCK], none_l[BLOCK], none_r[BLOCK];
+    clap_audio_port_info_t port;
+    struct rig g;
+    uint32_t i;
+    int same;
+
+    if (rig_up(&g, g_sc, SC_URI, rate, MAXB) != 0)
+        return;
+    CHECK(g.ports && g.ports->count(g.plugin, true) == 2 && g.ports->count(g.plugin, false) == 1,
+          "side chain %.0f: two inputs (the main pair and the side chain), one output", rate);
+    CHECK(g.ports->get(g.plugin, 0, true, &port) && port.flags == CLAP_AUDIO_PORT_IS_MAIN && port.channel_count == 2,
+          "side chain %.0f: the main input is the main stereo port", rate);
+    CHECK(g.ports->get(g.plugin, 1, true, &port) && port.id == 1 && port.flags == 0 && port.channel_count == 2
+          && strcmp(port.name, "Sidechain") == 0 && strcmp(port.port_type, CLAP_PORT_STEREO) == 0 && port.in_place_pair == CLAP_INVALID_ID,
+          "side chain %.0f: the side chain is a stereo port of its group's label, not main (%s)", rate, port.name);
+    CHECK(!g.ports->get(g.plugin, 2, true, &port), "side chain %.0f: no third input", rate);
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = 0.5f, in_r[i] = -0.25f, side_l[i] = 0.25f, side_r[i] = 0.125f, none_l[i] = none_r[i] = 0.0f;
+    sc_process(&g, in_l, in_r, side_l, side_r, out_l, out_r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out_l[i] == 0.75f && out_r[i] == -0.125f;
+    CHECK(same, "side chain %.0f: out = main + side, per channel (%g, %g)", rate, out_l[0], out_r[0]);
+
+    sc_process(&g, in_l, in_r, NULL, NULL, out_l, out_r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out_l[i] == 0.5f && out_r[i] == -0.25f;
+    CHECK(same, "side chain %.0f: handed no side chain, the output is the main input alone", rate);
+
+    sc_process(&g, in_l, in_r, none_l, NULL, out_l, out_r, BLOCK);
+    CHECK(out_l[0] == 0.5f && out_r[0] == -0.25f, "side chain %.0f: a silent side chain adds nothing", rate);
+    rig_down(&g);
+}
+
 /* ---- the CLAP body of libomx-clap-core around the adapter ---- */
 
 static struct omx_clap_instance *core_open_at(const clap_plugin_entry_t *entry, const char *uri, double rate, uint32_t max_block,
@@ -1060,6 +1509,59 @@ static void core_run(struct omx_clap_instance *in, float *l, float *r, uint32_t 
     in_rt = 1;
     omx_clap_run(&in->stage, l, r, n);
     in_rt = 0;
+}
+
+static void t_sidechain_core(double rate)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_sc, why);
+    struct omx_clap_instance *in = NULL;
+    static float l[BLOCK], r[BLOCK], sl[MAXB], sr[MAXB];
+    uint32_t i;
+    int same;
+
+    CHECK(entry && omx_clap_host_open_entry(entry, SC_URI, &in, cwhy) == 0, "core %.0f: the side-chain plugin opens through the core (%s)", rate, cwhy);
+    if (!in)
+    {
+        omx_clap_lv2_entry_release(entry);
+        return;
+    }
+    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f, sl[i] = 0.25f, sr[i] = 0.125f;
+    CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
+    CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "core %.0f: activate (%s)", rate, cwhy);
+    omx_clap_host_publish(in, pthread_self());
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == -1, "core %.0f: a binding while the instance runs is refused", rate);
+    core_run(in, l, r, BLOCK);          /* the first cycle after arming is the warm-up's: its output is not checked */
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && l[i] == 0.75f && r[i] == -0.125f;
+    CHECK(same, "core %.0f: the plugin reads the bound pair through the core (%g, %g)", rate, l[0], r[0]);
+
+    omx_clap_request_stop(&in->stage);
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "core %.0f: unbind the side chain", rate);
+    omx_clap_host_publish(in, pthread_self());
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f, r[i] = -0.25f;
+    core_run(in, l, r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && l[i] == 0.5f && r[i] == -0.25f;
+    CHECK(same, "core %.0f: unbound, the plugin reads silence again (%g, %g)", rate, l[0], r[0]);
+    omx_clap_request_stop(&in->stage);
+    core_run(in, l, r, BLOCK);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish again", rate);
+    omx_clap_host_close(in);
+    omx_clap_lv2_entry_release(entry);
 }
 
 static void t_core(double rate)
@@ -1331,6 +1833,8 @@ int main(int argc, char **argv)
     void *volatile probe;
     size_t r;
 
+    // one line at a time, also into a pipe: a run that stops shows the last check it passed
+    setvbuf(stdout, NULL, _IOLBF, 0);
     if (argc < 2 || abs_dir(argv[1], build) != 0)
     {
         printf("FAIL usage: lv2_clap_test <build/lv2>\n");
@@ -1344,8 +1848,16 @@ int main(int argc, char **argv)
     abs_dir(dir, g_fakes);
     snprintf(dir, sizeof(dir), "%somx-patch-fixture.lv2", build);
     abs_dir(dir, g_patch);
+    snprintf(dir, sizeof(dir), "%somx-time-probe.lv2", build);
+    abs_dir(dir, g_time);
+    snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
+    snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", build);
+    abs_dir(dir, g_sc);
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
+    snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
+    abs_dir(dir, g_midi);
+    snprintf(g_midi_so, sizeof(g_midi_so), "%somx-midi-echo.so", g_midi);
     in_rt = 1;
     probe = malloc(16);
     free(probe);
@@ -1357,6 +1869,7 @@ int main(int argc, char **argv)
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
     t_entry();
     t_refusals();
+    t_midi_refusal();
     t_props();
     for (r = 0; r < N_RATES; r++)
     {
@@ -1370,6 +1883,10 @@ int main(int argc, char **argv)
         t_pad(RATES[r]);
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);
+        t_midi(RATES[r]);
+        t_time(RATES[r]);
+        t_sidechain(RATES[r]);
+        t_sidechain_core(RATES[r]);
         t_core(RATES[r]);
         t_warmup_block(RATES[r], MAXB, MAXB);
         t_warmup_block(RATES[r], WARMB, MAXB);

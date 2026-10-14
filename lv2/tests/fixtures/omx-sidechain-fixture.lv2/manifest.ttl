@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The side-chain test plugins (lv2_sidechain_fixture.c) as a bundle of their own: every plugin of the TTL is listed here,
+# as lilv reads only the plugins a manifest names.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:sidechain-fixture>
+    a lv2:Plugin ;
+    lv2:binary <omx-sidechain-fixture.so> ;
+    rdfs:seeAlso <omx-sidechain-fixture.ttl> .
+
+<urn:openmixer:test:sidechain-fixture#mono>
+    a lv2:Plugin ;
+    lv2:binary <omx-sidechain-fixture.so> ;
+    rdfs:seeAlso <omx-sidechain-fixture.ttl> .
+
+<urn:openmixer:test:sidechain-fixture#wide>
+    a lv2:Plugin ;
+    lv2:binary <omx-sidechain-fixture.so> ;
+    rdfs:seeAlso <omx-sidechain-fixture.ttl> .
+
+<urn:openmixer:test:sidechain-fixture#extra>
+    a lv2:Plugin ;
+    lv2:binary <omx-sidechain-fixture.so> ;
+    rdfs:seeAlso <omx-sidechain-fixture.ttl> .
+
+<urn:openmixer:test:sidechain-fixture#port-of>
+    a lv2:Plugin ;
+    lv2:binary <omx-sidechain-fixture.so> ;
+    rdfs:seeAlso <omx-sidechain-fixture.ttl> .

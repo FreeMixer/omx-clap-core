@@ -41,7 +41,11 @@
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
  *     block stays the plugin's output.
- *  7. THE ABI: configure accepts a consumer of the 0.2 header (ABI 1) and of this one, and refuses 0 and a newer one.
+ *  7. THE ABI: configure accepts a consumer of the 0.2 header (ABI 1) and refuses 0 and a newer one.
+ *  8. THE SIDE CHAIN: a plugin with a stereo auxiliary input is admitted, reads silence until the caller binds a pair,
+ *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
+ *     binding while it runs, a bad port or a stereo port with one channel is refused; two auxiliary inputs beyond the
+ *     core's count, or one of three channels, are refused.
  */
 #include <pthread.h>
 #include <sched.h>
@@ -56,6 +60,7 @@
 #include <math.h>
 
 #include "../src/clap_host.h"
+#include "../src/clap_meters.h"
 
 static int failures = 0;
 #define CHECK(cond, ...)                                   \
@@ -87,7 +92,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 2u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 2, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 4u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 4, the oldest accepted 1 (%u)", config.abi);
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
@@ -440,11 +445,180 @@ static void t_roster_count_is_ceilinged(void) {
         1000u + OMX_CLAP_PARAM_COUNT_MAX - 1u);
 }
 
+/* ---- 8. the side chain ---- */
+/* A stereo effect whose output is its main input plus its auxiliary input, one or more of them: the count and the width
+ * are set per test. g_sc_seen records what process() was handed, the count of its audio inputs and whether the first
+ * auxiliary input's first channel was present. */
+static uint32_t g_sc_side = 1, g_sc_width = 2;
+static uint32_t g_sc_seen_inputs = 0;
+static int g_sc_side_read = 0;
+static uint32_t sc_ports_count(const clap_plugin_t *p, bool is_input) { (void)p; return is_input ? 1 + g_sc_side : 1; }
+static bool sc_ports_get(const clap_plugin_t *p, uint32_t i, bool is_input, clap_audio_port_info_t *info) {
+  (void)p;
+  if (i >= sc_ports_count(p, is_input)) return false;
+  memset(info, 0, sizeof *info);
+  info->id = i;
+  if (i == 0) {
+    snprintf(info->name, sizeof info->name, "main");
+    info->flags = CLAP_AUDIO_PORT_IS_MAIN;
+    info->channel_count = 2;
+    info->port_type = CLAP_PORT_STEREO;
+  } else {
+    snprintf(info->name, sizeof info->name, "side %u", i);
+    info->channel_count = g_sc_width;
+    info->port_type = g_sc_width == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+  }
+  info->in_place_pair = CLAP_INVALID_ID;
+  return true;
+}
+static const clap_plugin_audio_ports_t SC_PORTS = {sc_ports_count, sc_ports_get};
+static bool sc_init(const clap_plugin_t *p) { (void)p; return true; }
+static clap_process_status sc_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  (void)p;
+  g_sc_seen_inputs = pr->audio_inputs_count;
+  g_sc_side_read = pr->audio_inputs_count >= 2 && pr->audio_inputs[1].data32 != NULL && pr->audio_inputs[1].data32[0] != NULL;
+  for (uint32_t c = 0; c < 2; c++) {
+    const float *main = pr->audio_inputs[0].data32[c];
+    const float *side = g_sc_side_read ? pr->audio_inputs[1].data32[g_sc_width == 2 ? c : 0] : NULL;
+    float *out = pr->audio_outputs[0].data32[c];
+    for (uint32_t i = 0; i < pr->frames_count; i++) out[i] = main[i] + (side ? side[i] : 0.0f);
+  }
+  return CLAP_PROCESS_CONTINUE;
+}
+static const void *sc_ext(const clap_plugin_t *p, const char *id) {
+  (void)p;
+  return strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0 ? &SC_PORTS : NULL;
+}
+static const char *const SC_FEATURES[] = {CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL};
+static const clap_plugin_descriptor_t SC_DESC = {CLAP_VERSION_INIT, "org.omx-clap-host.test.core-sidechain", "core sidechain", "omx-clap-host", "", "", "", "0", "",
+                                                 SC_FEATURES};
+static uint32_t sc_count(const clap_plugin_factory_t *f) { (void)f; return 1; }
+static const clap_plugin_descriptor_t *sc_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i == 0 ? &SC_DESC : NULL; }
+static const clap_plugin_t *sc_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
+  (void)f, (void)host;
+  if (strcmp(id, SC_DESC.id) != 0) return NULL;
+  clap_plugin_t *p = calloc(1, sizeof *p);
+  *p = (clap_plugin_t){&SC_DESC, NULL, sc_init, ask_destroy, ask_activate, ask_nop, ask_start, ask_nop, ask_nop, sc_process, sc_ext, ask_nop};
+  return p;
+}
+static const clap_plugin_factory_t SC_FACTORY = {sc_count, sc_desc, sc_create};
+static const void *sc_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &SC_FACTORY : NULL; }
+static const clap_plugin_entry_t SC_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, sc_factory};
+
+static void sc_prime(struct omx_clap_instance *in, float l, float r) {
+  float bl[64], br[64];
+  for (uint32_t i = 0; i < 64; i++) bl[i] = l, br[i] = r;
+  omx_clap_host_run(in, bl, br, 64);  /* the first cycle after arming fades the plugin in */
+}
+static int sc_expect(struct omx_clap_instance *in, float l, float r, float want_l, float want_r, const char *what) {
+  float bl[64], br[64];
+  int ok = 1;
+  for (uint32_t i = 0; i < 64; i++) bl[i] = l, br[i] = r;
+  omx_clap_host_run(in, bl, br, 64);
+  for (uint32_t i = 0; i < 64; i++) ok = ok && fabsf(bl[i] - want_l) < 1e-6f && fabsf(br[i] - want_r) < 1e-6f;
+  CHECK(ok, "%s: the lane reads %g, %g (wanted %g, %g)", what, bl[0], br[0], want_l, want_r);
+  return ok;
+}
+
+/* Stop a running instance the way the stage takes it: a request, then one cycle that acknowledges it, then the unpublish */
+static void sc_stop(struct omx_clap_instance *in) {
+  omx_clap_request_stop(&in->stage);
+  sc_prime(in, 0.0f, 0.0f);
+  CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "unpublish the side-chain instance");
+}
+
+static void t_side_chain(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  float side_l[64], side_r[64];
+  float dummy_l[64], dummy_r[64];
+
+  g_sc_side = 1;
+  g_sc_width = 2;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0, "a stereo effect with a stereo side chain is admitted (%s)", why);
+  if (!in) return;
+  CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "one stereo auxiliary input beside the stereo pair (%u, %u, %u)",
+        in->aux_inputs, in->aux_in_channels[0], in->in_channels);
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate (%s)", why);
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  CHECK(g_sc_seen_inputs == 2 && g_sc_side_read, "the plugin is handed two inputs, the second with its channels (%u, %d)", g_sc_seen_inputs, g_sc_side_read);
+  sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound: the side chain is silence");
+
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r, 64) == -1, "binding while the instance runs is refused");
+  sc_stop(in);
+  CHECK(omx_clap_host_bind_aux_input(in, 1, dummy_l, dummy_r, 64) == -1, "a port past the auxiliary inputs is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, NULL, 64) == -1, "a stereo port bound without its second channel is refused");
+  for (uint32_t i = 0; i < 64; i++) side_l[i] = 0.25f, side_r[i] = 0.125f;
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r, 32) == -1, "a pair shorter than the active block is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side_l, side_r, 64) == 0, "bind a stereo pair to the side chain");
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "bound: the plugin reads the caller's pair");
+  sc_stop(in);
+
+  omx_clap_host_deactivate(in);
+  CHECK(omx_clap_host_activate(in, 48000.0, 128, why) == -1, "a block longer than the bound pair is refused while it is bound");
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate again (%s)", why);
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "the binding outlives a deactivate and activate");
+  sc_stop(in);
+
+  CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "unbind the side chain");
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, -0.25f);
+  sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound again: silence");
+  sc_stop(in);
+  omx_clap_host_close(in);
+}
+
+static void t_side_chain_mono(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  float side[64];
+
+  g_sc_side = 1;
+  g_sc_width = 1;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in_channels[0] == 1, "a mono side chain is admitted (%s)", why);
+  if (!in) return;
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the mono side chain (%s)", why);
+  for (uint32_t i = 0; i < 64; i++) side[i] = 0.25f;
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side, NULL, 64) == 0, "a mono port binds its first channel alone");
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.5f, 0.5f);
+  sc_expect(in, 0.5f, 0.5f, 0.75f, 0.75f, "a mono side chain feeds both channels of the stereo effect");
+  sc_stop(in);
+  omx_clap_host_close(in);
+  g_sc_width = 2;
+}
+
+static void t_side_chain_refused(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+
+  g_sc_side = CLAP_HOST_AUX_INPUTS + 1;
+  g_sc_width = 2;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "one side chain past the core's count is refused");
+  CHECK(strcmp(why, CLAP_HOST_CODE_EXTRA_INPUTS) == 0, "and the code is %s (%s)", CLAP_HOST_CODE_EXTRA_INPUTS, why);
+  g_sc_side = 1;
+  g_sc_width = 3;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of three channels is refused");
+  CHECK(strcmp(why, CLAP_HOST_CODE_WIDER_THAN_STRIP) == 0, "and the code is %s (%s)", CLAP_HOST_CODE_WIDER_THAN_STRIP, why);
+  g_sc_width = 2;
+  g_sc_side = CLAP_HOST_AUX_INPUTS;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_inputs == CLAP_HOST_AUX_INPUTS, "exactly the core's count is admitted (%s)", why);
+  if (in) omx_clap_host_close(in);
+  g_sc_side = 1;
+}
+
 /* ---- 5. the tempo ---- */
 
 /* The tempo fake: a stereo pass-through that records the transport its last process() was given. */
 static struct {
   int saw_transport;   /* 1: a transport was passed, 0: NULL */
+  int t_present;       /* the same, for the copy below */
+  clap_event_transport_t t_copy;  /* the whole transport record, as delivered */
   double saw_tempo;    /* its tempo when it carried CLAP_TRANSPORT_HAS_TEMPO, else 0 */
   uint32_t saw_tflags;
   int saw_theader_ok;  /* size, space, type and time 0 as CLAP fixes them */
@@ -455,6 +629,8 @@ static clap_process_status tp_process(const clap_plugin_t *p, const clap_process
   const clap_event_transport_t *t = pr->transport;
   g_tp.runs++;
   g_tp.saw_transport = t != NULL;
+  g_tp.t_present = t != NULL;
+  if (t) g_tp.t_copy = *t;
   g_tp.saw_tempo = t && (t->flags & CLAP_TRANSPORT_HAS_TEMPO) ? t->tempo : 0.0;
   g_tp.saw_tflags = t ? t->flags : 0u;
   g_tp.saw_theader_ok = t && t->header.size == sizeof *t && t->header.space_id == CLAP_CORE_EVENT_SPACE_ID &&
@@ -543,6 +719,94 @@ static void t_tempo(void) {
   CHECK(l[255] == 0.0f, "withdrawn: the fixture is silent (%g)", (double)l[255]);
   omx_clap_request_stop(&in->stage);
   omx_clap_host_run(in, l, r, 256);
+  CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "unpublished");
+  omx_clap_host_close(in);
+}
+
+/* ---- 5b. the host's published transport ---- */
+
+/* The published record reaches the plugin whole: flags, tempo, beats, seconds, bar and time signature. A withdrawn
+ * record is no transport; the tempo word decides again once the source is unset; a read that does not come whole keeps
+ * the block's last whole record. */
+static void t_transport_record(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  CHECK(omx_clap_host_open_entry(&TP_ENTRY, TP_DESC.id, &in, why) == 0 && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "the transport reader opens for the record (%s)", why);
+  if (!in) return;
+  omx_clap_host_publish(in, pthread_self());
+
+  struct omx_clap_transport_src src;
+  memset(&src, 0, sizeof src);
+  struct omx_clap_transport rec;
+  memset(&rec, 0, sizeof rec);
+  rec.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_SECONDS_TIMELINE |
+              CLAP_TRANSPORT_HAS_TIME_SIGNATURE | CLAP_TRANSPORT_IS_PLAYING;
+  rec.tempo = 120.0;
+  rec.song_pos_beats = 5 * (CLAP_BEATTIME_FACTOR / 2);  /* 2.5 beats */
+  rec.song_pos_seconds = 3 * (CLAP_SECTIME_FACTOR / 2); /* 1.5 seconds */
+  rec.bar_start = 4 * CLAP_BEATTIME_FACTOR;             /* the bar starts at beat 4 */
+  rec.bar_number = 1;
+  rec.tsig_num = 7;
+  rec.tsig_denom = 8;
+  omx_clap_transport_publish(&src, &rec);
+  omx_clap_host_set_transport(in, &src);
+  tp_run(in);
+  const clap_event_transport_t *t = &g_tp.t_copy;
+  CHECK(g_tp.t_present, "a published transport reaches the plugin");
+  CHECK(t->flags == rec.flags, "the flags as published (0x%x)", t->flags);
+  CHECK(t->tempo == 120.0, "the tempo as published (%g)", t->tempo);
+  CHECK(t->song_pos_beats == rec.song_pos_beats && t->song_pos_seconds == rec.song_pos_seconds, "the position in beats and seconds as published");
+  CHECK(t->bar_start == rec.bar_start && t->bar_number == 1, "the bar start and number as published");
+  CHECK(t->tsig_num == 7 && t->tsig_denom == 8, "the time signature 7/8 as published (%u/%u)", t->tsig_num, t->tsig_denom);
+  CHECK(g_tp.saw_theader_ok, "the transport's header is CLAP_EVENT_TRANSPORT, its size, time 0");
+
+  /* a later publish: the playing state and the position change at the next block */
+  rec.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
+  rec.song_pos_beats += CLAP_BEATTIME_FACTOR;
+  omx_clap_transport_publish(&src, &rec);
+  tp_run(in);
+  CHECK(!(g_tp.t_copy.flags & CLAP_TRANSPORT_IS_PLAYING) && g_tp.t_copy.song_pos_beats == rec.song_pos_beats,
+        "a stopped position arrives at the next block (flags 0x%x)", g_tp.t_copy.flags);
+
+  /* the tempo word is superseded while the source is set, and decides again once it is unset */
+  struct omx_clap_tempo word;
+  memset(&word, 0, sizeof word);
+  omx_clap_tempo_publish(&word, 90.0);
+  omx_clap_host_set_tempo(in, &word);
+  tp_run(in);
+  CHECK(g_tp.t_copy.tempo == 120.0, "the published transport supersedes the tempo word (%g)", g_tp.t_copy.tempo);
+  omx_clap_host_set_transport(in, NULL);
+  tp_run(in);
+  CHECK(g_tp.t_present && g_tp.t_copy.flags == CLAP_TRANSPORT_HAS_TEMPO && g_tp.t_copy.tempo == 90.0,
+        "unset, the tempo word decides again: HAS_TEMPO at 90 and nothing else");
+  omx_clap_host_set_transport(in, &src);
+
+  /* a withdrawn record is no transport at all */
+  memset(&rec, 0, sizeof rec);
+  omx_clap_transport_publish(&src, &rec);
+  tp_run(in);
+  CHECK(!g_tp.t_present, "a record with no flags passes transport NULL");
+
+  /* the read: whole when no publish runs over it, and left alone when one does */
+  struct omx_clap_transport out;
+  memset(&out, 0, sizeof out);
+  rec.flags = CLAP_TRANSPORT_HAS_TEMPO;
+  rec.tempo = 77.0;
+  omx_clap_transport_publish(&src, &rec);
+  CHECK(omx_clap_transport_read(&src, &out) == 1 && out.tempo == 77.0, "a read between publishes is whole");
+  tp_run(in);
+  CHECK(g_tp.t_present && g_tp.t_copy.tempo == 77.0, "the block reads the whole record (%g)", g_tp.t_copy.tempo);
+  atomic_fetch_add(&src.seq, 1u); /* a publish under way: the sequence is odd */
+  struct omx_clap_transport torn;
+  memset(&torn, 0, sizeof torn);
+  CHECK(omx_clap_transport_read(&src, &torn) == 0 && torn.flags == 0, "a read over a publish under way does not come whole");
+  atomic_store(&src.tempo_bits, 0);
+  tp_run(in);
+  CHECK(g_tp.t_present && g_tp.t_copy.tempo == 77.0, "a block that does not read whole keeps the last whole record (%g)", g_tp.t_copy.tempo);
+  atomic_fetch_add(&src.seq, 1u);
+  omx_clap_host_set_transport(in, NULL);
+  omx_clap_request_stop(&in->stage);
+  tp_run(in);
   CHECK(omx_clap_host_unpublish(in, 10, 1000) == 0, "unpublished");
   omx_clap_host_close(in);
 }
@@ -691,6 +955,140 @@ static void t_reset_off_rt(void) {
   omx_clap_host_close(g_rs.in);
 }
 
+/* ---- 9. the meters, in process ---- */
+/* A stereo pass-through declaring clap.meters/1: meter 7 "gain reduction" of one channel, -6 dB while the input's peak
+ * reaches 0.5 and 0 otherwise, and meter 9 "input level" of two channels, each channel's peak. g_mt_shape breaks the
+ * declarations: 1 a meter of no channel, 2 a meter with no info, 3 more meters than the library reads. */
+static int g_mt_shape = 0;
+static _Atomic int g_mt_processed = 0;
+static _Atomic uint64_t g_mt_bits[3];
+static uint32_t g_mt_capacity_asked = 0;
+static void mt_publish(int at, double v) { uint64_t b; memcpy(&b, &v, sizeof b); atomic_store(&g_mt_bits[at], b); }
+static double mt_read(int at) { uint64_t b = atomic_load(&g_mt_bits[at]); double v; memcpy(&v, &b, sizeof v); return v; }
+static clap_process_status mt_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  (void)p;
+  float peak[2] = {0.0f, 0.0f};
+  for (uint32_t c = 0; c < 2; c++) {
+    const float *in = pr->audio_inputs[0].data32[c];
+    float *out = pr->audio_outputs[0].data32[c];
+    for (uint32_t i = 0; i < pr->frames_count; i++) {
+      out[i] = in[i];
+      if (fabsf(in[i]) > peak[c]) peak[c] = fabsf(in[i]);
+    }
+  }
+  mt_publish(0, (peak[0] >= 0.5f || peak[1] >= 0.5f) ? -6.0 : 0.0);
+  mt_publish(1, peak[0] > 0.0f ? 20.0 * log10(peak[0]) : -120.0);
+  mt_publish(2, peak[1] > 0.0f ? 20.0 * log10(peak[1]) : -120.0);
+  atomic_store(&g_mt_processed, 1);
+  return CLAP_PROCESS_CONTINUE;
+}
+static uint32_t mt_meters_count(const clap_plugin_t *p) { (void)p; return g_mt_shape == 3 ? OMX_CLAP_METER_COUNT_MAX + 1u : 2u; }
+static bool mt_meters_info(const clap_plugin_t *p, uint32_t index, clap_meter_info_t *info) {
+  (void)p;
+  if (index >= mt_meters_count(p) || (g_mt_shape == 2 && index == 1)) return false;
+  memset(info, 0, sizeof *info);
+  info->id = index == 0 ? 7 : index == 1 ? 9 : 100 + index;
+  snprintf(info->name, sizeof info->name, "%s", index == 0 ? "gain reduction" : "input level");
+  info->kind = index == 0 ? CLAP_METER_KIND_GAIN_REDUCTION : CLAP_METER_KIND_LEVEL;
+  info->flags = CLAP_METER_IS_COHERENT;
+  info->channel_count = index == 0 ? 1 : (g_mt_shape == 1 ? 0 : 2);
+  info->min_value = index == 0 ? -24.0 : -60.0;
+  info->max_value = 0.0;
+  return true;
+}
+static uint32_t mt_meters_values(const clap_plugin_t *p, clap_id id, double *values, uint32_t capacity) {
+  (void)p;
+  g_mt_capacity_asked = capacity;
+  if (!atomic_load(&g_mt_processed) || capacity == 0) return 0;
+  if (id == 7) { values[0] = mt_read(0); return 1; }
+  if (id != 9) return 0;
+  values[0] = mt_read(1);
+  if (capacity < 2) return 1;
+  values[1] = mt_read(2);
+  return 2;
+}
+static const clap_plugin_meters_t MT_METERS = {mt_meters_count, mt_meters_info, mt_meters_values};
+static const void *mt_ext(const clap_plugin_t *p, const char *id) {
+  (void)p;
+  if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &SC_PORTS;
+  if (strcmp(id, CLAP_EXT_METERS) == 0) return &MT_METERS;
+  return NULL;
+}
+static const clap_plugin_descriptor_t MT_DESC = {CLAP_VERSION_INIT, "org.omx-clap-host.test.core-meters", "core meters", "omx-clap-host", "", "", "", "0", "",
+                                                 SC_FEATURES};
+static const clap_plugin_descriptor_t *mt_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i == 0 ? &MT_DESC : NULL; }
+static const clap_plugin_t *mt_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
+  (void)f, (void)host;
+  if (strcmp(id, MT_DESC.id) != 0) return NULL;
+  clap_plugin_t *p = calloc(1, sizeof *p);
+  *p = (clap_plugin_t){&MT_DESC, NULL, sc_init, ask_destroy, ask_activate, ask_nop, ask_start, ask_nop, ask_nop, mt_process, mt_ext, ask_nop};
+  return p;
+}
+static const clap_plugin_factory_t MT_FACTORY = {sc_count, mt_desc, mt_create};
+static const void *mt_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &MT_FACTORY : NULL; }
+static const clap_plugin_entry_t MT_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, mt_factory};
+
+/* the telemetry thread: one read of meter 7 off the audio thread */
+struct mt_read_job { struct omx_clap_instance *in; double gr; uint32_t n; };
+static void *mt_telemetry(void *arg) {
+  struct mt_read_job *job = arg;
+  job->n = omx_clap_host_meter_values(job->in, 7, &job->gr, 1);
+  return NULL;
+}
+
+static void t_meters(void) {
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  struct omx_clap_meter m;
+  double v[4] = {99.0, 99.0, 99.0, 99.0};
+
+  g_sc_side = 0;
+  g_mt_shape = 0;
+  atomic_store(&g_mt_processed, 0);
+  CHECK(omx_clap_host_open_entry(&MT_ENTRY, MT_DESC.id, &in, why) == 0, "the metering plugin opens (%s)", why);
+  if (!in) { g_sc_side = 1; return; }
+  CHECK(omx_clap_host_meter_count(in) == 2, "two meters are read at open (%u)", omx_clap_host_meter_count(in));
+  CHECK(omx_clap_host_meter_info(in, 0, &m) == 0 && m.id == 7 && strcmp(m.name, "gain reduction") == 0 && m.kind == OMX_CLAP_METER_KIND_GAIN_REDUCTION
+          && m.channel_count == 1 && m.flags == CLAP_METER_IS_COHERENT && m.min_value == -24.0 && m.max_value == 0.0,
+        "meter 0 is the gain reduction as declared (%u \"%s\" kind %u, %u channel)", m.id, m.name, m.kind, m.channel_count);
+  CHECK(omx_clap_host_meter_info(in, 1, &m) == 0 && m.id == 9 && m.kind == OMX_CLAP_METER_KIND_LEVEL && m.channel_count == 2,
+        "meter 1 is the stereo input level (%u, %u channels)", m.id, m.channel_count);
+  CHECK(omx_clap_host_meter_info(in, 2, &m) == -1, "an index past the count has no meter");
+  CHECK(omx_clap_host_meter_values(in, 7, v, 4) == 0, "before the plugin processed, a read writes nothing");
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the metering plugin (%s)", why);
+  omx_clap_host_publish(in, pthread_self());
+  sc_prime(in, 0.75f, -0.25f);
+  sc_expect(in, 0.75f, -0.25f, 0.75f, -0.25f, "the metering plugin passes the lane through");
+
+  struct mt_read_job job = {in, 99.0, 0};
+  pthread_t tele;
+  pthread_create(&tele, NULL, mt_telemetry, &job);
+  pthread_join(tele, NULL);
+  CHECK(job.n == 1 && job.gr == -6.0, "the telemetry thread reads the plugin's gain reduction (%u: %g)", job.n, job.gr);
+  CHECK(omx_clap_host_meter_values(in, 9, v, 4) == 2 && fabs(v[0] - 20.0 * log10(0.75)) < 1e-6 && fabs(v[1] - 20.0 * log10(0.25)) < 1e-6
+          && v[2] == 99.0 && g_mt_capacity_asked == 2,
+        "the stereo level writes its two channels, asked for no more than it declares (%g, %g; asked %u)", v[0], v[1], g_mt_capacity_asked);
+  v[1] = 99.0;
+  CHECK(omx_clap_host_meter_values(in, 9, v, 1) == 1 && v[1] == 99.0, "a capacity of one writes one channel");
+  CHECK(omx_clap_host_meter_values(in, 8, v, 4) == 0, "an id the plugin did not declare writes nothing");
+  sc_expect(in, 0.125f, 0.125f, 0.125f, 0.125f, "a quiet block");
+  CHECK(omx_clap_host_meter_values(in, 7, v, 1) == 1 && v[0] == 0.0, "the reduction follows the plugin's report (%g)", v[0]);
+  sc_stop(in);
+  omx_clap_host_close(in);
+
+  for (int shape = 1; shape <= 3; shape++) {
+    g_mt_shape = shape;
+    in = NULL;
+    CHECK(omx_clap_host_open_entry(&MT_ENTRY, MT_DESC.id, &in, why) == 0 && in, "declarations broken (%d): the plugin still opens (%s)", shape, why);
+    if (!in) continue;
+    CHECK(omx_clap_host_meter_count(in) == 0 && omx_clap_host_meter_info(in, 0, &m) == -1 && omx_clap_host_meter_values(in, 7, v, 1) == 0,
+          "declarations broken (%d): no meters, none read (%u)", shape, omx_clap_host_meter_count(in));
+    omx_clap_host_close(in);
+  }
+  g_mt_shape = 0;
+  g_sc_side = 1;
+}
+
 int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s <fault dir>\n", argv[0]);
@@ -704,8 +1102,13 @@ int main(int argc, char **argv) {
   t_roster_whole_or_refused();
   t_roster_count_is_ceilinged();
   t_tempo();
+  t_transport_record();
   t_transport_in_the_cycle();
   t_reset_off_rt();
+  t_side_chain();
+  t_side_chain_mono();
+  t_side_chain_refused();
+  t_meters();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
   if (failures) {
     fprintf(stderr, "clap_core: %d failure(s)\n", failures);

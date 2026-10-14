@@ -48,6 +48,7 @@
 #include <unistd.h>
 
 #include "clap_host.h"
+#include "clap_meters.h"
 
 
 /*
@@ -501,14 +502,15 @@ static const char *read_note_input(struct omx_clap_instance *in)
 
 /*
  * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
- * channels; an input besides those refused, an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each
- * of 1 or 2 channels); where the configuration admits note inputs, one note input, and with it no main input at all (an
- * instrument); otherwise no note input. Returns the hosting code that refuses, or NULL.
+ * channels; an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each of 1 or 2 channels); an input
+ * besides them a side chain, fed silence until the caller binds it (up to CLAP_HOST_AUX_INPUTS, each of 1 or 2 channels);
+ * where the configuration admits note inputs, one note input, and with it no main input at all (an instrument); otherwise
+ * no note input. Returns the hosting code that refuses, or NULL.
  */
 static const char *read_topology(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
-    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0, extra_in = 0;
+    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0;
     const char *code;
     int instrument;
     int dir;
@@ -545,7 +547,11 @@ static const char *read_topology(struct omx_clap_instance *in)
                 }
                 else if (is_input)
                 {
-                    extra_in++;
+                    if (info.channel_count == 0 || info.channel_count > 2)
+                        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
+                    if (in->aux_inputs >= CLAP_HOST_AUX_INPUTS)
+                        return CLAP_HOST_CODE_EXTRA_INPUTS;
+                    in->aux_in_channels[in->aux_inputs++] = info.channel_count;
                 }
                 else if (info.channel_count == 0 || info.channel_count > 2 || in->aux_outputs >= CLAP_HOST_AUX_OUTPUTS)
                 {
@@ -566,8 +572,6 @@ static const char *read_topology(struct omx_clap_instance *in)
         return CLAP_HOST_CODE_WIDER_THAN_STRIP;
     if (n_main_in && main_in != main_out)
         return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-    if (extra_in > 0)
-        return CLAP_HOST_CODE_EXTRA_INPUTS;
     if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->channels = main_out;
@@ -652,6 +656,48 @@ static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
     return n > CLAP_HOST_PARAM_COUNT_MAX ? CLAP_HOST_PARAM_COUNT_MAX : n;
 }
 
+/* At open, on the opening thread: the plugin's clap.meters/1 declarations, whole or not at all (docs/meters.md, In
+ * process). A meter is drawn, never judged: an extension that cannot be read whole leaves the instance with no meters,
+ * and the plugin is opened as before. */
+_Static_assert(OMX_CLAP_METER_KIND_OTHER == CLAP_METER_KIND_OTHER && OMX_CLAP_METER_KIND_GAIN_REDUCTION == CLAP_METER_KIND_GAIN_REDUCTION
+                   && OMX_CLAP_METER_KIND_LEVEL == CLAP_METER_KIND_LEVEL,
+               "the public kinds are clap.meters/1's");
+
+static void meters_read(struct omx_clap_instance *in)
+{
+    const clap_plugin_meters_t *meters = in->plugin->get_extension(in->plugin, CLAP_EXT_METERS);
+    clap_meter_info_t info;
+    uint32_t n, i;
+
+    in->meters = NULL;
+    in->meter_count = 0;
+    if (!meters || !meters->count || !meters->get_info || !meters->get_values)
+        return;
+    n = meters->count(in->plugin);
+    if (n > OMX_CLAP_METER_COUNT_MAX)
+        return;
+    for (i = 0; i < n; i++)
+    {
+        struct omx_clap_meter *m = &in->meter[i];
+
+        memset(&info, 0, sizeof(info));
+        if (!meters->get_info(in->plugin, i, &info))
+            return;
+        info.name[sizeof(info.name) - 1] = '\0';
+        if (info.name[0] == '\0' || info.channel_count == 0 || info.channel_count > OMX_CLAP_METER_CHANNELS_MAX)
+            return;
+        m->id = info.id;
+        memcpy(m->name, info.name, sizeof(m->name));
+        m->kind = info.kind;
+        m->flags = info.flags;
+        m->channel_count = info.channel_count;
+        m->min_value = info.min_value;
+        m->max_value = info.max_value;
+    }
+    in->meter_count = n;
+    in->meters = n ? meters : NULL;
+}
+
 /* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
  * reference on `bin`. */
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
@@ -719,6 +765,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
         snprintf(text, sizeof(text), "the plugin reports %u parameters; the host serves the first %u", reported, rows);
         log_to_ring(in, text);
     }
+    meters_read(in);
     *out = in;
     if (why)
         why[0] = '\0';
@@ -740,13 +787,14 @@ static void *timed_open_run(void *arg)
 ************************************************************************************************************************
 */
 
-/* Six buffers of max_block floats in one mapping with a guard page at each end: the scratch pair for the auxiliary
- * outputs first, then the stage's four, the last of them flush against the guard page above, so the first sample
- * written past a block faults here, in this mapping, and never lands in a foreign buffer. */
+/* Eight buffers of max_block floats in one mapping with a guard page at each end: the silence pair the unbound auxiliary
+ * inputs read, the scratch pair for the auxiliary outputs, then the stage's four, the last of them flush against the
+ * guard page above, so the first sample written past a block faults here, in this mapping, and never lands in a foreign
+ * buffer. */
 static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
 {
     const size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    const size_t used = (size_t)6 * max_block * sizeof(float);
+    const size_t used = (size_t)8 * max_block * sizeof(float);
     const size_t body = (used + page - 1) / page * page;
     const size_t length = body + 2 * page;
     uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -763,10 +811,10 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->rec_cap = CLAP_HOST_PARAM_QUEUE_DEPTH;
     in->recs = calloc(in->rec_cap, sizeof(*in->recs));
     in->max_block = max_block;
-    bounce.in_l = b + 2 * (size_t)max_block;
-    bounce.in_r = b + 3 * (size_t)max_block;
-    bounce.out_l = b + 4 * (size_t)max_block;
-    bounce.out_r = b + 5 * (size_t)max_block;
+    bounce.in_l = b + 4 * (size_t)max_block;
+    bounce.in_r = b + 5 * (size_t)max_block;
+    bounce.out_l = b + 6 * (size_t)max_block;
+    bounce.out_r = b + 7 * (size_t)max_block;
     bounce.max_block = max_block;
     if (omx_clap_stage_init(&in->stage, &bounce, in->recs, in->rec_cap) != 0)
         return -1;
@@ -774,7 +822,9 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->stage.note_inputs = in->note_inputs;
     in->stage.note_dialect = in->note_dialect;
     in->stage.note_dialects = in->note_dialects;
-    return omx_clap_bind_aux(&in->stage, b, b + max_block, in->aux_outputs, in->aux_channels);
+    if (omx_clap_bind_aux(&in->stage, b + 2 * (size_t)max_block, b + 3 * (size_t)max_block, in->aux_outputs, in->aux_channels) != 0)
+        return -1;
+    return omx_clap_bind_aux_in(&in->aux_in, b, b + max_block, in->aux_inputs, in->aux_in_channels, in->aux_in_bound);
 }
 
 static void drop_bounce(struct omx_clap_instance *in)
@@ -788,7 +838,7 @@ static void drop_bounce(struct omx_clap_instance *in)
 
 static int bind_stage(struct omx_clap_instance *in)
 {
-    return omx_clap_bind_ports(&in->stage, in->plugin, in->in_channels, in->channels);
+    return omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_in);
 }
 
 static void publish_latency(struct omx_clap_instance *in)
@@ -965,6 +1015,44 @@ int omx_clap_host_track_info_set(struct omx_clap_instance *in, const char *name,
     if (in->track_info)
         in->track_info->changed(in->plugin);
     return 0;
+}
+
+uint32_t omx_clap_host_meter_count(const struct omx_clap_instance *in)
+{
+    return in ? in->meter_count : 0;
+}
+
+int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index, struct omx_clap_meter *meter)
+{
+    if (!in || !meter || index >= in->meter_count)
+        return -1;
+    *meter = in->meter[index];
+    return 0;
+}
+
+uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity)
+{
+    double read[OMX_CLAP_METER_CHANNELS_MAX];
+    uint32_t i, n, channels = 0;
+
+    if (!in || !in->meters || !values || capacity == 0)
+        return 0;
+    for (i = 0; i < in->meter_count; i++)
+        if (in->meter[i].id == id)
+        {
+            channels = in->meter[i].channel_count;
+            break;
+        }
+    if (channels == 0)
+        return 0;
+    // the plugin writes into the library's own array, never past the meter's declared channels into the caller's
+    n = in->meters->get_values(in->plugin, id, read, channels);
+    if (n > channels)
+        n = channels;
+    if (n > capacity)
+        n = capacity;
+    memcpy(values, read, n * sizeof(*values));
+    return n;
 }
 
 int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in)
@@ -1154,6 +1242,12 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
 
     if (!in || in->active || max_block == 0)
         return -1;
+    for (bad = 0; bad < in->aux_inputs; bad++)
+        if (in->aux_in_bound[bad][0] && in->aux_in_frames[bad] < max_block)
+        {
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // a bound pair shorter than the block: rebind it first
+            return -1;
+        }
     if (take_bounce(in, max_block) != 0)
     {
         drop_bounce(in);
@@ -1374,6 +1468,29 @@ void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
 void omx_clap_host_set_tempo(struct omx_clap_instance *in, const struct omx_clap_tempo *tempo)
 {
     in->tempo = tempo;
+}
+
+void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_clap_transport_src *src)
+{
+    in->transport_src = src;
+}
+
+int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r, uint32_t frames)
+{
+    if (!in || port >= in->aux_inputs)
+        return -1;
+    if (l && in->aux_in_channels[port] == 2 && r == NULL)
+        return -1;
+    if (in->active && !omx_clap_stopped(&in->stage))
+        return -1;      // unpublish first
+    if (l && in->active && frames < in->max_block)
+        return -1;      // a block would read past the pair
+    in->aux_in_bound[port][0] = l;
+    in->aux_in_bound[port][1] = l ? r : NULL;
+    in->aux_in_frames[port] = l ? frames : 0;
+    if (in->active)
+        omx_clap_set_aux_in(&in->aux_in, port, l, in->aux_in_bound[port][1]);
+    return 0;
 }
 
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)
