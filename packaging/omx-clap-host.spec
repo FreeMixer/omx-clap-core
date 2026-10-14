@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.4.2
+Version:        0.5.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -110,6 +110,15 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Oct 14 2026 Pau Aliagas <linuxnow@gmail.com> - 0.5.0-1
+- LV2 plugins keep their state: the adapter saves and restores it through
+  clap.state and loads a preset through clap.preset-load. A state longer than
+  1 MiB is refused on load.
+- A plugin activated with blocks larger than the ones it then runs at is
+  warmed up at the activated size.
+- An LV2 plugin whose worker thread cannot start again after a reset stays
+  unusable until it is activated again, instead of running without its worker.
+
 * Mon Oct 12 2026 Pau Aliagas <linuxnow@gmail.com> - 0.4.2-1
 - clap_host_limits.h carries CLAP_HOST_LATENCY_HOLD_MS, the hold before a hosted
   stage's new latency takes effect.
