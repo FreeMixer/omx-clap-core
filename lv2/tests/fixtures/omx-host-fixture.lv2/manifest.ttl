@@ -3,6 +3,7 @@
 # The host half's fixture bundle (lv2_host_fixture.c): one plugin with a binary, and twins the host
 # must refuse from this TTL before it opens that binary.
 @prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix pset: <http://lv2plug.in/ns/ext/presets#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 <urn:openmixer:test:host-fixture>
@@ -44,3 +45,23 @@
     a lv2:Plugin ;
     lv2:binary <omx-host-fixture.so> ;
     rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#mappath>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#makepath>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture-preset:quiet>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture> ;
+    rdfs:seeAlso <omx-host-fixture-presets.ttl> .
+
+<urn:openmixer:test:host-fixture-preset:quiet-wrong>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture#cv> ;
+    rdfs:seeAlso <omx-host-fixture-presets.ttl> .

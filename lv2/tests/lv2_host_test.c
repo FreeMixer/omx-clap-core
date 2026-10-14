@@ -174,7 +174,7 @@ static void t_one_bundle(void)
     struct lv2_bundle *f = lv2_bundle_ref(g_fixture, why), *w;
     struct lv2_plugin *p;
 
-    CHECK(f && lv2_bundle_count(f) == 8, "bundle: the fixture bundle lists its 8 plugins (%u)", lv2_bundle_count(f));
+    CHECK(f && lv2_bundle_count(f) == 10, "bundle: the fixture bundle lists its 10 plugins (%u)", lv2_bundle_count(f));
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p && strcmp(why, "hosting.no-realisation") == 0, "bundle: LV2_PATH holds the worker gain, the fixture bundle does not know it: one bundle, never load_all (%s)", why);
     w = lv2_bundle_ref(g_wg, why);
@@ -184,7 +184,7 @@ static void t_one_bundle(void)
     lv2_plugin_close(p);
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p, "bundle: with the worker gain's bundle loaded too, the fixture bundle still does not hold it: the plugin must be THAT bundle's (%s)", why);
-    CHECK(lv2_bundle_count(f) == 8, "bundle: and does not list it");
+    CHECK(lv2_bundle_count(f) == 10, "bundle: and does not list it");
     lv2_bundle_unref(w);
     lv2_bundle_unref(f);
 }
@@ -333,7 +333,8 @@ static void t_worker(double rate)
     gain = control_of(p, "gain_db");
     in = lv2_instance_new(p);
     lv2_instance_set_role(in, is_main, NULL);
-    threads0 = thread_count_reaching(thread_count());
+    // the baseline once the last rate's worker has left /proc: a joined thread can stay listed a moment
+    threads0 = thread_count_reaching(1);
     CHECK(lv2_instance_activate(in, rate, 1, BLOCK, why) == 0, "worker %.0f: a plugin requiring urid:map, worker:schedule and options activates (%s)", rate, why);
     CHECK(pr->rate_option == rate, "worker %.0f: options carried param:sampleRate %.0f", rate, pr->rate_option);
     CHECK(pr->max_block_option == (int32_t)BLOCK && pr->min_block_option == 1,
