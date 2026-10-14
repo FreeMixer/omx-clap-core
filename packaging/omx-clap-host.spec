@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.5.0
+Version:        0.6.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -125,6 +125,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Oct 14 2026 Pau Aliagas <linuxnow@gmail.com> - 0.6.0-1
+- LV2 numeric patch properties appear as CLAP parameters, and a value the plugin
+  emits on its own is kept.
+- The headers install clap_meters.h with the other core headers.
+- A new package, omx-clap-host-tests, carries the worker's test fixtures for a
+  program that tests itself against the worker.
+
 * Wed Oct 14 2026 Pau Aliagas <linuxnow@gmail.com> - 0.5.0-1
 - LV2 plugins keep their state: the adapter saves and restores it through
   clap.state and loads a preset through clap.preset-load. A state longer than
