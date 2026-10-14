@@ -1026,8 +1026,8 @@ static const char *read_required(struct lv2_plugin *p, const LilvPlugin *pl)
     L.lilv_nodes_free(req);
     if (!p->required || k != n)
         return LV2_CODE_NO_REALISATION;
-    for (k = 0; k < n && !refused; k++)
-        if (!lv2_feature_configured(p->required[k]))
+    for (k = 0; k < n && !refused && lv2_core_feature_options()->strict; k++)
+        if (!lv2_feature_offered_within(lv2_core_feature_options(), lv2_features_configured(), p->required[k]))
             refused = LV2_CODE_FEATURES_MISSING;
     return refused;
 }
@@ -1170,10 +1170,19 @@ int lv2_plugin_load(struct lv2_plugin *p, char why[LV2_CORE_WHY_MAX])
 ************************************************************************************************************************
 */
 
-/* state:loadDefaultState over lilv-state, through the plugin's own URID map: 0, or -1 without a map */
+/* the process's table as a map, for a plugin that was handed none */
+static LV2_URID table_map(LV2_URID_Map_Handle h, const char *uri)
+{
+    (void)h;
+    return lv2_urid_lookup(uri);
+}
+
+/* state:loadDefaultState over lilv-state, through the plugin's own URID map, or the process's table, which is the same
+ * mapping, when the feature options withheld it: 0, or -1 without a world */
 int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features)
 {
-    LV2_URID_Map *map = NULL;
+    static LV2_URID_Map table = { NULL, table_map };
+    LV2_URID_Map *map = &table;
     LilvInstance instance;
     LilvState *state;
     uint32_t i;
@@ -1181,8 +1190,8 @@ int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, cons
     for (i = 0; features && features[i]; i++)
         if (strcmp(features[i]->URI, LV2_URID__map) == 0)
             map = features[i]->data;
-    if (!map || !g.world)
-        return -1;      // the state's keys must be mapped by the plugin's own map
+    if (!g.world)
+        return -1;
     state = L.lilv_state_new_from_world(g.world, map, p->uri_node);
     if (!state)
         return 0;       // no default state: nothing to restore
