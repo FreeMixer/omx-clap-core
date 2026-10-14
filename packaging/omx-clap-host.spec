@@ -15,6 +15,8 @@ BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
+# make test-lv2 runs the MIDI output path under AddressSanitizer
+BuildRequires: libasan
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 
