@@ -123,6 +123,13 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   for it. A plugin's meters are CLAP's own `clap.meters/1` ([docs/meters.md](docs/meters.md)).
 - `clap_meters.h`: `clap.meters/1`, the CLAP meters extension, for an SDK that does not ship it yet.
   A plugin includes this installed copy instead of carrying its own.
+- `omx_clap_raw.h`: the raw open a probe, a qualifier or an oracle runs, header only.
+  `omx_clap_raw_open` dlopens a `.clap`, checks its `clap_entry`'s CLAP version, inits it and
+  takes the plugin factory; `omx_clap_raw_create` creates and inits a plugin against
+  `OMX_CLAP_RAW_NULL_HOST(name)`, a host that offers no extension and ignores every request;
+  `omx_clap_raw_close` deinits and dlcloses. None of the hosted path's protections apply, on
+  purpose: a program that judges a plugin sees what the plugin does alone. `make test-raw`
+  runs it against the fake effect.
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a
