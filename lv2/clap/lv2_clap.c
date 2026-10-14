@@ -112,6 +112,7 @@ struct shim
     struct lv2_instance *in;
     int32_t *control_of_port;           // port index -> control index, -1 for a port that is not a control
     int active, processing;
+    int broken;                         // a reset whose worker could not start again: process() fails until activate
     uint32_t max_frames;
     double rate;
 
@@ -425,6 +426,7 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
         return false;
     }
     s->active = 1;
+    s->broken = 0;
     s->rate = rate;
     s->max_frames = max_frames;
     // the restart a held latency asked for is this activation: it takes the reading
@@ -457,7 +459,13 @@ static void plugin_stop_processing(const clap_plugin_t *plugin)
 
 static void plugin_reset(const clap_plugin_t *plugin)
 {
-    lv2_instance_reset(SHIM_OF(plugin)->in);
+    struct shim *s = SHIM_OF(plugin);
+
+    if (lv2_instance_reset(s->in) != 0)
+    {
+        s->broken = 1;
+        host_log(s->host, CLAP_LOG_ERROR, "reset: the LV2 worker could not start again; process fails until the next activate");
+    }
 }
 
 static void write_controls(void *ctx)
@@ -499,7 +507,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     struct lv2_counters c;
     uint32_t leg;
 
-    if (!s->active || n > s->max_frames)
+    if (!s->active || s->broken || n > s->max_frames)
         return CLAP_PROCESS_ERROR;
     for (leg = 0; leg < legs; leg++)
     {
