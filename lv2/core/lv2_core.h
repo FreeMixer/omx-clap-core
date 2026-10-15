@@ -95,6 +95,12 @@
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
 #define LV2_CODE_STATE_UNREADABLE       "hosting.state.unreadable"
 #define LV2_CODE_PRESET_NOT_FOUND       "hosting.preset.not-found"
+#define LV2_CODE_PATH_OUTSIDE           "hosting.state.path-outside"       // makePath: empty, absolute, or a `..` component
+#define LV2_CODE_PATH_SYMLINK           "hosting.state.path-symlink"       // makePath: a component is a symbolic link
+#define LV2_CODE_PATH_TOO_LONG          "hosting.state.path-too-long"      // makePath: PATH_MAX or more, or a long component
+#define LV2_CODE_PATH_ON_AUDIO          "hosting.state.path-on-audio"      // makePath: called on the audio role
+#define LV2_CODE_PATH_UNMAKEABLE        "hosting.state.path-unmakeable"    // makePath: a directory could not be made
+#define LV2_CODE_NOT_A_COPY             "hosting.state.not-a-copy"         // not a save's copy directory of the root
 
 /* what a control port declares, as lv2_control.props reads it */
 #define LV2_PROP_INTEGER                (1u << 0)
@@ -379,6 +385,16 @@ float lv2_instance_patch_get(const struct lv2_instance *in, uint32_t j);
 /* [audio] Whether the last run's output carried a patch:Set or patch:Put for patch parameter `j`; if so, *value is the
  * last such value. A run clears every flag first. */
 int lv2_instance_patch_changed(const struct lv2_instance *in, uint32_t j, float *value);
+
+/* [thread-safe] The code of the last state:makePath request the instance answered NULL, "" when none was. */
+const char *lv2_instance_make_path_why(const struct lv2_instance *in);
+
+/* The directory a state save of the instance copies its files to, "" without a state root. */
+const char *lv2_instance_saved_dir(const struct lv2_instance *in);
+
+/* Remove a save's copy directory, `<state_root>/lv2-<pid>-<n>.saved`, and everything in it, links removed as links: 0,
+ * or -1 with `why` (LV2_CODE_NOT_A_COPY) for any other path, a symbolic link, or no state root. */
+int lv2_saved_drop(const char *saved_dir, char why[LV2_CORE_WHY_MAX]);
 
 /* Block until the worker has serviced every pending request (a test pins the schedule with it). */
 void lv2_instance_worker_quiesce(struct lv2_instance *in);

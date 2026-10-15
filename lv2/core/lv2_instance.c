@@ -49,7 +49,10 @@
 ************************************************************************************************************************
 */
 
+#include <errno.h>
+#include <fcntl.h>
 #include <ftw.h>
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -202,6 +205,7 @@ struct lv2_instance
     pthread_mutex_t dir_lock;
     LV2_State_Make_Path make_path;
     _Atomic uint32_t make_path_refused;
+    _Atomic int make_path_why;              // enum make_path_why of the last refusal
 };
 
 
@@ -348,7 +352,17 @@ static int inst_log_printf(LV2_Log_Handle h, LV2_URID type, const char *fmt, ...
     return n;
 }
 
-/* whether a relative path stays inside the directory it is joined to: not empty, not absolute, no `..` component */
+/* the makePath refusals, by the code each writes */
+enum make_path_why { MP_NONE, MP_OUTSIDE, MP_SYMLINK, MP_TOO_LONG, MP_ON_AUDIO, MP_UNMAKEABLE };
+
+static const char *const MP_CODE[] =
+{
+    [MP_NONE] = "", [MP_OUTSIDE] = LV2_CODE_PATH_OUTSIDE, [MP_SYMLINK] = LV2_CODE_PATH_SYMLINK,
+    [MP_TOO_LONG] = LV2_CODE_PATH_TOO_LONG, [MP_ON_AUDIO] = LV2_CODE_PATH_ON_AUDIO, [MP_UNMAKEABLE] = LV2_CODE_PATH_UNMAKEABLE,
+};
+
+/* whether a relative path stays inside the directory it is joined to, read as text: not empty, not absolute, no `..`
+ * component (even one that comes back inside). The filesystem's side, the links, is dirs_under's. */
 static int path_inside(const char *path)
 {
     const char *c = path;
@@ -368,51 +382,116 @@ static int path_inside(const char *path)
     return 1;
 }
 
+/* the refusal of a component that openat could not open as a directory without following a link */
+static enum make_path_why open_refusal(int dirfd, const char *name, int err)
+{
+    struct stat st;
+
+    if (err == ELOOP || (fstatat(dirfd, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode)))
+        return MP_SYMLINK;
+    return err == ENAMETOOLONG ? MP_TOO_LONG : MP_UNMAKEABLE;
+}
+
+/* `base` (a directory of the instance's own under the real root) made, then each directory component of `rel` made and
+ * opened under it with O_NOFOLLOW, so that no link leads out; with `last`, the last component must not be a link either.
+ * MP_NONE, or the refusal. */
+static enum make_path_why dirs_under(const char *base, const char *rel, int last)
+{
+    enum make_path_why why = MP_NONE;
+    const char *c = rel;
+    int fd;
+
+    if (lv2_mkdirs(base) != 0)
+        return MP_UNMAKEABLE;
+    fd = open(base, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0)
+        return errno == ELOOP ? MP_SYMLINK : MP_UNMAKEABLE;
+    while (*c && why == MP_NONE)
+    {
+        const size_t n = strcspn(c, "/");
+        char name[NAME_MAX + 1];
+        int next;
+
+        if (n > NAME_MAX)
+        {
+            why = MP_TOO_LONG;
+            break;
+        }
+        memcpy(name, c, n);
+        name[n] = '\0';
+        c += n;
+        while (*c == '/')
+            c++;
+        if (n == 0 || (n == 1 && name[0] == '.'))
+            continue;
+        if (!*c)
+        {
+            // the file itself: not made, but never a link the plugin would write through
+            struct stat st;
+
+            if (last && fstatat(fd, name, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode))
+                why = MP_SYMLINK;
+            break;
+        }
+        if (mkdirat(fd, name, 0755) != 0 && errno != EEXIST)
+        {
+            why = errno == ENAMETOOLONG ? MP_TOO_LONG : MP_UNMAKEABLE;
+            break;
+        }
+        next = openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0)
+        {
+            why = open_refusal(fd, name, errno);
+            break;
+        }
+        close(fd);
+        fd = next;
+    }
+    close(fd);
+    return why;
+}
+
+/* a makePath request answered NULL: counted, its code kept for the host */
+static char *make_path_refused(struct lv2_instance *in, enum make_path_why why)
+{
+    atomic_store_explicit(&in->make_path_why, (int)why, memory_order_relaxed);
+    omx_hosted_count(&in->make_path_refused, 1);
+    return NULL;
+}
+
 /* state:makePath: `path` joined to the instance's directory, which is made on the first call, and the directories the
- * path names made with it; malloc'd, the plugin frees it with free(). NULL, counted, for a path that would leave the
- * directory, a call on the audio role, or a directory that cannot be made. */
+ * path names made with it, the same ones under the save's copy directory; malloc'd, the plugin frees it with free().
+ * NULL, counted with its code, for a path that would leave the directory as text or through a link, one too long, a
+ * call on the audio role, or a directory that cannot be made. */
 static char *inst_make_path(LV2_State_Make_Path_Handle h, const char *path)
 {
     struct lv2_instance *in = h;
-    char *full, *slash;
+    enum make_path_why why;
+    char *full;
     size_t n;
-    int ok;
 
-    if (on_audio(in) == 1 || !in->dir || !path_inside(path))
-    {
-        omx_hosted_count(&in->make_path_refused, 1);
-        return NULL;
-    }
-    n = strlen(in->dir) + 1u + strlen(path) + 1u;
+    if (on_audio(in) == 1)
+        return make_path_refused(in, MP_ON_AUDIO);
+    if (!in->dir || !path_inside(path))
+        return make_path_refused(in, MP_OUTSIDE);
+    n = strlen(in->saved_dir) + 1u + strlen(path) + 1u;        // the longer of the two trees
+    if (n > PATH_MAX)
+        return make_path_refused(in, MP_TOO_LONG);
     full = malloc(n);
     if (!full)
-    {
-        omx_hosted_count(&in->make_path_refused, 1);
-        return NULL;
-    }
+        return make_path_refused(in, MP_UNMAKEABLE);
     snprintf(full, n, "%s/%s", in->dir, path);
-    // the directories of the path, the instance's own first: everything but the last component. The same directories
-    // under the save's copy directory too, which lilv copies a file into but does not make below its top
-    slash = strrchr(full, '/');
-    *slash = '\0';
     pthread_mutex_lock(&in->dir_lock);
-    ok = lv2_mkdirs(full) == 0;
-    in->dir_made |= ok;
-    if (ok)
-    {
-        const size_t m = strlen(in->saved_dir) + strlen(full + strlen(in->dir)) + 1u;
-        char *copy = malloc(m);
-
-        ok = copy && snprintf(copy, m, "%s%s", in->saved_dir, full + strlen(in->dir)) > 0 && lv2_mkdirs(copy) == 0;
-        free(copy);
-    }
+    why = dirs_under(in->dir, path, 1);
+    in->dir_made = 1;           // made, or at least tried: the removal at free is safe either way
+    // the copy directory's tree too: lilv copies a file into it but makes nothing below its top
+    if (why == MP_NONE)
+        why = dirs_under(in->saved_dir, path, 0);
     pthread_mutex_unlock(&in->dir_lock);
-    *slash = '/';
-    if (!ok)
+    if (why != MP_NONE)
     {
         free(full);
-        omx_hosted_count(&in->make_path_refused, 1);
-        return NULL;
+        return make_path_refused(in, why);
     }
     return full;
 }
@@ -1494,4 +1573,43 @@ void lv2_instance_worker_quiesce(struct lv2_instance *in)
 int lv2_instance_has_worker(const struct lv2_instance *in)
 {
     return in && in->worker_running;
+}
+
+const char *lv2_instance_make_path_why(const struct lv2_instance *in)
+{
+    const int why = in ? atomic_load_explicit(&in->make_path_why, memory_order_relaxed) : MP_NONE;
+
+    return why > MP_NONE && why <= MP_UNMAKEABLE ? MP_CODE[why] : "";
+}
+
+const char *lv2_instance_saved_dir(const struct lv2_instance *in)
+{
+    return in && in->saved_dir ? in->saved_dir : "";
+}
+
+int lv2_saved_drop(const char *saved_dir, char why[LV2_CORE_WHY_MAX])
+{
+    const struct lv2_core_config *config = lv2_core_config();
+    const char *root = config ? config->state_root : NULL;
+    const size_t rn = root ? strlen(root) : 0;
+    const char *name;
+    struct stat st;
+    size_t nn;
+
+    // <root>/lv2-<digits>-<digits>.saved, a real directory, and nothing else
+    if (!root || !saved_dir || strncmp(saved_dir, root, rn) != 0 || saved_dir[rn] != '/')
+        goto refused;
+    name = saved_dir + rn + 1u;
+    nn = strlen(name);
+    if (strchr(name, '/') || strncmp(name, "lv2-", 4) != 0 || nn < 4u + 9u || strcmp(name + nn - 6u, ".saved") != 0
+        || strspn(name + 4, "0123456789-") != nn - 4u - 6u)
+        goto refused;
+    if (lstat(saved_dir, &st) != 0 || !S_ISDIR(st.st_mode))
+        goto refused;
+    nftw(saved_dir, dir_entry_remove, 16, FTW_DEPTH | FTW_PHYS);
+    lv2_why_set(why, "");
+    return 0;
+refused:
+    lv2_why_set(why, LV2_CODE_NOT_A_COPY);
+    return -1;
 }
