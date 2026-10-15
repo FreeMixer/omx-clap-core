@@ -358,6 +358,16 @@ jobs:
 
       - uses: FreeMixer/.github/.github/actions/deb-deps@v1
 
+      # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the FreeMixer channel
+      - name: Add the FreeMixer channel
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends curl
+          install -d /etc/apt/keyrings
+          curl -fsSL -o /etc/apt/keyrings/freemixer.asc https://freemixer.github.io/deb/freemixer.asc
+          echo "deb [signed-by=/etc/apt/keyrings/freemixer.asc] https://freemixer.github.io/deb/debian/${{ matrix.suite }} ./" > /etc/apt/sources.list.d/freemixer.list
+          apt-get update -qq
+
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
 
