@@ -24,7 +24,8 @@
  *   urn:openmixer:test:atom-fixture    a gain driven by patch:Set, with two text properties. Each message it gets is
  *                                      echoed in another form: the gain as a patch:Set forged as an atom:Blank, the
  *                                      name as a patch:Put whose patch:body carries "got:<name>" (and, for the name
- *                                      "big", as a patch:Set of a 5000-byte string), the file as a patch:Set of the
+ *                                      "big", as a patch:Set of a 5000-byte string; for "nonul", of 4096 bytes and no
+ *                                      NUL; for "max", of 4095 and the NUL), the file as a patch:Set of the
  *                                      same atom:Path. Every block it also writes an object that is not a patch:Set or
  *                                      patch:Put, naming the gain, to its patch output, and one object to its notify
  *                                      output. out = in x gain.
@@ -183,6 +184,23 @@ static void text_run(LV2_Handle h, uint32_t n)
             {
                 set_begin(f, &obj, key, 0);
                 lv2_atom_forge_string(&f->forge, f->big, BIG_BYTES - 1u);
+                lv2_atom_forge_pop(&f->forge, &obj);
+                continue;
+            }
+            if (strcmp(lv2_atom_probe.name, "nonul") == 0 || strcmp(lv2_atom_probe.name, "max") == 0)
+            {
+                // 4096 bytes and no NUL, a malformed string the host must not read past; or 4095 and the NUL, the longest
+                const int nonul = lv2_atom_probe.name[0] == 'n';
+
+                set_begin(f, &obj, key, 0);
+                if (nonul)
+                {
+                    lv2_atom_forge_atom(&f->forge, 4096u, f->string_t);
+                    lv2_atom_forge_raw(&f->forge, f->big, 4096u);
+                    lv2_atom_forge_pad(&f->forge, 4096u);
+                }
+                else
+                    lv2_atom_forge_string(&f->forge, f->big, 4095u);
                 lv2_atom_forge_pop(&f->forge, &obj);
                 continue;
             }
