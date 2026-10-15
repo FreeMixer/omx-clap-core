@@ -10,7 +10,7 @@
 # held; each step is printed. Nothing here touches the PipeWire of the session
 # that runs it.
 #
-# CLAP_TEST_PLUGIN: the omx-delay .clap (default ../openmixer/packages/omx-plugins/bin/omx-delay.clap)
+# CLAP_TEST_PLUGIN: the omx-delay .clap (default /usr/lib/clap/omx-delay.clap)
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
 # JACK_E2E_PORT:    the socket port (default 5560)
 
@@ -18,7 +18,7 @@ set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
-plugin=${CLAP_TEST_PLUGIN:-$root/../openmixer/packages/omx-plugins/bin/omx-delay.clap}
+plugin=${CLAP_TEST_PLUGIN:-/usr/lib/clap/omx-delay.clap}
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5560}
 fake=$here/fake.clap
