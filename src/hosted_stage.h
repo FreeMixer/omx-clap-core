@@ -51,6 +51,11 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <omxdsp/omx_contract.h>
+#include <omxdsp/omx_denormal.h>
+#include <omxdsp/omx_units.h>
+#include <omxdsp/omx_wetdry.h>
+
 #include "clap_host_limits.h"
 
 
@@ -153,62 +158,6 @@ struct omx_hosted_param_queue
 
 /*
 ************************************************************************************************************************
-*           THE DSP WORDS THE CORE SPELLS
-*
-* libomx-clap-core cannot include a DSP library of its own: each word below is the arithmetic of the word of the same
-* meaning in the caller's DSP library, and a caller that has one proves it bit-identical with a test of its own.
-************************************************************************************************************************
-*/
-
-/** decibels to linear amplitude, 10^(dB/20) */
-static inline float omx_hosted_db_to_lin(float db)
-{
-    return powf(10.0f, db * 0.05f);
-}
-
-/** whether every sample of a block is finite; a NULL block is */
-static inline int omx_hosted_block_finite(const float *b, uint32_t n)
-{
-    uint32_t i;
-
-    if (b == NULL)
-        return 1;
-    for (i = 0; i < n; i++)
-    {
-        const float x = b[i];
-        if (!(x - x == 0.0f))   ///< false for NaN and for both infinities
-            return 0;
-    }
-    return 1;
-}
-
-/** flush-to-zero and denormals-are-zero for the calling thread; the mode is per thread */
-static inline void omx_hosted_denormals_off(void)
-{
-#if defined(__i386__) || defined(__x86_64__)
-    unsigned int mxcsr = __builtin_ia32_stmxcsr();
-    __builtin_ia32_ldmxcsr(mxcsr | 0x8040);
-#elif defined(__aarch64__)
-    uint64_t cw;
-    __asm__ __volatile__ (
-        "mrs    %0, fpcr                            \n"
-        "orr    %0, %0, #0x1000000                  \n"
-        "msr    fpcr, %0                            \n"
-        "isb                                        \n"
-        : "=r"(cw) :: "memory");
-#elif defined(__arm__)
-    uint32_t cw;
-    __asm__ __volatile__ (
-        "vmrs   %0, fpscr                           \n"
-        "orr    %0, %0, #0x1000000                  \n"
-        "vmsr   fpscr, %0                           \n"
-        : "=r"(cw) :: "memory");
-#endif
-}
-
-
-/*
-************************************************************************************************************************
 *           THE STAGE
 ************************************************************************************************************************
 */
@@ -219,24 +168,10 @@ static inline void omx_hosted_count(_Atomic uint32_t *c, uint32_t by)
     atomic_store_explicit(c, atomic_load_explicit(c, memory_order_relaxed) + by, memory_order_relaxed);
 }
 
-/**
- * The one-block crossfade from `from` to `to`, constant-gain linear: at sample i the gains are 1 - (1/n)*i and
- * (1/n)*i and they sum to exactly 1, so two identical bodies read back bit-identical (from + (to - from) * g makes that
- * exact, not merely close). `dst` may not alias `from` or `to`.
- */
-static inline void omx_hosted_xfade(float *dst, const float *from, const float *to, uint32_t n)
-{
-    const float step = (1.0f - 0.0f) / (float)n;
-    uint32_t i;
-
-    for (i = 0; i < n; i++)
-        dst[i] = from[i] + (to[i] - from[i]) * (0.0f + step * (float)i);
-}
-
 /** Clamp one leg to the ceiling, returning how many samples it moved. Branch-free. */
 static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
 {
-    const float c = omx_hosted_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+    const float c = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
     uint32_t moved = 0;
     uint32_t i;
 
@@ -274,15 +209,15 @@ static inline void omx_hosted_deliver(int want_wet, int was_wet, float *l, float
     }
     else if (want_wet)
     {
-        omx_hosted_xfade(l, in_l, out_l, n);
+        omx_wetdry_xfade_block(l, in_l, out_l, n);
         if (r)
-            omx_hosted_xfade(r, in_r, wet_r, n);
+            omx_wetdry_xfade_block(r, in_r, wet_r, n);
     }
     else
     {
-        omx_hosted_xfade(l, out_l, in_l, n);
+        omx_wetdry_xfade_block(l, out_l, in_l, n);
         if (r)
-            omx_hosted_xfade(r, wet_r, in_r, n);
+            omx_wetdry_xfade_block(r, wet_r, in_r, n);
     }
 }
 
@@ -330,7 +265,7 @@ static inline int omx_hosted_out_finite(const struct omx_hosted_stage *h, uint32
 {
     if (!(h->guards & OMX_HOSTED_GUARD_NONFINITE))
         return 1;
-    return omx_hosted_block_finite(h->out_l, n) && omx_hosted_block_finite(h->n_out == 2 ? h->out_r : NULL, n);
+    return omx_block_finite(h->out_l, n) && omx_block_finite(h->n_out == 2 ? h->out_r : NULL, n);
 }
 
 /**
@@ -389,7 +324,7 @@ static inline void omx_hosted_run_end(struct omx_hosted_stage *h, int usable, ui
     omx_hosted_deliver((int)want_wet, (int)atomic_load_explicit(&h->rendered_wet, memory_order_relaxed), l, r, h->in_l,
                        h->in_r, h->out_l, wet_r, n);
     atomic_store_explicit(&h->rendered_wet, want_wet, memory_order_release);
-    CLAP_HOST_POST((omx_hosted_block_finite(l, n) && omx_hosted_block_finite(r, n)) || !(h->guards & OMX_HOSTED_GUARD_NONFINITE), "finite");
+    CLAP_HOST_POST((omx_block_finite(l, n) && omx_block_finite(r, n)) || !(h->guards & OMX_HOSTED_GUARD_NONFINITE), "finite");
 }
 
 /**
@@ -407,7 +342,7 @@ static inline uint32_t omx_hosted_prime(struct omx_hosted_stage *h, uint32_t n, 
         return UINT32_MAX;
     for (b = 0; b < CLAP_HOST_WARMUP_BLOCKS; b++)
     {
-        const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_hosted_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
+        const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
 
         for (i = 0; i < n; i++)
             h->in_l[i] = h->in_r[i] = v;

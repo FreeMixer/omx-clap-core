@@ -110,7 +110,7 @@ int main(int argc, char **argv)
     memcpy(in_r, in_l, sizeof(in_l));
     for (b = 0; b < 3; b++)
         omx_clap_run_io(&instance->stage, inputs, outputs, BLOCK);
-    CHECK(max_abs(out_l, BLOCK) <= omx_hosted_db_to_lin(CLAP_HOST_CLAMP_DBFS) * 1.0000001f && max_abs(out_l, BLOCK) > 15.0f && atomic_load(&instance->stage.h.clamped_samples) > 0,
+    CHECK(max_abs(out_l, BLOCK) <= omx_db_to_lin(CLAP_HOST_CLAMP_DBFS) * 1.0000001f && max_abs(out_l, BLOCK) > 15.0f && atomic_load(&instance->stage.h.clamped_samples) > 0,
           "the clamp: +40 dBFS leaves at %g (%u samples moved)", (double)max_abs(out_l, BLOCK), atomic_load(&instance->stage.h.clamped_samples));
 
     // a non-finite block is discarded (the lane passes dry) and, at the strike count, the stage is out for good

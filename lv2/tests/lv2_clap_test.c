@@ -1714,7 +1714,7 @@ static void t_core(double rate)
             core_run(in, l, NULL, 64);
         }
         for (i = 0, all = 1; i < 64; i++)
-            all &= l[i] == ((i & 1) ? -omx_hosted_db_to_lin(CLAP_HOST_CLAMP_DBFS) : omx_hosted_db_to_lin(CLAP_HOST_CLAMP_DBFS));
+            all &= l[i] == ((i & 1) ? -omx_db_to_lin(CLAP_HOST_CLAMP_DBFS) : omx_db_to_lin(CLAP_HOST_CLAMP_DBFS));
         CHECK(all, "core %.0f: every +40 dB sample held at the +%.1f dBFS ceiling", rate, (double)CLAP_HOST_CLAMP_DBFS);
         CHECK(atomic_load(&in->stage.h.clamped_samples) == 128, "core %.0f: 128 clamped samples counted (%u)", rate, atomic_load(&in->stage.h.clamped_samples));
         CHECK(atomic_load(&in->stage.h.nonfinite_blocks) == 0 && atomic_load(&in->stage.h.fault) == OMX_HOSTED_FAULT_NONE, "core %.0f: a clamp is never a strike", rate);
@@ -1763,7 +1763,7 @@ static int plain_lv2_run(const char *uri, double rate, uint32_t warm, uint32_t n
     d->activate(h);
     for (b = 0; b < CLAP_HOST_WARMUP_BLOCKS; b++)
     {
-        const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_hosted_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
+        const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
 
         for (i = 0; i < warm; i++)
             in[i] = v;

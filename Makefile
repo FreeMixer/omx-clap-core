@@ -60,9 +60,21 @@ endif
 # plugin the test loads
 CLAP_TEST_PLUGIN ?= ../openmixer/packages/omx-plugins/bin/omx-delay.clap
 
+# omx-dsp's headers: hosted_stage.h spells no DSP word of its own (omx_block_finite, omx_denormals_off, omx_db_to_lin,
+# omx_wetdry_xfade_block), it takes them from omx-dsp. pkg-config when omx-dsp-devel is installed (it names omx-contract and
+# the -ffp-contract=off the kernels are built with), an omx-dsp and an omx-contract checkout otherwise
+OMX_DSP_DIR ?= ../omx-dsp
+OMX_CONTRACT_DIR ?= ../omx-contract
+ifeq ($(shell $(PKG_CONFIG) --exists omxdsp && echo true), true)
+DSP_CFLAGS = $(shell $(PKG_CONFIG) --cflags omxdsp)
+else
+DSP_CFLAGS = -ffp-contract=off -I$(OMX_DSP_DIR)/include -I$(OMX_CONTRACT_DIR)/include
+endif
+
 # default compiler and linker flags; everything is hidden by default, the core's export list is its version script
 CFLAGS += -O3 -g -Wall -Wextra -std=gnu99 -fPIC -fvisibility=hidden -D_GNU_SOURCE -pthread -MMD -MP
 CFLAGS += -Werror=implicit-function-declaration -Werror=return-type
+CFLAGS += $(DSP_CFLAGS)
 CFLAGS += -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u
 
 ifeq ($(DEBUG), 1)
@@ -277,7 +289,7 @@ tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_S
 	$(CC) $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CFLAGS) -Werror -fno-lto -fno-builtin-calloc -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
 tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
-	$(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
 	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
@@ -303,7 +315,7 @@ abi-check: abi-stage
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
 	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
-	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
+	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
 	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
@@ -312,7 +324,7 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	rm -rf build/stage
 	$(MAKE) install-lib PREFIX=$(CURDIR)/build/stage/usr LIBDIR=$(CURDIR)/build/stage/usr/lib
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/stage/usr/lib/pkgconfig/clap.pc
-	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(VERSION_NUM)u -o $@ $< \
+	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(VERSION_NUM)u -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
 
 # what one stage block costs, as the header is and with omx_clap_run's two in_cycle stores relaxed: a measurement
@@ -473,7 +485,7 @@ test-lv2-core: lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patc
 # the MIDI output path under AddressSanitizer: lv2/core and the echo fixture built with it; a read past the adapter's own
 # buffer is a report that ends the test. Needs libasan, as test-untrusted-asan does.
 LV2_ASAN_DIR = build/lv2-asan
-LV2_ASAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer -g -O1 -fPIC -D_GNU_SOURCE -std=gnu99 -Wall -Wextra -Werror -ffp-contract=off $(LV2_CFLAGS)
+LV2_ASAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer -g -O1 -fPIC -D_GNU_SOURCE -std=gnu99 -Wall -Wextra -Werror -ffp-contract=off $(LV2_CFLAGS) $(DSP_CFLAGS)
 
 $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_echo.c $(wildcard $(LV2_FIXTURE_DIR)/omx-midi-echo.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -508,7 +520,7 @@ lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in
 	rm -rf build/lv2-stage
 	$(MAKE) install-lib install-lv2 PREFIX=$(CURDIR)/build/lv2-stage/usr LIBDIR=$(CURDIR)/build/lv2-stage/usr/lib
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/lv2-stage/usr/lib/pkgconfig/clap.pc
-	export PKG_CONFIG_PATH=$(CURDIR)/build/lv2-stage/usr/lib/pkgconfig; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
+	export PKG_CONFIG_PATH=$(CURDIR)/build/lv2-stage/usr/lib/pkgconfig$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-lv2)
 
 test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-fixture.so

@@ -55,7 +55,7 @@
  *     the WITNESS: a fake that allocates inside process() is seen by the same counter.
  * 13. RT: no allocation inside omx_clap_run across every arm above, and the witness: a fake that allocates inside
  *     process() is seen by the same counter.
- * 14. XFADE: omx_hosted_xfade against (1 - i/n)·from + (i/n)·to to < 1e-7; identical bodies bit-exact.
+ * 14. XFADE: omx_wetdry_xfade_block against (1 - i/n)·from + (i/n)·to to < 1e-7; identical bodies bit-exact.
  * The tempo a run hands the plugin is clap_engine_test.c's (omx_clap_host_run).
  */
 #include <clap/clap.h>
@@ -72,7 +72,6 @@
 #include "clap_stage.h"
 
 static const float RATES[] = {44100.0f, 48000.0f, 88200.0f, 96000.0f, 176400.0f, 192000.0f};
-static float omx_db_to_lin(float db) { return omx_hosted_db_to_lin(db); }
 /** The rate the arm now running activates its plugin at — set only by main's loop. */
 static float g_rate;
 
@@ -352,7 +351,7 @@ static void t_bypass_reset(void) {
   float want[MAXB];
   float wet[MAXB];
   for (uint32_t i = 0; i < 100; i++) wet[i] = dl[i] * PAD_GAIN;
-  omx_hosted_xfade(want, wet, dl, 100);
+  omx_wetdry_xfade_block(want, wet, dl, 100);
   CHECK(bytes_equal(l, want, 100), "the bypass transition is the closed-form crossfade wet->dry");
   const uint32_t runs_before = atomic_load(&g.st.h.runs);
   ramp(l, 100), ramp(r, 100);
@@ -383,7 +382,7 @@ static void t_events(void) {
   float l[MAXB], r[MAXB];
   fill(l, 64, 0.1f), fill(r, 64, 0.1f);
 #if defined(__x86_64__) || defined(__i386__)
-  omx_hosted_denormals_off();
+  omx_denormals_off();
 #endif
   run(&g, l, r, 64);
   CHECK(g.f.ev_per_block[0] == CLAP_HOST_EVENTS_PER_BLOCK, "block 1 carried eventsPerBlock (%u)", g.f.ev_per_block[0]);
@@ -456,7 +455,7 @@ static void t_discard(enum kind kind) {
   run(&g, l, r, 64); /* a recovery before the strike count fades back in */
   float want[MAXB], wet[MAXB];
   for (uint32_t i = 0; i < 64; i++) wet[i] = dl[i] * PAD_GAIN;
-  omx_hosted_xfade(want, dl, wet, 64);
+  omx_wetdry_xfade_block(want, dl, wet, 64);
   CHECK(bytes_equal(l, want, 64), "a recovery fades back in from dry");
   *bad = 1;
   for (uint32_t k = 1; k < CLAP_HOST_NON_FINITE_STRIKES; k++) {
@@ -562,7 +561,7 @@ static void t_out_events(void) {
 static void t_xfade(void) {
   float from[MAXB], to[MAXB], dst[MAXB];
   for (uint32_t i = 0; i < 128; i++) from[i] = 0.7f - 0.01f * (float)i, to[i] = -0.3f + 0.005f * (float)i;
-  omx_hosted_xfade(dst, from, to, 128);
+  omx_wetdry_xfade_block(dst, from, to, 128);
   double worst = 0;
   for (uint32_t i = 0; i < 128; i++) {
     const double g = (double)i / 128.0;
@@ -571,7 +570,7 @@ static void t_xfade(void) {
     if (err > worst) worst = err;
   }
   CHECK(worst < 1e-7, "crossfade matches (1-i/n)from + (i/n)to to < 1e-7 (worst %.3g)", worst);
-  omx_hosted_xfade(dst, from, from, 128);
+  omx_wetdry_xfade_block(dst, from, from, 128);
   CHECK(bytes_equal(dst, from, 128), "identical bodies read back bit-identical");
 }
 
