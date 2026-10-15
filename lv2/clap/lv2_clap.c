@@ -1122,6 +1122,19 @@ int omx_clap_lv2_configure(const omx_clap_lv2_config_t *cfg, char why[OMX_CLAP_L
     return 0;
 }
 
+int omx_clap_lv2_feature_options(const struct omx_lv2_feature_options *o, char why[OMX_CLAP_LV2_WHY_MAX])
+{
+    char core_why[LV2_CORE_WHY_MAX];
+
+    if (lv2_core_feature_options_set(o, core_why) != 0)
+    {
+        why_set(why, core_why);
+        return -1;
+    }
+    why_set(why, "");
+    return 0;
+}
+
 const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[OMX_CLAP_LV2_WHY_MAX])
 {
     struct slot *slot = NULL;

@@ -21,9 +21,14 @@
 /*
 ************************************************************************************************************************
 *
-* The configuration and the feature providers of the LV2 host (see lv2_core.h): one URID table per process, lock-free for a URI already mapped, and which providers are on,
-* which is the configured list's say. The map, the log, the options and the worker schedule an instance is handed are
-* its own structures over that table (lv2_instance.c), so a call names the instance it came from.
+* The configuration and the feature providers of the LV2 host (see lv2_core.h): one URID table per process, lock-free for
+* a URI already mapped, and which providers are on, which is the configured list's say. The map, the log, the options and
+* the worker schedule an instance is handed are its own structures over that table (lv2_instance.c), so a call names the
+* instance it came from.
+*
+* The feature options (omx_lv2_features.h) decide, within the configured list, which features an instance is offered,
+* whether a plugin requiring one that is not offered is refused, the buf-size declarations and block lengths reported,
+* and where log:log lines go. The same array builder serves a host of its own through omx_lv2_features_build.
 *
 ************************************************************************************************************************
 */
@@ -35,12 +40,17 @@
 ************************************************************************************************************************
 */
 
+#include <dlfcn.h>
 #include <pthread.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/options/options.h>
+#include <lv2/parameters/parameters.h>
 #include <lv2/state/state.h>
 #include <lv2/worker/worker.h>
 
@@ -65,6 +75,23 @@ const char *const lv2_feature_uri[LV2_FEATURE_KINDS] =
 };
 
 const char *const lv2_core_provided[] = LV2_CORE_PROVIDED_INIT;
+
+
+/*
+************************************************************************************************************************
+*           LOCAL DEFINES
+************************************************************************************************************************
+*/
+
+/* the console's behaviour: every feature offered, strict, the activation's lengths declared bounded, a silent log */
+#define LV2_FEATURE_OPTIONS_DEFAULT \
+    { OMX_LV2_FEATURES_ALL, 1, { OMX_LV2_BLOCK_BOUNDED, 0u, 0u, 0u }, { OMX_LV2_LOG_SILENT, NULL, NULL, NULL, 0u } }
+
+/* the buf-size declarations, OMX_LV2_BLOCK_* bit d the URI d */
+#define BLOCK_DECLARATIONS              3u
+
+/* the longest log line a sink or a capture is handed, its NUL included: a longer one is cut */
+#define LOG_LINE_MAX                    512
 
 
 /*
@@ -96,6 +123,14 @@ static struct
     _Atomic(const char *) *segment[URID_SEGMENTS];
     _Atomic uint32_t count;
 } g_urid = { PTHREAD_MUTEX_INITIALIZER, { NULL }, 0 };
+
+/* the feature options of the plugins opened and the instances made from now on */
+static struct omx_lv2_feature_options g_options = LV2_FEATURE_OPTIONS_DEFAULT;
+
+static const char *const g_declared_uri[BLOCK_DECLARATIONS] =
+{
+    LV2_BUF_SIZE__boundedBlockLength, LV2_BUF_SIZE__fixedBlockLength, LV2_BUF_SIZE__powerOf2BlockLength,
+};
 
 /*
 ************************************************************************************************************************
@@ -277,14 +312,335 @@ const struct lv2_core_config *lv2_core_config(void)
     return g.configured ? &g.config : NULL;
 }
 
-int lv2_feature_configured(const char *uri)
-{
-    const int k = provider_of(uri);
-
-    return k >= 0 && (g.provided & (1u << k)) != 0;
-}
-
 int lv2_feature_on(enum lv2_feature_kind kind)
 {
     return (g.provided & (1u << kind)) != 0;
+}
+
+uint32_t lv2_features_configured(void)
+{
+    return g.provided;
+}
+
+int lv2_core_feature_options_set(const struct omx_lv2_feature_options *o, char why[LV2_CORE_WHY_MAX])
+{
+    if (o && omx_lv2_feature_options_check(o) != 0)
+    {
+        lv2_why_set(why, "lv2.configure.options");
+        return -1;
+    }
+    if (o)
+        g_options = *o;
+    else
+        omx_lv2_feature_options_init(&g_options);
+    lv2_why_set(why, "");
+    return 0;
+}
+
+const struct omx_lv2_feature_options *lv2_core_feature_options(void)
+{
+    return &g_options;
+}
+
+int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t allowed, const char *uri)
+{
+    const uint32_t on = o->features & allowed;
+    const int k = uri ? provider_of(uri) : -1;
+    uint32_t d;
+
+    if (k == F_BOUNDED)
+        return (on & OMX_LV2_FEATURE_BIT(F_BOUNDED)) && (o->block.declares & OMX_LV2_BLOCK_BOUNDED);
+    if (k >= 0)
+        return (on & OMX_LV2_FEATURE_BIT(k)) != 0;
+    for (d = 0; uri && d < BLOCK_DECLARATIONS; d++)
+        if (strcmp(g_declared_uri[d], uri) == 0)
+            return (on & OMX_LV2_FEATURE_BIT(F_BOUNDED)) && (o->block.declares & (1u << d));
+    return 0;
+}
+
+uint32_t lv2_features_fill(LV2_Feature features[LV2_FEATURE_SLOTS], const LV2_Feature *ptrs[LV2_FEATURE_SLOTS + 1],
+                           const struct omx_lv2_feature_options *o, uint32_t allowed, void *const data[LV2_FEATURE_KINDS])
+{
+    const uint32_t on = o->features & allowed;
+    uint32_t n = 0, d;
+    int k;
+
+    for (k = 0; k < LV2_FEATURE_KINDS; k++)
+    {
+        if (!(on & OMX_LV2_FEATURE_BIT(k)))
+            continue;
+        // the buf-size item stands in the kinds' order as bounded when bounded is declared: flags, the presence the promise
+        if (k == F_BOUNDED && !(o->block.declares & OMX_LV2_BLOCK_BOUNDED))
+            continue;
+        features[n].URI = lv2_feature_uri[k];
+        features[n].data = k == F_BOUNDED || k == F_DEFAULT_STATE ? NULL : data[k];
+        ptrs[n] = &features[n];
+        n++;
+    }
+    // the declarations beyond bounded, after every kind
+    for (d = 1; d < BLOCK_DECLARATIONS && (on & OMX_LV2_FEATURE_BIT(F_BOUNDED)); d++)
+    {
+        if (!(o->block.declares & (1u << d)))
+            continue;
+        features[n].URI = g_declared_uri[d];
+        features[n].data = NULL;
+        ptrs[n] = &features[n];
+        n++;
+    }
+    ptrs[n] = NULL;
+    return n;
+}
+
+int lv2_block_lengths(const struct omx_lv2_feature_options *o, uint32_t min_frames, uint32_t max_frames, int32_t *min,
+                      int32_t *max, int32_t *nominal)
+{
+    const uint32_t lo = o->block.min ? o->block.min : min_frames;
+    const uint32_t hi = o->block.max ? o->block.max : max_frames;
+    const uint32_t nom = o->block.nominal ? o->block.nominal : hi;
+
+    if (lo > hi || hi > (uint32_t)INT32_MAX || nom > (uint32_t)INT32_MAX)
+        return -1;
+    *min = (int32_t)lo;
+    *max = (int32_t)hi;
+    *nominal = (int32_t)nom;
+    return 0;
+}
+
+void lv2_options_fill(LV2_Options_Option opts[5], float *rate, int32_t *min, int32_t *max, int32_t *nominal)
+{
+    const LV2_URID t_int = lv2_urid_lookup(LV2_ATOM__Int), t_float = lv2_urid_lookup(LV2_ATOM__Float);
+    const LV2_Options_Option o[5] =
+    {
+        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_PARAMETERS__sampleRate), sizeof(float), t_float, rate },
+        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_BUF_SIZE__minBlockLength), sizeof(int32_t), t_int, min },
+        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_BUF_SIZE__maxBlockLength), sizeof(int32_t), t_int, max },
+        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_BUF_SIZE__nominalBlockLength), sizeof(int32_t), t_int, nominal },
+        { LV2_OPTIONS_INSTANCE, 0, 0, 0, 0, NULL },
+    };
+
+    memcpy(opts, o, sizeof(o));
+}
+
+int lv2_log_emit(const struct omx_lv2_feature_options *o, LV2_URID type, const char *fmt, va_list ap)
+{
+    char line[LOG_LINE_MAX];
+    size_t used, room, len;
+    int n;
+
+    if (o->log.mode == OMX_LV2_LOG_SILENT || !fmt)
+        return 0;
+    n = vsnprintf(line, sizeof(line), fmt, ap);
+    if (n < 0)
+        return n;
+    if (o->log.mode == OMX_LV2_LOG_ROUTE)
+    {
+        if (o->log.sink)
+            o->log.sink(o->log.ctx, lv2_urid_unlookup(type), line);
+        return n;
+    }
+    if (o->log.mode != OMX_LV2_LOG_CAPTURE || !o->log.capture || o->log.capture_size == 0)
+        return n;
+    // appended after what the buffer holds, a newline closing the line, cut short at the buffer's end
+    used = strnlen(o->log.capture, o->log.capture_size - 1u);
+    room = o->log.capture_size - 1u - used;
+    len = strlen(line);
+    if (len > room)
+        len = room;
+    memcpy(o->log.capture + used, line, len);
+    used += len;
+    if (used < o->log.capture_size - 1u && (len == 0 || line[len - 1] != '\n'))
+        o->log.capture[used++] = '\n';
+    o->log.capture[used] = '\0';
+    return n;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: THE PROVIDER OF A HOST OF ITS OWN (omx_lv2_features.h)
+************************************************************************************************************************
+*/
+
+const char *const omx_lv2_feature_uris[OMX_LV2_FEATURE_KINDS] =
+{
+    [OMX_LV2_F_MAP] = LV2_URID__map,
+    [OMX_LV2_F_UNMAP] = LV2_URID__unmap,
+    [OMX_LV2_F_OPTIONS] = LV2_OPTIONS__options,
+    [OMX_LV2_F_BOUNDED] = LV2_BUF_SIZE__boundedBlockLength,
+    [OMX_LV2_F_WORKER] = LV2_WORKER__schedule,
+    [OMX_LV2_F_DEFAULT_STATE] = LV2_STATE__loadDefaultState,
+    [OMX_LV2_F_LOG] = LV2_LOG__log,
+};
+
+void omx_lv2_feature_options_init(struct omx_lv2_feature_options *o)
+{
+    static const struct omx_lv2_feature_options defaults = LV2_FEATURE_OPTIONS_DEFAULT;
+
+    if (o)
+        *o = defaults;
+}
+
+int omx_lv2_feature_options_check(const struct omx_lv2_feature_options *o)
+{
+    if (!o || (o->features & ~OMX_LV2_FEATURES_ALL) != 0 || (o->block.declares & ~OMX_LV2_BLOCK_ALL) != 0)
+        return -1;
+    if (o->block.min && o->block.max && o->block.min > o->block.max)
+        return -1;
+    switch (o->log.mode)
+    {
+    case OMX_LV2_LOG_SILENT: return 0;
+    case OMX_LV2_LOG_ROUTE: return o->log.sink ? 0 : -1;
+    case OMX_LV2_LOG_CAPTURE: return o->log.capture && o->log.capture_size ? 0 : -1;
+    }
+    return -1;
+}
+
+int omx_lv2_feature_kind(const char *uri)
+{
+    return uri ? provider_of(uri) : -1;
+}
+
+int omx_lv2_feature_mask(const char *const *uris, uint32_t *mask)
+{
+    uint32_t m = 0, i;
+
+    for (i = 0; uris && uris[i]; i++)
+    {
+        const int k = provider_of(uris[i]);
+
+        if (k < 0)
+            return -1;
+        m |= OMX_LV2_FEATURE_BIT(k);
+    }
+    *mask = m;
+    return 0;
+}
+
+int omx_lv2_feature_offered(const struct omx_lv2_feature_options *o, const char *uri)
+{
+    struct omx_lv2_feature_options defaults;
+
+    if (!o)
+    {
+        omx_lv2_feature_options_init(&defaults);
+        o = &defaults;
+    }
+    return lv2_feature_offered_within(o, OMX_LV2_FEATURES_ALL, uri);
+}
+
+int omx_lv2_features_admit(const struct omx_lv2_feature_options *o, const char *const *required, const char **missing)
+{
+    struct omx_lv2_feature_options defaults;
+    const char *first = NULL;
+    uint32_t i;
+
+    if (!o)
+    {
+        omx_lv2_feature_options_init(&defaults);
+        o = &defaults;
+    }
+    for (i = 0; required && required[i] && !first; i++)
+        if (!lv2_feature_offered_within(o, OMX_LV2_FEATURES_ALL, required[i]))
+            first = required[i];
+    if (missing)
+        *missing = first;
+    return first && o->strict ? -1 : 0;
+}
+
+LV2_URID omx_lv2_urid_map(const char *uri)
+{
+    return lv2_urid_lookup(uri);
+}
+
+const char *omx_lv2_urid_unmap(LV2_URID id)
+{
+    return lv2_urid_unlookup(id);
+}
+
+static LV2_URID block_map(LV2_URID_Map_Handle h, const char *uri)
+{
+    (void)h;
+    return lv2_urid_lookup(uri);
+}
+
+static const char *block_unmap(LV2_URID_Unmap_Handle h, LV2_URID id)
+{
+    (void)h;
+    return lv2_urid_unlookup(id);
+}
+
+static int block_log_vprintf(LV2_Log_Handle h, LV2_URID type, const char *fmt, va_list ap)
+{
+    const struct omx_lv2_feature_block *b = h;
+
+    return lv2_log_emit(&b->options, type, fmt, ap);
+}
+
+static int block_log_printf(LV2_Log_Handle h, LV2_URID type, const char *fmt, ...)
+{
+    va_list ap;
+    int n;
+
+    va_start(ap, fmt);
+    n = block_log_vprintf(h, type, fmt, ap);
+    va_end(ap);
+    return n;
+}
+
+const LV2_Feature *const *omx_lv2_features_build(struct omx_lv2_feature_block *b, const struct omx_lv2_feature_options *o,
+                                                 double rate, uint32_t min_frames, uint32_t max_frames,
+                                                 LV2_Worker_Schedule *schedule)
+{
+    void *data[LV2_FEATURE_KINDS] = { NULL };
+
+    if (!b)
+        return NULL;
+    if (o)
+        b->options = *o;
+    else
+        omx_lv2_feature_options_init(&b->options);
+    if (omx_lv2_feature_options_check(&b->options) != 0
+        || ((b->options.features & OMX_LV2_FEATURE_BIT(F_WORKER)) && !schedule)
+        || lv2_block_lengths(&b->options, min_frames, max_frames, &b->min_block, &b->max_block, &b->nominal_block) != 0)
+        return NULL;
+    b->map.handle = NULL;
+    b->map.map = block_map;
+    b->unmap.handle = NULL;
+    b->unmap.unmap = block_unmap;
+    b->log.handle = b;
+    b->log.printf = block_log_printf;
+    b->log.vprintf = block_log_vprintf;
+    b->rate = (float)rate;
+    lv2_options_fill(b->opts, &b->rate, &b->min_block, &b->max_block, &b->nominal_block);
+    data[F_MAP] = &b->map;
+    data[F_UNMAP] = &b->unmap;
+    data[F_OPTIONS] = b->opts;
+    data[F_WORKER] = schedule;
+    data[F_LOG] = &b->log;
+    lv2_features_fill(b->features, b->ptrs, &b->options, OMX_LV2_FEATURES_ALL, data);
+    return b->ptrs;
+}
+
+const LV2_Descriptor *omx_lv2_open(void **so, const char *path, const char *uri, const char **why)
+{
+    LV2_Descriptor_Function fn = NULL;
+    const LV2_Descriptor *d = NULL;
+    uint32_t i;
+
+    *so = path && uri ? dlopen(path, RTLD_NOW | RTLD_LOCAL) : NULL;
+    if (!*so)
+    {
+        if (why)
+            *why = "dlopen";
+        return NULL;
+    }
+    *(void **)&fn = dlsym(*so, "lv2_descriptor");
+    for (i = 0; fn && (d = fn(i)) != NULL; i++)
+        if (strcmp(d->URI, uri) == 0)
+            return d;
+    dlclose(*so);
+    *so = NULL;
+    if (why)
+        *why = fn ? "uri" : "lv2_descriptor";
+    return NULL;
 }

@@ -35,6 +35,9 @@
  *   role      the host's audio-role predicate classifies urid:map and schedule_work.
  *   features  the configured list, provided whole or refused: a list without worker:schedule (or none) refuses a plugin
  *             requiring it before instantiate; a URI no provider serves refuses the configure.
+ *   options   the feature options as the feature probe sees them through this host: the defaults are what the host
+ *             did before it had options; each kind withheld, strict and not, the block declarations and lengths, the
+ *             log routed and captured, all within the configured list.
  *
  *   lv2_host_test <build/lv2 directory> <path of liblilv-0.so.0>
  */
@@ -50,6 +53,7 @@
 #include <lv2/worker/worker.h>
 
 #include "lv2_core.h"
+#include "fixtures/lv2_feature_probe.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "lv2_test_util.h"
 
@@ -58,6 +62,7 @@
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
+static char g_fp[PATH_MAX], g_fp_so[PATH_MAX + 32];
 static const char *g_lilv;
 static pthread_t g_main;
 static volatile int g_in_run;      // the main thread holds the audio role only inside a block
@@ -607,6 +612,148 @@ static void without_default_state(void)
     refused_with(list_without(LV2_STATE__loadDefaultState), g_fixture, FIXTURE_URI, "without loadDefaultState");
 }
 
+/* ---- the feature options ---- */
+
+#define PROBE_SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS \
+                     | LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE \
+                     | LV2_FEATURE_PROBE_LOG)
+
+static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
+{
+    [OMX_LV2_F_MAP] = LV2_FEATURE_PROBE_MAP,
+    [OMX_LV2_F_UNMAP] = LV2_FEATURE_PROBE_UNMAP,
+    [OMX_LV2_F_OPTIONS] = LV2_FEATURE_PROBE_OPTIONS,
+    [OMX_LV2_F_BOUNDED] = LV2_FEATURE_PROBE_BOUNDED,
+    [OMX_LV2_F_WORKER] = LV2_FEATURE_PROBE_WORKER,
+    [OMX_LV2_F_DEFAULT_STATE] = LV2_FEATURE_PROBE_DEFAULT_STATE,
+    [OMX_LV2_F_LOG] = LV2_FEATURE_PROBE_LOG,
+};
+
+/* the probe `uri` opened, instantiated by an activation of `min` to `max` under the options now, and freed: a copy of
+ * what it saw (the binary is closed with the plugin), NULL when it was refused, with `why` */
+static const struct lv2_feature_probe *probe_sees(const char *uri, uint32_t min, uint32_t max, char why[LV2_CORE_WHY_MAX])
+{
+    static struct lv2_feature_probe copy;
+    struct lv2_plugin *p = open_plugin(g_fp, uri, why);
+    struct lv2_feature_probe *seen;
+    struct lv2_instance *in;
+    int ok;
+
+    if (!p || lv2_plugin_load(p, why) != 0)
+    {
+        lv2_plugin_close(p);
+        return NULL;
+    }
+    seen = loaded_symbol(g_fp_so, "lv2_feature_probe");
+    if (seen)
+        memset(seen, 0, sizeof(*seen));
+    in = lv2_instance_new(p);
+    ok = in && lv2_instance_activate(in, 48000.0, min, max, why) == 0 && seen;
+    if (ok)
+        copy = *seen;
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+    return ok ? &copy : NULL;
+}
+
+static void t_options(void)
+{
+    struct omx_lv2_feature_options o;
+    const struct lv2_feature_probe *seen;
+    char why[LV2_CORE_WHY_MAX] = "", buf[256] = "", want[96];
+    int k, in_order = 1;
+
+    // the defaults: what this host handed a plugin before it had options
+    CHECK(lv2_core_feature_options()->features == OMX_LV2_FEATURES_ALL && lv2_core_feature_options()->strict,
+          "options: the host starts at the defaults");
+    seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
+    CHECK(seen && seen->seen == PROBE_SEVEN && seen->n_features == OMX_LV2_FEATURE_KINDS,
+          "options: by default the probe sees the seven features and nothing else (%s)", why);
+    for (k = 0; seen && k < OMX_LV2_FEATURE_KINDS; k++)
+        in_order &= strcmp(seen->order[k], lv2_core_provided[k]) == 0;
+    CHECK(seen && in_order, "options: by default in the providers' order");
+    CHECK(seen && seen->min_block == 16 && seen->max_block == (int32_t)BLOCK && seen->nominal_block == (int32_t)BLOCK,
+          "options: by default the activation's lengths, the nominal the maximum");
+    CHECK(seen && seen->log_answer == 0, "options: by default the log formats nothing");
+
+    // each kind withheld alone
+    for (k = 0; k < OMX_LV2_FEATURE_KINDS; k++)
+    {
+        omx_lv2_feature_options_init(&o);
+        o.features &= ~OMX_LV2_FEATURE_BIT(k);
+        CHECK(lv2_core_feature_options_set(&o, why) == 0, "options: %s withheld is taken", omx_lv2_feature_uris[k]);
+        seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
+        CHECK(seen && seen->seen == (PROBE_SEVEN & ~g_probe_bit[k]), "options: %s withheld, the probe sees the other six (0x%x)",
+              omx_lv2_feature_uris[k], seen ? seen->seen : 0u);
+    }
+
+    // strict: the twin requiring the worker, with the worker withheld
+    omx_lv2_feature_options_init(&o);
+    o.features &= ~OMX_LV2_FEATURE_BIT(OMX_LV2_F_WORKER);
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_WORKER_URI, 16, BLOCK, why);
+    CHECK(!seen && strcmp(why, LV2_CODE_FEATURES_MISSING) == 0, "options: strict, the twin requiring the worker is refused (%s)", why);
+    o.strict = 0;
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_WORKER_URI, 16, BLOCK, why);
+    CHECK(seen && !strcmp(seen->uri, LV2_FEATURE_PROBE_WORKER_URI) && !(seen->seen & LV2_FEATURE_PROBE_WORKER),
+          "options: not strict, the twin is loaded and instantiates without the worker (%s)", why);
+
+    // the block: fixed declared admits the fixture's fixed twin, and the probe sees every declaration
+    omx_lv2_feature_options_init(&o);
+    lv2_core_feature_options_set(&o, why);
+    CHECK(!open_plugin(g_fixture, FIXTURE_URI "#fixed", why), "options: by default the fixed twin is refused (%s)", why);
+    o.block.declares = OMX_LV2_BLOCK_ALL;
+    o.block.min = 1;
+    o.block.nominal = 32;
+    lv2_core_feature_options_set(&o, why);
+    {
+        struct lv2_plugin *fixed = open_plugin(g_fixture, FIXTURE_URI "#fixed", why);
+
+        CHECK(fixed != NULL, "options: fixed declared, the fixed twin is admitted (%s)", why);
+        lv2_plugin_close(fixed);
+    }
+    seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
+    CHECK(seen && (seen->seen & (LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2 | LV2_FEATURE_PROBE_BOUNDED))
+                  == (LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2 | LV2_FEATURE_PROBE_BOUNDED),
+          "options: the probe sees bounded, fixed and power of two");
+    CHECK(seen && seen->min_block == 1 && seen->max_block == (int32_t)BLOCK && seen->nominal_block == 32,
+          "options: and the lengths named, over the activation's (%d %d %d)", seen ? seen->min_block : -1,
+          seen ? seen->max_block : -1, seen ? seen->nominal_block : -1);
+
+    // the log, captured
+    snprintf(want, sizeof(want), LV2_FEATURE_PROBE_LINE, 48000);
+    omx_lv2_feature_options_init(&o);
+    o.log.mode = OMX_LV2_LOG_CAPTURE;
+    o.log.capture = buf;
+    o.log.capture_size = sizeof(buf);
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
+    CHECK(seen && !strcmp(buf, want) && seen->log_answer == (int)strlen(want), "options: captured, the plugin's line is in the buffer");
+
+    // options that do not check change nothing
+    o.log.capture = NULL;
+    CHECK(lv2_core_feature_options_set(&o, why) == -1 && strcmp(why, "lv2.configure.options") == 0,
+          "options: a capture with no buffer is refused (%s)", why);
+    CHECK(lv2_core_feature_options()->log.capture == buf, "options: and the options are unchanged");
+    CHECK(lv2_core_feature_options_set(NULL, why) == 0 && lv2_core_feature_options()->log.mode == OMX_LV2_LOG_SILENT,
+          "options: NULL restores the defaults");
+}
+
+/* the configured list bounds the options: a list without log:log hands no log, whatever the options offer */
+static void options_within_list(void)
+{
+    const struct lv2_core_config config = { list_without(LV2_LOG__log), 1000u, 4096u, 0u, NULL };
+    char why[LV2_CORE_WHY_MAX] = "";
+    const struct lv2_feature_probe *seen;
+
+    CHECK(lv2_core_configure(&config, why) == 0, "within the list: configured without log:log");
+    CHECK(omx_lv2_feature_offered(lv2_core_feature_options(), LV2_LOG__log), "within the list: the options offer the log");
+    seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
+    CHECK(seen && seen->seen == (PROBE_SEVEN & ~LV2_FEATURE_PROBE_LOG), "within the list: the probe sees no log (0x%x)",
+          seen ? seen->seen : 0u);
+}
+
 static void unknown_feature(void)
 {
     struct lv2_core_config config = { list_plus("urn:openmixer:test:no-such-feature"), 1000u, 4096u, 0u, NULL };
@@ -648,6 +795,10 @@ int main(int argc, char **argv)
     if (abs_dir(dir, g_sc) != 0)
         return 1;
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
+    snprintf(dir, sizeof(dir), "%somx-feature-probe.lv2", g_build);
+    if (abs_dir(dir, g_fp) != 0)
+        return 1;
+    snprintf(g_fp_so, sizeof(g_fp_so), "%somx-feature-probe.so", g_fp);
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", g_build);
     if (abs_dir(dir, g_midi) != 0)
         return 1;
@@ -658,6 +809,7 @@ int main(int argc, char **argv)
     in_child("with no list", without_any);
     in_child("without loadDefaultState", without_default_state);
     in_child("the configure", unknown_feature);
+    in_child("options within the list", options_within_list);
     CHECK(!lilv_mapped(), "no lilv in this process before its first bundle");
     CHECK(lv2_core_configure(&config, why) == 0, "configure every provider (%s)", why);
     t_one_bundle();
@@ -668,6 +820,7 @@ int main(int argc, char **argv)
     t_sidechains();
     for (r = 0; r < N_RATES; r++)
         t_worker(RATES[r]);
+    t_options();
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");
     return g_failures == 0 ? 0 : 1;
 }

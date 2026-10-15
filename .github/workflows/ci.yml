@@ -239,6 +239,7 @@ jobs:
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
             printf '%s\n' '/usr/lib*/libomx-clap-lv2.a' '/usr/lib*/pkgconfig/omx-clap-lv2.pc' /usr/include/omx-clap-lv2/omx_clap_lv2.h \
+              /usr/include/omx-clap-lv2/omx_lv2_features.h \
               /usr/share/licenses/omx-clap-lv2-devel/COPYING | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             rpm -qp --provides "$rpm" | tee provides.txt

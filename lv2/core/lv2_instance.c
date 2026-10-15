@@ -142,12 +142,14 @@ struct lv2_instance
     struct
     {
         float rate;
-        int32_t min_block, max_block;
+        int32_t min_block, max_block, nominal_block;
         LV2_Options_Option opts[5];
     } options;
     LV2_Worker_Schedule schedule;
-    LV2_Feature features[LV2_FEATURE_KINDS];
-    const LV2_Feature *feature_ptrs[LV2_FEATURE_KINDS + 1];
+    // the feature options the instance was made under (lv2_core_feature_options), within the configured list
+    struct omx_lv2_feature_options fopts;
+    LV2_Feature features[LV2_FEATURE_SLOTS];
+    const LV2_Feature *feature_ptrs[LV2_FEATURE_SLOTS + 1];
 
     // the worker
     uint8_t *ring_mem;                      // 2 x worker_ring_bytes; NULL: the list provides no worker
@@ -295,28 +297,35 @@ static const char *inst_unmap(LV2_URID_Unmap_Handle h, LV2_URID id)
     return lv2_urid_unlookup(id);
 }
 
-/* log:log formats nothing and writes nothing: a line from run() must never reach a system call */
+/* whether the instance has the provider `kind`: on the configured list and offered by its options */
+static int inst_on(const struct lv2_instance *in, enum lv2_feature_kind kind)
+{
+    return lv2_feature_on(kind) && (in->fopts.features & OMX_LV2_FEATURE_BIT(kind)) != 0;
+}
+
+/* log:log as the instance's options say; on the audio role it is counted and formats nothing and writes nothing, so a
+ * line from run() never reaches a system call */
 static int inst_log_vprintf(LV2_Log_Handle h, LV2_URID type, const char *fmt, va_list ap)
 {
     struct lv2_instance *in = h;
 
-    (void)type;
-    (void)fmt;
-    (void)ap;
     if (on_audio(in) == 1)
+    {
         omx_hosted_count(&in->log_on_audio, 1);
-    return 0;
+        return 0;
+    }
+    return lv2_log_emit(&in->fopts, type, fmt, ap);
 }
 
 static int inst_log_printf(LV2_Log_Handle h, LV2_URID type, const char *fmt, ...)
 {
-    struct lv2_instance *in = h;
+    va_list ap;
+    int n;
 
-    (void)type;
-    (void)fmt;
-    if (on_audio(in) == 1)
-        omx_hosted_count(&in->log_on_audio, 1);
-    return 0;
+    va_start(ap, fmt);
+    n = inst_log_vprintf(h, type, fmt, ap);
+    va_end(ap);
+    return n;
 }
 
 /* [audio] the LV2 schedule_work callback */
@@ -674,55 +683,30 @@ static int patch_buffers(struct lv2_instance *in)
     return 1;
 }
 
-/* options:options: the rate, and the block lengths exactly as this activation's min and max say (the nominal is the
- * max, the block the host runs) */
-static void options_build(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames)
+/* options:options: the rate, and the block lengths as the instance's options report this activation's min and max (by
+ * default exactly those, the nominal the max, the block the host runs): 0, or -1 when they do not fit */
+static int options_build(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames)
 {
-    const LV2_URID t_int = lv2_urid_lookup(LV2_ATOM__Int), t_float = lv2_urid_lookup(LV2_ATOM__Float);
-    const LV2_Options_Option o[5] =
-    {
-        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_PARAMETERS__sampleRate), sizeof(float), t_float, &in->options.rate },
-        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_BUF_SIZE__minBlockLength), sizeof(int32_t), t_int, &in->options.min_block },
-        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_BUF_SIZE__maxBlockLength), sizeof(int32_t), t_int, &in->options.max_block },
-        { LV2_OPTIONS_INSTANCE, 0, lv2_urid_lookup(LV2_BUF_SIZE__nominalBlockLength), sizeof(int32_t), t_int, &in->options.max_block },
-        { LV2_OPTIONS_INSTANCE, 0, 0, 0, 0, NULL },
-    };
-
+    if (lv2_block_lengths(&in->fopts, min_frames, max_frames, &in->options.min_block, &in->options.max_block,
+                          &in->options.nominal_block) != 0)
+        return -1;
     in->options.rate = (float)rate;
-    in->options.min_block = (int32_t)min_frames;
-    in->options.max_block = (int32_t)max_frames;
-    memcpy(in->options.opts, o, sizeof(o));
+    lv2_options_fill(in->options.opts, &in->options.rate, &in->options.min_block, &in->options.max_block,
+                     &in->options.nominal_block);
+    return 0;
 }
 
-/* the feature array, in the providers' order, exactly the configured kinds */
+/* the feature array, in the providers' order, exactly the configured kinds the instance's options offer */
 static void features_build(struct lv2_instance *in)
 {
-    uint32_t n = 0;
-    int k;
+    void *data[LV2_FEATURE_KINDS] = { NULL };
 
-    for (k = 0; k < LV2_FEATURE_KINDS; k++)
-    {
-        void *data = NULL;
-
-        if (!lv2_feature_on((enum lv2_feature_kind)k))
-            continue;
-        switch ((enum lv2_feature_kind)k)
-        {
-        case F_MAP: data = &in->map; break;
-        case F_UNMAP: data = &in->unmap; break;
-        case F_OPTIONS: data = in->options.opts; break;
-        case F_WORKER: data = &in->schedule; break;
-        case F_LOG: data = &in->log; break;
-        case F_BOUNDED:
-        case F_DEFAULT_STATE:
-        case LV2_FEATURE_KINDS: break;      // flags: the promise is the presence
-        }
-        in->features[n].URI = lv2_feature_uri[k];
-        in->features[n].data = data;
-        in->feature_ptrs[n] = &in->features[n];
-        n++;
-    }
-    in->feature_ptrs[n] = NULL;
+    data[F_MAP] = &in->map;
+    data[F_UNMAP] = &in->unmap;
+    data[F_OPTIONS] = in->options.opts;
+    data[F_WORKER] = &in->schedule;
+    data[F_LOG] = &in->log;
+    lv2_features_fill(in->features, in->feature_ptrs, &in->fopts, lv2_features_configured(), data);
 }
 
 /* the forge's map, over the process's table: every URID here is mapped before the audio role runs */
@@ -794,7 +778,11 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     }
     in->max_frames = max_frames;
     in->rate = rate;
-    options_build(in, rate, min_frames, max_frames);
+    if (options_build(in, rate, min_frames, max_frames) != 0)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
     features_build(in);
     if (time_make(in) != 0)
     {
@@ -868,7 +856,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         if (at)
             d->connect_port(in->handle, i, at);
     }
-    if (lv2_feature_on(F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->feature_ptrs) != 0)
+    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->feature_ptrs) != 0)
     {
         d->cleanup(in->handle);
         in->handle = NULL;
@@ -901,10 +889,11 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     if (!in)
         return NULL;
     in->plugin = p;
+    in->fopts = *lv2_core_feature_options();
     n = p->n_controls ? p->n_controls : 1u;
     in->controls = calloc(n, sizeof(*in->controls));
     in->shown = calloc(n, sizeof(*in->shown));
-    if (lv2_feature_on(F_WORKER))
+    if (inst_on(in, F_WORKER))
         in->ring_mem = malloc(2u * (size_t)config->worker_ring_bytes);
     in->patch_key = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_key));
     in->patch_pending = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_pending));
@@ -912,7 +901,7 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->patch_shown = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_shown));
     in->patch_out_flag = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_flag));
     in->patch_out_value = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_value));
-    if (!in->controls || !in->shown || (lv2_feature_on(F_WORKER) && !in->ring_mem) || !in->patch_key
+    if (!in->controls || !in->shown || (inst_on(in, F_WORKER) && !in->ring_mem) || !in->patch_key
         || !in->patch_pending || !in->patch_dirty || !in->patch_shown || !in->patch_out_flag || !in->patch_out_value)
     {
         lv2_instance_free(in);

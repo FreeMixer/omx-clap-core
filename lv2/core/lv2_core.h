@@ -58,6 +58,8 @@
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
 
+#include "omx_lv2_features.h"
+
 
 /*
 ************************************************************************************************************************
@@ -238,6 +240,15 @@ typedef void (*lv2_midi_out_fn)(void *ctx, int64_t frame, const uint8_t *data, u
  * of two >= 16, or a poll of 0 is refused; a second call is refused unless it says exactly what the first said. */
 int lv2_core_configure(const struct lv2_core_config *config, char why[LV2_CORE_WHY_MAX]);
 
+/* The feature options of the plugins opened and the instances made from now on, NULL being the defaults: 0, or -1 with
+ * `why` (lv2.configure.options) when they do not check, the options then unchanged. Within the configured list: a
+ * feature the list does not name is never offered, whatever the options say. The capture buffer and the sink they name
+ * must outlive every instance made under them. */
+int lv2_core_feature_options_set(const struct omx_lv2_feature_options *o, char why[LV2_CORE_WHY_MAX]);
+
+/* The feature options now. */
+const struct omx_lv2_feature_options *lv2_core_feature_options(void);
+
 /* The configuration taken, or NULL before lv2_core_configure. */
 const struct lv2_core_config *lv2_core_config(void);
 
@@ -260,7 +271,8 @@ const char *lv2_bundle_uri(const struct lv2_bundle *bundle, uint32_t index);
 const char *lv2_bundle_name(const struct lv2_bundle *bundle, uint32_t index);
 
 /* Read the plugin `uri` of `bundle`: its ports and its required features, refused with the verdict's code before any
- * binary is opened, including a required feature outside the configured list. Takes a reference on the bundle. */
+ * binary is opened, including, under strict feature options, a required feature the configured list and the options do
+ * not offer between them. Takes a reference on the bundle. */
 struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, char why[LV2_CORE_WHY_MAX]);
 
 /* Open the plugin's binary RTLD_NOW and walk lv2_descriptor to its URI: 0, or -1 with `why`. */
