@@ -178,11 +178,11 @@ static void test_mxcsr(void)
 
     if (rig_up(&g, FAKE_CLOBBER, MAXB) != 0)
         return;
-    omx_hosted_denormals_off();
+    omx_denormals_off();
     tone(l, 64, 0.5f, 0);
     g.plugin->desc->run(g.f, 64);       // positive control: bare, the plugin clears FTZ/DAZ
     CHECK((_mm_getcsr() & 0x8040u) == 0u, "positive control: the clobberer clears FTZ/DAZ");
-    omx_hosted_denormals_off();
+    omx_denormals_off();
     run_rt(&g, l, NULL, 64);
     CHECK((_mm_getcsr() & 0x8040u) == 0x8040u, "FTZ/DAZ re-asserted after lv2_instance_run (mxcsr %#x)", _mm_getcsr());
     rig_down(&g);

@@ -220,7 +220,7 @@ static void jack_thread_init(void *arg)
 {
     effect_t *effect = arg;
 
-    omx_hosted_denormals_off();
+    omx_denormals_off();
     if (effect && effect->clap)
         omx_clap_host_set_audio_thread(effect->clap, pthread_self());
 }

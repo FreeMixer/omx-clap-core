@@ -1270,7 +1270,7 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     if (in->worker && in->worker->end_run)
         in->worker->end_run(in->handle);
     patch_read_outputs(in);
-    omx_hosted_denormals_off();
+    omx_denormals_off();
     // the input's messages were this run's: the next block starts empty
     if (in->midi[0])
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);

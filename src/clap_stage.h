@@ -669,7 +669,7 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
         atomic_store_explicit(&s->notes_visible, 0, memory_order_release);
         omx_hosted_count(&s->notes_delivered, s->n_notes);
     }
-    omx_hosted_denormals_off();
+    omx_denormals_off();
     s->steady_time += (int64_t)n;
     s->n_events = 0;
     if (status == CLAP_PROCESS_ERROR)
