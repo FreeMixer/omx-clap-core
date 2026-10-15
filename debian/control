@@ -8,7 +8,7 @@ Build-Depends: debhelper-compat (= 13),
                lv2-dev,
                libjack-jackd2-dev | libjack-dev,
                libmod-host-protocol-dev,
-               libomxdsp-dev (>= 0.18.1),
+               libomxdsp-dev (>= 0.18.0),
                plugin-hostd-dev (>= 0.1.2~),
                pkgconf
 Standards-Version: 4.6.2
