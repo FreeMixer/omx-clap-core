@@ -22,6 +22,8 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  actions: read
 
 jobs:
   # the library's ABI against the baseline of the last release, before any build minutes are spent
