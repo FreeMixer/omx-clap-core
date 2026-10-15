@@ -108,7 +108,7 @@ enum
     N_REPORTS_LATENCY, N_INTEGER, N_TOGGLED, N_ENUMERATION, N_NOT_ON_GUI, N_TRIGGER, N_LOGARITHMIC,
     N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
-    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_MIDI_EVENT, N_TIME_POSITION,
+    N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
     N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_COUNT
 };
 
@@ -150,6 +150,8 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_ATOM_INT] = LV2_ATOM__Int,
     [N_ATOM_LONG] = LV2_ATOM__Long,
     [N_ATOM_BOOL] = LV2_ATOM__Bool,
+    [N_ATOM_STRING] = LV2_ATOM__String,
+    [N_ATOM_PATH] = LV2_ATOM__Path,
     [N_MIDI_EVENT] = LV2_MIDI__MidiEvent,
     [N_TIME_POSITION] = LV2_TIME__Position,
     [N_IS_SIDECHAIN] = LV2_CORE_IS_SIDECHAIN,
@@ -534,8 +536,9 @@ static char *world_string(const LilvNode *subject, int predicate)
 }
 
 /* An atom port is the patch port of its direction when it is a sequence that supports patch:Message and nothing else,
- * and the first one of its direction. A MIDI port and the time:Position input are read before this; any other atom port
- * is refused with the MIDI refusal. */
+ * and the first one of its direction. A MIDI port and the time:Position input are read before this. Any other atom
+ * output is a notify output, up to LV2_CORE_NOTIFY_PORTS, given a buffer and discarded; any other atom input, or one
+ * output more, is refused with the MIDI refusal: CLAP has nothing to feed it. */
 static const char *atom_port(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t index)
 {
     LilvNodes *sup = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
@@ -562,6 +565,20 @@ static const char *atom_port(struct lv2_plugin *p, const LilvPlugin *pl, const L
 
             if (ok && min > (float)p->atom_min)
                 p->atom_min = (uint32_t)min;
+        }
+    }
+    else if (!input && p->n_notify < LV2_CORE_NOTIFY_PORTS && (!rsz || nodes_count(rsz) <= 1))
+    {
+        refused = NULL;
+        p->notify_out[p->n_notify++] = index;
+        it = rsz ? L.lilv_nodes_begin(rsz) : NULL;
+        if (rsz && !L.lilv_nodes_is_end(rsz, it))
+        {
+            int ok = 0;
+            const float min = node_float(L.lilv_nodes_get(rsz, it), &ok);
+
+            if (ok && min > (float)p->notify_min)
+                p->notify_min = (uint32_t)min;
         }
     }
     L.lilv_nodes_free(sup);
@@ -627,6 +644,24 @@ static int patch_type_of(const LilvNode *prop, enum lv2_patch_type *type)
     return found;
 }
 
+/* A patch:writable property is a text property when it is an lv2:Parameter whose range is atom:String or atom:Path:
+ * 1 with *is_path set, 0 for anything else. */
+static int text_type_of(const LilvNode *prop, int *is_path)
+{
+    LilvNodes *range;
+    int found = 0;
+
+    if (!L.lilv_world_ask(g.world, prop, g.node[N_RDF_TYPE], g.node[N_PATCH_PARAMETER]))
+        return 0;
+    range = L.lilv_world_find_nodes(g.world, prop, g.node[N_RDFS_RANGE], NULL);
+    if (range && L.lilv_nodes_contains(range, g.node[N_ATOM_PATH]))
+        found = 1, *is_path = 1;
+    else if (range && L.lilv_nodes_contains(range, g.node[N_ATOM_STRING]))
+        found = 1, *is_path = 0;
+    L.lilv_nodes_free(range);
+    return found;
+}
+
 /* two patch:writable nodes by their text, for the order the ids are given in */
 static int node_text_cmp(const void *a, const void *b)
 {
@@ -636,10 +671,10 @@ static int node_text_cmp(const void *a, const void *b)
     return strcmp(x ? x : "", y ? y : "");
 }
 
-/* The numeric patch:writable properties of the plugin, in the order of their URIs: patch:writable is a set, and lilv
- * lists it in no stable order, so the order is the URIs' own. A property's id is the port count plus its index in that
- * order, counting every entry, so a string property does not move the ids of the numeric ones, and the same plugin gets
- * the same ids in every instance and every process. */
+/* The numeric patch:writable properties of the plugin, and its text ones, in the order of their URIs: patch:writable is
+ * a set, and lilv lists it in no stable order, so the order is the URIs' own. A numeric property's id is the port count
+ * plus its index in that order, counting every entry, so a string property does not move the ids of the numeric ones,
+ * and the same plugin gets the same ids in every instance and every process. */
 static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
 {
     LilvNodes *writable = L.lilv_plugin_get_value(pl, g.node[N_PATCH_WRITABLE]);
@@ -649,7 +684,8 @@ static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
     LilvIter *it;
 
     p->patches = calloc(n ? n : 1u, sizeof(*p->patches));
-    if (!p->patches || !order)
+    p->texts = calloc(n ? n : 1u, sizeof(*p->texts));
+    if (!p->patches || !p->texts || !order)
     {
         free(order);
         L.lilv_nodes_free(writable);
@@ -665,7 +701,25 @@ static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
         struct lv2_patch *pp = &p->patches[k];
         enum lv2_patch_type type = LV2_PATCH_FLOAT;     // set by patch_type_of whenever it is read
         float min = -1e9f, max = 1e9f, def;
+        int is_path = 0;
 
+        if (uri && text_type_of(prop, &is_path))
+        {
+            struct lv2_patch_text *t = &p->texts[p->n_texts++];
+
+            t->uri = strdup(uri);
+            t->is_path = is_path;
+            t->name = world_string(prop, N_RDFS_LABEL);
+            if (!t->name)
+                t->name = strdup(uri);
+            if (!t->uri || !t->name)
+            {
+                free(order);
+                L.lilv_nodes_free(writable);
+                return LV2_CODE_NO_REALISATION;     // counted, so lv2_plugin_close frees what it holds
+            }
+            continue;
+        }
         if (!uri || !patch_type_of(prop, &type))
             continue;
         pp->id = p->n_ports + i;
@@ -939,6 +993,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
                 return LV2_CODE_MIDI_IN;
             if (input)
+                p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+            if (input)
                 p->midi_in_port = (int32_t)i;
             else
                 p->midi_out_port = (int32_t)i;
@@ -1086,6 +1142,12 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->patches[k].name);
     }
     free(p->patches);
+    for (k = 0; p->texts && k < p->n_texts; k++)
+    {
+        free(p->texts[k].uri);
+        free(p->texts[k].name);
+    }
+    free(p->texts);
     for (i = 0; i < p->n_side; i++)
         free(p->side_name[i]);
     free(p->uri);

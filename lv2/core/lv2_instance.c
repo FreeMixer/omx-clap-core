@@ -87,6 +87,10 @@
 // the smallest time:Position buffer: an object with every field is about 300 bytes, so one always fits
 #define TIME_MIN_BYTES                  512u
 
+// one text patch:Set on the wire, beside its value: the event's frame and atom header (16), the object's id and type (8),
+// patch:property (24) and patch:value's key, context and atom header (16); the value follows, padded to 8
+#define TEXT_EVENT_BYTES                (16u + 8u + PATCH_PROP_BYTES + 16u)
+
 
 /*
 ************************************************************************************************************************
@@ -98,7 +102,20 @@
 struct patch_urids
 {
     LV2_URID set, put, property, value, object, sequence, urid, time_frame;
+    LV2_URID blank, body, string, path;
     LV2_URID types[5];              // by enum lv2_patch_type
+};
+
+/* One text property's three values, LV2_CORE_TEXT_MAX bytes each: the write the next block carries (the main thread
+ * fills it while pending_full is 0, the audio thread forges it and clears the flag), the host's last write (main thread
+ * only), and the value the plugin last reported (the audio thread writes it under out_seq, odd while it writes). */
+struct text_slot
+{
+    char *pending, *host, *out;
+    uint32_t pending_len, host_len, out_len;
+    int host_have;
+    _Atomic int pending_full;
+    _Atomic uint32_t out_seq;       // 0: the plugin never reported a value
 };
 
 // the URIDs a time:Position object is forged with, mapped at instantiate
@@ -185,6 +202,13 @@ struct lv2_instance
     struct lv2_time_urids time_urid;
     struct lv2_time time_last;
     int time_have;
+    // the notify outputs: one buffer each of notify_bytes, offered at every block and never read
+    uint8_t *notify;
+    uint32_t notify_bytes;
+    // the text properties, one slot each, their URIDs mapped at creation
+    struct text_slot *texts;
+    char *text_mem;
+    LV2_URID *text_key;
 };
 
 
@@ -514,6 +538,36 @@ static void patch_forge_inputs(struct lv2_instance *in)
                  : pp->type == LV2_PATCH_LONG ? (const void *)&i64 : (const void *)&i32, size);
         used += PATCH_EVENT_BYTES;
     }
+    // then each text write the host made since the last block: one held for a later block when the numeric events took
+    // the room it needs, never cut
+    for (j = 0; j < p->n_texts; j++)
+    {
+        struct text_slot *t = &in->texts[j];
+        uint8_t *ev = buf + used, *v;
+        uint32_t size, total;
+
+        if (!atomic_load_explicit(&t->pending_full, memory_order_acquire))
+            continue;
+        size = t->pending_len + 1u;
+        total = TEXT_EVENT_BYTES + pad8(size);
+        if (used + total > in->atom_cap)
+            continue;
+        put64(ev, 0);
+        put32(ev + 8, total - 16u);
+        put32(ev + 12, in->urids.object);
+        put32(ev + 16, 0);
+        put32(ev + 20, in->urids.set);
+        put_prop(ev + 24, in->urids.property, in->urids.urid, &in->text_key[j], sizeof(LV2_URID));
+        v = ev + 24 + PATCH_PROP_BYTES;
+        put32(v, in->urids.value);
+        put32(v + 4, 0);
+        put32(v + 8, size);
+        put32(v + 12, p->texts[j].is_path ? in->urids.path : in->urids.string);
+        memcpy(v + 16, t->pending, t->pending_len);
+        memset(v + 16 + t->pending_len, 0, pad8(size) - t->pending_len);
+        used += total;
+        atomic_store_explicit(&t->pending_full, 0, memory_order_release);
+    }
     put32(buf, used - 8u);
 }
 
@@ -573,15 +627,17 @@ static int patch_read_value(enum lv2_patch_type type, uint32_t atom_type, uint32
     return 0;
 }
 
-/* The properties of one patch object: the patch:property URID and the patch:value atom, each when present. Returns
- * 0 when the object's properties run past its size. */
+/* The properties of one patch object: the patch:property URID, the patch:value atom and the patch:body object's
+ * properties (`*body`, `*body_len`), each when present. Returns 0 when the object's properties run past its size. */
 static int patch_object_props(const struct lv2_instance *in, const uint8_t *props, uint32_t plen, LV2_URID *prop, uint32_t *vtype,
-                              uint32_t *vsize, const uint8_t **value)
+                              uint32_t *vsize, const uint8_t **value, const uint8_t **body, uint32_t *body_len)
 {
     uint32_t q = 0;
 
     *prop = 0;
     *value = NULL;
+    *body = NULL;
+    *body_len = 0;
     while (q + 16u <= plen)
     {
         const uint8_t *pb = props + q;
@@ -599,20 +655,80 @@ static int patch_object_props(const struct lv2_instance *in, const uint8_t *prop
             *vsize = size;
             *value = pb + 16;
         }
+        else if (key == in->urids.body && (type == in->urids.object || type == in->urids.blank) && size >= 8u)
+        {
+            *body = pb + 24;            // past the object's id and type: its properties
+            *body_len = size - 8u;
+        }
         q += step;
     }
     return 1;
 }
 
-/* Read the output sequence the plugin wrote: every patch:Set or patch:Put of a numeric parameter lands in its flag and
- * value, the last one of a block winning. Other objects, other properties and values of another type are ignored. */
-static void patch_read_outputs(struct lv2_instance *in)
+/* [audio] A value the plugin reported for text property `j`: copied under the slot's sequence count, or dropped and counted
+ * when it is past LV2_CORE_TEXT_MAX */
+static void text_report(struct lv2_instance *in, uint32_t j, const uint8_t *value, uint32_t size)
+{
+    struct text_slot *t = &in->texts[j];
+    const uint32_t seq = atomic_load_explicit(&t->out_seq, memory_order_relaxed);
+    uint32_t len = 0;
+
+    if (size > LV2_CORE_TEXT_MAX)
+    {
+        atomic_fetch_add_explicit(&in->patch_dropped, 1u, memory_order_relaxed);
+        return;
+    }
+    while (len < size && value[len] != 0)
+        len++;
+    atomic_store_explicit(&t->out_seq, seq + 1u, memory_order_relaxed);
+    atomic_thread_fence(memory_order_release);
+    memcpy(t->out, value, len);
+    t->out[len] = '\0';
+    t->out_len = len;
+    atomic_store_explicit(&t->out_seq, seq + 2u, memory_order_release);
+}
+
+/* [audio] One property the plugin reported, `key` to a value atom: a numeric parameter's flag and value, or a text
+ * property's value, when the atom has the type the property takes; anything else is ignored */
+static void patch_out_value(struct lv2_instance *in, LV2_URID key, uint32_t vtype, uint32_t vsize, const uint8_t *value)
 {
     const struct lv2_plugin *p = in->plugin;
+    uint32_t j;
+
+    for (j = 0; j < p->n_patches; j++)
+    {
+        float v;
+
+        if (in->patch_key[j] != key)
+            continue;
+        if (patch_read_value(p->patches[j].type, vtype, in->urids.types[p->patches[j].type], vsize, value, &v))
+        {
+            in->patch_out_flag[j] = 1;
+            in->patch_out_value[j] = v;
+            in->patch_pending[j] = v;
+            atomic_store_explicit(&in->patch_shown[j], float_bits(v), memory_order_relaxed);
+        }
+        return;
+    }
+    for (j = 0; j < p->n_texts; j++)
+        if (in->text_key[j] == key)
+        {
+            if (vtype == (p->texts[j].is_path ? in->urids.path : in->urids.string))
+                text_report(in, j, value, vsize);
+            return;
+        }
+}
+
+/* Read the output sequence the plugin wrote: every patch:Set or patch:Put, as an atom:Object or an atom:Blank, of a
+ * numeric parameter lands in its flag and value, the last one of a block winning, and of a text property in its
+ * reported value; a patch:Put's patch:body is read property by property. Other objects, other properties and values of
+ * another type are ignored. */
+static void patch_read_outputs(struct lv2_instance *in)
+{
     const uint8_t *buf = in->atom_out;
     uint32_t end, off;
 
-    if (!buf || p->patch_out < 0 || get32(buf + 4) != in->urids.sequence)
+    if (!buf || in->plugin->patch_out < 0 || get32(buf + 4) != in->urids.sequence)
         return;
     end = get32(buf) + 8u;
     if (end > in->atom_cap)
@@ -621,31 +737,32 @@ static void patch_read_outputs(struct lv2_instance *in)
     {
         const uint8_t *body = buf + off + 8u;
         const uint32_t size = get32(body), type = get32(body + 4);
-        uint32_t next;
+        uint32_t next, otype;
         LV2_URID prop = 0;
-        uint32_t vtype = 0, vsize = 0, j;
-        const uint8_t *value = NULL;
+        uint32_t vtype = 0, vsize = 0, body_len = 0;
+        const uint8_t *value = NULL, *pbody = NULL;
 
         if (size < 8u || size > end - off - 16u)     // the event runs past the sequence: the rest is not read
             break;
         next = off + 16u + pad8(size);
-        if (type == in->urids.object && (get32(body + 12) == in->urids.set || get32(body + 12) == in->urids.put)
-            && patch_object_props(in, body + 16u, size - 8u, &prop, &vtype, &vsize, &value) && value)
+        otype = get32(body + 12);
+        if ((type == in->urids.object || type == in->urids.blank) && (otype == in->urids.set || otype == in->urids.put)
+            && patch_object_props(in, body + 16u, size - 8u, &prop, &vtype, &vsize, &value, &pbody, &body_len))
         {
-            for (j = 0; j < p->n_patches; j++)
-            {
-                float v;
+            uint32_t q = 0;
 
-                if (in->patch_key[j] != prop)
-                    continue;
-                if (patch_read_value(p->patches[j].type, vtype, in->urids.types[p->patches[j].type], vsize, value, &v))
-                {
-                    in->patch_out_flag[j] = 1;
-                    in->patch_out_value[j] = v;
-                    in->patch_pending[j] = v;
-                    atomic_store_explicit(&in->patch_shown[j], float_bits(v), memory_order_relaxed);
-                }
-                break;
+            if (value)
+                patch_out_value(in, prop, vtype, vsize, value);
+            // a patch:Put's body: each property a key and a value atom, the same layout as the object's own
+            while (otype == in->urids.put && pbody && q + 16u <= body_len)
+            {
+                const uint8_t *pb = pbody + q;
+                const uint32_t bsize = get32(pb + 8);
+
+                if (bsize > body_len - q - 16u)
+                    break;
+                patch_out_value(in, get32(pb), get32(pb + 12), bsize, pb + 16);
+                q += 16u + pad8(bsize);
             }
         }
         off = next;
@@ -658,13 +775,24 @@ static void patch_read_outputs(struct lv2_instance *in)
 ************************************************************************************************************************
 */
 
-/* The two atom buffers of the patch ports, max(atom_buffer_bytes, rsz:minimumSize) bytes each, zeroed. They are sized here,
- * at instantiate, and never again on the audio thread. 0 when a buffer cannot be had. */
-static int patch_buffers(struct lv2_instance *in)
+/* the size of each patch port's atom buffer: max(atom_buffer_bytes, rsz:minimumSize), room for one numeric event at least,
+ * rounded up to 8 */
+static uint32_t patch_cap(const struct lv2_plugin *p)
 {
     const struct lv2_core_config *config = lv2_core_config();
-    const struct lv2_plugin *p = in->plugin;
     uint32_t cap = config->atom_buffer_bytes > p->atom_min ? config->atom_buffer_bytes : p->atom_min;
+
+    if (cap < SEQ_HEADER_BYTES + PATCH_EVENT_BYTES)
+        cap = SEQ_HEADER_BYTES + PATCH_EVENT_BYTES;
+    return (cap + 7u) & ~7u;
+}
+
+/* The two atom buffers of the patch ports, patch_cap bytes each, zeroed. They are sized here, at instantiate, and never
+ * again on the audio thread. 0 when a buffer cannot be had. */
+static int patch_buffers(struct lv2_instance *in)
+{
+    const struct lv2_plugin *p = in->plugin;
+    const uint32_t cap = patch_cap(p);
 
     free(in->atom_in);
     free(in->atom_out);
@@ -672,9 +800,6 @@ static int patch_buffers(struct lv2_instance *in)
     in->atom_cap = 0;
     if (p->patch_in < 0 && p->patch_out < 0)
         return 1;
-    if (cap < SEQ_HEADER_BYTES + PATCH_EVENT_BYTES)
-        cap = SEQ_HEADER_BYTES + PATCH_EVENT_BYTES;
-    cap = (cap + 7u) & ~7u;
     in->atom_cap = cap;
     if (p->patch_in >= 0 && !(in->atom_in = calloc(1, cap)))
         return 0;
@@ -724,7 +849,7 @@ static int time_make(struct lv2_instance *in)
     free(in->time_buf);
     in->time_buf = NULL;
     in->time_have = 0;
-    if (in->plugin->time_port < 0)
+    if (in->plugin->time_port < 0 && !in->plugin->midi_time)
         return 0;
     in->time_bytes = config->atom_buffer_bytes > TIME_MIN_BYTES ? config->atom_buffer_bytes : TIME_MIN_BYTES;
     in->time_buf = calloc(1, in->time_bytes);
@@ -825,6 +950,14 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     }
     if (in->midi[0])
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
+    free(in->notify);
+    in->notify = NULL;
+    in->notify_bytes = p->notify_min > in->midi_bytes ? (p->notify_min + 7u) & ~7u : in->midi_bytes;
+    if (p->n_notify && !(in->notify = calloc(p->n_notify, in->notify_bytes)))
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
     for (i = 0, k = 0; i < p->n_ports; i++)
     {
         void *at = NULL;
@@ -846,6 +979,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             at = in->midi[1];
         if (!at && p->time_port >= 0 && (uint32_t)p->time_port == i)
             at = in->time_buf;
+        for (leg = 0; leg < p->n_notify && !at; leg++)
+            if (p->notify_out[leg] == i)
+                at = in->notify + leg * (size_t)in->notify_bytes;
         for (leg = 0; leg < p->n_side_legs && !at; leg++)
             if (p->side_in[leg] == i)
                 at = in->audio + (4u + leg) * (size_t)max_frames;
@@ -864,9 +1000,20 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
-    // a new handle has never seen a patch value: the first block sends every parameter's value, as the host last had it
+    // a new handle has never seen a patch value: the first block sends every parameter's value, as the host last had it,
+    // and every text the host wrote
     if (p->n_patches)
         memset(in->patch_dirty, 1, p->n_patches);
+    for (k = 0; k < p->n_texts; k++)
+    {
+        struct text_slot *t = &in->texts[k];
+
+        if (!t->host_have)
+            continue;
+        memcpy(t->pending, t->host, t->host_len + 1u);
+        t->pending_len = t->host_len;
+        atomic_store_explicit(&t->pending_full, 1, memory_order_release);
+    }
     return 0;
 }
 
@@ -901,8 +1048,12 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->patch_shown = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_shown));
     in->patch_out_flag = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_flag));
     in->patch_out_value = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_value));
+    in->texts = calloc(p->n_texts ? p->n_texts : 1u, sizeof(*in->texts));
+    in->text_key = calloc(p->n_texts ? p->n_texts : 1u, sizeof(*in->text_key));
+    in->text_mem = calloc(p->n_texts ? 3u * (size_t)p->n_texts : 1u, LV2_CORE_TEXT_MAX);
     if (!in->controls || !in->shown || (inst_on(in, F_WORKER) && !in->ring_mem) || !in->patch_key
-        || !in->patch_pending || !in->patch_dirty || !in->patch_shown || !in->patch_out_flag || !in->patch_out_value)
+        || !in->patch_pending || !in->patch_dirty || !in->patch_shown || !in->patch_out_flag || !in->patch_out_value
+        || !in->texts || !in->text_key || !in->text_mem)
     {
         lv2_instance_free(in);
         return NULL;
@@ -915,6 +1066,17 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->urids.sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
     in->urids.urid = lv2_urid_lookup(LV2_ATOM__URID);
     in->urids.time_frame = lv2_urid_lookup(LV2_TIME__frame);
+    in->urids.blank = lv2_urid_lookup(LV2_ATOM__Blank);
+    in->urids.body = lv2_urid_lookup(LV2_PATCH__body);
+    in->urids.string = lv2_urid_lookup(LV2_ATOM__String);
+    in->urids.path = lv2_urid_lookup(LV2_ATOM__Path);
+    for (k = 0; k < p->n_texts; k++)
+    {
+        in->texts[k].pending = in->text_mem + (3u * k) * (size_t)LV2_CORE_TEXT_MAX;
+        in->texts[k].host = in->texts[k].pending + LV2_CORE_TEXT_MAX;
+        in->texts[k].out = in->texts[k].host + LV2_CORE_TEXT_MAX;
+        in->text_key[k] = lv2_urid_lookup(p->texts[k].uri);
+    }
     in->urids.types[LV2_PATCH_FLOAT] = lv2_urid_lookup(LV2_ATOM__Float);
     in->urids.types[LV2_PATCH_DOUBLE] = lv2_urid_lookup(LV2_ATOM__Double);
     in->urids.types[LV2_PATCH_INT] = lv2_urid_lookup(LV2_ATOM__Int);
@@ -1061,6 +1223,10 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->midi[0]);
     free(in->midi[1]);
     free(in->time_buf);
+    free(in->notify);
+    free(in->texts);
+    free(in->text_key);
+    free(in->text_mem);
     free(in);
 }
 
@@ -1217,12 +1383,22 @@ void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t)
     if (lv2_atom_forge_sequence_head(f, &seq, in->time_urid.frame_time) && (!forge || time_object(in, t)))
     {
         lv2_atom_forge_pop(f, &seq);
-        return;
     }
-    // no room for the object (it never happens at TIME_MIN_BYTES): an empty sequence, never half of an object
-    lv2_atom_forge_set_buffer(f, (uint8_t *)in->time_buf, in->time_bytes);
-    if (lv2_atom_forge_sequence_head(f, &seq, in->time_urid.frame_time))
-        lv2_atom_forge_pop(f, &seq);
+    else
+    {
+        // no room for the object (it never happens at TIME_MIN_BYTES): an empty sequence, never half of an object
+        lv2_atom_forge_set_buffer(f, (uint8_t *)in->time_buf, in->time_bytes);
+        if (lv2_atom_forge_sequence_head(f, &seq, in->time_urid.frame_time))
+            lv2_atom_forge_pop(f, &seq);
+    }
+    // a MIDI input that takes time:Position too gets the same object, at the head of the block's sequence
+    if (in->plugin->midi_time && in->midi[0])
+    {
+        LV2_ATOM_SEQUENCE_FOREACH(in->time_buf, ev)
+            if (sequence_append((LV2_Atom_Sequence *)in->midi[0], in->midi_bytes - (uint32_t)sizeof(LV2_Atom), ev->time.frames,
+                                ev->body.type, (const uint8_t *)LV2_ATOM_BODY_CONST(&ev->body), ev->body.size) != 0)
+                omx_hosted_count(&in->midi_in_dropped, 1);
+    }
 }
 
 void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *ctx), void *ctx)
@@ -1245,6 +1421,9 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     // the output is offered with its capacity: the plugin reads that, clears the sequence and appends to it
     if (in->midi[1])
         sequence_offer((LV2_Atom_Sequence *)in->midi[1], in->urid_sequence, in->midi_bytes - (uint32_t)sizeof(LV2_Atom));
+    for (k = 0; k < p->n_notify; k++)
+        sequence_offer((LV2_Atom_Sequence *)(in->notify + k * (size_t)in->notify_bytes), in->urid_sequence,
+                       in->notify_bytes - (uint32_t)sizeof(LV2_Atom));
     if (before)
         before(ctx);
     patch_forge_inputs(in);
@@ -1347,4 +1526,97 @@ void lv2_instance_worker_quiesce(struct lv2_instance *in)
 int lv2_instance_has_worker(const struct lv2_instance *in)
 {
     return in && in->worker_running;
+}
+
+uint32_t lv2_plugin_text_limit(const struct lv2_plugin *p)
+{
+    uint32_t cap, room;
+
+    if (!p || p->patch_in < 0)
+        return 0;
+    cap = patch_cap(p);
+    // the sequence's header and one text event around the value and its NUL
+    room = cap > SEQ_HEADER_BYTES + TEXT_EVENT_BYTES ? cap - SEQ_HEADER_BYTES - TEXT_EVENT_BYTES : 0;
+    if (room > LV2_CORE_TEXT_MAX)
+        room = LV2_CORE_TEXT_MAX;
+    return room ? room - 1u : 0;
+}
+
+int lv2_instance_text_set(struct lv2_instance *in, uint32_t j, const char *value, char why[LV2_CORE_WHY_MAX])
+{
+    struct text_slot *t;
+    size_t len;
+
+    if (!in || !value || j >= in->plugin->n_texts)
+    {
+        lv2_why_set(why, LV2_CODE_PATCH_NOT_WRITABLE);
+        return -1;
+    }
+    t = &in->texts[j];
+    len = strlen(value);
+    if (len > lv2_plugin_text_limit(in->plugin))
+    {
+        lv2_why_set(why, LV2_CODE_PATCH_TOO_LARGE);
+        return -1;
+    }
+    // while active, the audio thread owns a full slot until its block takes it; inactive, nothing runs a block
+    if (in->lv2_active && atomic_load_explicit(&t->pending_full, memory_order_acquire))
+    {
+        lv2_why_set(why, LV2_CODE_PATCH_BUSY);
+        return -1;
+    }
+    memcpy(t->pending, value, len + 1u);
+    t->pending_len = (uint32_t)len;
+    memcpy(t->host, value, len + 1u);
+    t->host_len = (uint32_t)len;
+    t->host_have = 1;
+    atomic_store_explicit(&t->pending_full, 1, memory_order_release);
+    lv2_why_set(why, "");
+    return 0;
+}
+
+uint32_t lv2_instance_text_get(const struct lv2_instance *in, uint32_t j, char *buf, uint32_t size)
+{
+    const struct text_slot *t;
+    uint32_t s1, s2 = 0, len;
+
+    if (!in || j >= in->plugin->n_texts)
+    {
+        if (buf && size)
+            buf[0] = '\0';
+        return 0;
+    }
+    t = &in->texts[j];
+    if (atomic_load_explicit(&t->out_seq, memory_order_acquire) == 0)
+    {
+        // the plugin never reported one: the host's last write, else empty
+        len = t->host_have ? t->host_len : 0;
+        if (buf && size)
+        {
+            const uint32_t n = len < size - 1u ? len : size - 1u;
+
+            memcpy(buf, t->host, n);
+            buf[n] = '\0';
+        }
+        return len;
+    }
+    do
+    {
+        s1 = atomic_load_explicit(&t->out_seq, memory_order_acquire);
+        if (s1 & 1u)
+            continue;
+        len = t->out_len;
+        if (len >= LV2_CORE_TEXT_MAX)
+            len = LV2_CORE_TEXT_MAX - 1u;       // only a torn read could say so; the count below retries it
+        if (buf && size)
+        {
+            const uint32_t n = len < size - 1u ? len : size - 1u;
+
+            memcpy(buf, t->out, n);
+            buf[n] = '\0';
+        }
+        atomic_thread_fence(memory_order_acquire);
+        s2 = atomic_load_explicit(&t->out_seq, memory_order_relaxed);
+    } while ((s1 & 1u) || s1 != s2);
+    return len;
 }
