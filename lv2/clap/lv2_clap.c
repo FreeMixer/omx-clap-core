@@ -42,6 +42,11 @@
 * write is block-rate: every CLAP_EVENT_PARAM_VALUE of a process() call lands before that call's run(), whatever its
 * time. A patch:Set or patch:Put the plugin emits is an output CLAP_EVENT_PARAM_VALUE of that call, at time 0.
 *
+* CV. Each lv2:CVPort is a mono CLAP audio port, not main, named by its lv2:name: the CV inputs after the side chains, the
+* CV outputs after the main output. Every frame is copied both ways, so a CV signal reaches the plugin as it reaches an
+* audio port; an input the host hands no buffer reads silence. docs/lv2-compatibility.md says why not parameter
+* modulation.
+*
 * MIDI. An LV2 MIDI input is one clap.note-ports input, dialects MIDI (preferred) and CLAP, and an LV2 MIDI output one
 * output, dialect MIDI. Each CLAP_EVENT_MIDI and CLAP_EVENT_MIDI_SYSEX of a process() call is written into the input before
 * that call's run(), at its frame, as a midi:MidiEvent of the message's length: a channel program change or channel
@@ -430,10 +435,13 @@ static uint32_t latency_get(const clap_plugin_t *plugin)
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
-/* the main pair, then one input per side chain (LV2 port groups and lv2:isSideChain, lv2/core); the output is the main pair */
+/* the main pair, then one input per side chain (LV2 port groups and lv2:isSideChain, lv2/core), then one per CV input; the
+ * output is the main pair, then one per CV output */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
-    return is_input ? 1u + SHIM_OF(plugin)->lv2->n_side : 1u;
+    const struct lv2_plugin *l = SHIM_OF(plugin)->lv2;
+
+    return is_input ? 1u + l->n_side + l->n_cv_in : 1u + l->n_cv_out;
 }
 
 static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_audio_port_info_t *info)
@@ -451,11 +459,19 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
         info->channel_count = s->lv2->legs;
         info->port_type = s->lv2->legs == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
     }
-    else
+    else if (is_input && index - 1 < s->lv2->n_side)
     {
         snprintf(info->name, sizeof(info->name), "%s", s->lv2->side_name[index - 1]);
         info->channel_count = s->lv2->side_channels[index - 1];
         info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+    }
+    else
+    {
+        const uint32_t k = is_input ? index - 1 - s->lv2->n_side : index - 1;
+
+        snprintf(info->name, sizeof(info->name), "%s", is_input ? s->lv2->cv_in_name[k] : s->lv2->cv_out_name[k]);
+        info->channel_count = 1;
+        info->port_type = CLAP_PORT_MONO;
     }
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
@@ -806,6 +822,17 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                 memset(dst, 0, n * sizeof(float));
         }
     }
+    for (leg = 0; leg < s->lv2->n_cv_in; leg++)
+    {
+        const uint32_t port = 1u + s->lv2->n_side + leg;
+        const clap_audio_buffer_t *b = process->audio_inputs_count > port ? &process->audio_inputs[port] : NULL;
+        float *dst = lv2_instance_cv_in(s->in, leg);
+
+        if (b && b->data32 && b->channel_count && b->data32[0])
+            memcpy(dst, b->data32[0], n * sizeof(float));
+        else
+            memset(dst, 0, n * sizeof(float));
+    }
     {
         struct lv2_time tm;
 
@@ -828,6 +855,13 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
         for (leg = 0; leg < b->channel_count; leg++)
             memcpy(b->data32[leg], lv2_instance_audio_out(s->in, leg < legs ? leg : 0), n * sizeof(float));
+    }
+    for (leg = 0; leg < s->lv2->n_cv_out; leg++)
+    {
+        const clap_audio_buffer_t *b = process->audio_outputs_count > 1u + leg ? &process->audio_outputs[1u + leg] : NULL;
+
+        if (b && b->data32 && b->channel_count && b->data32[0])
+            memcpy(b->data32[0], lv2_instance_cv_out(s->in, leg), n * sizeof(float));
     }
     latency_watch(s, n);
     lv2_instance_counters(s->in, &c);

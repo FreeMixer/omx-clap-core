@@ -433,7 +433,8 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-time-probe.lv2/omx-time-probe.so \
               build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so \
               build/lv2/omx-feature-probe.lv2/omx-feature-probe.so \
-              build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so
+              build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
+              build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -458,6 +459,11 @@ build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so: $(LV2_FIXTURE_DIR)
 build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so: $(LV2_FIXTURE_DIR)/lv2_atom_fixture.c $(LV2_FIXTURE_DIR)/lv2_atom_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-atom-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-atom-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so: $(LV2_FIXTURE_DIR)/lv2_cv_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-cv-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-cv-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 build/lv2/omx-feature-probe.lv2/omx-feature-probe.so: $(LV2_FIXTURE_DIR)/lv2_feature_probe.c $(LV2_FIXTURE_DIR)/lv2_feature_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-feature-probe.lv2/*.ttl)
@@ -568,3 +574,38 @@ test-lv2-validate: $(LV2_BUNDLES)
 	    echo "ok   every fixture bundle validates"; \
 	else echo "lv2_validate or sord_validate is not installed: the fixture bundles were not validated"; fi
 .PHONY: test-lv2-validate
+
+# ---- the hosting-paths bench (docs/bench-hosting-paths-*.md) ----
+
+# the probe (source and recorder over jack), the in-process host (a PipeWire filter over the core and the adapter) and
+# the bench-only bridge that hands omx-clap-host LV2 plugins through the adapter; none of them is installed
+PIPEWIRE_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags libpipewire-0.3 2>/dev/null)
+PIPEWIRE_LIBS ?= $(shell $(PKG_CONFIG) --libs libpipewire-0.3 2>/dev/null)
+BENCH_TOOLS = build/bench/probe build/bench/inproc build/bench/omx-lv2-bridge.clap
+
+build/bench/probe: bench/probe.c
+	@mkdir -p $(@D)
+	$(CC) $(JACK_CFLAGS) $(CFLAGS) -Werror -o $@ $< $(JACK_LIBS) -lm
+
+build/bench/inproc: bench/inproc.c $(LV2_LIB) $(CORE_SO)
+	@mkdir -p $(@D)
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(CLAP_CFLAGS) $(PIPEWIRE_CFLAGS) $(CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(PIPEWIRE_LIBS) -ldl -lpthread -lm
+
+build/bench/omx-lv2-bridge.clap: bench/lv2_bridge.c $(LV2_LIB)
+	@mkdir -p $(@D)
+	$(CC) -Ilv2/core -Ilv2/clap $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
+
+bench-tools: $(PROG) $(BENCH_TOOLS) tests/fault-0.clap tests/fault-14.clap build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
+.PHONY: bench bench-tools
+
+# every path at every rate and quantum, BENCH_REPS times for BENCH_SECONDS each, then the crash drill; results under
+# BENCH_OUT. Runs in private PipeWire graphs only (each run a namespace of its own); never against a live graph.
+BENCH_PATHS ?= modhost clap adapter inproc-clap inproc-lv2
+BENCH_RATES ?= 48000 96000
+BENCH_QUANTA ?= 64 128 256 512
+BENCH_REPS ?= 3
+BENCH_SECONDS ?= 60
+BENCH_OUT ?= build/bench/results
+bench: bench-tools
+	BENCH_PATHS="$(BENCH_PATHS)" BENCH_RATES="$(BENCH_RATES)" BENCH_QUANTA="$(BENCH_QUANTA)" BENCH_REPS=$(BENCH_REPS) \
+	    BENCH_SECONDS=$(BENCH_SECONDS) ./bench/bench.sh $(BENCH_OUT)
