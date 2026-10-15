@@ -208,9 +208,9 @@ The node's duration (pw-profiler: active -> finished) is the plugin plus everyth
   scheduled synchronously in the cycle.
 - **The whole graph**: on the same eight LV2 plugins mod-host had the lowest cycle end in all 8 configurations and
   the fewest overruns at 96 kHz / 64 (98 against 310 to 332), with the adapter and in-process LV2 close to each other.
-  Where it comes from is not shown here: the nodes themselves cost the same, so it is in the wake-up chain between
-  nodes (every plugin is a node with its own data thread on all five paths), which an engine running plugins inline
-  does not have. Host process CPU follows the same order (96 kHz / 128: mod-host 23.7 %, adapter 31.4 %, in-process
+  The nodes themselves cost the same: the difference is in the wake-up chain between nodes (every plugin is a node
+  with its own data thread on all five paths), which an engine running plugins inline does not have. The follow-up
+  below shows it is CPU idle states, and that mod-host's lead comes from two extra clients it runs. Host process CPU follows the same order (96 kHz / 128: mod-host 23.7 %, adapter 31.4 %, in-process
   LV2 33.5 % of one core). At 96 kHz / 64 and 96 kHz / 128 every path overran on this machine with these sets; the
   CLAP set's overruns at 96 kHz / 128 track Dragonfly Room's maxima (1.3 to 1.5 ms against a 1.33 ms period).
 - **Memory**: on the same eight plugins, 40 MiB resident for mod-host (19 MiB before any plugin: it loads the lilv
@@ -226,7 +226,34 @@ The node's duration (pw-profiler: active -> finished) is the plugin plus everyth
   dump), and every other plugin in that host with it; the graph survived on both CLAP paths. In process, the host
   process is the engine: the same crash there is the console's audio gone until the engine restarts. One smoke run
   before the measured runs saw a 163 ms graph stall while omx-clap-host was dying; the nine measured crash runs did
-  not reproduce it, so it is noted and not claimed.
+  not reproduce it, so it is noted and not claimed. The 150 to 175 ms is the core dump: omx-clap-core#102.
+
+## Follow-up: what the whole-graph figure measures (2026-10-16)
+
+The same harness on r1, 96 kHz, quantum 128, 20-second windows, each figure one run (two or three where listed), with
+two additions kept outside this tree: per-thread CPU and run-queue wait from `/proc`, and `/dev/cpu_dma_latency` held
+from outside the namespace to refuse CPU idle states. Cycle end p50, us:
+
+| idle states | mod-host | adapter | in-process LV2 |
+|---|---|---|---|
+| all allowed (C1, C2, C3), as above | 265, 279 | 380, 400, 412 | 413 |
+| `cpu_dma_latency` 1000 us: C3 refused, C2 allowed | 243, 244 | 273, 333 | 248, 322 |
+| `cpu_dma_latency` 10 us: C1 only | 80 | 73 | 95 |
+| `cpu_dma_latency` 0: none | 26, 30 | 23, 31 | 24, 25 |
+
+- **Most of the whole-graph figure is idle-state exit.** With idle states allowed, the probe's source wakes the nine
+  plugin nodes about 10 us apart for the first four or five, then the rest 60 to 130 us later: their cores were in C2
+  (127 us declared exit latency on r1) or deeper. With none allowed they wake about 1.1 us apart and the paths are
+  equal. Host CPU goes from 22 to 31 % of a core to 3 to 4 %. At 96 kHz / 64 the p50 goes from 168 to 190 us to 20 to
+  24 us and the p99 from 366 to 521 us to 38 to 41 us; overruns halve.
+- **mod-host's lead is its two always-running clients.** Besides one client per plugin, mod-host runs its global
+  `mod-host` client and `mod-monitor`; they do almost nothing but wake every cycle, which keeps more cores out of deep
+  idle. Idle JACK clients added to the adapter path shorten its cycle the same way (2 extra: 218 and 276 us become
+  179 and 212; 6 extra: 146 and 193), and with six on every path the order goes away (mod-host 125, 161, 131; adapter
+  156, 113, 110; in-process 119, 155, 143). The `sched_p50` column of `plugins.csv` (signal to awake) shows the same:
+  about 60 us for mod-host's plugins against 130 to 143 us on the other paths at 96 kHz / 128.
+- So the number of nodes is what costs, not the host: omx-clap-core#104 (a chain in one client) and openmixer#1775
+  (the console's idle policy) follow from it; omx-clap-core#105 tracks adding the idle-state arm to the bench.
 
 ## Limits
 
@@ -246,7 +273,9 @@ The node's duration (pw-profiler: active -> finished) is the plugin plus everyth
 On the plugins every path can host, the paths cost the same per plugin: the plugin's own process() dominates, the
 host's wrapper adds about a microsecond, and no path adds latency, so the "+1 quantum" assigned to mod-host is not a
 cost to plan around. mod-host is not the expensive path: on the same eight LV2 plugins it had the lowest graph cycle
-time and process CPU, and its price is memory (about 14 MiB more at start than omx-clap-host) and a slower start.
+time and process CPU, but the follow-up shows that comes from two extra clients keeping cores awake, not from how it
+runs a plugin; with idle states refused the paths are equal. Its price is memory (about 14 MiB more at start than
+omx-clap-host) and a slower start.
 libomx-clap-lv2 through omx-clap-host is comparable to mod-host per plugin and lighter in memory, but omx-clap-host
 cannot load LV2 yet (#96) and the adapter refuses common LV2 plugins with non-MIDI atom ports (#84), so mod-host cannot
 be retired today. In-process costs the plugin's inline time and nothing else, and saves the per-plugin node, but a
