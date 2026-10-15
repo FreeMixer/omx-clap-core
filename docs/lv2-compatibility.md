@@ -7,7 +7,7 @@ to run bit-identically through the adapter, `libomx-clap-lv2`. The proof of that
 identity run in the console, at every declared rate and quantum; until its results are published,
 this page claims only what the tests of this repository prove. MIDI, transport, state and presets
 are supported where the matrix below names a passing test. Not supported:
-CV ports, atom messages other than MIDI and the numeric `patch:` properties, `state:makePath`, fixed or power-of-two
+atom messages other than MIDI and the numeric `patch:` properties, `state:makePath`, fixed or power-of-two
 block lengths. A latency
 that moves under a parameter sweep is applied after a hold and a restart rather than per cycle.
 
@@ -63,12 +63,22 @@ Ports
 | Latency port (`lv2:latency`, `lv2:reportsLatency`) | supported: `clap.latency` (`lv2_clap_test` latency and fixture, `lv2_run_test` pad) | unsupported |
 | A latency that changes while running | lossy: held until it has read unchanged for `latency_hold_ms`, then one restart; a change that comes back inside the hold is ignored (`lv2_clap_test` latency) | unsupported |
 | The plugin's own bypass (`lv2:enabled`, a `bypass` port) | lossy: held at the value that keeps the plugin processing; the host's crossfade is the bypass. Turning the bypass off after a steady bypass resets the plugin (LV2 deactivate then activate, the worker joined before and started after) on the host's control thread, never in the audio path (`lv2_clap_test` fixture, core and worker, `lv2_host_test` fixture) | unsupported |
-| CV ports | unsupported; refused with `hosting.features.cv-ports` (`lv2_host_test` refusals) | unsupported |
+| CV ports (`lv2:CVPort`) | supported: each CV input one mono CLAP audio input after the side chains, each CV output one mono CLAP audio output after the main one, not main, named by the port's `lv2:name`; every frame of a block is passed both ways, bit-identical with the plugin run directly (`lv2_clap_test` cv, `lv2_host_test` cv). An input the host hands no buffer reads silence. More than 8 CV inputs or 8 CV outputs are refused with `hosting.features.cv-ports` (`lv2_host_test` cv) | unsupported |
 | Atom and event ports, MIDI (`midi:MidiEvent`) | supported: one MIDI input and one MIDI output, each a `clap.note-ports` port that offers the MIDI dialect only. Every channel message, sysex and system realtime byte arrives at its own length (a program change or channel pressure is two bytes) at its frame, and a frame past the block is held at its last. An input message past the atom buffer (at least 1024 bytes; `rsz:minimumSize` is not read yet) is dropped and counted as `midi_in_dropped`. An output message of up to three bytes, or a sysex, is passed on; anything else is not. A second MIDI port, a port that takes both MIDI and `patch:Message`, and an `ev:EventPort` are refused with `hosting.features.midi-in-fed-empty` (`lv2_clap_test` midi and refusals, `lv2_host_test` midi ports and midi run, `lv2_patch_test` MIDI twin) | unsupported |
 | `time:Position` input | lossy: forged at frame 0 only when the host's transport changes (its fields but the frame); an unchanged transport forges nothing, no transport an empty sequence. Named by `lv2_clap_test` time: every key and value, the change rule, a withdrawal and a tempo-only transport (sabotaged: an always-forge, a dropped playing flag and a dropped bar start each go red) | unsupported |
 | `patch:` numeric parameters | supported: a `patch:Set` forged before each block's run, `patch:Set` and `patch:Put` read back after it, the ids above the port indices (`lv2_patch_test`); the CLAP face lists them as parameters, a write lands before the block and the plugin's own value comes back as an output parameter event (`lv2_clap_test` patch face) | unsupported |
 | `patch:` file paths and strings | unsupported (stage 3) | unsupported |
 | Other atom messages (an atom port that supports no MIDI) | unsupported; refused with `hosting.features.midi-in-fed-empty` (`lv2_host_test` midi ports) | unsupported |
+
+### Why a CV port is an audio port
+
+An LV2 CV port carries one float per frame, as an audio port does. The adapter presents it as a CLAP audio port, not
+as a parameter-modulation input or output, because only an audio port keeps it exact: CLAP's parameter modulation
+(`CLAP_EVENT_PARAM_MOD`) is an event that holds one value from its time on, so a signal that changes on every frame would
+be quantised to the events a block carries, and CLAP has no modulation output at all, so a CV output would have nowhere
+to go. CLAP has no CV port type either (its draft `clap.cv` extension is not in CLAP 1.2), so the port's type is
+`CLAP_PORT_MONO` and its name says what it is. A host that runs the plugin through libomx-clap-core sees a CV input as an
+auxiliary input it may bind (`omx_clap_host_bind_aux_input`) and a CV output as an auxiliary output, left unconnected.
 
 Port properties
 ---------------
