@@ -252,8 +252,8 @@ from outside the namespace to refuse CPU idle states. Cycle end p50, us:
   179 and 212; 6 extra: 146 and 193), and with six on every path the order goes away (mod-host 125, 161, 131; adapter
   156, 113, 110; in-process 119, 155, 143). The `sched_p50` column of `plugins.csv` (signal to awake) shows the same:
   about 60 us for mod-host's plugins against 130 to 143 us on the other paths at 96 kHz / 128.
-- So the number of nodes is what costs, not the host: omx-clap-core#104 (a chain in one client) and openmixer#1775
-  (the console's idle policy) follow from it; omx-clap-core#105 tracks adding the idle-state arm to the bench.
+- So the number of nodes is what costs, not the host: omx-clap-core#104 (a chain in one client) and the console's
+  idle policy follow from it; omx-clap-core#105 tracks adding the idle-state arm to the bench.
 
 ## Limits
 

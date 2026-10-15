@@ -58,7 +58,7 @@ JACK_LIBS = -L$(JACK_DIR)/lib -ljack -Wl,-rpath,$(abspath $(JACK_DIR)/lib)
 endif
 
 # plugin the test loads
-CLAP_TEST_PLUGIN ?= ../openmixer/packages/omx-plugins/bin/omx-delay.clap
+CLAP_TEST_PLUGIN ?= /usr/lib/clap/omx-delay.clap
 
 # omx-dsp's headers: hosted_stage.h spells no DSP word of its own (omx_block_finite, omx_denormals_off, omx_db_to_lin,
 # omx_wetdry_xfade_block), it takes them from omx-dsp. pkg-config when omx-dsp-devel is installed (it names omx-contract and
@@ -232,6 +232,12 @@ version-check:
 	else echo "FAIL VERSION says $(VERSION), the spec says $$spec, debian/changelog says $$deb"; exit 1; fi
 
 # clean rule
+# No tracked file points into a private repository, issue, branch or path (tools/private-refs-check.sh, with its --self-test).
+.PHONY: private-refs
+private-refs:
+	tools/private-refs-check.sh
+	tools/private-refs-check.sh --self-test
+
 .PHONY: docs
 # the C API reference by doxygen, from the installed headers' docstrings; build-time only
 docs: $(CORE_HEADERS) Doxyfile

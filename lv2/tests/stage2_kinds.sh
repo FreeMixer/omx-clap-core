@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# The stage-2 oracle's kinds (openmixer docs/design/specs/2026-10-02-lv2-as-clap-adapter.md §10.2): each kind must be
+# The stage-2 oracle's kinds: each kind must be
 # represented by at least one fixture bundle, or the run says which is missing. This checks the fixtures only. The
 # comparison itself, through mod-host, is not run here: mod-host is not installed by this tree.
 #
