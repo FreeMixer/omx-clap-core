@@ -80,6 +80,16 @@ extern const char *const omx_clap_lv2_provided[];
 const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[OMX_CLAP_LV2_WHY_MAX]);
 void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry);
 
+/* [main-thread] The directory a state save of `plugin` (one this adapter created) copies the files its state names to,
+ * <state_root>/lv2-<pid>-<n>.saved: its length, and as much of it as `size` holds, NUL-terminated, in `buf`; 0 and ""
+ * without a state root. The adapter never removes it: the saved state names the copies by their absolute path. */
+uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t size);
+
+/* [main-thread] Remove a save's copy directory and everything in it, when the host deletes the states that name it:
+ * 0, or -1 with `why` hosting.state.not-a-copy for a path that is not a lv2-<pid>-<n>.saved directory directly under the
+ * configured state root (a symbolic link included), or with no state root. A link inside is removed, never followed. */
+int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX]);
+
 /* [main-thread] FOR TESTS ONLY: block the caller until the plugin's LV2 worker has serviced every pending request, so
  * a test that compares two hosts pins the worker's schedule. The real worker thread runs; only the schedule is pinned. */
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin);
