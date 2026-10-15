@@ -56,6 +56,8 @@ typedef struct omx_clap_lv2_config {
   uint32_t atom_buffer_bytes;   /* the smallest atom port buffer; a port's rsz:minimumSize raises it */
   uint32_t latency_hold_ms;     /* §6.7 */
   const char *lilv_soname;      /* NULL: liblilv-0.so.0 */
+  const char *state_root;       /* an absolute directory, made by the configure: state:makePath makes each plugin
+                                 * instance's directory in it. NULL: state:makePath is not offered */
 } omx_clap_lv2_config_t;
 
 /* [main-thread] 0, or -1 with `why` naming the refusal. Called once per process; a second call
@@ -77,6 +79,16 @@ extern const char *const omx_clap_lv2_provided[];
  * bundle's plugins, each with descriptor id = its LV2 URI. */
 const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[OMX_CLAP_LV2_WHY_MAX]);
 void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry);
+
+/* [main-thread] The directory a state save of `plugin` (one this adapter created) copies the files its state names to,
+ * <state_root>/lv2-<pid>-<n>.saved: its length, and as much of it as `size` holds, NUL-terminated, in `buf`; 0 and ""
+ * without a state root. The adapter never removes it: the saved state names the copies by their absolute path. */
+uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t size);
+
+/* [main-thread] Remove a save's copy directory and everything in it, when the host deletes the states that name it:
+ * 0, or -1 with `why` hosting.state.not-a-copy for a path that is not a lv2-<pid>-<n>.saved directory directly under the
+ * configured state root (a symbolic link included), or with no state root. A link inside is removed, never followed. */
+int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX]);
 
 /* A string or path property of the plugin: an LV2 patch:writable property whose rdfs:range is atom:String or atom:Path.
  * CLAP has no text parameter, so the adapter carries these through the plugin's own patch port, with the functions

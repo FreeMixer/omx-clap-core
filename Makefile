@@ -439,6 +439,7 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-time-probe.lv2/omx-time-probe.so \
               build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so \
               build/lv2/omx-feature-probe.lv2/omx-feature-probe.so \
+              build/lv2/omx-path-fixture.lv2/omx-path-fixture.so \
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
               build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so
 
@@ -460,6 +461,11 @@ build/lv2/omx-time-probe.lv2/omx-time-probe.so: $(LV2_FIXTURE_DIR)/lv2_time_prob
 build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so: $(LV2_FIXTURE_DIR)/lv2_sidechain_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-sidechain-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-sidechain-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-path-fixture.lv2/omx-path-fixture.so: $(LV2_FIXTURE_DIR)/lv2_path_fixture.c $(LV2_FIXTURE_DIR)/lv2_path_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-path-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-path-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so: $(LV2_FIXTURE_DIR)/lv2_atom_fixture.c $(LV2_FIXTURE_DIR)/lv2_atom_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-atom-fixture.lv2/*.ttl)

@@ -49,7 +49,7 @@ static void count_out(void *ctx, int64_t frame, const uint8_t *data, uint32_t si
 
 int main(int argc, char **argv)
 {
-    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL };
+    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
     char dir[PATH_MAX], path[PATH_MAX + 64], why[LV2_CORE_WHY_MAX] = "";
     void *so;
     void (*extra)(int);

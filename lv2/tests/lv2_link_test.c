@@ -56,7 +56,7 @@ static bool out_push(const clap_output_events_t *l, const clap_event_header_t *e
 
 int main(int argc, char **argv)
 {
-    const omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, 250u, NULL };
+    const omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, 250u, NULL, NULL };
     clap_host_t host = OMX_CLAP_RAW_NULL_HOST("lv2_link_test");
     const clap_input_events_t in_events = { NULL, in_size, in_get };
     const clap_output_events_t out_events = { NULL, out_push };

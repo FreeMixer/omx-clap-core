@@ -33,8 +33,8 @@
  *   atom      the atom fixture's ports: the patch pair, a notify output given a buffer of its own, the string and path
  *             properties beside the numeric one; a MIDI input that takes time:Position too; an input of the plugin's own
  *             objects and a fifth notify output refused hosting.features.midi-in-fed-empty.
- *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs refused
- *             hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
+ *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
+ *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
  *   worker    the worker gain: options carry the rate and the block lengths, ONE worker thread per instance, the gain
  *             reaches the audio only through the round trip, work() on that thread, the thread joined at deactivate.
@@ -160,7 +160,7 @@ static struct lv2_plugin *open_plugin(const char *dir, const char *uri, char why
 static void lazy(void)
 {
     char late[PATH_MAX + 32], why[LV2_CORE_WHY_MAX] = "";
-    struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL };
+    struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
     struct lv2_bundle *b;
 
     snprintf(late, sizeof(late), "%slilv-late.so.0", g_build);
@@ -415,6 +415,9 @@ static void t_cv(void)
     lv2_plugin_close(p);
     p = open_plugin(g_cv, CV_URI "#many", why);
     CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV inputs, one past the limit, are refused from the TTL (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_cv, CV_URI "#many-out", why);
+    CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV outputs, one past the limit, are refused from the TTL (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_fixture, FIXTURE_URI "#cv", why);
     CHECK(p && p->n_cv_in == 1 && p->cv_in[0] == 2 && p->n_cv_out == 0, "cv: the host fixture's CV twin is admitted, its CV input port 2 (%s)", why);
@@ -723,7 +726,7 @@ static const char *const *list_plus(const char *uri)
 
 static void refused_with(const char *const *list, const char *dir, const char *uri, const char *label)
 {
-    const struct lv2_core_config config = { list, 1000u, 4096u, 0u, NULL };
+    const struct lv2_core_config config = { list, 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
     struct lv2_plugin *p;
 
@@ -880,7 +883,7 @@ static void t_options(void)
 /* the configured list bounds the options: a list without log:log hands no log, whatever the options offer */
 static void options_within_list(void)
 {
-    const struct lv2_core_config config = { list_without(LV2_LOG__log), 1000u, 4096u, 0u, NULL };
+    const struct lv2_core_config config = { list_without(LV2_LOG__log), 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
     const struct lv2_feature_probe *seen;
 
@@ -893,7 +896,7 @@ static void options_within_list(void)
 
 static void unknown_feature(void)
 {
-    struct lv2_core_config config = { list_plus("urn:openmixer:test:no-such-feature"), 1000u, 4096u, 0u, NULL };
+    struct lv2_core_config config = { list_plus("urn:openmixer:test:no-such-feature"), 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
 
     CHECK(lv2_core_configure(&config, why) == -1, "configure refuses a listed URI no provider serves (%s)", why);
@@ -911,7 +914,7 @@ static void unknown_feature(void)
 
 int main(int argc, char **argv)
 {
-    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL };
+    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
     char dir[PATH_MAX + 32], why[LV2_CORE_WHY_MAX];
     size_t r;
 

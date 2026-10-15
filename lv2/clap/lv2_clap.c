@@ -1024,10 +1024,13 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     if (memcmp(&c, &s->logged, sizeof(c)) == 0)
         return;
     snprintf(line, sizeof(line),
-             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u patch_dropped %u midi_in_dropped %u",
+             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u patch_dropped %u midi_in_dropped %u make_path_refused %u",
              c.schedule_refused, c.responses_refused, c.respond_strikes, c.map_on_audio, c.schedule_off_audio, c.log_on_audio,
-             c.patch_dropped, c.midi_in_dropped);
+             c.patch_dropped, c.midi_in_dropped, c.make_path_refused);
     host_log(s->host, CLAP_LOG_WARNING, line);
+    // a state:makePath refusal names its code, the last one's, as a refusal of its own
+    if (c.make_path_refused != s->logged.make_path_refused)
+        host_log(s->host, CLAP_LOG_ERROR, lv2_instance_make_path_why(s->in));
     s->logged = c;
 }
 
@@ -1176,6 +1179,7 @@ int omx_clap_lv2_configure(const omx_clap_lv2_config_t *cfg, char why[OMX_CLAP_L
     config.worker_ring_bytes = cfg->worker_ring_bytes;
     config.atom_buffer_bytes = cfg->atom_buffer_bytes;
     config.lilv_soname = cfg->lilv_soname;
+    config.state_root = cfg->state_root;
     if (lv2_core_configure(&config, core_why) != 0)
     {
         why_set(why, core_why);
@@ -1273,6 +1277,29 @@ void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin)
 {
     if (plugin && plugin->plugin_data)
         lv2_instance_worker_quiesce(SHIM_OF(plugin)->in);
+}
+
+uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t size)
+{
+    const struct shim *s = plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+    const char *dir = s && s->in ? lv2_instance_saved_dir(s->in) : "";
+
+    if (buf && size)
+        snprintf(buf, size, "%s", dir);
+    return (uint32_t)strlen(dir);
+}
+
+int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX])
+{
+    char core_why[LV2_CORE_WHY_MAX];
+
+    if (lv2_saved_drop(saved_dir, core_why) != 0)
+    {
+        why_set(why, core_why);
+        return -1;
+    }
+    why_set(why, "");
+    return 0;
 }
 
 /* the shim of a plugin this adapter created, NULL for any other */

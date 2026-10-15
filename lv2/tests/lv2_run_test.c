@@ -235,7 +235,7 @@ static void test_worker(void)
 /* a 16-byte request ring holds two 4-byte records; the third schedule is NO_SPACE */
 static void worker_full_ring(void)
 {
-    static const struct lv2_core_config config = { lv2_core_provided, 1000000u, 16u, 0u, NULL };
+    static const struct lv2_core_config config = { lv2_core_provided, 1000000u, 16u, 0u, NULL, NULL };
     struct lv2_counters c;
     char why[LV2_CORE_WHY_MAX];
     struct rig g;
@@ -259,7 +259,7 @@ static void worker_full_ring(void)
 
 int main(int argc, char **argv)
 {
-    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 64u, 0u, NULL };
+    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 64u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX];
     void *volatile probe;
     size_t r;

@@ -41,11 +41,14 @@
 */
 
 #include <dlfcn.h>
+#include <errno.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
@@ -106,6 +109,8 @@ static struct
     struct lv2_core_config config;
     char **features;            // the configured list, copied, NULL-terminated
     char *lilv_soname;
+    char *state_root_given;     // the state root as the configuration named it, for a second configure to repeat
+    char *state_root;           // its real path, made by the configure
     uint32_t provided;          // bit k: lv2_feature_uri[k] is on the configured list
 } g;
 
@@ -230,12 +235,47 @@ static int same_config(const struct lv2_core_config *c)
     uint32_t i;
 
     if (c->worker_poll_us != g.config.worker_poll_us || c->worker_ring_bytes != g.config.worker_ring_bytes
-        || c->atom_buffer_bytes != g.config.atom_buffer_bytes || !same_text(c->lilv_soname, g.lilv_soname))
+        || c->atom_buffer_bytes != g.config.atom_buffer_bytes || !same_text(c->lilv_soname, g.lilv_soname)
+        || !same_text(c->state_root, g.state_root_given))
         return 0;
     for (i = 0; c->features && c->features[i]; i++)
         if (!g.features[i] || strcmp(c->features[i], g.features[i]) != 0)
             return 0;
     return g.features[i] == NULL;
+}
+
+
+/* every directory of the absolute `path`, made when missing: 0, or -1 */
+int lv2_mkdirs(const char *path)
+{
+    char buf[PATH_MAX];
+    size_t i, n = path ? strlen(path) : 0;
+
+    if (n == 0 || n >= sizeof(buf) || path[0] != '/')
+        return -1;
+    memcpy(buf, path, n + 1u);
+    for (i = 1; i <= n; i++)
+    {
+        struct stat st;
+
+        if (buf[i] != '/' && buf[i] != '\0')
+            continue;
+        buf[i] = '\0';
+        if (mkdir(buf, 0755) != 0 && (errno != EEXIST || stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)))
+            return -1;
+        buf[i] = path[i];
+    }
+    return 0;
+}
+
+/* the state root made and taken by its real path: NULL when it is not absolute or cannot be made */
+static char *state_root_make(const char *root)
+{
+    char real[PATH_MAX];
+
+    if (!root || root[0] != '/' || lv2_mkdirs(root) != 0 || !realpath(root, real))
+        return NULL;
+    return strdup(real);
 }
 
 
@@ -248,7 +288,7 @@ static int same_config(const struct lv2_core_config *c)
 int lv2_core_configure(const struct lv2_core_config *c, char why[LV2_CORE_WHY_MAX])
 {
     uint32_t n = 0, provided = 0, i;
-    char **features;
+    char **features, *root = NULL;
 
     if (!c)
     {
@@ -269,7 +309,7 @@ int lv2_core_configure(const struct lv2_core_config *c, char why[LV2_CORE_WHY_MA
     }
     for (n = 0; c->features && c->features[n]; n++)
     {
-        const int k = provider_of(c->features[n]);
+        const int k = strcmp(c->features[n], LV2_STATE__makePath) == 0 ? (int)F_MAKE_PATH : provider_of(c->features[n]);
 
         if (k < 0)
         {
@@ -278,9 +318,22 @@ int lv2_core_configure(const struct lv2_core_config *c, char why[LV2_CORE_WHY_MA
         }
         provided |= 1u << k;
     }
+    // state:makePath needs a root to make the instances' directories in: without one it is not offered
+    if (c->state_root)
+    {
+        root = state_root_make(c->state_root);
+        if (!root)
+        {
+            lv2_why_set(why, "lv2.configure.state-root");
+            return -1;
+        }
+    }
+    else
+        provided &= ~(1u << F_MAKE_PATH);
     features = calloc(n + 1u, sizeof(*features));
     if (!features)
     {
+        free(root);
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
@@ -292,6 +345,7 @@ int lv2_core_configure(const struct lv2_core_config *c, char why[LV2_CORE_WHY_MA
             while (i > 0)
                 free(features[--i]);
             free(features);
+            free(root);
             lv2_why_set(why, LV2_CODE_NO_REALISATION);
             return -1;
         }
@@ -301,6 +355,9 @@ int lv2_core_configure(const struct lv2_core_config *c, char why[LV2_CORE_WHY_MA
     g.config = *c;
     g.config.features = (const char *const *)g.features;
     g.config.lilv_soname = g.lilv_soname;
+    g.state_root = root;
+    g.state_root_given = c->state_root ? strdup(c->state_root) : NULL;
+    g.config.state_root = g.state_root;
     g.provided = provided;
     g.configured = 1;
     lv2_why_set(why, "");
@@ -348,6 +405,8 @@ int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t
     const int k = uri ? provider_of(uri) : -1;
     uint32_t d;
 
+    if (uri && strcmp(uri, LV2_STATE__makePath) == 0)
+        return (allowed & (1u << F_MAKE_PATH)) != 0;
     if (k == F_BOUNDED)
         return (on & OMX_LV2_FEATURE_BIT(F_BOUNDED)) && (o->block.declares & OMX_LV2_BLOCK_BOUNDED);
     if (k >= 0)
@@ -358,8 +417,8 @@ int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t
     return 0;
 }
 
-uint32_t lv2_features_fill(LV2_Feature features[LV2_FEATURE_SLOTS], const LV2_Feature *ptrs[LV2_FEATURE_SLOTS + 1],
-                           const struct omx_lv2_feature_options *o, uint32_t allowed, void *const data[LV2_FEATURE_KINDS])
+uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, const struct omx_lv2_feature_options *o,
+                           uint32_t allowed, void *const data[LV2_FEATURE_KINDS + 1])
 {
     const uint32_t on = o->features & allowed;
     uint32_t n = 0, d;
@@ -384,6 +443,14 @@ uint32_t lv2_features_fill(LV2_Feature features[LV2_FEATURE_SLOTS], const LV2_Fe
             continue;
         features[n].URI = g_declared_uri[d];
         features[n].data = NULL;
+        ptrs[n] = &features[n];
+        n++;
+    }
+    // state:makePath, last: the configuration's alone
+    if ((allowed & (1u << F_MAKE_PATH)) && data[F_MAKE_PATH])
+    {
+        features[n].URI = LV2_STATE__makePath;
+        features[n].data = data[F_MAKE_PATH];
         ptrs[n] = &features[n];
         n++;
     }
@@ -591,7 +658,7 @@ const LV2_Feature *const *omx_lv2_features_build(struct omx_lv2_feature_block *b
                                                  double rate, uint32_t min_frames, uint32_t max_frames,
                                                  LV2_Worker_Schedule *schedule)
 {
-    void *data[LV2_FEATURE_KINDS] = { NULL };
+    void *data[LV2_FEATURE_KINDS + 1] = { NULL };
 
     if (!b)
         return NULL;
