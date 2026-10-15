@@ -35,10 +35,26 @@
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
  *             by omx_clap_lv2_worker_quiesce; the fake's drain order; a stray respond counted on clap.log.
  *             A reset whose worker cannot start again fails process() and says so on clap.log until the next activate.
+ *   atom      the atom messages beside MIDI: the string and path properties written through omx_clap_lv2_patch_text_*
+ *             (a patch:Set on the next block), read back from the plugin's patch:Put body and patch:Set, refused past
+ *             their limit, while busy and when not listed, a reply past 4095 bytes dropped and counted, sent again to a
+ *             new LV2 instance; a numeric reply forged as an atom:Blank read as the parameter's output event, another
+ *             object naming the gain ignored, the notify output offered a buffer every block. The MIDI input that also
+ *             takes time:Position: the transport's object first, at frame 0, by the change rule, then the MIDI; CLAP
+ *             note on, off and choke as MIDI, the velocity scaled and rounded, a wildcard key or channel, another port
+ *             and a note expression not taken.
  *   cv        each CV port a mono CLAP audio port, not main, named by its lv2:name, the inputs after the side chains and
  *             the outputs after the main one; the audio and the CV output bit-identical with the fixture's binary run
  *             directly with the same buffers, over blocks of several lengths; an input handed no buffer reads silence;
  *             through the core, the CV input an auxiliary input it binds and the CV output an auxiliary output.
+ *   make-path state:makePath under the configured state root: no directory until the plugin asks for a path; a save
+ *             copies the file its state names to <dir>.saved and names the copy; the instance's directory removed with
+ *             it, the copy kept; a second instance loading the state reads the level back from the copy, out = in x 2.5
+ *             on every frame; a path outside the directory and an absolute one answered NULL, nothing written, counted
+ *             as make_path_refused 2; a path through a link, a/../b, an overlong one, a request on the audio role and
+ *             one through a file refused by code; an instance never saved leaves nothing; stale copies of an earlier process of the
+ *             same pid are never taken as an instance's own. Without a root the feature is not offered (a child),
+ *             and a relative root refuses the configure (a child).
  *   rt        no allocation inside process().
  *
  * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
@@ -49,8 +65,11 @@
  *
  *   lv2_clap_test <build/lv2 directory>
  */
+#include <dirent.h>
+#include <ftw.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/stat.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #if defined(__x86_64__) || defined(__i386__)
@@ -60,12 +79,15 @@
 #include <clap/clap.h>
 
 #include <lv2/urid/urid.h>
+#include <lv2/state/state.h>
 
 #include "../../src/clap_host.h"
 #include "omx_clap_lv2.h"
 #include "fixtures/lv2_fakes.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "fixtures/lv2_time_probe.h"
+#include "fixtures/lv2_path_probe.h"
+#include "fixtures/lv2_atom_probe.h"
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -102,6 +124,8 @@ static char g_patch[PATH_MAX];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
+static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX];
+static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
@@ -373,7 +397,7 @@ static void fake_trace_clear(void)
 static void unconfigured(void)
 {
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
-    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, HOLD_MS, NULL };
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, HOLD_MS, NULL, NULL };
     static const char *const unknown[] = { "urn:openmixer:test:no-such-feature", NULL };
 
     CHECK(omx_clap_lv2_entry(g_fixture, why) == NULL && strcmp(why, "hosting.no-realisation") == 0, "no entry before the configure (%s)", why);
@@ -449,7 +473,6 @@ static void t_refusals(void)
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
         { FIXTURE_URI "#mappath", "hosting.features.missing" },
-        { FIXTURE_URI "#makepath", "hosting.features.missing" },
         { "urn:openmixer:test:not-in-this-bundle", "hosting.no-realisation" },
     };
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
@@ -862,6 +885,7 @@ union any_event
     clap_event_midi_t m;
     clap_event_midi_sysex_t x;
     clap_event_note_t note;
+    clap_event_note_expression_t expr;
 };
 
 struct midi_in
@@ -929,7 +953,7 @@ static void mi_sysex(struct midi_in *m, uint32_t time, const uint8_t *bytes, uin
     e->size = size;
 }
 
-/* a CLAP-dialect note on: the port offers no such dialect, so it must not reach the plugin */
+/* a CLAP-dialect note on with a wildcard key: it names no MIDI message, so it must not reach the plugin */
 static void mi_note(struct midi_in *m, uint32_t time)
 {
     clap_event_note_t *e = &m->ev[m->n++].note;
@@ -940,7 +964,7 @@ static void mi_note(struct midi_in *m, uint32_t time)
     e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
     e->header.type = CLAP_EVENT_NOTE_ON;
     e->note_id = -1;
-    e->key = 60;
+    e->key = -1;
     e->velocity = 0.8;
 }
 
@@ -1029,11 +1053,11 @@ static void t_midi(double rate)
     *(void **)&extra = loaded_symbol(g_midi_so, "lv2_midi_echo_extra");
     np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
     CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 1 && np->get(g.plugin, 0, true, &info)
-              && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+              && info.supported_dialects == (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP) && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
               && np->get(g.plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
-          "midi %.0f: one MIDI input and one MIDI output, each dialect MIDI and no other", rate);
+          "midi %.0f: one MIDI input, MIDI preferred and CLAP notes taken, and one MIDI output, dialect MIDI and no other", rate);
 
-    // block 1: every channel status, a system realtime byte, a sysex, a CLAP note that is not taken, one message at the
+    // block 1: every channel status, a system realtime byte, a sysex, a CLAP note of no key, not taken, one message at the
     // block's last frame and one past its end, which is held at the last frame
     midi_in_init(&mi);
     mi_midi(&mi, 0, note, 3);
@@ -1503,6 +1527,565 @@ static void t_sidechain(double rate)
 
     sc_process(&g, in_l, in_r, none_l, NULL, out_l, out_r, BLOCK);
     CHECK(out_l[0] == 0.5f && out_r[0] == -0.25f, "side chain %.0f: a silent side chain adds nothing", rate);
+    rig_down(&g);
+}
+
+/* ---- state:makePath: a directory of the instance's own under the state root ---- */
+
+/* the entries of the state root */
+static int root_entries(void)
+{
+    DIR *d = opendir(g_root);
+    struct dirent *e;
+    int n = 0;
+
+    while (d && (e = readdir(d)) != NULL)
+        n += strcmp(e->d_name, ".") != 0 && strcmp(e->d_name, "..") != 0;
+    if (d)
+        closedir(d);
+    return n;
+}
+
+/* the first line of the file at `path`, "" when it cannot be read */
+static const char *file_line(const char *path)
+{
+    static char line[64];
+    FILE *f = fopen(path, "r");
+
+    line[0] = '\0';
+    if (f && !fgets(line, sizeof(line), f))
+        line[0] = '\0';
+    if (f)
+        fclose(f);
+    return line;
+}
+
+static int ends_with(const char *s, const char *tail)
+{
+    const size_t n = strlen(s), t = strlen(tail);
+
+    return n >= t && strcmp(s + n - t, tail) == 0;
+}
+
+#define STALE 400u      // more instance numbers than this run reaches
+
+/* the copies an earlier process of the same pid left: lv2-<pid>-<n>.saved/takes/level.txt holding 9, for every n up to
+ * STALE. An instance must take a name none of them holds, or its save would land beside a stale copy. */
+static int root_entry_remove(const char *path, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st;
+    (void)flag;
+    (void)ftw;
+    remove(path);
+    return 0;
+}
+
+static void stale_copies(void)
+{
+    char path[PATH_MAX + 160];
+    uint32_t n;
+
+    // a root of this pid an earlier run left is cleared first: a run starts from the stale copies alone
+    nftw(g_root, root_entry_remove, 16, FTW_DEPTH | FTW_PHYS);
+    mkdir(g_root, 0755);
+    for (n = 1; n <= STALE; n++)
+    {
+        FILE *f;
+
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved", g_root, (long)getpid(), n);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved/takes", g_root, (long)getpid(), n);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved/takes/level.txt", g_root, (long)getpid(), n);
+        if ((f = fopen(path, "w")) != NULL)
+        {
+            fputs("9\n", f);
+            fclose(f);
+        }
+    }
+}
+
+static void t_make_path(double rate)
+{
+    static const char TAIL[] = "/takes/level.txt";
+    static float in[BLOCK], out[BLOCK];
+    char dir[600], copy[700], prefix[PATH_MAX + 96];
+    struct lv2_path_probe *pr;
+    struct mem_out saved;
+    struct mem_in given;
+    struct evlist ev;
+    struct rig a, b;
+    struct stat st;
+    uint32_t i;
+    int before, same;
+
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f * sinf(0.0613f * (float)i);
+    if (rig_up(&a, g_path, LV2_PATH_FIXTURE_URI, rate, BLOCK) != 0)
+        return;
+    pr = loaded_symbol(g_path_so, "lv2_path_probe");
+    CHECK(pr && pr->had_make_path, "make-path %.0f: instantiate is handed state:makePath", rate);
+    if (!pr)
+    {
+        rig_down(&a);
+        return;
+    }
+    before = root_entries();
+    ev_init(&ev);
+    ev_param(&ev, 2, 2.5);
+    process(&a, in, NULL, out, NULL, BLOCK, &ev);
+    CHECK(root_entries() == before, "make-path %.0f: no directory is made before the plugin asks for a path (%d entries)", rate, before);
+
+    // the save: the plugin makes takes/level.txt in its directory, lilv copies it out and the state names the copy
+    mo_init(&saved);
+    CHECK(state_of(&a)->save(a.plugin, &saved.stream) && saved.n > 0, "make-path %.0f: the state saves (%zu bytes)", rate, saved.n);
+    snprintf(prefix, sizeof(prefix), "%s/lv2-", g_root);
+    CHECK(strncmp(pr->made, prefix, strlen(prefix)) == 0 && ends_with(pr->made, TAIL) && !strcmp(file_line(pr->made), "2.5\n"),
+          "make-path %.0f: the path made is <root>/lv2-<pid>-<n>/takes/level.txt, its directories made, and the plugin wrote 2.5 into it (%s)",
+          rate, pr->made);
+    snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(pr->made) - strlen(TAIL)), pr->made);
+    snprintf(copy, sizeof(copy), "%s.saved%s", dir, TAIL);
+    CHECK(strtoul(strrchr(dir, '-') + 1, NULL, 10) > STALE, "make-path %.0f: the instance's name is past every stale copy an earlier process left (%s)",
+          rate, strrchr(dir, '/') + 1);
+    CHECK(!strcmp(pr->stored, "takes/level.txt") && strstr(saved.buf, copy) != NULL && !strcmp(file_line(copy), "2.5\n"),
+          "make-path %.0f: the state names the copy in <dir>.saved, which holds 2.5 (stored %s)", rate, pr->stored);
+    rig_down(&a);
+    CHECK(stat(dir, &st) != 0 && errno == ENOENT, "make-path %.0f: the instance's directory is removed with the instance", rate);
+    CHECK(!strcmp(file_line(copy), "2.5\n"), "make-path %.0f: the copy the save made stays", rate);
+
+    // a second instance loads the state before its activate: the plugin reads the level from the copy
+    if (rig_up(&b, g_path, LV2_PATH_FIXTURE_URI, 0.0, BLOCK) != 0)
+        return;
+    mi_init(&given, saved.buf, saved.n);
+    CHECK(state_of(&b)->load(b.plugin, &given.stream) && b.plugin->activate(b.plugin, rate, 1, BLOCK) && b.plugin->start_processing(b.plugin),
+          "make-path %.0f: a second instance loads the state and activates", rate);
+    process(&b, in, NULL, out, NULL, BLOCK, NULL);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out[i] == in[i] * 2.5f;
+    CHECK(pr->restored == 2.5f && !strcmp(pr->restored_from, copy), "make-path %.0f: its plugin read 2.5 from the copy (%g, %s)", rate,
+          (double)pr->restored, pr->restored_from);
+    CHECK(same, "make-path %.0f: it runs at the level read through the file: out = in x 2.5 on every frame", rate);
+    {
+        char bdir[PATH_MAX + 96], why[OMX_CLAP_LV2_WHY_MAX] = "", saved_a[620], other[PATH_MAX + 96], link[PATH_MAX + 96];
+        const uint32_t n = omx_clap_lv2_saved_dir(b.plugin, bdir, sizeof(bdir));
+
+        CHECK(n == strlen(bdir) && strncmp(bdir, prefix, strlen(prefix)) == 0 && ends_with(bdir, ".saved"),
+              "make-path %.0f: omx_clap_lv2_saved_dir names the plugin's copy directory (%s)", rate, bdir);
+        snprintf(saved_a, sizeof(saved_a), "%s.saved", dir);
+        // a path that is no copy directory of the root is refused, and left as it was
+        snprintf(other, sizeof(other), "%slv2-7-%.0f.saved", g_build, rate);     // named like a copy, outside the root
+        mkdir(other, 0755);
+        snprintf(link, sizeof(link), "%s/lv2-9-%.0f.saved", g_root, rate);
+        unlink(link);
+        CHECK(symlink(saved_a, link) == 0, "make-path %.0f: a link named like a copy directory, to A's copies", rate);
+        CHECK(omx_clap_lv2_saved_drop("/tmp", why) == -1 && !strcmp(why, "hosting.state.not-a-copy")
+                  && omx_clap_lv2_saved_drop(g_root, why) == -1 && omx_clap_lv2_saved_drop(other, why) == -1
+                  && omx_clap_lv2_saved_drop(link, why) == -1 && stat(other, &st) == 0 && !strcmp(file_line(copy), "2.5\n"),
+              "make-path %.0f: /tmp, the root, a .saved directory outside the root and a link to A's copies are refused (%s)", rate, why);
+        unlink(link);
+        rmdir(other);
+        CHECK(omx_clap_lv2_saved_drop(saved_a, why) == 0 && stat(saved_a, &st) != 0 && errno == ENOENT,
+              "make-path %.0f: A's copy directory is dropped when the host deletes its state (%s)", rate, why);
+    }
+    rig_down(&b);
+}
+
+/* one makePath request the test makes itself: answered NULL, and the block after it logs `code` as the refusal */
+static int mp_refused(struct rig *g, const LV2_State_Make_Path *mp, const char *path, const char *code)
+{
+    static float in[BLOCK], out[BLOCK];
+    char *r = mp->path(mp->handle, path);
+    int ok;
+
+    g->host.log[0] = '\0';
+    process(g, in, NULL, out, NULL, BLOCK, NULL);
+    g->plugin->on_main_thread(g->plugin);
+    ok = r == NULL && strstr(g->host.log, code) != NULL;
+    free(r);
+    return ok;
+}
+
+/* a path outside the instance's directory, and an absolute one, are answered NULL and counted; nothing is written */
+static void t_make_path_escape(double rate)
+{
+    static const char ABS[] = "/tmp/omx-path-fixture-absolute.txt";
+    static float in[BLOCK], out[BLOCK];
+    char outside[PATH_MAX + 96], made[512], dir[512], copies[600];
+    size_t i;
+    struct lv2_path_probe *pr;
+    struct stat st;
+    struct rig g;
+
+    snprintf(outside, sizeof(outside), "%s/outside.txt", g_root);
+    unlink(ABS);
+    if (rig_up(&g, g_path, LV2_PATH_FIXTURE_URI "#escape", rate, BLOCK) != 0)
+        return;
+    pr = loaded_symbol(g_path_so, "lv2_path_probe");
+    CHECK(pr && pr->escape_null && pr->absolute_null, "make-path %.0f: ../outside.txt and an absolute path are answered NULL", rate);
+    CHECK(stat(outside, &st) != 0 && stat(ABS, &st) != 0, "make-path %.0f: nothing is written outside the instance's directory", rate);
+    memset(in, 0, sizeof(in));
+    process(&g, in, NULL, out, NULL, BLOCK, NULL);
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(strstr(g.host.log, "make_path_refused 2") != NULL && strstr(g.host.log, "hosting.state.path-outside") != NULL,
+          "make-path %.0f: both are counted, make_path_refused 2 and the code hosting.state.path-outside on clap.log", rate);
+    snprintf(made, sizeof(made), "%s", pr ? pr->made : "");
+    CHECK(made[0] && !strcmp(file_line(made), "unsaved\n"), "make-path %.0f: a path inside is made and written (%s)", rate, made);
+    snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(made) > 16 ? strlen(made) - 16 : 0), made);     // less /never/saved.txt
+    if (pr && pr->make_path)
+    {
+        const LV2_State_Make_Path *mp = pr->make_path;
+        static char longest[5000], component[300];
+        char lnk[600], fin[600], blk[600], esc[PATH_MAX + 96], *ok;
+        FILE *bf;
+
+        // a link inside the directory, to the root: a path through it would leave the directory
+        snprintf(lnk, sizeof(lnk), "%s/lnk", dir);
+        snprintf(fin, sizeof(fin), "%s/fin", dir);
+        snprintf(esc, sizeof(esc), "%s/esc", g_root);
+        CHECK(symlink(g_root, lnk) == 0 && symlink(outside, fin) == 0, "make-path %.0f: links lnk -> the root and fin -> outside.txt", rate);
+        CHECK(mp_refused(&g, mp, "lnk/esc/f.txt", "hosting.state.path-symlink") && stat(esc, &st) != 0,
+              "make-path %.0f: a link as a directory component is refused, hosting.state.path-symlink, and nothing is made through it", rate);
+        CHECK(mp_refused(&g, mp, "fin", "hosting.state.path-symlink"), "make-path %.0f: a link as the last component is refused too", rate);
+        CHECK(mp_refused(&g, mp, "a/../b", "hosting.state.path-outside"),
+              "make-path %.0f: a/../b, though it comes back inside, is refused, hosting.state.path-outside", rate);
+        memset(longest, 0, sizeof(longest));
+        for (i = 0; i + 2 < sizeof(longest) - 1; i += 2)
+            longest[i] = 'a', longest[i + 1] = '/';
+        longest[i] = 'f';
+        memset(component, 'c', sizeof(component) - 1);
+        CHECK(mp_refused(&g, mp, longest, "hosting.state.path-too-long") && mp_refused(&g, mp, component, "hosting.state.path-too-long"),
+              "make-path %.0f: a path past PATH_MAX and a component past NAME_MAX are refused, hosting.state.path-too-long", rate);
+        // a request on the audio role: refused before anything is made
+        g_audio = 1;
+        ok = mp->path(mp->handle, "rt/f.txt");
+        g_audio = 0;
+        g.host.log[0] = '\0';
+        process(&g, in, NULL, out, NULL, BLOCK, NULL);
+        g.plugin->on_main_thread(g.plugin);
+        snprintf(blk, sizeof(blk), "%s/rt", dir);
+        CHECK(ok == NULL && strstr(g.host.log, "hosting.state.path-on-audio") != NULL && stat(blk, &st) != 0,
+              "make-path %.0f: a request on the audio role is refused, hosting.state.path-on-audio, and nothing is made", rate);
+        free(ok);
+        // a file where the path needs a directory: the directory cannot be made
+        snprintf(blk, sizeof(blk), "%s/blk", dir);
+        CHECK((bf = fopen(blk, "w")) != NULL && fclose(bf) == 0 && mp_refused(&g, mp, "blk/x.txt", "hosting.state.path-unmakeable"),
+              "make-path %.0f: a path through a file is refused, hosting.state.path-unmakeable", rate);
+        ok = mp->path(mp->handle, "./ok/inside.txt");
+        CHECK(ok && strncmp(ok, dir, strlen(dir)) == 0, "make-path %.0f: ./ok/inside.txt is still made (%s)", rate, ok ? ok : "NULL");
+        free(ok);
+    }
+    rig_down(&g);
+    CHECK(stat(g_root, &st) == 0 && S_ISDIR(st.st_mode), "make-path %.0f: removing the directory removed the link, not the root it named", rate);
+    // never saved: neither the instance's directory nor a copy directory outlives it
+    snprintf(copies, sizeof(copies), "%s.saved", dir);
+    CHECK(dir[0] && stat(dir, &st) != 0 && stat(copies, &st) != 0, "make-path %.0f: an instance never saved leaves nothing under the root (%s)", rate, dir);
+}
+
+/* with no state root, state:makePath is not offered: a plugin that requires it is refused */
+static void make_path_no_root(void)
+{
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL, NULL };
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *e;
+    const clap_plugin_factory_t *f;
+    struct th t;
+
+    CHECK(omx_clap_lv2_configure(&config, why) == 0, "no root: the provided list with no state root configures (%s)", why);
+    e = omx_clap_lv2_entry(g_path, why);
+    f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    th_init(&t);
+    CHECK(f && f->create_plugin(f, &t.host, LV2_PATH_FIXTURE_URI) == NULL && !strcmp(t.log, "hosting.features.missing\n"),
+          "no root: a plugin that requires state:makePath is refused, hosting.features.missing (%.*s)", (int)strcspn(t.log, "\n"), t.log);
+    omx_clap_lv2_entry_release(e);
+    e = omx_clap_lv2_entry(g_fixture, why);
+    f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    th_init(&t);
+    CHECK(f && f->create_plugin(f, &t.host, FIXTURE_URI "#makepath") == NULL && !strcmp(t.log, "hosting.features.missing\n"),
+          "no root: so is the host fixture's makePath twin");
+    omx_clap_lv2_entry_release(e);
+}
+
+/* a state root that is not absolute refuses the configure */
+static void make_path_relative_root(void)
+{
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL, "relative/state" };
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+
+    CHECK(omx_clap_lv2_configure(&config, why) == -1 && !strcmp(why, "lv2.configure.state-root"),
+          "a relative state root refuses the configure (%s)", why);
+}
+
+/* ---- the atom messages beside MIDI: text properties, atom:Blank, patch:Put bodies, notify, time and notes on MIDI ---- */
+
+#define ATOM_NAME LV2_ATOM_FIXTURE_URI "#name"
+#define ATOM_FILE LV2_ATOM_FIXTURE_URI "#file"
+#define ATOM_GAIN_ID 6u                 /* five ports, and the file before the gain in the URIs' order */
+#define ATOM_NOTIFY_CAPACITY (1024u - 8u)   /* the smallest atom buffer, less its atom header */
+
+static struct lv2_atom_probe *atom_probe(void)
+{
+    return loaded_symbol(g_atom_so, "lv2_atom_probe");
+}
+
+static int text_is(struct rig *g, const char *uri, const char *want)
+{
+    char buf[4200];
+    const uint32_t n = omx_clap_lv2_patch_text_get(g->plugin, uri, buf, sizeof(buf));
+
+    return n == strlen(want) && strcmp(buf, want) == 0;
+}
+
+static void t_atom_text(double rate)
+{
+    static float in[BLOCK], out[BLOCK];
+    static char big[4097], got_y[4 + 63 + 1];
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    omx_clap_lv2_text_info_t info, name, file;
+    struct lv2_atom_probe *pr;
+    struct evlist ev;
+    struct rig g;
+    uint32_t i, blocks = 0;
+    int same;
+
+    if (rig_up(&g, g_atom, LV2_ATOM_FIXTURE_URI, rate, BLOCK) != 0)
+        return;
+    pr = atom_probe();
+    CHECK(pr != NULL, "atom %.0f: the probe of the atom fixture", rate);
+    if (!pr)
+    {
+        rig_down(&g);
+        return;
+    }
+    memset(pr, 0, sizeof(*pr));
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f * sinf(0.0613f * (float)i);
+
+    CHECK(omx_clap_lv2_patch_text_count(g.plugin) == 2 && omx_clap_lv2_patch_text_info(g.plugin, 0, &file)
+              && omx_clap_lv2_patch_text_info(g.plugin, 1, &name) && !omx_clap_lv2_patch_text_info(g.plugin, 2, &info),
+          "atom %.0f: two text properties", rate);
+    CHECK(!strcmp(name.uri, ATOM_NAME) && !strcmp(name.name, "Name") && !name.is_path && name.max_bytes == 4095u
+              && !strcmp(file.uri, ATOM_FILE) && !strcmp(file.name, "File") && file.is_path && file.max_bytes == 4095u,
+          "atom %.0f: the name a string and the file a path, each up to 4095 bytes (%u, %u)", rate, name.max_bytes, file.max_bytes);
+    CHECK(omx_clap_lv2_patch_text_count(NULL) == 0 && omx_clap_lv2_patch_text_set(NULL, ATOM_NAME, "x", why) == -1
+              && !strcmp(why, "hosting.patch.not-writable"),
+          "atom %.0f: no plugin of the adapter's, no text property (%s)", rate, why);
+
+    // a string: written, busy until its block, the plugin's patch:Put body read back
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "hello", why) == 0, "atom %.0f: write the name (%s)", rate, why);
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "again", why) == -1 && !strcmp(why, "hosting.patch.busy"),
+          "atom %.0f: a second write before the block that takes the first is refused (%s)", rate, why);
+    CHECK(text_is(&g, ATOM_NAME, "hello"), "atom %.0f: before the plugin reports one, the value read is the host's write", rate);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    CHECK(!strcmp(pr->name, "hello"), "atom %.0f: the plugin got the name as a patch:Set (%s)", rate, pr->name);
+    CHECK(text_is(&g, ATOM_NAME, "got:hello"), "atom %.0f: its reply, a patch:Put whose patch:body holds the name, is read back", rate);
+
+    // a path: the plugin's patch:Set of the same atom:Path read back
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_FILE, "/srv/take 1.wav", why) == 0, "atom %.0f: write the file (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    CHECK(!strcmp(pr->file, "/srv/take 1.wav") && text_is(&g, ATOM_FILE, "/srv/take 1.wav"),
+          "atom %.0f: the plugin got the path, and its patch:Set of it is read back (%s)", rate, pr->file);
+
+    // the limits: 4095 bytes are carried, 4096 refused, a property the plugin does not list refused
+    memset(big, 'y', 4096);
+    big[4096] = '\0';
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, big, why) == -1 && !strcmp(why, "hosting.patch.too-large"),
+          "atom %.0f: a value of 4096 bytes is refused (%s)", rate, why);
+    big[4095] = '\0';
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, big, why) == 0, "atom %.0f: a value of 4095 bytes is taken (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    snprintf(got_y, sizeof(got_y), "got:%.63s", big);
+    CHECK(strlen(pr->name) == 63 && pr->name[0] == 'y' && text_is(&g, ATOM_NAME, got_y),
+          "atom %.0f: the plugin got it whole (it keeps 63 bytes of it) and replied", rate);
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, LV2_ATOM_FIXTURE_URI "#nothing", "x", why) == -1 && !strcmp(why, "hosting.patch.not-writable"),
+          "atom %.0f: a property the plugin does not list is refused (%s)", rate, why);
+
+    // a reply past 4095 bytes is dropped and counted; the value read stays the last one carried
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "big", why) == 0, "atom %.0f: write big (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(strstr(g.host.log, "patch_dropped 1") != NULL && text_is(&g, ATOM_NAME, got_y),
+          "atom %.0f: the plugin's 5000-byte reply is dropped, logged as patch_dropped 1, and the value read is the last one carried", rate);
+
+    // a reply of 4096 bytes and no NUL is dropped too, and nothing is written past the slot; 4095 and the NUL are read whole
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "nonul", why) == 0, "atom %.0f: write nonul (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(strstr(g.host.log, "patch_dropped 2") != NULL && text_is(&g, ATOM_NAME, got_y) && text_is(&g, ATOM_FILE, "/srv/take 1.wav"),
+          "atom %.0f: a 4096-byte reply with no NUL is dropped, patch_dropped 2, and neither text is touched", rate);
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "max", why) == 0, "atom %.0f: write max (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    {
+        char buf[4200];
+        const uint32_t n = omx_clap_lv2_patch_text_get(g.plugin, ATOM_NAME, buf, sizeof(buf));
+
+        CHECK(n == 4095u && strlen(buf) == 4095u && buf[0] == 'x' && buf[4094] == 'x',
+              "atom %.0f: a reply of 4095 bytes and its NUL is read whole (%u)", rate, n);
+    }
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "big", why) == 0, "atom %.0f: write big again", rate);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+
+    // a numeric write: the reply forged as an atom:Blank is the output event, the other object at 99 ignored
+    ev_init(&ev);
+    ev_param(&ev, ATOM_GAIN_ID, 0.5);
+    g_out_n = 0;
+    process(&g, in, NULL, out, NULL, BLOCK, &ev), blocks++;
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out[i] == in[i] * 0.5f;
+    CHECK(same && pr->gain == 0.5f, "atom %.0f: the gain reaches the plugin as a patch:Set: out = in x 0.5 on every frame", rate);
+    CHECK(g_out_n == 1 && g_out_id[0] == ATOM_GAIN_ID && g_out_value[0] == 0.5,
+          "atom %.0f: the plugin's patch:Set forged as an atom:Blank comes back as the gain's output event (%u events)", rate, g_out_n);
+    CHECK(param(&g, ATOM_GAIN_ID) == 0.5, "atom %.0f: the object that is no patch:Set or patch:Put, naming the gain at 99, is ignored (%g)",
+          rate, param(&g, ATOM_GAIN_ID));
+    CHECK(pr->notify_capacity == ATOM_NOTIFY_CAPACITY && pr->notify_written == blocks,
+          "atom %.0f: the notify output is offered %u bytes at every block, and what the plugin writes there goes nowhere (%u, %u blocks)",
+          rate, ATOM_NOTIFY_CAPACITY, pr->notify_capacity, pr->notify_written);
+
+    // a new LV2 instance (another rate) is sent every text the host wrote, again
+    g.plugin->stop_processing(g.plugin);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate * 2.0, 1, BLOCK) && g.plugin->start_processing(g.plugin), "atom %.0f: activate at twice the rate", rate);
+    memset(pr->name, 0, sizeof(pr->name));
+    memset(pr->file, 0, sizeof(pr->file));
+    process(&g, in, NULL, out, NULL, BLOCK, NULL);
+    CHECK(!strcmp(pr->name, "big") && !strcmp(pr->file, "/srv/take 1.wav"),
+          "atom %.0f: the new instance gets the host's last name and file on its first block (%s, %s)", rate, pr->name, pr->file);
+    rig_down(&g);
+}
+
+/* one process() call of the MIDI-and-time plugin: `tr` its transport (NULL: none), `events` its input */
+static clap_process_status mt_process(struct rig *g, float *in, float *out, const clap_event_transport_t *tr, const clap_input_events_t *events)
+{
+    float *ins[1] = { in }, *outs[1] = { out };
+    clap_audio_buffer_t ib = { ins, NULL, 1, 0, 0 }, ob = { outs, NULL, 1, 0, 0 };
+    struct midi_out mo;
+    clap_process_t p;
+    clap_process_status st;
+
+    midi_out_init(&mo);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = 0;
+    p.frames_count = BLOCK;
+    p.transport = tr;
+    p.audio_inputs = &ib;
+    p.audio_outputs = &ob;
+    p.audio_inputs_count = 1;
+    p.audio_outputs_count = 1;
+    p.in_events = events;
+    p.out_events = &mo.list;
+    g_audio = 1;
+    in_rt = 1;
+    st = g->plugin->process(g->plugin, &p);
+    in_rt = 0;
+    g_audio = 0;
+    return st;
+}
+
+/* a CLAP note event of `type` */
+static void mi_clap_note(struct midi_in *m, uint16_t type, uint32_t time, int16_t port, int16_t channel, int16_t key, double velocity)
+{
+    clap_event_note_t *e = &m->ev[m->n++].note;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = type;
+    e->note_id = -1;
+    e->port_index = port;
+    e->channel = channel;
+    e->key = key;
+    e->velocity = velocity;
+}
+
+static int probe_midi_is(const struct lv2_atom_probe *pr, uint32_t k, int64_t frame, uint8_t a, uint8_t b, uint8_t c)
+{
+    return k < pr->n_midi && pr->midi_frame[k] == frame && pr->midi_size[k] == 3 && pr->midi[k][0] == a && pr->midi[k][1] == b
+           && pr->midi[k][2] == c;
+}
+
+static void t_atom_midi_time(double rate)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 };
+    static float in[BLOCK], out[BLOCK];
+    const clap_plugin_note_ports_t *np;
+    clap_note_port_info_t info;
+    clap_event_transport_t tr;
+    struct lv2_atom_probe *pr;
+    struct midi_in mi;
+    struct rig g;
+    uint32_t objects;
+
+    if (rig_up(&g, g_atom, LV2_ATOM_FIXTURE_URI "#midi-time", rate, BLOCK) != 0)
+        return;
+    pr = atom_probe();
+    if (!pr)
+    {
+        CHECK(0, "midi-time %.0f: the probe of the atom fixture", rate);
+        rig_down(&g);
+        return;
+    }
+    memset(pr, 0, sizeof(*pr));
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 0 && np->get(g.plugin, 0, true, &info)
+              && info.supported_dialects == (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP) && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI,
+          "midi-time %.0f: one note input, MIDI preferred, CLAP notes taken", rate);
+
+    // block 1: a transport, one MIDI note on, and CLAP notes of every kind
+    memset(&tr, 0, sizeof(tr));
+    tr.header.size = sizeof(tr);
+    tr.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    tr.header.type = CLAP_EVENT_TRANSPORT;
+    tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    tr.tempo = 120.0;
+    midi_in_init(&mi);
+    mi_midi(&mi, 5, note, 3);
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 10, 0, 2, 60, 0.5);       // 63.5 rounds to 64
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 11, -1, 0, 61, 0.0);      // a note on never at velocity 0
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_OFF, 12, 0, 2, 60, 0.25);     // 31.75 rounds to 32
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_CHOKE, 13, 0, 3, 62, 1.0);    // a choke is a note off at 0
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 14, 0, 0, -1, 1.0);       // a wildcard key: not taken
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 15, 0, -1, 64, 1.0);      // a wildcard channel: not taken
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 16, 1, 0, 65, 1.0);       // another port: not taken
+    {
+        clap_event_note_expression_t *x = &mi.ev[mi.n++].expr;     // a note expression: not taken
+
+        memset(x, 0, sizeof(*x));
+        x->header.size = sizeof(*x);
+        x->header.time = 17;
+        x->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        x->header.type = CLAP_EVENT_NOTE_EXPRESSION;
+        x->expression_id = CLAP_NOTE_EXPRESSION_PRESSURE;
+        x->note_id = -1;
+        x->channel = 2;
+        x->key = 60;
+        x->value = 0.5;
+    }
+    mt_process(&g, in, out, &tr, &mi.list);
+    CHECK(pr->events == 6 && pr->time_first && pr->time_event_frame == 0 && pr->speed == 1.0f && pr->bpm == 120.0f,
+          "midi-time %.0f: the transport's object first, at frame 0, playing at 120 bpm, then five MIDI messages (%u events)", rate, pr->events);
+    CHECK(pr->n_midi == 5 && probe_midi_is(pr, 0, 5, 0x90, 0x3c, 0x64) && probe_midi_is(pr, 1, 10, 0x92, 60, 64)
+              && probe_midi_is(pr, 2, 11, 0x90, 61, 1) && probe_midi_is(pr, 3, 12, 0x82, 60, 32) && probe_midi_is(pr, 4, 13, 0x83, 62, 0),
+          "midi-time %.0f: the MIDI note, then the CLAP notes as MIDI: on 92 3c 40, on at velocity 1, off 82 3c 20, choke 83 3e 00 (%u)",
+          rate, pr->n_midi);
+    objects = pr->objects;
+
+    // block 2: the same transport forges nothing
+    midi_in_init(&mi);
+    mt_process(&g, in, out, &tr, &mi.list);
+    CHECK(pr->events == 0 && pr->objects == objects, "midi-time %.0f: an unchanged transport forges no object (%u events)", rate, pr->events);
+
+    // block 3: stopped: one object, speed 0, before the MIDI
+    tr.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
+    midi_in_init(&mi);
+    mi_midi(&mi, 0, note, 3);
+    mt_process(&g, in, out, &tr, &mi.list);
+    CHECK(pr->events == 2 && pr->time_first && pr->speed == 0.0f && pr->objects == objects + 1 && probe_midi_is(pr, 0, 0, 0x90, 0x3c, 0x64),
+          "midi-time %.0f: stopped, one object at speed 0, still ahead of a note at the same frame (%u events)", rate, pr->events);
+
+    // block 4: no transport: nothing forged
+    midi_in_init(&mi);
+    mt_process(&g, in, out, NULL, &mi.list);
+    CHECK(pr->events == 0, "midi-time %.0f: no transport, no object (%u events)", rate, pr->events);
     rig_down(&g);
 }
 
@@ -2013,7 +2596,7 @@ static void t_warmup_block(double rate, uint32_t act, uint32_t n)
 
 int main(int argc, char **argv)
 {
-    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL };
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL, NULL };
     char dir[PATH_MAX + 32], build[PATH_MAX], why[OMX_CLAP_LV2_WHY_MAX];
     void *volatile probe;
     size_t r;
@@ -2038,10 +2621,21 @@ int main(int argc, char **argv)
     snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
     snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", build);
     abs_dir(dir, g_sc);
+    snprintf(dir, sizeof(dir), "%somx-path-fixture.lv2", build);
+    abs_dir(dir, g_path);
+    snprintf(g_path_so, sizeof(g_path_so), "%somx-path-fixture.so", g_path);
+    // a state root of this run's own: the directories it leaves are build/'s
+    snprintf(g_root, sizeof(g_root), "%sstate-root-%ld", build, (long)getpid());
+    snprintf(g_build, sizeof(g_build), "%s", build);
+    config.state_root = g_root;
+    stale_copies();
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
     abs_dir(dir, g_midi);
+    snprintf(dir, sizeof(dir), "%somx-atom-fixture.lv2", build);
+    abs_dir(dir, g_atom);
+    snprintf(g_atom_so, sizeof(g_atom_so), "%somx-atom-fixture.so", g_atom);
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", build);
     abs_dir(dir, g_cv);
     snprintf(g_cv_so, sizeof(g_cv_so), "%somx-cv-fixture.so", g_cv);
@@ -2054,6 +2648,8 @@ int main(int argc, char **argv)
     rt_allocs = 0;
 
     in_child("configure", unconfigured);
+    in_child("make path with no root", make_path_no_root);
+    in_child("make path with a relative root", make_path_relative_root);
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
     t_entry();
     t_refusals();
@@ -2073,8 +2669,12 @@ int main(int argc, char **argv)
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
         t_time(RATES[r]);
+        t_atom_text(RATES[r]);
+        t_atom_midi_time(RATES[r]);
         t_sidechain(RATES[r]);
         t_sidechain_core(RATES[r]);
+        t_make_path(RATES[r]);
+        t_make_path_escape(RATES[r]);
         t_cv(RATES[r]);
         t_cv_core(RATES[r]);
         t_core(RATES[r]);

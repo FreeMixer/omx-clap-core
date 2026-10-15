@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# lv2_atom_fixture.c's plugins. The atom fixture: a gain with a string and a path property on its patch ports, and a
+# notify output for its own objects. The MIDI-and-time plugin: one input that takes MIDI and time:Position. The twins:
+# an input that takes the plugin's own objects only (refused: CLAP has nothing to feed it), and five notify outputs, one
+# more than the adapter gives a buffer to (refused).
+@prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
+@prefix doap:  <http://usefulinc.com/ns/doap#> .
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
+@prefix patch: <http://lv2plug.in/ns/ext/patch#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rsz:   <http://lv2plug.in/ns/ext/resize-port#> .
+@prefix time:  <http://lv2plug.in/ns/ext/time#> .
+@prefix urid:  <http://lv2plug.in/ns/ext/urid#> .
+@prefix fx:    <urn:openmixer:test:atom-fixture#> .
+
+fx:gain
+    a lv2:Parameter ;
+    rdfs:range atom:Float ;
+    rdfs:label "Gain" ;
+    lv2:symbol "gain" ;
+    lv2:minimum 0.0 ;
+    lv2:maximum 2.0 ;
+    lv2:default 1.0 .
+
+fx:name
+    a lv2:Parameter ;
+    rdfs:range atom:String ;
+    rdfs:label "Name" .
+
+fx:file
+    a lv2:Parameter ;
+    rdfs:range atom:Path ;
+    rdfs:label "File" .
+
+fx:Peak
+    a rdfs:Class ;
+    rdfs:label "the block's peak, for a GUI" .
+
+<urn:openmixer:test:atom-fixture>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer atom fixture" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature urid:map ;
+    patch:writable fx:gain , fx:name , fx:file ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports patch:Message ;
+        rsz:minimumSize 8192 ; lv2:index 2 ; lv2:symbol "patch_in" ; lv2:name "Patch in"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports patch:Message ;
+        rsz:minimumSize 8192 ; lv2:index 3 ; lv2:symbol "patch_out" ; lv2:name "Patch out"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 4 ; lv2:symbol "notify" ; lv2:name "Notify"
+    ] .
+
+<urn:openmixer:test:atom-fixture#midi-time>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer atom fixture (MIDI and time on one input)" ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent , time:Position ;
+        lv2:index 2 ; lv2:symbol "events" ; lv2:name "Events"
+    ] .
+
+<urn:openmixer:test:atom-fixture#object-in>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (own objects in twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 2 ; lv2:symbol "control" ; lv2:name "Control"
+    ] .
+
+<urn:openmixer:test:atom-fixture#notify-many>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (five notify outputs twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 2 ; lv2:symbol "notify0" ; lv2:name "Notify 0"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 3 ; lv2:symbol "notify1" ; lv2:name "Notify 1"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 4 ; lv2:symbol "notify2" ; lv2:name "Notify 2"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 5 ; lv2:symbol "notify3" ; lv2:name "Notify 3"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 6 ; lv2:symbol "notify4" ; lv2:name "Notify 4"
+    ] .
