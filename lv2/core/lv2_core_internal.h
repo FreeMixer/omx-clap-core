@@ -40,17 +40,23 @@ enum lv2_feature_kind
     F_WORKER = OMX_LV2_F_WORKER,
     F_DEFAULT_STATE = OMX_LV2_F_DEFAULT_STATE,
     F_LOG = OMX_LV2_F_LOG,
-    LV2_FEATURE_KINDS = OMX_LV2_FEATURE_KINDS
+    LV2_FEATURE_KINDS = OMX_LV2_FEATURE_KINDS,
+    // state:makePath: the console's instances only, offered by the configuration (its list and a state root) and never by
+    // the feature options, which name the public kinds; a host of its own serves it itself
+    F_MAKE_PATH = OMX_LV2_FEATURE_KINDS
 };
 
-/* the features an array may hold, the buf-size declarations beyond bounded included */
-#define LV2_FEATURE_SLOTS               OMX_LV2_FEATURE_SLOTS
+/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, and state:makePath */
+#define LV2_FEATURE_SLOTS               (OMX_LV2_FEATURE_SLOTS + 1)
 
 /* the URI of a provider */
 extern const char *const lv2_feature_uri[LV2_FEATURE_KINDS];
 
 /* write `code` into `why`, NULL being no-op */
 void lv2_why_set(char why[LV2_CORE_WHY_MAX], const char *code);
+
+/* every directory of the absolute `path`, made when missing: 0, or -1 */
+int lv2_mkdirs(const char *path);
 
 /* whether the provider `kind` is on the configured list */
 int lv2_feature_on(enum lv2_feature_kind kind);
@@ -61,10 +67,12 @@ uint32_t lv2_features_configured(void);
 /* whether `o` offers `uri` among the kinds `allowed` (OMX_LV2_FEATURE_BIT bits) */
 int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t allowed, const char *uri);
 
-/* `features` and the NULL-terminated `ptrs` filled with what `o` offers among the kinds `allowed`, in the kinds' order
- * and the buf-size declarations after them, kind k carrying data[k]: the count */
-uint32_t lv2_features_fill(LV2_Feature features[LV2_FEATURE_SLOTS], const LV2_Feature *ptrs[LV2_FEATURE_SLOTS + 1],
-                           const struct omx_lv2_feature_options *o, uint32_t allowed, void *const data[LV2_FEATURE_KINDS]);
+/* `features` and the NULL-terminated `ptrs` filled with what `o` offers among the kinds `allowed`, in the kinds' order,
+ * the buf-size declarations after them, then state:makePath when `allowed` holds F_MAKE_PATH, kind k carrying data[k]:
+ * the count. `features` holds LV2_FEATURE_SLOTS (OMX_LV2_FEATURE_SLOTS when `allowed` has no F_MAKE_PATH), `ptrs` one
+ * more. */
+uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, const struct omx_lv2_feature_options *o,
+                           uint32_t allowed, void *const data[LV2_FEATURE_KINDS + 1]);
 
 /* the block lengths the options report for an activation of `min_frames` to `max_frames`: 0, or -1 when the minimum is
  * above the maximum or a length does not fit an Int */
@@ -84,9 +92,12 @@ const char *lv2_urid_unlookup(LV2_URID id);
 /* state:loadDefaultState over lilv-state, with the features `instantiate` was handed: 0, or -1 */
 int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features);
 
-/* the state of a live handle as LV2 Turtle (malloc'd), read from its state:interface and its input controls: NULL on failure */
+/* the state of a live handle as LV2 Turtle (malloc'd), read from its state:interface and its input controls: NULL on
+ * failure. A file under `scratch_dir` the state names is copied to `copy_dir` and named by the copy's path (NULL: no
+ * directory, every path as the plugin gave it). */
 char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const float *controls,
-                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap);
+                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap,
+                            const char *scratch_dir, const char *copy_dir);
 
 /* the state text restored into a live handle and its input controls: 0, or -1 when the text does not parse */
 int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, float *controls, const char *text,

@@ -82,7 +82,7 @@
 /* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
 #define LV2_CORE_PROVIDED_INIT \
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
-      LV2_STATE__loadDefaultState, LV2_LOG__log, NULL }
+      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, NULL }
 
 /* the refusals, the verdict's spelling */
 #define LV2_CODE_NO_REALISATION         "hosting.no-realisation"
@@ -120,6 +120,8 @@ struct lv2_core_config
     uint32_t worker_ring_bytes;     // a power of two, >= 16
     uint32_t atom_buffer_bytes;
     const char *lilv_soname;        // NULL: LV2_CORE_LILV_SONAME
+    const char *state_root;         // the directory state:makePath makes each instance's directory in, absolute; NULL: the
+                                    // feature is not offered, whatever the list says
 };
 
 /* What a control port is to the instance. */
@@ -224,6 +226,8 @@ struct lv2_counters
     uint32_t log_on_audio;          // log:log called on the audio role (the sink writes nothing either way)
     uint32_t patch_dropped;         // patch events of a block that did not fit the atom buffer
     uint32_t midi_in_dropped;       // a MIDI input event with no room left in the input buffer: dropped, never waited for
+    uint32_t make_path_refused;     // state:makePath answered NULL: a path outside the instance's directory, a call on the
+                                    // audio role, or a directory that could not be made
 };
 
 /* What lv2_instance_midi_out_each passes for each event the plugin wrote: its frame, as written, and the bytes. */
@@ -237,7 +241,9 @@ typedef void (*lv2_midi_out_fn)(void *ctx, int64_t frame, const uint8_t *data, u
 */
 
 /* Once per process: 0, or -1 with `why`. A list naming a feature no provider serves, a ring size that is not a power
- * of two >= 16, or a poll of 0 is refused; a second call is refused unless it says exactly what the first said. */
+ * of two >= 16, or a poll of 0 is refused; so is a state root that is not absolute or cannot be made
+ * (lv2.configure.state-root), which is made here and taken by its real path. A second call is refused unless it says
+ * exactly what the first said. */
 int lv2_core_configure(const struct lv2_core_config *config, char why[LV2_CORE_WHY_MAX]);
 
 /* The feature options of the plugins opened and the instances made from now on, NULL being the defaults: 0, or -1 with
