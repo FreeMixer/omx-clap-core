@@ -7,7 +7,7 @@ to run bit-identically through the adapter, `libomx-clap-lv2`. The proof of that
 identity run in the console, at every declared rate and quantum; until its results are published,
 this page claims only what the tests of this repository prove. MIDI, transport, state and presets
 are supported where the matrix below names a passing test. Not supported:
-CV ports, atom messages other than MIDI and the numeric `patch:` properties, `state:makePath`, fixed or power-of-two
+CV ports, atom messages other than MIDI and the numeric `patch:` properties, fixed or power-of-two
 block lengths. A latency
 that moves under a parameter sweep is applied after a hold and a restart rather than per cycle.
 
@@ -102,7 +102,8 @@ Features and extensions
 | `state:loadDefaultState` | supported (`lv2_host_test` fixture: -26 dB only with the default state restored) | unsupported |
 | State save and restore (`state:interface` through `clap.state`) | supported: the state as LV2 Turtle, read after an activate and restored before the first one or by the restart a load while active asks for (`lv2_clap_test` state). Lossy: a load while active is applied by a restart, never by a call during `process()`; the bypass is not in the state. A state longer than 1 MiB is refused | unsupported |
 | `state:mapPath` | unsupported (stage 3); a plugin that requires it is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |
-| `state:makePath`, `state:freePath` | unsupported; a plugin that requires `makePath` is refused with `hosting.features.missing` (`lv2_clap_test` refusals) | unsupported |
+| `state:makePath` | supported when the configured list names it and the configuration names a state root (`state_root`, an absolute directory the configure creates): each instance makes its paths in a directory of its own, `<state_root>/lv2-<pid>-<n>/`, created on the first request with the directories the path names. A path that is absolute or has a `..` component, and a request on the audio thread, are answered NULL and counted in `make_path_refused`. A state save (`clap.state`) copies each file of that directory the plugin's state names to `<state_root>/lv2-<pid>-<n>.saved/`, and the state names the copy by its absolute path, as lilv writes a path; a load hands the plugin that path. The instance's directory is removed with the instance; the copies a save made stay, since the saved state names them, and an instance never saved leaves nothing under the root (`lv2_clap_test` make-path). Without a state root it is not offered, and a plugin that requires it is refused with `hosting.features.missing` (`lv2_clap_test` make-path). The feature options do not withhold it | unsupported |
+| `state:freePath` | not offered: a plugin frees a path it was handed with `free()`, as the specification says when the feature is absent | unsupported |
 | Presets (`pset:Preset`) | supported: `clap.preset-load` with the preset's URI as the load key, held and applied as a state load is (`lv2_clap_test` preset); a preset that applies to another plugin is refused. The preset-discovery factory is not offered | unsupported |
 | `instance-access`, `data-access` | unsupported | unsupported |
 | Required features outside the configured list | refused with `hosting.features.missing` before the binary is opened (`lv2_host_test` features, `lv2_clap_test` refusals) | unsupported |
