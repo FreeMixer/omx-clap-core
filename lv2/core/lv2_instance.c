@@ -666,20 +666,20 @@ static int patch_object_props(const struct lv2_instance *in, const uint8_t *prop
 }
 
 /* [audio] A value the plugin reported for text property `j`: copied under the slot's sequence count, or dropped and counted
- * when it is past LV2_CORE_TEXT_MAX */
+ * when its text, up to its NUL or the atom's end, is LV2_CORE_TEXT_MAX bytes or more: the slot holds that less its NUL */
 static void text_report(struct lv2_instance *in, uint32_t j, const uint8_t *value, uint32_t size)
 {
     struct text_slot *t = &in->texts[j];
     const uint32_t seq = atomic_load_explicit(&t->out_seq, memory_order_relaxed);
     uint32_t len = 0;
 
-    if (size > LV2_CORE_TEXT_MAX)
+    while (len < size && len < LV2_CORE_TEXT_MAX && value[len] != 0)
+        len++;
+    if (len >= LV2_CORE_TEXT_MAX)
     {
         atomic_fetch_add_explicit(&in->patch_dropped, 1u, memory_order_relaxed);
         return;
     }
-    while (len < size && value[len] != 0)
-        len++;
     atomic_store_explicit(&t->out_seq, seq + 1u, memory_order_relaxed);
     atomic_thread_fence(memory_order_release);
     memcpy(t->out, value, len);
