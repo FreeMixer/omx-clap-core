@@ -15,6 +15,7 @@
  *   add clap <file.clap> <id> <n>       a filter "effect_<n>" with in_1 in_2 out_1 out_2, the plugin live in it
  *   add lv2 <bundle dir> <uri> <n>      the same for an LV2 plugin through the adapter
  *   param_set <n> <param id> <value>    a CLAP parameter write (an LV2 control's id is its index in the adapter)
+ *   bypass <n> <0|1>                    the core's bypass, as omx-clap-host's bypass is
  *   remove <n>
  *   stats <n>                           the filter's cycles, those that had no input or no output buffer, and the
  *                                       time omx_clap_host_run itself took per block (p50, p99, max, us): the
@@ -305,6 +306,16 @@ int main(int argc, char **argv)
         {
             if (n >= 0 && n < MAX_FX && fxs[n] && omx_clap_host_param_write(fxs[n]->clap, pid, value) == 0)
                 printf("resp 0\n");
+            else
+                printf("resp -1\n");
+        }
+        else if (sscanf(line, "bypass %d %u", &n, &pid) == 2)
+        {
+            if (n >= 0 && n < MAX_FX && fxs[n])
+            {
+                omx_clap_host_bypass(fxs[n]->clap, pid != 0);
+                printf("resp 0\n");
+            }
             else
                 printf("resp -1\n");
         }

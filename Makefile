@@ -424,9 +424,11 @@ PHD_DECLARED = $(foreach n,PHD_ERR_PIN_ABSENT PHD_ERR_PIN_BINARY_MISMATCH PHD_ER
 tests/jack_meter_source: tests/jack_meter_source.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
 
-# the LV2 twin through mod-host against the CLAP twin through this host, bit for bit, in a PipeWire of its own
-test-identity: $(PROG) tests/jack_identity
-	CLAP_TEST_PLUGIN=$(CLAP_TEST_PLUGIN) ./tests/clap_lv2_identity.sh
+# omx-delay four ways, bit for bit, in a PipeWire of its own: its LV2 bundle through mod-host, its CLAP twin through this
+# host, the LV2 bundle through this host's adapter, and through the adapter in process; omx-delay from the omx-plugins
+# packages unless the script's variables say otherwise (tests/clap_lv2_identity.sh)
+test-identity: $(PROG) tests/jack_identity build/bench/inproc
+	./tests/clap_lv2_identity.sh
 
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
@@ -566,6 +568,11 @@ test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-f
 test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source
 	@! readelf -d $(PROG) | grep -q 'liblilv' && echo "ok   $(PROG) does not link lilv: the adapter dlopens it"
 	./tests/jack_lv2_e2e.sh
+
+# the fixture bundle three ways, bit for bit, in a PipeWire of its own: through mod-host, through this host's adapter
+# (add lv2:<uri>) and through the adapter in process; IDENTITY_ARMS="lv2 inproc" where mod-host is not installed
+test-identity-lv2: $(PROG) tests/jack_identity build/bench/inproc $(LV2_BUNDLES)
+	IDENTITY_FIXTURE=1 ./tests/clap_lv2_identity.sh
 
 lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 	./lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2

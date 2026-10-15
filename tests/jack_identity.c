@@ -18,13 +18,13 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
-/* One signal into two effects, both outputs recorded from the same cycles:
- *   jack_identity <frames> <preroll_blocks> <source.f32> <a.f32> <b.f32>
+/* One signal into up to four effects, every output recorded from the same cycles:
+ *   jack_identity <frames> <preroll_blocks> <source.f32> <a.f32> [<b.f32> [<c.f32> [<d.f32>]]]
  * identity-src:out plays deterministic noise from the cycle after "go" on
- * stdin; identity-rec:a and identity-rec:b record <frames> frames starting
- * <preroll_blocks> cycles later, and the source frames of that same window
- * go to <source.f32>. Raw float32, one channel each. Prints the rate, the
- * quantum and the peak of each recording, then exits. */
+ * stdin; identity-rec:a, :b, :c and :d (one per file given) record <frames>
+ * frames starting <preroll_blocks> cycles later, and the source frames of that
+ * same window go to <source.f32>. Raw float32, one channel each. Prints the
+ * rate, the quantum and the peak of each recording, then exits. */
 
 #include <math.h>
 #include <stdatomic.h>
@@ -34,8 +34,11 @@
 #include <unistd.h>
 #include <jack/jack.h>
 
-static jack_port_t *g_out, *g_in_a, *g_in_b;
-static float *g_source, *g_a, *g_b;
+#define RECORDERS_MAX 4
+
+static jack_port_t *g_out, *g_in[RECORDERS_MAX];
+static float *g_source, *g_rec[RECORDERS_MAX];
+static int g_recorders;
 static long g_frames, g_preroll_frames;
 static long g_played, g_recorded;
 static _Atomic int g_go, g_done;
@@ -70,20 +73,20 @@ static int src_process(jack_nframes_t nframes, void *arg)
 
 static int rec_process(jack_nframes_t nframes, void *arg)
 {
-    const float *a = jack_port_get_buffer(g_in_a, nframes);
-    const float *b = jack_port_get_buffer(g_in_b, nframes);
+    const float *in[RECORDERS_MAX];
     jack_nframes_t i;
+    int r;
 
     (void)arg;
     if (!atomic_load(&g_go))
         return 0;
+    for (r = 0; r < g_recorders; r++)
+        in[r] = jack_port_get_buffer(g_in[r], nframes);
     for (i = 0; i < nframes && g_recorded < g_preroll_frames + g_frames; i++, g_recorded++)
     {
         if (g_recorded >= g_preroll_frames)
-        {
-            g_a[g_recorded - g_preroll_frames] = a[i];
-            g_b[g_recorded - g_preroll_frames] = b[i];
-        }
+            for (r = 0; r < g_recorders; r++)
+                g_rec[r][g_recorded - g_preroll_frames] = in[r][i];
     }
     if (g_recorded >= g_preroll_frames + g_frames)
         atomic_store(&g_done, 1);
@@ -120,16 +123,18 @@ int main(int argc, char **argv)
     jack_client_t *src, *rec;
     char line[64];
     unsigned waited = 0;
+    int r;
 
-    if (argc != 6)
+    if (argc < 5 || argc > 4 + RECORDERS_MAX)
     {
-        fprintf(stderr, "usage: %s <frames> <preroll_blocks> <source.f32> <a.f32> <b.f32>\n", argv[0]);
+        fprintf(stderr, "usage: %s <frames> <preroll_blocks> <source.f32> <a.f32> [<b.f32> [<c.f32> [<d.f32>]]]\n", argv[0]);
         return 2;
     }
+    g_recorders = argc - 4;
     g_frames = atol(argv[1]);
     g_source = calloc((size_t)g_frames, sizeof(float));
-    g_a = calloc((size_t)g_frames, sizeof(float));
-    g_b = calloc((size_t)g_frames, sizeof(float));
+    for (r = 0; r < g_recorders; r++)
+        g_rec[r] = calloc((size_t)g_frames, sizeof(float));
 
     src = jack_client_open("identity-src", JackNoStartServer, NULL);
     rec = jack_client_open("identity-rec", JackNoStartServer, NULL);
@@ -140,8 +145,12 @@ int main(int argc, char **argv)
     }
     g_preroll_frames = atol(argv[2]) * (long)jack_get_buffer_size(src);
     g_out = jack_port_register(src, "out", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
-    g_in_a = jack_port_register(rec, "a", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
-    g_in_b = jack_port_register(rec, "b", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
+    for (r = 0; r < g_recorders; r++)
+    {
+        const char name[2] = {(char)('a' + r), '\0'};
+
+        g_in[r] = jack_port_register(rec, name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
+    }
     jack_set_process_callback(src, src_process, NULL);
     jack_set_process_callback(rec, rec_process, NULL);
     if (jack_activate(src) != 0 || jack_activate(rec) != 0)
@@ -172,13 +181,20 @@ int main(int argc, char **argv)
         fprintf(stderr, "recorded %ld of %ld frames: no cycles\n", g_recorded, g_preroll_frames + g_frames);
         return 1;
     }
-    if (write_file(argv[3], g_source, g_frames) != 0 || write_file(argv[4], g_a, g_frames) != 0
-        || write_file(argv[5], g_b, g_frames) != 0)
+    if (write_file(argv[3], g_source, g_frames) != 0)
     {
         fprintf(stderr, "can't write the recordings\n");
         return 1;
     }
-    printf("done frames=%ld peak_source=%g peak_a=%g peak_b=%g\n", g_frames, (double)peak(g_source, g_frames),
-           (double)peak(g_a, g_frames), (double)peak(g_b, g_frames));
+    for (r = 0; r < g_recorders; r++)
+        if (write_file(argv[4 + r], g_rec[r], g_frames) != 0)
+        {
+            fprintf(stderr, "can't write the recordings\n");
+            return 1;
+        }
+    printf("done frames=%ld peak_source=%g", g_frames, (double)peak(g_source, g_frames));
+    for (r = 0; r < g_recorders; r++)
+        printf(" peak_%c=%g", 'a' + r, (double)peak(g_rec[r], g_frames));
+    printf("\n");
     return 0;
 }
