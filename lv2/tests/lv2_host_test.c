@@ -30,6 +30,9 @@
  *             -20 dB row + -6 dB default state reads -26.00 dB, its latency port reads 7, a -10 dB row write reads
  *             -16.00 dB, its meter output is read back.
  *   refusals  one twin per refusal code of the port reader, from the TTL alone, before the binary is opened.
+ *   atom      the atom fixture's ports: the patch pair, a notify output given a buffer of its own, the string and path
+ *             properties beside the numeric one; a MIDI input that takes time:Position too; an input of the plugin's own
+ *             objects and a fifth notify output refused hosting.features.midi-in-fed-empty.
  *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
  *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
@@ -65,6 +68,7 @@
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
+static char g_atom[PATH_MAX];
 static char g_cv[PATH_MAX];
 static char g_fp[PATH_MAX], g_fp_so[PATH_MAX + 32];
 static const char *g_lilv;
@@ -335,6 +339,57 @@ static void t_refusals(void)
         CHECK(!p && strcmp(why, cases[i].code) == 0, "refusal: %s is refused %s from the TTL (got '%s'; the binary has no descriptor for it)", cases[i].uri, cases[i].code, why);
         lv2_plugin_close(p);
     }
+}
+
+/* ---- the atom ports beside MIDI ---- */
+
+#define ATOM_URI "urn:openmixer:test:atom-fixture"
+
+static void t_atom_ports(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_atom, ATOM_URI, why);
+
+    CHECK(p != NULL, "atom: the atom fixture is admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->patch_in == 2 && p->patch_out == 3 && p->n_notify == 1 && p->notify_out[0] == 4 && p->atom_min == 8192u,
+              "atom: patch ports 2 and 3 of 8192 bytes, port 4 a notify output (%d, %d, %u notify)", p->patch_in, p->patch_out, p->n_notify);
+        // in the URIs' order: file, gain, name; the gain's id counts the file before it
+        CHECK(p->n_patches == 1 && strcmp(p->patches[0].symbol, "gain") == 0 && p->patches[0].id == 6u,
+              "atom: the gain the one numeric parameter, id 6: five ports, and the file listed before it (%u, %u)", p->n_patches,
+              p->n_patches ? p->patches[0].id : 0);
+        CHECK(p->n_texts == 2 && strcmp(p->texts[0].uri, ATOM_URI "#file") == 0 && p->texts[0].is_path && strcmp(p->texts[0].name, "File") == 0
+                  && strcmp(p->texts[1].uri, ATOM_URI "#name") == 0 && !p->texts[1].is_path && strcmp(p->texts[1].name, "Name") == 0,
+              "atom: the file a path property and the name a string property, in their URIs' order (%u)", p->n_texts);
+        CHECK(lv2_plugin_text_limit(p) == 4095u, "atom: a text value up to 4095 bytes (%u)", lv2_plugin_text_limit(p));
+    }
+    lv2_plugin_close(p);
+    // the ids are the URIs' order, not lilv's: the same at every open
+    {
+        uint32_t k, same = 0;
+
+        for (k = 0; k < 16; k++)
+        {
+            p = open_plugin(g_atom, ATOM_URI, why);
+            same += p && p->n_patches == 1 && p->patches[0].id == 6u && p->n_texts == 2 && strcmp(p->texts[0].uri, ATOM_URI "#file") == 0;
+            lv2_plugin_close(p);
+        }
+        CHECK(same == 16, "atom: sixteen opens give the gain id 6 and the file first every time (%u of 16)", same);
+    }
+    p = open_plugin(g_atom, ATOM_URI "#midi-time", why);
+    CHECK(p && p->midi_in_port == 2 && p->midi_time && p->time_port < 0,
+          "atom: a MIDI input that takes time:Position too is the MIDI input, the transport forged into it (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo", why);
+    CHECK(p && !p->midi_time && p->n_texts == 0 && lv2_plugin_text_limit(p) == 0, "atom: the MIDI echo's input takes no time:Position, and it has no text");
+    lv2_plugin_close(p);
+    p = open_plugin(g_atom, ATOM_URI "#object-in", why);
+    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "atom: an input of the plugin's own objects is refused (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_atom, ATOM_URI "#notify-many", why);
+    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "atom: a fifth notify output is refused (%s)", why);
+    lv2_plugin_close(p);
 }
 
 /* ---- the CV ports ---- */
@@ -887,6 +942,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", g_build);
     if (abs_dir(dir, g_midi) != 0)
         return 1;
+    snprintf(dir, sizeof(dir), "%somx-atom-fixture.lv2", g_build);
+    if (abs_dir(dir, g_atom) != 0)
+        return 1;
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
     if (abs_dir(dir, g_cv) != 0)
         return 1;
@@ -904,6 +962,7 @@ int main(int argc, char **argv)
     t_fixture();
     t_refusals();
     t_midi_ports();
+    t_atom_ports();
     t_midi_run();
     t_sidechains();
     t_cv();

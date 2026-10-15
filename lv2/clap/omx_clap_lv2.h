@@ -90,6 +90,33 @@ uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t
  * configured state root (a symbolic link included), or with no state root. A link inside is removed, never followed. */
 int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX]);
 
+/* A string or path property of the plugin: an LV2 patch:writable property whose rdfs:range is atom:String or atom:Path.
+ * CLAP has no text parameter, so the adapter carries these through the plugin's own patch port, with the functions
+ * below. */
+typedef struct omx_clap_lv2_text_info {
+  const char *uri;              /* the property's URI, as omx_clap_lv2_patch_text_set names it */
+  const char *name;             /* rdfs:label, else the URI */
+  int is_path;                  /* 1: atom:Path, 0: atom:String */
+  uint32_t max_bytes;           /* the longest value, without its NUL: 4095, or less when the patch port's buffer is
+                                 * smaller (the configured atom_buffer_bytes or the port's rsz:minimumSize, less 80) */
+} omx_clap_lv2_text_info_t;
+
+/* [main-thread] The text properties of a plugin this adapter created, in the order of their URIs: their count, and the one
+ * at `index` (false past the count, or for a plugin the adapter did not create). */
+uint32_t omx_clap_lv2_patch_text_count(const clap_plugin_t *plugin);
+bool omx_clap_lv2_patch_text_info(const clap_plugin_t *plugin, uint32_t index, omx_clap_lv2_text_info_t *info);
+
+/* [main-thread] Write the text property `uri`: a patch:Set at frame 0 of the next block that runs, and again to the LV2
+ * instance a later activate makes. 0, or -1 with `why`: hosting.patch.not-writable (the plugin lists no such property,
+ * or the adapter did not create it), hosting.patch.too-large (longer than its max_bytes), hosting.patch.busy (while
+ * active, the previous write still waits for its block). */
+int omx_clap_lv2_patch_text_set(const clap_plugin_t *plugin, const char *uri, const char *value, char why[OMX_CLAP_LV2_WHY_MAX]);
+
+/* [main-thread] The text property `uri` as the plugin last reported it (a patch:Set or patch:Put on its patch output),
+ * else as the host last wrote it, else empty: its length without the NUL, and as much of it as `size` holds,
+ * NUL-terminated, in `buf`. 0 and an empty `buf` for a property the plugin does not list. */
+uint32_t omx_clap_lv2_patch_text_get(const clap_plugin_t *plugin, const char *uri, char *buf, uint32_t size);
+
 /* [main-thread] FOR TESTS ONLY: block the caller until the plugin's LV2 worker has serviced every pending request, so
  * a test that compares two hosts pins the worker's schedule. The real worker thread runs; only the schedule is pinned. */
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin);

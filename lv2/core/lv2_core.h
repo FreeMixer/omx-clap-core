@@ -76,6 +76,13 @@
 /* the side-chain legs a plugin may have, one per channel: at most this many channels, each side chain one or two of them */
 #define LV2_CORE_SIDE_LEGS              8
 
+/* the atom outputs that are neither MIDI nor the patch output (a notify port for the plugin's GUI) a plugin may have: each
+ * gets a buffer of its own, offered every block and discarded after it; one more is refused */
+#define LV2_CORE_NOTIFY_PORTS           4
+
+/* the longest string or path property value, with its NUL, the patch port carries either way */
+#define LV2_CORE_TEXT_MAX               4096u
+
 /* the CV ports a plugin may have each way (lv2:CVPort): one mono CLAP audio port each; one more is refused */
 #define LV2_CORE_CV_PORTS               8
 
@@ -104,6 +111,10 @@
 #define LV2_CODE_PATH_ON_AUDIO          "hosting.state.path-on-audio"      // makePath: called on the audio role
 #define LV2_CODE_PATH_UNMAKEABLE        "hosting.state.path-unmakeable"    // makePath: a directory could not be made
 #define LV2_CODE_NOT_A_COPY             "hosting.state.not-a-copy"         // not a save's copy directory of the root
+
+#define LV2_CODE_PATCH_NOT_WRITABLE     "hosting.patch.not-writable"
+#define LV2_CODE_PATCH_TOO_LARGE        "hosting.patch.too-large"
+#define LV2_CODE_PATCH_BUSY             "hosting.patch.busy"
 
 /* what a control port declares, as lv2_control.props reads it */
 #define LV2_PROP_INTEGER                (1u << 0)
@@ -183,14 +194,20 @@ struct lv2_plugin
     char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
     int32_t latency_port;           // -1: none
     int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
+    int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
     int32_t midi_out_port;          // the one MIDI output atom port, -1: none
     int32_t time_port;              // -1: none; the atom input that takes time:Position and nothing else (§6.6)
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
     uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
-    struct lv2_patch *patches;      // the numeric patch:writable properties, in patch:writable order
+    struct lv2_patch *patches;      // the numeric patch:writable properties, in their URIs' order
     uint32_t n_patches;
+    struct lv2_patch_text *texts;   // the string and path patch:writable properties, in their URIs' order
+    uint32_t n_texts;
+    uint32_t n_notify;              // the atom outputs that are neither MIDI nor the patch output, discarded
+    uint32_t notify_out[LV2_CORE_NOTIFY_PORTS];
+    uint32_t notify_min;            // the largest rsz:minimumSize of those outputs, 0: none
     char **required;                // lv2:requiredFeature, NULL-terminated
     void *binary;                   // dlopen'ed by lv2_plugin_load
     const LV2_Descriptor *desc;
@@ -218,13 +235,21 @@ enum lv2_patch_type
 
 struct lv2_patch
 {
-    uint32_t id;                    // the CLAP id: lv2_plugin.n_ports plus the property's index in patch:writable order
+    uint32_t id;                    // the CLAP id: lv2_plugin.n_ports plus the property's index in the URIs' order
     char *uri;                      // the property's URI, as the patch messages name it
     char *symbol;                   // lv2:symbol, else the URI's fragment or last segment, as a C identifier
     char *name;                     // rdfs:label, else the symbol
     enum lv2_patch_type type;
     float min, max, def;            // lv2:minimum, lv2:maximum, lv2:default; absent bounds are -1e9 and 1e9
     uint32_t props;                 // LV2_PROP_INTEGER and LV2_PROP_TOGGLED
+};
+
+/* A string or path lv2:Parameter the plugin lists as patch:writable: written and read as text through the patch port. */
+struct lv2_patch_text
+{
+    char *uri;                      // the property's URI, as the patch messages name it
+    char *name;                     // rdfs:label, else the URI
+    int is_path;                    // 1: atom:Path, 0: atom:String
 };
 
 /* What the instance counts, read relaxed. */
@@ -236,7 +261,8 @@ struct lv2_counters
     uint32_t map_on_audio;          // urid:map called on the audio role: a thread violation
     uint32_t schedule_off_audio;    // schedule_work called off the audio role: a thread violation
     uint32_t log_on_audio;          // log:log called on the audio role (the sink writes nothing either way)
-    uint32_t patch_dropped;         // patch events of a block that did not fit the atom buffer
+    uint32_t patch_dropped;         // patch events of a block that did not fit the atom buffer, and text values the plugin
+                                    // reported past LV2_CORE_TEXT_MAX
     uint32_t midi_in_dropped;       // a MIDI input event with no room left in the input buffer: dropped, never waited for
     uint32_t make_path_refused;     // state:makePath answered NULL: a path outside the instance's directory, a call on the
                                     // audio role, or a directory that could not be made
@@ -357,8 +383,9 @@ struct lv2_time
 };
 
 /* [audio] The time:Position of the block about to run, forged into the plugin's time port (NULL: no transport, and the
- * port reads an empty sequence). An object is forged only when the transport differs from the last block's, at frame 0
- * of the sequence. Does nothing for a plugin with no time port. */
+ * port reads an empty sequence), and into its MIDI input when that supports time:Position too, there before the block's
+ * MIDI messages (call it before lv2_instance_midi_in_add). An object is forged only when the transport differs from the
+ * last block's, at frame 0 of the sequence. Does nothing for a plugin with neither. */
 void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t);
 
 /* [audio] The plugin's half of a block: worker responses drained through work_response, then `before` (the caller's
@@ -406,6 +433,20 @@ const char *lv2_instance_saved_dir(const struct lv2_instance *in);
 /* Remove a save's copy directory, `<state_root>/lv2-<pid>-<n>.saved`, and everything in it, links removed as links: 0,
  * or -1 with `why` (LV2_CODE_NOT_A_COPY) for any other path, a symbolic link, or no state root. */
 int lv2_saved_drop(const char *saved_dir, char why[LV2_CORE_WHY_MAX]);
+
+/* The longest value text property values may have, without the NUL: LV2_CORE_TEXT_MAX - 1, or less when the patch
+ * input's buffer cannot carry it beside its message; 0 for a plugin with no patch input. */
+uint32_t lv2_plugin_text_limit(const struct lv2_plugin *p);
+
+/* [main] Write text property `j` (the index in plugin->texts): carried to the plugin as a patch:Set at frame 0 of the
+ * next block that runs, and again to a handle made by a later activate. 0, or -1 with `why`: LV2_CODE_PATCH_NOT_WRITABLE
+ * for no such property, LV2_CODE_PATCH_TOO_LARGE for a value past lv2_plugin_text_limit, LV2_CODE_PATCH_BUSY while the
+ * previous write waits for its block. */
+int lv2_instance_text_set(struct lv2_instance *in, uint32_t j, const char *value, char why[LV2_CORE_WHY_MAX]);
+
+/* [main] Text property `j` as the plugin last reported it in a patch:Set or patch:Put, else as the host last wrote
+ * it, else empty: its length without the NUL, and as much of it as fits `size` (NUL-terminated) in `buf`. */
+uint32_t lv2_instance_text_get(const struct lv2_instance *in, uint32_t j, char *buf, uint32_t size);
 
 /* Block until the worker has serviced every pending request (a test pins the schedule with it). */
 void lv2_instance_worker_quiesce(struct lv2_instance *in);
