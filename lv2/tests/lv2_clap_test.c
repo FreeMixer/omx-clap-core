@@ -35,6 +35,14 @@
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
  *             by omx_clap_lv2_worker_quiesce; the fake's drain order; a stray respond counted on clap.log.
  *             A reset whose worker cannot start again fails process() and says so on clap.log until the next activate.
+ *   atom      the atom messages beside MIDI: the string and path properties written through omx_clap_lv2_patch_text_*
+ *             (a patch:Set on the next block), read back from the plugin's patch:Put body and patch:Set, refused past
+ *             their limit, while busy and when not listed, a reply past 4095 bytes dropped and counted, sent again to a
+ *             new LV2 instance; a numeric reply forged as an atom:Blank read as the parameter's output event, another
+ *             object naming the gain ignored, the notify output offered a buffer every block. The MIDI input that also
+ *             takes time:Position: the transport's object first, at frame 0, by the change rule, then the MIDI; CLAP
+ *             note on, off and choke as MIDI, the velocity scaled and rounded, a wildcard key or channel, another port
+ *             and a note expression not taken.
  *   rt        no allocation inside process().
  *
  * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
@@ -62,6 +70,7 @@
 #include "fixtures/lv2_fakes.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "fixtures/lv2_time_probe.h"
+#include "fixtures/lv2_atom_probe.h"
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -98,6 +107,7 @@ static char g_patch[PATH_MAX];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
+static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
 
@@ -837,6 +847,7 @@ union any_event
     clap_event_midi_t m;
     clap_event_midi_sysex_t x;
     clap_event_note_t note;
+    clap_event_note_expression_t expr;
 };
 
 struct midi_in
@@ -904,7 +915,7 @@ static void mi_sysex(struct midi_in *m, uint32_t time, const uint8_t *bytes, uin
     e->size = size;
 }
 
-/* a CLAP-dialect note on: the port offers no such dialect, so it must not reach the plugin */
+/* a CLAP-dialect note on with a wildcard key: it names no MIDI message, so it must not reach the plugin */
 static void mi_note(struct midi_in *m, uint32_t time)
 {
     clap_event_note_t *e = &m->ev[m->n++].note;
@@ -915,7 +926,7 @@ static void mi_note(struct midi_in *m, uint32_t time)
     e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
     e->header.type = CLAP_EVENT_NOTE_ON;
     e->note_id = -1;
-    e->key = 60;
+    e->key = -1;
     e->velocity = 0.8;
 }
 
@@ -1004,11 +1015,11 @@ static void t_midi(double rate)
     *(void **)&extra = loaded_symbol(g_midi_so, "lv2_midi_echo_extra");
     np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
     CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 1 && np->get(g.plugin, 0, true, &info)
-              && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+              && info.supported_dialects == (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP) && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
               && np->get(g.plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
-          "midi %.0f: one MIDI input and one MIDI output, each dialect MIDI and no other", rate);
+          "midi %.0f: one MIDI input, MIDI preferred and CLAP notes taken, and one MIDI output, dialect MIDI and no other", rate);
 
-    // block 1: every channel status, a system realtime byte, a sysex, a CLAP note that is not taken, one message at the
+    // block 1: every channel status, a system realtime byte, a sysex, a CLAP note of no key, not taken, one message at the
     // block's last frame and one past its end, which is held at the last frame
     midi_in_init(&mi);
     mi_midi(&mi, 0, note, 3);
@@ -1481,6 +1492,262 @@ static void t_sidechain(double rate)
     rig_down(&g);
 }
 
+/* ---- the atom messages beside MIDI: text properties, atom:Blank, patch:Put bodies, notify, time and notes on MIDI ---- */
+
+#define ATOM_NAME LV2_ATOM_FIXTURE_URI "#name"
+#define ATOM_FILE LV2_ATOM_FIXTURE_URI "#file"
+#define ATOM_GAIN_ID 6u                 /* five ports, and the file before the gain in the URIs' order */
+#define ATOM_NOTIFY_CAPACITY (1024u - 8u)   /* the smallest atom buffer, less its atom header */
+
+static struct lv2_atom_probe *atom_probe(void)
+{
+    return loaded_symbol(g_atom_so, "lv2_atom_probe");
+}
+
+static int text_is(struct rig *g, const char *uri, const char *want)
+{
+    char buf[4200];
+    const uint32_t n = omx_clap_lv2_patch_text_get(g->plugin, uri, buf, sizeof(buf));
+
+    return n == strlen(want) && strcmp(buf, want) == 0;
+}
+
+static void t_atom_text(double rate)
+{
+    static float in[BLOCK], out[BLOCK];
+    static char big[4097], got_y[4 + 63 + 1];
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    omx_clap_lv2_text_info_t info, name, file;
+    struct lv2_atom_probe *pr;
+    struct evlist ev;
+    struct rig g;
+    uint32_t i, blocks = 0;
+    int same;
+
+    if (rig_up(&g, g_atom, LV2_ATOM_FIXTURE_URI, rate, BLOCK) != 0)
+        return;
+    pr = atom_probe();
+    CHECK(pr != NULL, "atom %.0f: the probe of the atom fixture", rate);
+    if (!pr)
+    {
+        rig_down(&g);
+        return;
+    }
+    memset(pr, 0, sizeof(*pr));
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f * sinf(0.0613f * (float)i);
+
+    CHECK(omx_clap_lv2_patch_text_count(g.plugin) == 2 && omx_clap_lv2_patch_text_info(g.plugin, 0, &file)
+              && omx_clap_lv2_patch_text_info(g.plugin, 1, &name) && !omx_clap_lv2_patch_text_info(g.plugin, 2, &info),
+          "atom %.0f: two text properties", rate);
+    CHECK(!strcmp(name.uri, ATOM_NAME) && !strcmp(name.name, "Name") && !name.is_path && name.max_bytes == 4095u
+              && !strcmp(file.uri, ATOM_FILE) && !strcmp(file.name, "File") && file.is_path && file.max_bytes == 4095u,
+          "atom %.0f: the name a string and the file a path, each up to 4095 bytes (%u, %u)", rate, name.max_bytes, file.max_bytes);
+    CHECK(omx_clap_lv2_patch_text_count(NULL) == 0 && omx_clap_lv2_patch_text_set(NULL, ATOM_NAME, "x", why) == -1
+              && !strcmp(why, "hosting.patch.not-writable"),
+          "atom %.0f: no plugin of the adapter's, no text property (%s)", rate, why);
+
+    // a string: written, busy until its block, the plugin's patch:Put body read back
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "hello", why) == 0, "atom %.0f: write the name (%s)", rate, why);
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "again", why) == -1 && !strcmp(why, "hosting.patch.busy"),
+          "atom %.0f: a second write before the block that takes the first is refused (%s)", rate, why);
+    CHECK(text_is(&g, ATOM_NAME, "hello"), "atom %.0f: before the plugin reports one, the value read is the host's write", rate);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    CHECK(!strcmp(pr->name, "hello"), "atom %.0f: the plugin got the name as a patch:Set (%s)", rate, pr->name);
+    CHECK(text_is(&g, ATOM_NAME, "got:hello"), "atom %.0f: its reply, a patch:Put whose patch:body holds the name, is read back", rate);
+
+    // a path: the plugin's patch:Set of the same atom:Path read back
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_FILE, "/srv/take 1.wav", why) == 0, "atom %.0f: write the file (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    CHECK(!strcmp(pr->file, "/srv/take 1.wav") && text_is(&g, ATOM_FILE, "/srv/take 1.wav"),
+          "atom %.0f: the plugin got the path, and its patch:Set of it is read back (%s)", rate, pr->file);
+
+    // the limits: 4095 bytes are carried, 4096 refused, a property the plugin does not list refused
+    memset(big, 'y', 4096);
+    big[4096] = '\0';
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, big, why) == -1 && !strcmp(why, "hosting.patch.too-large"),
+          "atom %.0f: a value of 4096 bytes is refused (%s)", rate, why);
+    big[4095] = '\0';
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, big, why) == 0, "atom %.0f: a value of 4095 bytes is taken (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    snprintf(got_y, sizeof(got_y), "got:%.63s", big);
+    CHECK(strlen(pr->name) == 63 && pr->name[0] == 'y' && text_is(&g, ATOM_NAME, got_y),
+          "atom %.0f: the plugin got it whole (it keeps 63 bytes of it) and replied", rate);
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, LV2_ATOM_FIXTURE_URI "#nothing", "x", why) == -1 && !strcmp(why, "hosting.patch.not-writable"),
+          "atom %.0f: a property the plugin does not list is refused (%s)", rate, why);
+
+    // a reply past 4095 bytes is dropped and counted; the value read stays the last one carried
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "big", why) == 0, "atom %.0f: write big (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(strstr(g.host.log, "patch_dropped 1") != NULL && text_is(&g, ATOM_NAME, got_y),
+          "atom %.0f: the plugin's 5000-byte reply is dropped, logged as patch_dropped 1, and the value read is the last one carried", rate);
+
+    // a numeric write: the reply forged as an atom:Blank is the output event, the other object at 99 ignored
+    ev_init(&ev);
+    ev_param(&ev, ATOM_GAIN_ID, 0.5);
+    g_out_n = 0;
+    process(&g, in, NULL, out, NULL, BLOCK, &ev), blocks++;
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out[i] == in[i] * 0.5f;
+    CHECK(same && pr->gain == 0.5f, "atom %.0f: the gain reaches the plugin as a patch:Set: out = in x 0.5 on every frame", rate);
+    CHECK(g_out_n == 1 && g_out_id[0] == ATOM_GAIN_ID && g_out_value[0] == 0.5,
+          "atom %.0f: the plugin's patch:Set forged as an atom:Blank comes back as the gain's output event (%u events)", rate, g_out_n);
+    CHECK(param(&g, ATOM_GAIN_ID) == 0.5, "atom %.0f: the object that is no patch:Set or patch:Put, naming the gain at 99, is ignored (%g)",
+          rate, param(&g, ATOM_GAIN_ID));
+    CHECK(pr->notify_capacity == ATOM_NOTIFY_CAPACITY && pr->notify_written == blocks,
+          "atom %.0f: the notify output is offered %u bytes at every block, and what the plugin writes there goes nowhere (%u, %u blocks)",
+          rate, ATOM_NOTIFY_CAPACITY, pr->notify_capacity, pr->notify_written);
+
+    // a new LV2 instance (another rate) is sent every text the host wrote, again
+    g.plugin->stop_processing(g.plugin);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate * 2.0, 1, BLOCK) && g.plugin->start_processing(g.plugin), "atom %.0f: activate at twice the rate", rate);
+    memset(pr->name, 0, sizeof(pr->name));
+    memset(pr->file, 0, sizeof(pr->file));
+    process(&g, in, NULL, out, NULL, BLOCK, NULL);
+    CHECK(!strcmp(pr->name, "big") && !strcmp(pr->file, "/srv/take 1.wav"),
+          "atom %.0f: the new instance gets the host's last name and file on its first block (%s, %s)", rate, pr->name, pr->file);
+    rig_down(&g);
+}
+
+/* one process() call of the MIDI-and-time plugin: `tr` its transport (NULL: none), `events` its input */
+static clap_process_status mt_process(struct rig *g, float *in, float *out, const clap_event_transport_t *tr, const clap_input_events_t *events)
+{
+    float *ins[1] = { in }, *outs[1] = { out };
+    clap_audio_buffer_t ib = { ins, NULL, 1, 0, 0 }, ob = { outs, NULL, 1, 0, 0 };
+    struct midi_out mo;
+    clap_process_t p;
+    clap_process_status st;
+
+    midi_out_init(&mo);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = 0;
+    p.frames_count = BLOCK;
+    p.transport = tr;
+    p.audio_inputs = &ib;
+    p.audio_outputs = &ob;
+    p.audio_inputs_count = 1;
+    p.audio_outputs_count = 1;
+    p.in_events = events;
+    p.out_events = &mo.list;
+    g_audio = 1;
+    in_rt = 1;
+    st = g->plugin->process(g->plugin, &p);
+    in_rt = 0;
+    g_audio = 0;
+    return st;
+}
+
+/* a CLAP note event of `type` */
+static void mi_clap_note(struct midi_in *m, uint16_t type, uint32_t time, int16_t port, int16_t channel, int16_t key, double velocity)
+{
+    clap_event_note_t *e = &m->ev[m->n++].note;
+
+    memset(e, 0, sizeof(*e));
+    e->header.size = sizeof(*e);
+    e->header.time = time;
+    e->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    e->header.type = type;
+    e->note_id = -1;
+    e->port_index = port;
+    e->channel = channel;
+    e->key = key;
+    e->velocity = velocity;
+}
+
+static int probe_midi_is(const struct lv2_atom_probe *pr, uint32_t k, int64_t frame, uint8_t a, uint8_t b, uint8_t c)
+{
+    return k < pr->n_midi && pr->midi_frame[k] == frame && pr->midi_size[k] == 3 && pr->midi[k][0] == a && pr->midi[k][1] == b
+           && pr->midi[k][2] == c;
+}
+
+static void t_atom_midi_time(double rate)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 };
+    static float in[BLOCK], out[BLOCK];
+    const clap_plugin_note_ports_t *np;
+    clap_note_port_info_t info;
+    clap_event_transport_t tr;
+    struct lv2_atom_probe *pr;
+    struct midi_in mi;
+    struct rig g;
+    uint32_t objects;
+
+    if (rig_up(&g, g_atom, LV2_ATOM_FIXTURE_URI "#midi-time", rate, BLOCK) != 0)
+        return;
+    pr = atom_probe();
+    if (!pr)
+    {
+        CHECK(0, "midi-time %.0f: the probe of the atom fixture", rate);
+        rig_down(&g);
+        return;
+    }
+    memset(pr, 0, sizeof(*pr));
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 0 && np->get(g.plugin, 0, true, &info)
+              && info.supported_dialects == (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP) && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI,
+          "midi-time %.0f: one note input, MIDI preferred, CLAP notes taken", rate);
+
+    // block 1: a transport, one MIDI note on, and CLAP notes of every kind
+    memset(&tr, 0, sizeof(tr));
+    tr.header.size = sizeof(tr);
+    tr.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    tr.header.type = CLAP_EVENT_TRANSPORT;
+    tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    tr.tempo = 120.0;
+    midi_in_init(&mi);
+    mi_midi(&mi, 5, note, 3);
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 10, 0, 2, 60, 0.5);       // 63.5 rounds to 64
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 11, -1, 0, 61, 0.0);      // a note on never at velocity 0
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_OFF, 12, 0, 2, 60, 0.25);     // 31.75 rounds to 32
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_CHOKE, 13, 0, 3, 62, 1.0);    // a choke is a note off at 0
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 14, 0, 0, -1, 1.0);       // a wildcard key: not taken
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 15, 0, -1, 64, 1.0);      // a wildcard channel: not taken
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 16, 1, 0, 65, 1.0);       // another port: not taken
+    {
+        clap_event_note_expression_t *x = &mi.ev[mi.n++].expr;     // a note expression: not taken
+
+        memset(x, 0, sizeof(*x));
+        x->header.size = sizeof(*x);
+        x->header.time = 17;
+        x->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        x->header.type = CLAP_EVENT_NOTE_EXPRESSION;
+        x->expression_id = CLAP_NOTE_EXPRESSION_PRESSURE;
+        x->note_id = -1;
+        x->channel = 2;
+        x->key = 60;
+        x->value = 0.5;
+    }
+    mt_process(&g, in, out, &tr, &mi.list);
+    CHECK(pr->events == 6 && pr->time_first && pr->time_event_frame == 0 && pr->speed == 1.0f && pr->bpm == 120.0f,
+          "midi-time %.0f: the transport's object first, at frame 0, playing at 120 bpm, then five MIDI messages (%u events)", rate, pr->events);
+    CHECK(pr->n_midi == 5 && probe_midi_is(pr, 0, 5, 0x90, 0x3c, 0x64) && probe_midi_is(pr, 1, 10, 0x92, 60, 64)
+              && probe_midi_is(pr, 2, 11, 0x90, 61, 1) && probe_midi_is(pr, 3, 12, 0x82, 60, 32) && probe_midi_is(pr, 4, 13, 0x83, 62, 0),
+          "midi-time %.0f: the MIDI note, then the CLAP notes as MIDI: on 92 3c 40, on at velocity 1, off 82 3c 20, choke 83 3e 00 (%u)",
+          rate, pr->n_midi);
+    objects = pr->objects;
+
+    // block 2: the same transport forges nothing
+    midi_in_init(&mi);
+    mt_process(&g, in, out, &tr, &mi.list);
+    CHECK(pr->events == 0 && pr->objects == objects, "midi-time %.0f: an unchanged transport forges no object (%u events)", rate, pr->events);
+
+    // block 3: stopped: one object, speed 0, before the MIDI
+    tr.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
+    midi_in_init(&mi);
+    mi_midi(&mi, 0, note, 3);
+    mt_process(&g, in, out, &tr, &mi.list);
+    CHECK(pr->events == 2 && pr->time_first && pr->speed == 0.0f && pr->objects == objects + 1 && probe_midi_is(pr, 0, 0, 0x90, 0x3c, 0x64),
+          "midi-time %.0f: stopped, one object at speed 0, still ahead of a note at the same frame (%u events)", rate, pr->events);
+
+    // block 4: no transport: nothing forged
+    midi_in_init(&mi);
+    mt_process(&g, in, out, NULL, &mi.list);
+    CHECK(pr->events == 0, "midi-time %.0f: no transport, no object (%u events)", rate, pr->events);
+    rig_down(&g);
+}
+
 /* ---- the CLAP body of libomx-clap-core around the adapter ---- */
 
 static struct omx_clap_instance *core_open_at(const clap_plugin_entry_t *entry, const char *uri, double rate, uint32_t max_block,
@@ -1857,6 +2124,9 @@ int main(int argc, char **argv)
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
     abs_dir(dir, g_midi);
+    snprintf(dir, sizeof(dir), "%somx-atom-fixture.lv2", build);
+    abs_dir(dir, g_atom);
+    snprintf(g_atom_so, sizeof(g_atom_so), "%somx-atom-fixture.so", g_atom);
     snprintf(g_midi_so, sizeof(g_midi_so), "%somx-midi-echo.so", g_midi);
     in_rt = 1;
     probe = malloc(16);
@@ -1885,6 +2155,8 @@ int main(int argc, char **argv)
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
         t_time(RATES[r]);
+        t_atom_text(RATES[r]);
+        t_atom_midi_time(RATES[r]);
         t_sidechain(RATES[r]);
         t_sidechain_core(RATES[r]);
         t_core(RATES[r]);
