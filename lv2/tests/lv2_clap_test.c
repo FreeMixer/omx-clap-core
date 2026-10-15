@@ -43,7 +43,8 @@
  *             copies the file its state names to <dir>.saved and names the copy; the instance's directory removed with
  *             it, the copy kept; a second instance loading the state reads the level back from the copy, out = in x 2.5
  *             on every frame; a path outside the directory and an absolute one answered NULL, nothing written, counted
- *             as make_path_refused 2; an instance never saved leaves nothing; stale copies of an earlier process of the
+ *             as make_path_refused 2; a path through a link, a/../b, an overlong one, a request on the audio role and
+ *             one through a file refused by code; an instance never saved leaves nothing; stale copies of an earlier process of the
  *             same pid are never taken as an instance's own. Without a root the feature is not offered (a child),
  *             and a relative root refuses the configure (a child).
  *   rt        no allocation inside process().
@@ -1702,7 +1703,8 @@ static void t_make_path_escape(double rate)
     {
         const LV2_State_Make_Path *mp = pr->make_path;
         static char longest[5000], component[300];
-        char lnk[600], fin[600], esc[PATH_MAX + 96], *ok;
+        char lnk[600], fin[600], blk[600], esc[PATH_MAX + 96], *ok;
+        FILE *bf;
 
         // a link inside the directory, to the root: a path through it would leave the directory
         snprintf(lnk, sizeof(lnk), "%s/lnk", dir);
@@ -1721,6 +1723,21 @@ static void t_make_path_escape(double rate)
         memset(component, 'c', sizeof(component) - 1);
         CHECK(mp_refused(&g, mp, longest, "hosting.state.path-too-long") && mp_refused(&g, mp, component, "hosting.state.path-too-long"),
               "make-path %.0f: a path past PATH_MAX and a component past NAME_MAX are refused, hosting.state.path-too-long", rate);
+        // a request on the audio role: refused before anything is made
+        g_audio = 1;
+        ok = mp->path(mp->handle, "rt/f.txt");
+        g_audio = 0;
+        g.host.log[0] = '\0';
+        process(&g, in, NULL, out, NULL, BLOCK, NULL);
+        g.plugin->on_main_thread(g.plugin);
+        snprintf(blk, sizeof(blk), "%s/rt", dir);
+        CHECK(ok == NULL && strstr(g.host.log, "hosting.state.path-on-audio") != NULL && stat(blk, &st) != 0,
+              "make-path %.0f: a request on the audio role is refused, hosting.state.path-on-audio, and nothing is made", rate);
+        free(ok);
+        // a file where the path needs a directory: the directory cannot be made
+        snprintf(blk, sizeof(blk), "%s/blk", dir);
+        CHECK((bf = fopen(blk, "w")) != NULL && fclose(bf) == 0 && mp_refused(&g, mp, "blk/x.txt", "hosting.state.path-unmakeable"),
+              "make-path %.0f: a path through a file is refused, hosting.state.path-unmakeable", rate);
         ok = mp->path(mp->handle, "./ok/inside.txt");
         CHECK(ok && strncmp(ok, dir, strlen(dir)) == 0, "make-path %.0f: ./ok/inside.txt is still made (%s)", rate, ok ? ok : "NULL");
         free(ok);
