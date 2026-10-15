@@ -8,8 +8,7 @@ Build-Depends: debhelper-compat (= 13),
                lv2-dev,
                libjack-jackd2-dev | libjack-dev,
                libmod-host-protocol-dev,
-               libomxdsp-dev (>= 0.18.1),
-               libomxdsp-dev (<< 0.19),
+               libomxdsp-dev (>= 0.18.0),
                plugin-hostd-dev (>= 0.1.2~),
                pkgconf
 Standards-Version: 4.6.2
@@ -56,7 +55,6 @@ Package: libomx-clap-core-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libomx-clap-core0 (= ${binary:Version}), clap-headers, libomxdsp-dev (>= 0.18.1), libomxdsp-dev (<< 0.19), pkgconf, ${misc:Depends}
 Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, and the list of functions the library
