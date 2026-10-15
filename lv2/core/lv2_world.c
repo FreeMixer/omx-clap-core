@@ -674,7 +674,8 @@ static int node_text_cmp(const void *a, const void *b)
 /* The numeric patch:writable properties of the plugin, and its text ones, in the order of their URIs: patch:writable is
  * a set, and lilv lists it in no stable order, so the order is the URIs' own. A numeric property's id is the port count
  * plus its index in that order, counting every entry, so a string property does not move the ids of the numeric ones,
- * and the same plugin gets the same ids in every instance and every process. */
+ * and the same plugin gets the same ids in every instance and every process. Versions before this one gave them in
+ * lilv's order, so a plugin with two or more such properties may have had other ids there. */
 static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
 {
     LilvNodes *writable = L.lilv_plugin_get_value(pl, g.node[N_PATCH_WRITABLE]);
