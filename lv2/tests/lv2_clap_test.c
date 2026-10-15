@@ -39,7 +39,8 @@
  *             copies the file its state names to <dir>.saved and names the copy; the instance's directory removed with
  *             it, the copy kept; a second instance loading the state reads the level back from the copy, out = in x 2.5
  *             on every frame; a path outside the directory and an absolute one answered NULL, nothing written, counted
- *             as make_path_refused 2. Without a root the feature is not offered (a child), and a relative root refuses
+ *             as make_path_refused 2; an instance never saved leaves nothing; stale copies of an earlier process of the
+ *             same pid are never taken as an instance's own. Without a root the feature is not offered (a child), and a relative root refuses
  *             the configure (a child).
  *   rt        no allocation inside process().
  *
@@ -1527,6 +1528,33 @@ static int ends_with(const char *s, const char *tail)
     return n >= t && strcmp(s + n - t, tail) == 0;
 }
 
+#define STALE 400u      // more instance numbers than this run reaches
+
+/* the copies an earlier process of the same pid left: lv2-<pid>-<n>.saved/takes/level.txt holding 9, for every n up to
+ * STALE. An instance must take a name none of them holds, or its save would land beside a stale copy. */
+static void stale_copies(void)
+{
+    char path[PATH_MAX + 160];
+    uint32_t n;
+
+    mkdir(g_root, 0755);
+    for (n = 1; n <= STALE; n++)
+    {
+        FILE *f;
+
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved", g_root, (long)getpid(), n);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved/takes", g_root, (long)getpid(), n);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved/takes/level.txt", g_root, (long)getpid(), n);
+        if ((f = fopen(path, "w")) != NULL)
+        {
+            fputs("9\n", f);
+            fclose(f);
+        }
+    }
+}
+
 static void t_make_path(double rate)
 {
     static const char TAIL[] = "/takes/level.txt";
@@ -1567,6 +1595,8 @@ static void t_make_path(double rate)
           rate, pr->made);
     snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(pr->made) - strlen(TAIL)), pr->made);
     snprintf(copy, sizeof(copy), "%s.saved%s", dir, TAIL);
+    CHECK(strtoul(strrchr(dir, '-') + 1, NULL, 10) > STALE, "make-path %.0f: the instance's name is past every stale copy an earlier process left (%s)",
+          rate, strrchr(dir, '/') + 1);
     CHECK(!strcmp(pr->stored, "takes/level.txt") && strstr(saved.buf, copy) != NULL && !strcmp(file_line(copy), "2.5\n"),
           "make-path %.0f: the state names the copy in <dir>.saved, which holds 2.5 (stored %s)", rate, pr->stored);
     rig_down(&a);
@@ -2030,6 +2060,7 @@ int main(int argc, char **argv)
     // a state root of this run's own: the directories it leaves are build/'s
     snprintf(g_root, sizeof(g_root), "%sstate-root-%ld", build, (long)getpid());
     config.state_root = g_root;
+    stale_copies();
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
