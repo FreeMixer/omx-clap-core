@@ -65,6 +65,7 @@
 #include <clap/clap.h>
 
 #include <lv2/urid/urid.h>
+#include <lv2/state/state.h>
 
 #include "../../src/clap_host.h"
 #include "omx_clap_lv2.h"
@@ -108,7 +109,7 @@ static char g_patch[PATH_MAX];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
-static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64];
+static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX];
 
 /* ---- the test's host ---- */
 
@@ -1615,7 +1616,44 @@ static void t_make_path(double rate)
     CHECK(pr->restored == 2.5f && !strcmp(pr->restored_from, copy), "make-path %.0f: its plugin read 2.5 from the copy (%g, %s)", rate,
           (double)pr->restored, pr->restored_from);
     CHECK(same, "make-path %.0f: it runs at the level read through the file: out = in x 2.5 on every frame", rate);
+    {
+        char bdir[PATH_MAX + 96], why[OMX_CLAP_LV2_WHY_MAX] = "", saved_a[620], other[PATH_MAX + 96], link[PATH_MAX + 96];
+        const uint32_t n = omx_clap_lv2_saved_dir(b.plugin, bdir, sizeof(bdir));
+
+        CHECK(n == strlen(bdir) && strncmp(bdir, prefix, strlen(prefix)) == 0 && ends_with(bdir, ".saved"),
+              "make-path %.0f: omx_clap_lv2_saved_dir names the plugin's copy directory (%s)", rate, bdir);
+        snprintf(saved_a, sizeof(saved_a), "%s.saved", dir);
+        // a path that is no copy directory of the root is refused, and left as it was
+        snprintf(other, sizeof(other), "%sx-%.0f.saved", g_build, rate);
+        mkdir(other, 0755);
+        snprintf(link, sizeof(link), "%s/lv2-9-%.0f.saved", g_root, rate);
+        unlink(link);
+        CHECK(symlink(saved_a, link) == 0, "make-path %.0f: a link named like a copy directory, to A's copies", rate);
+        CHECK(omx_clap_lv2_saved_drop("/tmp", why) == -1 && !strcmp(why, "hosting.state.not-a-copy")
+                  && omx_clap_lv2_saved_drop(g_root, why) == -1 && omx_clap_lv2_saved_drop(other, why) == -1
+                  && omx_clap_lv2_saved_drop(link, why) == -1 && stat(other, &st) == 0 && !strcmp(file_line(copy), "2.5\n"),
+              "make-path %.0f: /tmp, the root, a .saved directory outside the root and a link to A's copies are refused (%s)", rate, why);
+        unlink(link);
+        rmdir(other);
+        CHECK(omx_clap_lv2_saved_drop(saved_a, why) == 0 && stat(saved_a, &st) != 0 && errno == ENOENT,
+              "make-path %.0f: A's copy directory is dropped when the host deletes its state (%s)", rate, why);
+    }
     rig_down(&b);
+}
+
+/* one makePath request the test makes itself: answered NULL, and the block after it logs `code` as the refusal */
+static int mp_refused(struct rig *g, const LV2_State_Make_Path *mp, const char *path, const char *code)
+{
+    static float in[BLOCK], out[BLOCK];
+    char *r = mp->path(mp->handle, path);
+    int ok;
+
+    g->host.log[0] = '\0';
+    process(g, in, NULL, out, NULL, BLOCK, NULL);
+    g->plugin->on_main_thread(g->plugin);
+    ok = r == NULL && strstr(g->host.log, code) != NULL;
+    free(r);
+    return ok;
 }
 
 /* a path outside the instance's directory, and an absolute one, are answered NULL and counted; nothing is written */
@@ -1624,6 +1662,7 @@ static void t_make_path_escape(double rate)
     static const char ABS[] = "/tmp/omx-path-fixture-absolute.txt";
     static float in[BLOCK], out[BLOCK];
     char outside[PATH_MAX + 96], made[512], dir[512], copies[600];
+    size_t i;
     struct lv2_path_probe *pr;
     struct stat st;
     struct rig g;
@@ -1638,12 +1677,41 @@ static void t_make_path_escape(double rate)
     memset(in, 0, sizeof(in));
     process(&g, in, NULL, out, NULL, BLOCK, NULL);
     g.plugin->on_main_thread(g.plugin);
-    CHECK(strstr(g.host.log, "make_path_refused 2") != NULL, "make-path %.0f: both are counted, make_path_refused 2 on clap.log", rate);
+    CHECK(strstr(g.host.log, "make_path_refused 2") != NULL && strstr(g.host.log, "hosting.state.path-outside") != NULL,
+          "make-path %.0f: both are counted, make_path_refused 2 and the code hosting.state.path-outside on clap.log", rate);
     snprintf(made, sizeof(made), "%s", pr ? pr->made : "");
     CHECK(made[0] && !strcmp(file_line(made), "unsaved\n"), "make-path %.0f: a path inside is made and written (%s)", rate, made);
-    rig_down(&g);
-    // never saved: neither the instance's directory nor a copy directory outlives it
     snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(made) > 16 ? strlen(made) - 16 : 0), made);     // less /never/saved.txt
+    if (pr && pr->make_path)
+    {
+        const LV2_State_Make_Path *mp = pr->make_path;
+        static char longest[5000], component[300];
+        char lnk[600], fin[600], esc[PATH_MAX + 96], *ok;
+
+        // a link inside the directory, to the root: a path through it would leave the directory
+        snprintf(lnk, sizeof(lnk), "%s/lnk", dir);
+        snprintf(fin, sizeof(fin), "%s/fin", dir);
+        snprintf(esc, sizeof(esc), "%s/esc", g_root);
+        CHECK(symlink(g_root, lnk) == 0 && symlink(outside, fin) == 0, "make-path %.0f: links lnk -> the root and fin -> outside.txt", rate);
+        CHECK(mp_refused(&g, mp, "lnk/esc/f.txt", "hosting.state.path-symlink") && stat(esc, &st) != 0,
+              "make-path %.0f: a link as a directory component is refused, hosting.state.path-symlink, and nothing is made through it", rate);
+        CHECK(mp_refused(&g, mp, "fin", "hosting.state.path-symlink"), "make-path %.0f: a link as the last component is refused too", rate);
+        CHECK(mp_refused(&g, mp, "a/../b", "hosting.state.path-outside"),
+              "make-path %.0f: a/../b, though it comes back inside, is refused, hosting.state.path-outside", rate);
+        memset(longest, 0, sizeof(longest));
+        for (i = 0; i + 2 < sizeof(longest) - 1; i += 2)
+            longest[i] = 'a', longest[i + 1] = '/';
+        longest[i] = 'f';
+        memset(component, 'c', sizeof(component) - 1);
+        CHECK(mp_refused(&g, mp, longest, "hosting.state.path-too-long") && mp_refused(&g, mp, component, "hosting.state.path-too-long"),
+              "make-path %.0f: a path past PATH_MAX and a component past NAME_MAX are refused, hosting.state.path-too-long", rate);
+        ok = mp->path(mp->handle, "./ok/inside.txt");
+        CHECK(ok && strncmp(ok, dir, strlen(dir)) == 0, "make-path %.0f: ./ok/inside.txt is still made (%s)", rate, ok ? ok : "NULL");
+        free(ok);
+    }
+    rig_down(&g);
+    CHECK(stat(g_root, &st) == 0 && S_ISDIR(st.st_mode), "make-path %.0f: removing the directory removed the link, not the root it named", rate);
+    // never saved: neither the instance's directory nor a copy directory outlives it
     snprintf(copies, sizeof(copies), "%s.saved", dir);
     CHECK(dir[0] && stat(dir, &st) != 0 && stat(copies, &st) != 0, "make-path %.0f: an instance never saved leaves nothing under the root (%s)", rate, dir);
 }
@@ -2059,6 +2127,7 @@ int main(int argc, char **argv)
     snprintf(g_path_so, sizeof(g_path_so), "%somx-path-fixture.so", g_path);
     // a state root of this run's own: the directories it leaves are build/'s
     snprintf(g_root, sizeof(g_root), "%sstate-root-%ld", build, (long)getpid());
+    snprintf(g_build, sizeof(g_build), "%s", build);
     config.state_root = g_root;
     stale_copies();
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
