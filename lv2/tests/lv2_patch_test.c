@@ -230,7 +230,7 @@ static void t_emitted(void)
 
 static void t_drops(void)
 {
-    static const struct lv2_core_config small = { lv2_core_provided, 1000u, 4096u, 0u, NULL };
+    static const struct lv2_core_config small = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
     struct lv2_plugin *p;
     struct lv2_instance *in;
@@ -257,7 +257,7 @@ static void t_drops(void)
 
 int main(int argc, char **argv)
 {
-    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 4096u, NULL };
+    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 4096u, NULL, NULL };
     char dir[PATH_MAX + 32], why[LV2_CORE_WHY_MAX];
 
     if (argc < 2 || abs_dir(argv[1], g_build) != 0)

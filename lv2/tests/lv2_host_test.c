@@ -152,7 +152,7 @@ static struct lv2_plugin *open_plugin(const char *dir, const char *uri, char why
 static void lazy(void)
 {
     char late[PATH_MAX + 32], why[LV2_CORE_WHY_MAX] = "";
-    struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL };
+    struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
     struct lv2_bundle *b;
 
     snprintf(late, sizeof(late), "%slilv-late.so.0", g_build);
@@ -586,7 +586,7 @@ static const char *const *list_plus(const char *uri)
 
 static void refused_with(const char *const *list, const char *dir, const char *uri, const char *label)
 {
-    const struct lv2_core_config config = { list, 1000u, 4096u, 0u, NULL };
+    const struct lv2_core_config config = { list, 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
     struct lv2_plugin *p;
 
@@ -743,7 +743,7 @@ static void t_options(void)
 /* the configured list bounds the options: a list without log:log hands no log, whatever the options offer */
 static void options_within_list(void)
 {
-    const struct lv2_core_config config = { list_without(LV2_LOG__log), 1000u, 4096u, 0u, NULL };
+    const struct lv2_core_config config = { list_without(LV2_LOG__log), 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
     const struct lv2_feature_probe *seen;
 
@@ -756,7 +756,7 @@ static void options_within_list(void)
 
 static void unknown_feature(void)
 {
-    struct lv2_core_config config = { list_plus("urn:openmixer:test:no-such-feature"), 1000u, 4096u, 0u, NULL };
+    struct lv2_core_config config = { list_plus("urn:openmixer:test:no-such-feature"), 1000u, 4096u, 0u, NULL, NULL };
     char why[LV2_CORE_WHY_MAX] = "";
 
     CHECK(lv2_core_configure(&config, why) == -1, "configure refuses a listed URI no provider serves (%s)", why);
@@ -774,7 +774,7 @@ static void unknown_feature(void)
 
 int main(int argc, char **argv)
 {
-    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL };
+    static const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
     char dir[PATH_MAX + 32], why[LV2_CORE_WHY_MAX];
     size_t r;
 
