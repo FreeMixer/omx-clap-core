@@ -627,24 +627,40 @@ static int patch_type_of(const LilvNode *prop, enum lv2_patch_type *type)
     return found;
 }
 
-/* The numeric patch:writable properties of the plugin. A property's id is the port count plus its index in patch:writable
- * order, counting every entry, so a string property does not move the ids of the numeric ones. */
+/* two patch:writable nodes by their text, for the order the ids are given in */
+static int node_text_cmp(const void *a, const void *b)
+{
+    const char *x = L.lilv_node_as_string(*(const LilvNode *const *)a);
+    const char *y = L.lilv_node_as_string(*(const LilvNode *const *)b);
+
+    return strcmp(x ? x : "", y ? y : "");
+}
+
+/* The numeric patch:writable properties of the plugin, in the order of their URIs: patch:writable is a set, and lilv
+ * lists it in no stable order, so the order is the URIs' own. A property's id is the port count plus its index in that
+ * order, counting every entry, so a string property does not move the ids of the numeric ones, and the same plugin gets
+ * the same ids in every instance and every process. */
 static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
 {
     LilvNodes *writable = L.lilv_plugin_get_value(pl, g.node[N_PATCH_WRITABLE]);
     const uint32_t n = nodes_count(writable);
+    const LilvNode **order = calloc(n ? n : 1u, sizeof(*order));
     uint32_t i = 0, k = 0;
     LilvIter *it;
 
     p->patches = calloc(n ? n : 1u, sizeof(*p->patches));
-    if (!p->patches)
+    if (!p->patches || !order)
     {
+        free(order);
         L.lilv_nodes_free(writable);
         return LV2_CODE_NO_REALISATION;
     }
-    for (it = writable ? L.lilv_nodes_begin(writable) : NULL; writable && !L.lilv_nodes_is_end(writable, it); it = L.lilv_nodes_next(writable, it), i++)
+    for (it = writable ? L.lilv_nodes_begin(writable) : NULL; writable && !L.lilv_nodes_is_end(writable, it); it = L.lilv_nodes_next(writable, it))
+        order[i++] = L.lilv_nodes_get(writable, it);
+    qsort(order, i, sizeof(*order), node_text_cmp);
+    for (i = 0; i < n; i++)
     {
-        const LilvNode *prop = L.lilv_nodes_get(writable, it);
+        const LilvNode *prop = order[i];
         const char *uri = prop ? L.lilv_node_as_uri(prop) : NULL;
         struct lv2_patch *pp = &p->patches[k];
         enum lv2_patch_type type = LV2_PATCH_FLOAT;     // set by patch_type_of whenever it is read
@@ -679,11 +695,13 @@ static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
         p->n_patches = k + 1u;
         if (!pp->uri || !pp->symbol || !pp->name)
         {
+            free(order);
             L.lilv_nodes_free(writable);
             return LV2_CODE_NO_REALISATION;     // the entry is counted, so lv2_plugin_close frees what it holds
         }
         k++;
     }
+    free(order);
     L.lilv_nodes_free(writable);
     p->n_patches = k;
     return NULL;
