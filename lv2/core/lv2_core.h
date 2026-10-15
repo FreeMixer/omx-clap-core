@@ -76,6 +76,9 @@
 /* the side-chain legs a plugin may have, one per channel: at most this many channels, each side chain one or two of them */
 #define LV2_CORE_SIDE_LEGS              8
 
+/* the CV ports a plugin may have each way (lv2:CVPort): one mono CLAP audio port each; one more is refused */
+#define LV2_CORE_CV_PORTS               8
+
 /* the library the first bundle loads unless the configuration names another */
 #define LV2_CORE_LILV_SONAME            "liblilv-0.so.0"
 
@@ -167,6 +170,9 @@ struct lv2_plugin
     uint32_t side_base[LV2_CORE_SIDE_LEGS];         // the first leg of each side chain
     uint32_t side_in[LV2_CORE_SIDE_LEGS];           // the plugin's port index of each side-chain leg
     char *side_name[LV2_CORE_SIDE_LEGS];            // the name of each side chain: its group's label, else its port's name
+    uint32_t n_cv_in, n_cv_out;     // the CV inputs and outputs, in port index order
+    uint32_t cv_in[LV2_CORE_CV_PORTS], cv_out[LV2_CORE_CV_PORTS];          // the plugin's port index of each
+    char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
     int32_t latency_port;           // -1: none
     int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
     int32_t midi_out_port;          // the one MIDI output atom port, -1: none
@@ -307,6 +313,11 @@ void lv2_instance_free(struct lv2_instance *in);
 float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg);
 float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t leg);
 float *lv2_instance_side_in(struct lv2_instance *in, uint32_t leg);
+
+/* The buffers CV input `k` and CV output `k` (in plugin->cv_in and cv_out order) are connected to, `max_frames` each, as
+ * the audio buffers are: the host writes an input before the run and reads an output after it. */
+float *lv2_instance_cv_in(struct lv2_instance *in, uint32_t k);
+float *lv2_instance_cv_out(struct lv2_instance *in, uint32_t k);
 
 /* [audio] Write the input control `k` (the index in plugin->controls); the bypass and the outputs are not writable. */
 void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value);
