@@ -477,6 +477,7 @@ jobs:
     name: release workflow, dry run
     permissions:
       contents: write
+      issues: write
     uses: ./.github/workflows/release.yml
     with:
       publish: false
