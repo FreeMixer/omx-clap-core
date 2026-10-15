@@ -14,7 +14,6 @@ BuildRequires: pkgconfig(mod-host-protocol)
 BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.1
-BuildRequires: omx-dsp-devel < 0.19
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -58,7 +57,6 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.1
-Requires: omx-dsp-devel < 0.19
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
