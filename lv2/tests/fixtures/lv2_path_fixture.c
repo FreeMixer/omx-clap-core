@@ -100,6 +100,7 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
         if (inside)
             write_file(inside, "unsaved\n");
         free(inside);
+        lv2_path_probe.make_path = p->make_path;
         lv2_path_probe.escape_null = out == NULL;
         lv2_path_probe.absolute_null = abs == NULL;
         if (out)

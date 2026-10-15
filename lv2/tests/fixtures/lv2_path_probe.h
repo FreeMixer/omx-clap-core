@@ -20,6 +20,7 @@ struct lv2_path_probe
     float restored;             /* the level the last restore read from that file, -1 when it read none */
     int escape_null;            /* #escape: makePath answered NULL for "../outside.txt" */
     int absolute_null;          /* #escape: makePath answered NULL for an absolute path */
+    void *make_path;            /* #escape: the LV2_State_Make_Path it was handed, for a test to call */
 };
 
 #endif
