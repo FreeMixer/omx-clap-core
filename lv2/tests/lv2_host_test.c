@@ -30,8 +30,8 @@
  *             -20 dB row + -6 dB default state reads -26.00 dB, its latency port reads 7, a -10 dB row write reads
  *             -16.00 dB, its meter output is read back.
  *   refusals  one twin per refusal code of the port reader, from the TTL alone, before the binary is opened.
- *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs refused
- *             hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
+ *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
+ *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
  *   worker    the worker gain: options carry the rate and the block lengths, ONE worker thread per instance, the gain
  *             reaches the audio only through the round trip, work() on that thread, the thread joined at deactivate.
@@ -360,6 +360,9 @@ static void t_cv(void)
     lv2_plugin_close(p);
     p = open_plugin(g_cv, CV_URI "#many", why);
     CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV inputs, one past the limit, are refused from the TTL (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_cv, CV_URI "#many-out", why);
+    CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV outputs, one past the limit, are refused from the TTL (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_fixture, FIXTURE_URI "#cv", why);
     CHECK(p && p->n_cv_in == 1 && p->cv_in[0] == 2 && p->n_cv_out == 0, "cv: the host fixture's CV twin is admitted, its CV input port 2 (%s)", why);
