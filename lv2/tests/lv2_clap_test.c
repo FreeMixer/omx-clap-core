@@ -53,6 +53,7 @@
  *   lv2_clap_test <build/lv2 directory>
  */
 #include <dirent.h>
+#include <ftw.h>
 #include <errno.h>
 #include <pthread.h>
 #include <sys/stat.h>
@@ -1533,11 +1534,22 @@ static int ends_with(const char *s, const char *tail)
 
 /* the copies an earlier process of the same pid left: lv2-<pid>-<n>.saved/takes/level.txt holding 9, for every n up to
  * STALE. An instance must take a name none of them holds, or its save would land beside a stale copy. */
+static int root_entry_remove(const char *path, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st;
+    (void)flag;
+    (void)ftw;
+    remove(path);
+    return 0;
+}
+
 static void stale_copies(void)
 {
     char path[PATH_MAX + 160];
     uint32_t n;
 
+    // a root of this pid an earlier run left is cleared first: a run starts from the stale copies alone
+    nftw(g_root, root_entry_remove, 16, FTW_DEPTH | FTW_PHYS);
     mkdir(g_root, 0755);
     for (n = 1; n <= STALE; n++)
     {
