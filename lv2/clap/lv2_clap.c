@@ -38,7 +38,7 @@
 * Parameters. The clap_id of a control parameter is its port index. An input control port is a parameter; the plugin's
 * own bypass is one flagged IS_BYPASS and held at its processing value, never written; every other output control port
 * is a read-only parameter whose value is what the last process() read. A numeric patch:writable property is a
-* parameter too, its clap_id its port count plus its index in patch:writable order, so the two never collide. A parameter
+* parameter too, its clap_id its port count plus its index in the order of the properties' URIs, so the two never collide. A parameter
 * write is block-rate: every CLAP_EVENT_PARAM_VALUE of a process() call lands before that call's run(), whatever its
 * time. A patch:Set or patch:Put the plugin emits is an output CLAP_EVENT_PARAM_VALUE of that call, at time 0.
 *
@@ -47,11 +47,13 @@
 * audio port; an input the host hands no buffer reads silence. docs/lv2-compatibility.md says why not parameter
 * modulation.
 *
-* MIDI. An LV2 MIDI input is one clap.note-ports input and an LV2 MIDI output one output, both dialect MIDI and no other.
-* Each CLAP_EVENT_MIDI and CLAP_EVENT_MIDI_SYSEX of a process() call is written into the input before that call's run(),
-* at its frame, as a midi:MidiEvent of the message's length: a channel program change or channel pressure carries two
-* bytes, every other channel message three, a system message the length its status says, a sysex its own bytes. A CLAP
-* note event is not taken: the port does not offer that dialect. Each midi:MidiEvent the plugin wrote is a CLAP_EVENT_MIDI
+* MIDI. An LV2 MIDI input is one clap.note-ports input, dialects MIDI (preferred) and CLAP, and an LV2 MIDI output one
+* output, dialect MIDI. Each CLAP_EVENT_MIDI and CLAP_EVENT_MIDI_SYSEX of a process() call is written into the input before
+* that call's run(), at its frame, as a midi:MidiEvent of the message's length: a channel program change or channel
+* pressure carries two bytes, every other channel message three, a system message the length its status says, a sysex its
+* own bytes. A CLAP note on or off is the MIDI note on or off of its channel and key, a choke a note off of velocity 0; one
+* with a wildcard key or channel names no MIDI message and is not taken. When the input also takes time:Position, the
+* transport's object comes first, at frame 0 (lv2/core). Each midi:MidiEvent the plugin wrote is a CLAP_EVENT_MIDI
 * (a message of up to three bytes, the rest zero) or a CLAP_EVENT_MIDI_SYSEX (a sysex), at its frame; a frame past the
 * block is held at its last frame, and a message of more than three bytes that is not a sysex is not passed on.
 *
@@ -72,6 +74,7 @@
 ************************************************************************************************************************
 */
 
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -496,7 +499,8 @@ static bool note_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_
         return false;
     memset(info, 0, sizeof(*info));
     info->id = 0;
-    info->supported_dialects = CLAP_NOTE_DIALECT_MIDI;
+    // the input takes CLAP's own note events too, translated to MIDI; the output speaks MIDI only
+    info->supported_dialects = is_input ? CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP : CLAP_NOTE_DIALECT_MIDI;
     info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
     snprintf(info->name, sizeof(info->name), "%s", is_input ? "MIDI in" : "MIDI out");
     return true;
@@ -529,6 +533,26 @@ static uint32_t frame_in(const struct shim *s, uint32_t time)
     return s->frames ? s->frames - 1 : 0;
 }
 
+/* [audio] a CLAP note on, off or choke as its MIDI message: 3, or 0 for one that names no single key on one channel of the
+ * port. The velocity is scaled to 0..127 and rounded, a note on never at 0 (a note off to MIDI), a choke at 0. */
+static uint32_t note_midi(const clap_event_header_t *h, uint8_t m[3])
+{
+    const clap_event_note_t *e = (const clap_event_note_t *)h;
+    double v = e->velocity < 0.0 ? 0.0 : e->velocity > 1.0 ? 1.0 : e->velocity;
+    long vel = lrint(v * 127.0);
+
+    if (e->key < 0 || e->key > 127 || e->channel < 0 || e->channel > 15 || (e->port_index != 0 && e->port_index != -1))
+        return 0;
+    if (h->type == CLAP_EVENT_NOTE_ON && vel < 1)
+        vel = 1;
+    if (h->type == CLAP_EVENT_NOTE_CHOKE)
+        vel = 0;
+    m[0] = (uint8_t)((h->type == CLAP_EVENT_NOTE_ON ? 0x90 : 0x80) | e->channel);
+    m[1] = (uint8_t)e->key;
+    m[2] = (uint8_t)vel;
+    return 3;
+}
+
 /* [audio] the MIDI of the events, in the order they came, into the MIDI input of the next run. A message the input cannot
  * carry is not written; one past the buffer is dropped and counted by the core. */
 static void midi_in_events(struct shim *s, const clap_input_events_t *events)
@@ -556,6 +580,13 @@ static void midi_in_events(struct shim *s, const clap_input_events_t *events)
 
             if (x->buffer && x->size)
                 lv2_instance_midi_in_add(s->in, frame_in(s, h->time), x->buffer, x->size);
+        }
+        else if (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF || h->type == CLAP_EVENT_NOTE_CHOKE)
+        {
+            uint8_t m[3];
+
+            if (note_midi(h, m))
+                lv2_instance_midi_in_add(s->in, frame_in(s, h->time), m, 3);
         }
     }
 }
@@ -993,10 +1024,13 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     if (memcmp(&c, &s->logged, sizeof(c)) == 0)
         return;
     snprintf(line, sizeof(line),
-             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u patch_dropped %u midi_in_dropped %u",
+             "lv2 counters: schedule_refused %u responses_refused %u respond_strikes %u map_on_audio %u schedule_off_audio %u log_on_audio %u patch_dropped %u midi_in_dropped %u make_path_refused %u",
              c.schedule_refused, c.responses_refused, c.respond_strikes, c.map_on_audio, c.schedule_off_audio, c.log_on_audio,
-             c.patch_dropped, c.midi_in_dropped);
+             c.patch_dropped, c.midi_in_dropped, c.make_path_refused);
     host_log(s->host, CLAP_LOG_WARNING, line);
+    // a state:makePath refusal names its code, the last one's, as a refusal of its own
+    if (c.make_path_refused != s->logged.make_path_refused)
+        host_log(s->host, CLAP_LOG_ERROR, lv2_instance_make_path_why(s->in));
     s->logged = c;
 }
 
@@ -1145,6 +1179,7 @@ int omx_clap_lv2_configure(const omx_clap_lv2_config_t *cfg, char why[OMX_CLAP_L
     config.worker_ring_bytes = cfg->worker_ring_bytes;
     config.atom_buffer_bytes = cfg->atom_buffer_bytes;
     config.lilv_soname = cfg->lilv_soname;
+    config.state_root = cfg->state_root;
     if (lv2_core_configure(&config, core_why) != 0)
     {
         why_set(why, core_why);
@@ -1242,4 +1277,98 @@ void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin)
 {
     if (plugin && plugin->plugin_data)
         lv2_instance_worker_quiesce(SHIM_OF(plugin)->in);
+}
+
+uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t size)
+{
+    const struct shim *s = plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+    const char *dir = s && s->in ? lv2_instance_saved_dir(s->in) : "";
+
+    if (buf && size)
+        snprintf(buf, size, "%s", dir);
+    return (uint32_t)strlen(dir);
+}
+
+int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX])
+{
+    char core_why[LV2_CORE_WHY_MAX];
+
+    if (lv2_saved_drop(saved_dir, core_why) != 0)
+    {
+        why_set(why, core_why);
+        return -1;
+    }
+    why_set(why, "");
+    return 0;
+}
+
+/* the shim of a plugin this adapter created, NULL for any other */
+static struct shim *shim_of_any(const clap_plugin_t *plugin)
+{
+    return plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+}
+
+/* the index of text property `uri`, or -1 */
+static int32_t text_of_uri(const struct shim *s, const char *uri)
+{
+    uint32_t j;
+
+    for (j = 0; s && uri && j < s->lv2->n_texts; j++)
+        if (strcmp(s->lv2->texts[j].uri, uri) == 0)
+            return (int32_t)j;
+    return -1;
+}
+
+uint32_t omx_clap_lv2_patch_text_count(const clap_plugin_t *plugin)
+{
+    const struct shim *s = shim_of_any(plugin);
+
+    return s ? s->lv2->n_texts : 0;
+}
+
+bool omx_clap_lv2_patch_text_info(const clap_plugin_t *plugin, uint32_t index, omx_clap_lv2_text_info_t *info)
+{
+    const struct shim *s = shim_of_any(plugin);
+
+    if (!s || !info || index >= s->lv2->n_texts)
+        return false;
+    info->uri = s->lv2->texts[index].uri;
+    info->name = s->lv2->texts[index].name;
+    info->is_path = s->lv2->texts[index].is_path;
+    info->max_bytes = lv2_plugin_text_limit(s->lv2);
+    return true;
+}
+
+int omx_clap_lv2_patch_text_set(const clap_plugin_t *plugin, const char *uri, const char *value, char why[OMX_CLAP_LV2_WHY_MAX])
+{
+    struct shim *s = shim_of_any(plugin);
+    const int32_t j = text_of_uri(s, uri);
+    char core_why[LV2_CORE_WHY_MAX];
+
+    if (j < 0 || !s->in)
+    {
+        why_set(why, LV2_CODE_PATCH_NOT_WRITABLE);
+        return -1;
+    }
+    if (lv2_instance_text_set(s->in, (uint32_t)j, value, core_why) != 0)
+    {
+        why_set(why, core_why);
+        return -1;
+    }
+    why_set(why, "");
+    return 0;
+}
+
+uint32_t omx_clap_lv2_patch_text_get(const clap_plugin_t *plugin, const char *uri, char *buf, uint32_t size)
+{
+    const struct shim *s = shim_of_any(plugin);
+    const int32_t j = text_of_uri(s, uri);
+
+    if (j < 0 || !s->in)
+    {
+        if (buf && size)
+            buf[0] = '\0';
+        return 0;
+    }
+    return lv2_instance_text_get(s->in, (uint32_t)j, buf, size);
 }
