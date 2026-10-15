@@ -9,12 +9,16 @@ to mod-host and want CLAP plugins as well.
 - Same protocol as mod-host: `add`, `param_set`, `bypass`, `connect`, with mod-host's replies and error codes.
 - Every plugin is a JACK client `effect_<N>` with ports `in_<k>` and `out_<k>`, laid out as mod-host lays out an LV2 plugin.
 - Instruments work too: a note input becomes a MIDI port, `effect_<N>:midi_in`.
+- LV2 plugins too: `add lv2:<uri> <N>` (or the URI alone, as mod-host takes it) runs an LV2 plugin from `LV2_PATH` on the same ports, its controls addressed by their LV2 symbols.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
 - `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
 
-LV2 plugins are loaded through the same CLAP host by an LV2 to CLAP adapter, the library
-`libomx-clap-lv2` (package `omx-clap-lv2-devel`, or `libomx-clap-lv2-dev` on Debian). What works
-today, and the test that proves each part, is in [docs/lv2-compatibility.md](docs/lv2-compatibility.md).
+LV2 plugins run through the same CLAP host by an LV2 to CLAP adapter, the library
+`libomx-clap-lv2`, which omx-clap-host links in (and any program can, from the package
+`omx-clap-lv2-devel`, or `libomx-clap-lv2-dev` on Debian). lilv is loaded on the first LV2 add. A
+plugin the adapter cannot run is refused with its reason: `resp -102 hosting.features.missing`.
+What works today, and the test that proves each part, is in
+[docs/lv2-compatibility.md](docs/lv2-compatibility.md).
 
 The CLAP hosting core is a library of its own, `libomx-clap-core`, for programs that host CLAP
 plugins themselves: it checks a plugin before using it, runs its audio on your thread and keeps
@@ -55,6 +59,9 @@ the continuous integration runs on every push, and the packages it builds:
 - The plugin lifecycle and the scanner against fake plugins, including a plugin that crashes.
 - The hosting core with untrusted plugins, under AddressSanitizer and UndefinedBehaviorSanitizer.
 - The LV2 adapter against fixture bundles, validated with `lv2_validate`.
+- An LV2 plugin through the host in a JACK graph: `add lv2:<uri>`, refusals with their codes,
+  parameters by symbol, `lv2:enabled` as the bypass, state, presets and remove; and its output bit
+  for bit against mod-host and against the adapter in process.
 - The host in a JACK graph, over PipeWire's JACK and over JACK2's `jackd` (x86_64): port layout,
   latency, MIDI input for instruments, meters.
 - The exported symbols of `libomx-clap-core` against a versioned baseline.
@@ -62,7 +69,7 @@ the continuous integration runs on every push, and the packages it builds:
   installed in a clean root or container.
 
 LV2 support is partial: [docs/lv2-compatibility.md](docs/lv2-compatibility.md) lists what is
-claimed and the test behind each row, and MIDI, transport, state and presets are not claimed yet.
+claimed and the test behind each row.
 The host has no plugin GUI.
 
 Try it
@@ -88,6 +95,14 @@ which the scan prints):
 
 The plugin is now the JACK client `effect_0`: link your audio to its `in_<k>` ports and take it
 from its `out_<k>` ports.
+
+An LV2 plugin is added by its URI, from the bundles on `LV2_PATH`, and its controls are its port
+symbols, as with mod-host. A plugin the LV2 adapter cannot run says why:
+
+    send "add lv2:urn:zamaudio:ZamComp 1"                                          # resp 1
+    send "param_set 1 thr -20"                                                     # resp 0
+    send "param_get 1 thr"                                                         # resp 0 -20.0000
+    send "add lv2:http://lsp-plug.in/plugins/lv2/limiter_stereo 2"                 # resp -102 hosting.features.midi-in-fed-empty
 
 More: [every command, meters, bypass, port layout, latency and scanning](doc/reference.md), the
 manual pages (`man omx-clap-host`, `man omx-clap-scan`) and <https://freemixer.github.io>.

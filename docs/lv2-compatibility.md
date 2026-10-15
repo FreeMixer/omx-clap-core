@@ -14,6 +14,11 @@ that moves under a parameter sweep is applied after a hold and a restart rather 
 Features the in-process adapter does not carry are available by running the plugin in an isolated
 worker, where the matrix says so.
 
+omx-clap-host runs LV2 plugins through the same adapter, linked into it: `add lv2:<uri>`, or the
+URI alone, finds the bundle on `LV2_PATH` and presents the plugin as one CLAP plugin on the ports a
+CLAP plugin gets. [Through omx-clap-host](#through-omx-clap-host) says what that path does and the
+test behind each row.
+
 plugin-hostd runs every LV2 and CLAP plugin in a native host of its own format, with no
 translation. A CLAP plugin can show its own window, or a panel the console draws from its CLAP
 extensions. An LV2 plugin's modgui is planned in the console (until then it gets the generated panel); native LV2 desktop UIs are not hosted
@@ -34,8 +39,8 @@ How to read the matrix
 - **unsupported** means no test proves it yet. Where the adapter's plan adds it, the cell says at
   which stage.
 - No mod-host feature is proven by a test of this repository yet, so the isolated-worker column
-  says unsupported in every feature row. `tests/clap_lv2_identity.sh` compares one plugin through
-  mod-host and through omx-clap-host and is run on the desk, not in CI.
+  says unsupported in every feature row. `tests/clap_lv2_identity.sh` runs one plugin through
+  mod-host as the reference of the omx-clap-host rows below; it proves the output, not the features.
 
 The tests named below:
 
@@ -47,6 +52,9 @@ The tests named below:
 | `lv2_clap_test` | `lv2/tests/lv2_clap_test.c`: the CLAP face, and libomx-clap-core's CLAP body around it |
 | `lv2_link_test` | `lv2/tests/lv2_link_test.c`: a program built against the installed package |
 | `lv2_patch_test` | `lv2/tests/lv2_patch_test.c`: the patch ports of the LV2 half, against the patch fixture bundle |
+| `jack_lv2_e2e` | `tests/jack_lv2_e2e.sh` (`make test-jack-lv2`): omx-clap-host over jack in a PipeWire of its own, the fixture bundles on `LV2_PATH`, every value read back from the plugin's own meter port |
+| `identity` | `tests/clap_lv2_identity.sh`: one plugin from the same input through mod-host, omx-clap-host's `lv2:` path and the adapter in process, compared bit for bit, then bypassed and compared with the input. `make test-identity-lv2` runs the fixture in CI; `make test-identity` runs omx-delay from the omx-plugins packages four ways, its CLAP twin through omx-clap-host the fourth, on the desk |
+| `lv2_locate_test` | `tests/lv2_locate_test.c` (`make test-lv2-locate`): which bundle on `LV2_PATH` the host opens for a URI |
 
 Ports
 -----
@@ -117,6 +125,25 @@ Features and extensions
 | `instance-access`, `data-access` | unsupported | unsupported |
 | Required features outside the configured list | refused with `hosting.features.missing` before the binary is opened (`lv2_host_test` features, `lv2_clap_test` refusals) | unsupported |
 | lilv loaded only when the first bundle is opened | supported: a missing lilv refuses the bundle and is retried next time (`lv2_host_test` lazy) | not applicable |
+
+Through omx-clap-host
+---------------------
+
+| What | omx-clap-host |
+|---|---|
+| `add lv2:<uri> <N>`, and the URI alone as mod-host takes it | supported: the bundle on `LV2_PATH` whose manifest names the URI, whole or as a prefixed name, and whose plugin list holds it; the client `effect_<N>` with `in_<k>`/`out_<k>`, and `midi_in` for a plugin with an LV2 MIDI input, as for a CLAP plugin (`jack_lv2_e2e`, `lv2_locate_test`) |
+| A URI no bundle holds | `resp -101` (`jack_lv2_e2e`) |
+| A plugin the adapter refuses | `resp -102 <code>`, the code also on stderr: `hosting.topology.wider-than-strip`, `hosting.features.midi-in-fed-empty`, `hosting.features.missing`, `hosting.topology.no-audio-output`, and `hosting.no-realisation` for a plugin whose binary cannot be loaded (`jack_lv2_e2e`); the adapter keeps the code for the host, `omx_clap_lv2_last_refusal` (`lv2_clap_test` refusals) |
+| The default state (`state:loadDefaultState`) | supported (`jack_lv2_e2e`: -26 dB with the -6 dB of the default state) |
+| Control input ports | supported: `param_set` and `param_get` by the port's `lv2:symbol` or by its CLAP id, the port index; `param_info` by either (`jack_lv2_e2e`, `lv2_clap_test` fixture: `omx_clap_lv2_param_symbol`) |
+| Control output ports | supported: `param_get` by symbol; `monitor_output <N> <symbol>` sends `output_set` when the value moves (`jack_lv2_e2e`) |
+| `lv2:enabled` | supported: the host's bypass, its one-block crossfade; `param_set <N> enabled 0` bypasses, `1` does not, `param_get <N> enabled` reads the host's bypass whichever verb set it (`jack_lv2_e2e`, `identity` bypass) |
+| State save and restore | supported: `state_save` writes the LV2 state as Turtle to `effect_<N>.clapstate`, `state_load` restores it (`jack_lv2_e2e`) |
+| Presets by URI | supported: `preset_load <N> <preset uri>`; a preset of another plugin or one the bundle does not hold answers `resp -104` (`jack_lv2_e2e`) |
+| `remove` | supported: no port of `effect_<N>` stays in the graph (`jack_lv2_e2e`, `identity`) |
+| Output bit-identical to mod-host and to the adapter in process | supported for the fixture in CI and for omx-delay on the desk, wet and bypassed (`identity`); omx-delay's LV2 build is bit-identical with its CLAP twin through omx-clap-host as well |
+| lilv | not linked: the adapter loads it on the first LV2 add (`make test-jack-lv2` reads the binary's `NEEDED` entries; CI's clean-root install checks `ldd`) |
+| A latency the plugin reports after its first activate | lossy, as in process: held for 250 ms (`CLAP_HOST_LATENCY_HOLD_MS`), then the plugin is restarted and the stage crossfades through the restart (`identity` waits for it before it plays) |
 
 Plugin GUIs
 -----------
