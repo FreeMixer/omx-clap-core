@@ -8,6 +8,6 @@ Description: The CLAP hosting core of omx-clap-host: a plugin's process() on the
 Version: @VERSION@
 Requires: clap
 # hosted_stage.h takes its DSP words from omx-dsp's headers; nothing of omx-dsp is linked
-Requires.private: omxdsp >= 0.18.1
+Requires.private: omxdsp >= 0.18.0
 Libs: -L${libdir} -lomx-clap-core
 Cflags: -I${includedir}
