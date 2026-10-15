@@ -29,7 +29,7 @@
 * instance's too, so a plugin flagged lv2:inPlaceBroken is safe by construction.
 *
 * state:makePath. An instance of a host configured with a state root has a directory of its own under it,
-* <root>/lv2-<pid>-<n>, named at creation and made on the plugin's first request; a path is made only inside it, never
+* <root>/lv2-<pid>-<n>, named at creation (an n no directory of the root holds) and made on the plugin's first request; a path is made only inside it, never
 * on the audio role. A state save copies the files of it the state names to <root>/lv2-<pid>-<n>.saved (lilv's scratch
 * and copy directories), and the instance's directory is removed when the instance is freed: the copies stay.
 *
@@ -1064,9 +1064,17 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
             lv2_instance_free(in);
             return NULL;
         }
-        k = atomic_fetch_add_explicit(&g_dir_serial, 1u, memory_order_relaxed) + 1u;
-        snprintf(in->dir, n, "%s/lv2-%ld-%u", config->state_root, (long)getpid(), k);
-        snprintf(in->saved_dir, n, "%s.saved", in->dir);
+        // a name neither a directory nor a save's copies hold yet, from this process or an earlier one of the same pid
+        do
+        {
+            struct stat st;
+
+            k = atomic_fetch_add_explicit(&g_dir_serial, 1u, memory_order_relaxed) + 1u;
+            snprintf(in->dir, n, "%s/lv2-%ld-%u", config->state_root, (long)getpid(), k);
+            snprintf(in->saved_dir, n, "%s.saved", in->dir);
+            if (stat(in->dir, &st) != 0 && stat(in->saved_dir, &st) != 0)
+                break;
+        } while (k < UINT32_MAX);
     }
     return in;
 }
