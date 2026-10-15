@@ -1,0 +1,8 @@
+path,rate,quantum,rep,plugin,refused,reason
+adapter,*,*,*,lsp-comp (LV2),refused,hosting.features.midi-in-fed-empty
+adapter,*,*,*,dragonfly-room (LV2),refused,hosting.features.midi-in-fed-empty
+adapter,*,*,*,x42-fil4 (LV2),refused,hosting.features.midi-in-fed-empty
+inproc-lv2,*,*,*,lsp-comp (LV2),refused,hosting.features.midi-in-fed-empty
+inproc-lv2,*,*,*,dragonfly-room (LV2),refused,hosting.features.midi-in-fed-empty
+inproc-lv2,*,*,*,x42-fil4 (LV2),refused,hosting.features.midi-in-fed-empty
+inproc-lv2,*,*,*,calf-comp (LV2),refused,hosting.clap.note-input
