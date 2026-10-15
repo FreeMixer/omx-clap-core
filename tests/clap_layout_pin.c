@@ -25,58 +25,41 @@
  *
  * The plugin is created and initialised through CLAP alone, never activated, and destroyed. */
 
-#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
 #include <plugin-hostd/protocol.h>
 
 #include "layout_pin.h"
+#include "omx_clap_raw.h"
 
 static void print_sink(void *ctx, const char *data, size_t size)
 {
     fwrite(data, 1, size, (FILE *)ctx);
 }
 
-static const void *no_extension(const clap_host_t *host, const char *id)
-{
-    (void)host; (void)id;
-    return NULL;
-}
-
-static void no_request(const clap_host_t *host)
-{
-    (void)host;
-}
-
 int main(int argc, char **argv)
 {
-    static const clap_host_t host = {
-        CLAP_VERSION_INIT, NULL, "clap_layout_pin", "omx-clap-host", "", "0", no_extension, no_request, no_request, no_request
-    };
+    static const clap_host_t host = OMX_CLAP_RAW_NULL_HOST("clap_layout_pin");
     char hex[PHD_SHA256_HEX_LEN + 1];
-    const clap_plugin_entry_t *entry;
-    const clap_plugin_factory_t *factory;
+    omx_clap_raw_t raw;
     const clap_plugin_t *plugin;
     int bytes = argc == 4 && !strcmp(argv[1], "-b"), ret;
-    void *lib;
+    const char *why;
 
     if (argc != 3 + bytes)
     {
         fprintf(stderr, "usage: %s [-b] <file.clap> <plugin id>\n", argv[0]);
         return 2;
     }
-    lib = dlopen(argv[1 + bytes], RTLD_NOW | RTLD_LOCAL);
-    entry = lib ? dlsym(lib, "clap_entry") : NULL;
-    if (!entry || !entry->init(argv[1 + bytes]))
+    if ((why = omx_clap_raw_open(&raw, argv[1 + bytes])))
     {
-        fprintf(stderr, "%s: %s\n", argv[1 + bytes], lib ? "no clap_entry" : dlerror());
+        fprintf(stderr, "%s: %s\n", argv[1 + bytes], why);
         return 1;
     }
-    factory = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
-    plugin = factory ? factory->create_plugin(factory, &host, argv[2 + bytes]) : NULL;
-    if (!plugin || !plugin->init(plugin))
+    if (!(plugin = omx_clap_raw_create(&raw, &host, argv[2 + bytes])))
     {
         fprintf(stderr, "%s: cannot create or init %s\n", argv[1 + bytes], argv[2 + bytes]);
+        omx_clap_raw_close(&raw);
         return 1;
     }
     if (bytes)
@@ -84,6 +67,6 @@ int main(int argc, char **argv)
     else if ((ret = layout_pin_write(plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), NULL, NULL, hex)) == 0)
         printf("%s%s%s\n", PHD_PIN_LAYOUT_SCHEME, PHD_PIN_SCHEME_SEPARATOR, hex);
     plugin->destroy(plugin);
-    entry->deinit();
+    omx_clap_raw_close(&raw);
     return ret == 0 ? 0 : 1;
 }

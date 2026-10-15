@@ -30,20 +30,9 @@
 
 #include <clap/clap.h>
 #include <dlfcn.h>
+#include <omx-clap-host/omx_clap_raw.h>
 #include <omx_clap_lv2.h>
 #include <omx_lv2_features.h>
-
-static const void *ext(const clap_host_t *h, const char *id)
-{
-    (void)h;
-    (void)id;
-    return NULL;
-}
-
-static void nop(const clap_host_t *h)
-{
-    (void)h;
-}
 
 static uint32_t in_size(const clap_input_events_t *l)
 {
@@ -68,7 +57,7 @@ static bool out_push(const clap_output_events_t *l, const clap_event_header_t *e
 int main(int argc, char **argv)
 {
     const omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, 250u, NULL };
-    clap_host_t host = { CLAP_VERSION_INIT, NULL, "lv2_link_test", "", "", "0", ext, nop, nop, nop };
+    clap_host_t host = OMX_CLAP_RAW_NULL_HOST("lv2_link_test");
     const clap_input_events_t in_events = { NULL, in_size, in_get };
     const clap_output_events_t out_events = { NULL, out_push };
     char why[OMX_CLAP_LV2_WHY_MAX];
