@@ -941,7 +941,20 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             continue;
         }
         if (L.lilv_port_is_a(pl, port, g.node[N_CV]))
-            return LV2_CODE_CV_PORTS;
+        {
+            // a CV port is a mono audio port of its own, each way; one past the limit is refused
+            uint32_t *count = input ? &p->n_cv_in : &p->n_cv_out;
+            char **name = input ? p->cv_in_name : p->cv_out_name;
+            const char *sym = L.lilv_node_as_string(L.lilv_port_get_symbol(pl, port));
+
+            if (*count >= LV2_CORE_CV_PORTS)
+                return LV2_CODE_CV_PORTS;
+            name[*count] = node_dup(L.lilv_port_get_name(pl, port), sym ? sym : "");
+            if (!name[*count])
+                return LV2_CODE_NO_REALISATION;
+            (input ? p->cv_in : p->cv_out)[(*count)++] = i;
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_AUDIO]))
         {
             if (!input)
@@ -1070,6 +1083,11 @@ void lv2_plugin_close(struct lv2_plugin *p)
     free(p->patches);
     for (i = 0; i < p->n_side; i++)
         free(p->side_name[i]);
+    for (i = 0; i < LV2_CORE_CV_PORTS; i++)
+    {
+        free(p->cv_in_name[i]);
+        free(p->cv_out_name[i]);
+    }
     free(p->uri);
     free(p->bundle_path);
     lv2_bundle_unref(p->bundle);

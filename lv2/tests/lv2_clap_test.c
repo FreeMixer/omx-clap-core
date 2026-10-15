@@ -35,13 +35,17 @@
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
  *             by omx_clap_lv2_worker_quiesce; the fake's drain order; a stray respond counted on clap.log.
  *             A reset whose worker cannot start again fails process() and says so on clap.log until the next activate.
+ *   cv        each CV port a mono CLAP audio port, not main, named by its lv2:name, the inputs after the side chains and
+ *             the outputs after the main one; the audio and the CV output bit-identical with the fixture's binary run
+ *             directly with the same buffers, over blocks of several lengths; an input handed no buffer reads silence;
+ *             through the core, the CV input an auxiliary input it binds and the CV output an auxiliary output.
  *   make-path state:makePath under the configured state root: no directory until the plugin asks for a path; a save
  *             copies the file its state names to <dir>.saved and names the copy; the instance's directory removed with
  *             it, the copy kept; a second instance loading the state reads the level back from the copy, out = in x 2.5
  *             on every frame; a path outside the directory and an absolute one answered NULL, nothing written, counted
  *             as make_path_refused 2; an instance never saved leaves nothing; stale copies of an earlier process of the
- *             same pid are never taken as an instance's own. Without a root the feature is not offered (a child), and a relative root refuses
- *             the configure (a child).
+ *             same pid are never taken as an instance's own. Without a root the feature is not offered (a child),
+ *             and a relative root refuses the configure (a child).
  *   rt        no allocation inside process().
  *
  * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
@@ -111,6 +115,7 @@ static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
 static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX];
+static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
 
@@ -451,7 +456,6 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.midi-in-fed-empty" },
-        { FIXTURE_URI "#cv", "hosting.features.cv-ports" },
         { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
         { FIXTURE_URI "#no-out", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
@@ -1845,6 +1849,166 @@ static void t_sidechain_core(double rate)
     omx_clap_lv2_entry_release(entry);
 }
 
+/* ---- the CV ports: mono audio ports, bit-identical with the plugin run directly ---- */
+
+#define CV_URI "urn:openmixer:test:cv-fixture"
+
+/* one process() call of the CV fixture: `cv` the CV input (NULL: no buffer handed), `env` the CV output (NULL: none) */
+static clap_process_status cv_process(struct rig *g, float *in, float *cv, float *out, float *env, uint32_t n)
+{
+    float *ins[1] = { in }, *cvs[1] = { cv }, *outs[1] = { out }, *envs[1] = { env };
+    clap_audio_buffer_t ib[2] = { { ins, NULL, 1, 0, 0 }, { cvs, NULL, 1, 0, 0 } };
+    clap_audio_buffer_t ob[2] = { { outs, NULL, 1, 0, 0 }, { envs, NULL, 1, 0, 0 } };
+    struct evlist none;
+    clap_process_t p;
+    clap_process_status st;
+
+    ev_init(&none);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = -1;
+    p.frames_count = n;
+    p.audio_inputs = ib;
+    p.audio_outputs = ob;
+    p.audio_inputs_count = cv ? 2 : 1;
+    p.audio_outputs_count = env ? 2 : 1;
+    p.in_events = &none.list;
+    p.out_events = &OUT_EVENTS;
+    g_audio = 1;
+    in_rt = 1;
+    st = g->plugin->process(g->plugin, &p);
+    in_rt = 0;
+    g_audio = 0;
+    return st;
+}
+
+/* the fixture's binary run directly at `rate` over the same blocks and buffers: what the adapter must give, bit for bit */
+static int cv_direct(double rate, const uint32_t *lens, uint32_t n_lens, const float *x, const float *m, float *out, float *env)
+{
+    void *so = dlopen(g_cv_so, RTLD_NOW);
+    const LV2_Descriptor *(*descriptor)(uint32_t);
+    const LV2_Descriptor *d = NULL;
+    static float bi[MAXB], bm[MAXB], bo[MAXB], be[MAXB];
+    LV2_Handle h;
+    uint32_t b, at = 0;
+
+    if (!so)
+        return -1;
+    *(void **)&descriptor = dlsym(so, "lv2_descriptor");
+    d = descriptor ? descriptor(0) : NULL;
+    h = d ? d->instantiate(d, rate, g_cv, NULL) : NULL;
+    if (!h)
+    {
+        dlclose(so);
+        return -1;
+    }
+    d->connect_port(h, 0, bi);
+    d->connect_port(h, 1, bo);
+    d->connect_port(h, 2, bm);
+    d->connect_port(h, 3, be);
+    d->activate(h);
+    for (b = 0; b < n_lens; b++)
+    {
+        memcpy(bi, x + at, lens[b] * sizeof(float));
+        memcpy(bm, m + at, lens[b] * sizeof(float));
+        d->run(h, lens[b]);
+        memcpy(out + at, bo, lens[b] * sizeof(float));
+        memcpy(env + at, be, lens[b] * sizeof(float));
+        at += lens[b];
+    }
+    d->deactivate(h);
+    d->cleanup(h);
+    dlclose(so);
+    return 0;
+}
+
+static void t_cv(double rate)
+{
+    static const uint32_t lens[] = { BLOCK, 17u, 1u, MAXB, 40u, BLOCK, 3u };
+    enum { N_LENS = sizeof(lens) / sizeof(lens[0]), TOTAL = 64 + 17 + 1 + 256 + 40 + 64 + 3 };
+    static float x[TOTAL], m[TOTAL], zero[TOTAL], out[TOTAL], env[TOTAL], want_out[TOTAL], want_env[TOTAL];
+    clap_audio_port_info_t port;
+    struct rig g;
+    uint32_t b, i, at;
+
+    for (i = 0; i < TOTAL; i++)
+    {
+        x[i] = 0.5f * sinf(0.0613f * (float)i);
+        m[i] = 0.75f * sinf(0.0071f * (float)i + 0.3f);      // a signal of its own, not a copy of the audio
+        zero[i] = 0.0f;
+    }
+    if (rig_up(&g, g_cv, CV_URI, rate, MAXB) != 0)
+        return;
+    CHECK(g.ports && g.ports->count(g.plugin, true) == 2 && g.ports->count(g.plugin, false) == 2,
+          "cv %.0f: two inputs (the main and the CV input) and two outputs (the main and the CV output)", rate);
+    CHECK(g.ports->get(g.plugin, 0, true, &port) && port.flags == CLAP_AUDIO_PORT_IS_MAIN && port.channel_count == 1,
+          "cv %.0f: the main input is the main mono port", rate);
+    CHECK(g.ports->get(g.plugin, 1, true, &port) && port.id == 1 && port.flags == 0 && port.channel_count == 1
+          && strcmp(port.name, "Mod") == 0 && strcmp(port.port_type, CLAP_PORT_MONO) == 0 && port.in_place_pair == CLAP_INVALID_ID,
+          "cv %.0f: the CV input is a mono port named Mod, not main (%s)", rate, port.name);
+    CHECK(g.ports->get(g.plugin, 1, false, &port) && port.id == 1 && port.flags == 0 && port.channel_count == 1
+          && strcmp(port.name, "Env") == 0 && strcmp(port.port_type, CLAP_PORT_MONO) == 0,
+          "cv %.0f: the CV output is a mono port named Env, not main (%s)", rate, port.name);
+    CHECK(!g.ports->get(g.plugin, 2, true, &port) && !g.ports->get(g.plugin, 2, false, &port), "cv %.0f: no third port either way", rate);
+
+    for (b = 0, at = 0; b < N_LENS; at += lens[b], b++)
+        cv_process(&g, x + at, m + at, out + at, env + at, lens[b]);
+    CHECK(cv_direct(rate, lens, N_LENS, x, m, want_out, want_env) == 0, "cv %.0f: the fixture's binary runs directly", rate);
+    CHECK(bits_equal(out, want_out, TOTAL), "cv %.0f: %u frames in blocks of 64, 17, 1, 256, 40, 64, 3: the audio output is the direct run's, bit for bit (peak %g)",
+          rate, (unsigned)TOTAL, (double)peak_diff(out, want_out, TOTAL));
+    CHECK(bits_equal(env, want_env, TOTAL), "cv %.0f: the CV output is the direct run's, bit for bit (peak %g)", rate,
+          (double)peak_diff(env, want_env, TOTAL));
+    rig_down(&g);
+
+    // handed no CV buffer, the input reads silence: the direct run with a zero CV input, after a fresh activate
+    if (rig_up(&g, g_cv, CV_URI, rate, MAXB) != 0)
+        return;
+    for (b = 0, at = 0; b < N_LENS; at += lens[b], b++)
+        cv_process(&g, x + at, NULL, out + at, NULL, lens[b]);
+    cv_direct(rate, lens, N_LENS, x, zero, want_out, want_env);
+    CHECK(bits_equal(out, want_out, TOTAL), "cv %.0f: an input handed no buffer reads silence, as the direct run with a zero CV input", rate);
+    rig_down(&g);
+}
+
+/* the CV fixture through libomx-clap-core: the CV input an auxiliary input the caller binds, the CV output an auxiliary
+ * output; the bound CV reaches the audio exactly */
+static void t_cv_core(double rate)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_cv, why);
+    struct omx_clap_instance *in = NULL;
+    static float l[BLOCK], r[BLOCK], cv[MAXB];
+    uint32_t i;
+    int same;
+
+    CHECK(entry && omx_clap_host_open_entry(entry, CV_URI, &in, cwhy) == 0, "cv core %.0f: the CV fixture opens through the core (%s)", rate, cwhy);
+    if (!in)
+    {
+        omx_clap_lv2_entry_release(entry);
+        return;
+    }
+    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 1 && in->aux_outputs == 1 && in->aux_channels[0] == 1,
+          "cv core %.0f: one mono auxiliary input and one mono auxiliary output (%u, %u)", rate, in->aux_inputs, in->aux_outputs);
+    for (i = 0; i < MAXB; i++)
+        cv[i] = 0.25f;
+    CHECK(omx_clap_host_bind_aux_input(in, 0, cv, NULL, MAXB) == 0, "cv core %.0f: bind the CV input", rate);
+    CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "cv core %.0f: activate (%s)", rate, cwhy);
+    omx_clap_host_publish(in, pthread_self());
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f;
+    core_run(in, l, r, BLOCK);          /* the first cycle after arming is the warm-up's: its output is not checked */
+    for (i = 0; i < BLOCK; i++)
+        l[i] = 0.5f;
+    core_run(in, l, r, BLOCK);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && l[i] == 0.125f;
+    CHECK(same, "cv core %.0f: the plugin reads the bound CV through the core: 0.5 x 0.25 (%g)", rate, l[0]);
+    omx_clap_request_stop(&in->stage);
+    core_run(in, l, r, BLOCK);
+    CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "cv core %.0f: unpublish", rate);
+    omx_clap_host_close(in);
+    omx_clap_lv2_entry_release(entry);
+}
+
 static void t_core(double rate)
 {
     char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
@@ -2146,6 +2310,9 @@ int main(int argc, char **argv)
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
     abs_dir(dir, g_midi);
+    snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", build);
+    abs_dir(dir, g_cv);
+    snprintf(g_cv_so, sizeof(g_cv_so), "%somx-cv-fixture.so", g_cv);
     snprintf(g_midi_so, sizeof(g_midi_so), "%somx-midi-echo.so", g_midi);
     in_rt = 1;
     probe = malloc(16);
@@ -2180,6 +2347,8 @@ int main(int argc, char **argv)
         t_sidechain_core(RATES[r]);
         t_make_path(RATES[r]);
         t_make_path_escape(RATES[r]);
+        t_cv(RATES[r]);
+        t_cv_core(RATES[r]);
         t_core(RATES[r]);
         t_warmup_block(RATES[r], MAXB, MAXB);
         t_warmup_block(RATES[r], WARMB, MAXB);

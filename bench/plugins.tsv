@@ -1,0 +1,16 @@
+# the bench's plugin set: one row per plugin, tab-separated; '-' where the path cannot take that format
+# The stock LV2 rows are plugins libomx-clap-lv2 admits: lsp-plugins.lv2, DragonflyRoomReverb.lv2 and fil4.lv2 are
+# refused by it (hosting.features.midi-in-fed-empty: an atom port it does not map), so their LV2 builds are left out
+# and only their CLAP builds run. calf.lv2 is left out too: its plugins carry a MIDI input, which the in-process
+# configuration refuses (hosting.clap.note-input).
+# name	clap file	clap id	lv2 bundle	lv2 uri
+omx-comp	/usr/lib/clap/omx-comp.clap	org.openmixer.comp	/usr/lib64/lv2/omx-comp.lv2	urn:openmixer:comp
+omx-delay	/usr/lib/clap/omx-delay.clap	org.openmixer.delay	/usr/lib64/lv2/omx-delay.lv2	urn:openmixer:delay
+omx-deesser	/usr/lib/clap/omx-deesser.clap	org.openmixer.deesser	/usr/lib64/lv2/omx-deesser.lv2	urn:openmixer:deesser
+omx-eq8	/usr/lib/clap/omx-eq8.clap	org.openmixer.eq8	/usr/lib64/lv2/omx-eq8.lv2	urn:openmixer:eq8
+omx-reverb	/usr/lib/clap/omx-reverb.clap	org.openmixer.reverb	/usr/lib64/lv2/omx-reverb.lv2	urn:openmixer:reverb
+lsp-comp	/usr/lib64/clap/lsp-plugins.clap	in.lsp-plug.compressor_stereo	-	-
+dragonfly-room	/usr/lib64/clap/DragonflyRoomReverb.clap	michaelwillis.dragonfly.room	-	-
+zam-compx2	-	-	/usr/lib64/lv2/ZamCompX2.lv2	urn:zamaudio:ZamCompX2
+caps-platex2	-	-	/usr/lib64/lv2/mod-caps-PlateX2.lv2	http://moddevices.com/plugins/caps/PlateX2
+caps-compressx2	-	-	/usr/lib64/lv2/mod-caps-CompressX2.lv2	http://moddevices.com/plugins/caps/CompressX2
