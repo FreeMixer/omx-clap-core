@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# An LV2 plugin through omx-clap-host over jack, end to end, in a PipeWire of
+# its own: the host finds the fixture bundle on LV2_PATH, runs it through the
+# LV2 adapter on the port layout of a CLAP plugin, answers each refusal of the
+# adapter with its hosting code, addresses the control ports by their LV2
+# symbols, maps lv2:enabled onto its bypass, saves, loads and takes a preset
+# by its URI, and removes the plugin leaving no port behind. The values are
+# read from the plugin's own meter port: a constant input (jack_meter_source,
+# 0.5) through the fixture, out = in * 10^((gain_db + offset_db) / 20), the
+# offset -6 dB from the default state and -3 dB from the preset `quiet`, and a
+# second fixture after the first as a probe of what the first passes. Exit 0
+# only when every step held; each step is printed.
+#
+# OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
+# LV2_BUNDLES:      the directory of the fixture bundles (default ./build/lv2)
+# JACK_E2E_PORT:    the socket port (default 5566); the feedback port is the next one
+
+set -u
+
+here=$(cd "$(dirname "$0")" && pwd)
+root=$(dirname "$here")
+host=${OMX_CLAP_HOST:-$root/omx-clap-host}
+bundles=${LV2_BUNDLES:-$root/build/lv2}
+port=${JACK_E2E_PORT:-5566}
+fbport=$((port + 1))
+fake=$here/fake.clap
+source=$here/jack_meter_source
+fixture=urn:openmixer:test:host-fixture
+
+if [ -z "${JACK_E2E_INSIDE:-}" ]; then
+    for f in "$host" "$bundles/omx-host-fixture.lv2/manifest.ttl" "$fake" "$source"; do
+        [ -e "$f" ] || { echo "missing $f" >&2; exit 2; }
+    done
+    JACK_E2E_INSIDE=1 OMX_CLAP_HOST=$host LV2_BUNDLES=$(readlink -f "$bundles") JACK_E2E_PORT=$port \
+        exec unshare --user --map-root-user --net --pid --fork --mount-proc "$0" "$@"
+fi
+
+failures=0
+step() {
+    if [ "$1" -eq 0 ]; then
+        echo "ok   $2"
+    else
+        echo "FAIL $2"
+        failures=$((failures + 1))
+        tail -5 "$runtime/host.log" 2>/dev/null | sed 's/^/     host: /'
+    fi
+}
+
+runtime=$(mktemp -d /tmp/omx-clap-host-lv2.XXXXXX)
+feedback=$runtime/feedback.log
+export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH=$runtime/pulse
+unset DBUS_SESSION_BUS_ADDRESS
+pids=()
+cleanup() {
+    exec 3>&- 4>&- 2>/dev/null
+    for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
+    kill -TERM -- -1 2>/dev/null
+    wait 2>/dev/null
+    rm -rf "${runtime:?}"
+}
+trap cleanup EXIT
+[ "$$" = 1 ]; step $? "pid 1 of a private pid namespace"
+
+ip link set lo up
+pipewire >"$runtime/pw.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
+[ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
+step 0 "private pipewire on $runtime"
+
+# a bundle whose plugin has no binary: the adapter reads it and refuses it at init
+mkdir -p "$runtime/extra/nobin.lv2"
+cat >"$runtime/extra/nobin.lv2/manifest.ttl" <<'TTL'
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix t:    <urn:openmixer:test:> .
+t:nobin a lv2:Plugin ; lv2:binary <nobin.so> ; rdfs:seeAlso <nobin.ttl> .
+TTL
+cat >"$runtime/extra/nobin.lv2/nobin.ttl" <<'TTL'
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+<urn:openmixer:test:nobin> a lv2:Plugin ; doap:name "no binary" ;
+    lv2:port [ a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In" ] ,
+             [ a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out" ] .
+TTL
+
+# the bundles are found on LV2_PATH, as plugin-hostd narrows it, and nowhere else
+LV2_PATH=$bundles:$runtime/extra "$host" -n -p "$port" -f "$fbport" >"$runtime/host.log" 2>&1 &
+host_pid=$!
+pids+=($host_pid)
+for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
+grep -q "ready!" "$runtime/host.log"
+step $? "omx-clap-host ready on port $port with LV2_PATH=$bundles:$runtime/extra"
+
+exec 3<>"/dev/tcp/127.0.0.1/$port"
+exec 4<>"/dev/tcp/127.0.0.1/$fbport"
+: >"$feedback"
+while IFS= read -r -d '' line <&4; do echo "$line" >>"$feedback"; done &
+pids+=($!)
+
+send() {
+    printf '%s\0' "$1" >&3
+    IFS= read -r -d '' -t 5 reply <&3
+    echo "$reply"
+}
+expect() {
+    local reply
+    reply=$(send "$1")
+    [ "$reply" = "$2" ]
+    step $? "$1 -> $reply"
+}
+near() { awk -v a="$1" -v b="$2" -v t="$3" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= t) }'; }
+db() { awk -v x="$1" -v d="$2" 'BEGIN { printf "%.6f", x * exp(d / 20 * log(10)) }'; }
+# param_get of a symbol settles on `want` within `tol` in up to 3 s: a write, a bypass or a preset lands on a later
+# cycle; param_get answers 4 decimals, so 0.00006 is the tolerance of a value read through it
+reads() {
+    local instance=$1 symbol=$2 want=$3 tol=$4 what=$5 reply v
+    for _ in $(seq 30); do
+        reply=$(send "param_get $instance $symbol")
+        v=${reply#resp 0 }
+        [ "$v" != "$reply" ] && near "$v" "$want" "$tol" && break
+        sleep 0.1
+    done
+    [ "$v" != "$reply" ] && near "$v" "$want" "$tol"
+    step $? "$what: param_get $instance $symbol reads $want ($reply)"
+}
+last() { awk -v i="$1" -v s="$2" '$1 == "output_set" && $2 == i && $3 == s { v = $4 } END { print v }' "$feedback"; }
+ports() { pw-link "-$2" 2>/dev/null | grep "^$1:" | sort | tr '\n' ' '; }
+
+# ---- the add: lv2:<uri> and the bare URI, the layout of a CLAP plugin ----
+expect "add lv2:$fixture 0" "resp 0"
+[ "$(ports effect_0 i)" = "effect_0:in_1 " ]; step $? "effect_0's inputs: $(ports effect_0 i)(in_1 alone: a mono plugin with no MIDI input has no midi_in)"
+[ "$(ports effect_0 o)" = "effect_0:out_1 " ]; step $? "effect_0's outputs: $(ports effect_0 o)"
+expect "add $fixture 1" "resp 1"
+[ "$(ports effect_1 i)" = "effect_1:in_1 " ]; step $? "the bare URI, as mod-host takes it, is the same plugin: $(ports effect_1 i)"
+expect "add lv2:$fixture 3" "resp 3"
+
+# ---- refusals: the adapter's code after the error code, and on stderr ----
+expect "add lv2:$fixture#wide 2" "resp -102 hosting.topology.wider-than-strip"
+expect "add lv2:$fixture#atom 2" "resp -102 hosting.features.midi-in-fed-empty"
+expect "add lv2:$fixture#fixed 2" "resp -102 hosting.features.missing"
+expect "add lv2:$fixture#no-out 2" "resp -102 hosting.topology.no-audio-output"
+for code in hosting.topology.wider-than-strip hosting.features.midi-in-fed-empty hosting.features.missing hosting.topology.no-audio-output; do
+    grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
+done
+expect "add lv2:urn:openmixer:test:on-no-path 2" "resp -101"
+grep -q "^urn:openmixer:test:on-no-path: no bundle on the LV2 path holds it\$" "$runtime/host.log"; step $? "a URI no bundle holds is an invalid URI, said on stderr"
+expect "add lv2:not-a-uri 2" "resp -101"
+# found through a prefixed name in its manifest, refused at init: the binary is not there
+expect "add lv2:urn:openmixer:test:nobin 2" "resp -102 hosting.no-realisation"
+# a CLAP plugin's refusal carries its code the same way
+expect "add clap:$fake#org.omx-clap-host.test.wide 2" "resp -102 hosting.topology.wider-than-strip"
+# a refusal names no later add
+expect "add lv2:$fixture 2" "resp 2"
+expect "remove 2" "resp 0"
+[ -z "$(ports effect_2 i)$(ports effect_2 o)" ]; step $? "remove leaves no effect_2 port"
+
+# ---- the signal: 0.5 into effect_0, effect_0 into the probe effect_1, 0.25 into effect_3 ----
+"$source" effect_0:in_1 effect_3:in_1 >"$runtime/source.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do grep -q playing "$runtime/source.log" && break; sleep 0.1; done
+grep -q playing "$runtime/source.log"; step $? "the source plays 0.5 into effect_0 and 0.25 into effect_3"
+pw-link effect_0:out_1 effect_1:in_1; step $? "effect_0:out_1 -> effect_1:in_1"
+
+# the default state: -20 dB from the port's default, -6 dB from state:loadDefaultState
+reads 3 meter "$(db 0.25 -26)" 0.00006 "the default state"
+reads 0 meter "$(db 0.5 -26)" 0.00006 "the default state"
+
+# ---- parameters by symbol, and by id ----
+expect "param_get 0 gain_db" "resp 0 -20.0000"
+expect "param_set 0 gain_db -14" "resp 0"
+expect "param_get 0 gain_db" "resp 0 -14.0000"
+expect "param_get 0 3" "resp 0 -14.0000"
+expect "param_set 0 3 -12" "resp 0"
+expect "param_get 0 gain_db" "resp 0 -12.0000"
+expect "param_set 0 gain_db -14" "resp 0"
+reads 0 meter "$(db 0.5 -20)" 0.00006 "gain_db -14 and the -6 dB state"
+expect "param_set 1 gain_db 0" "resp 0"
+reads 1 meter "$(db 0.5 -26)" 0.00006 "the probe after effect_0, -20 dB then -6 dB"
+expect "param_set 0 nosuch 1" "resp -103"
+expect "param_get 0 in" "resp -103"
+expect "param_set 0 meter 1" "resp -103"
+expect "param_info 0 gain_db" "resp -511"
+expect "param_info 0 nosuch" "resp -103"
+
+# ---- monitoring an output port by its symbol ----
+expect "monitor_output 0 meter" "resp 1"
+expect "monitor_output 0 gain_db" "resp 0"
+for _ in $(seq 30); do near "$(last 0 meter)" "$(db 0.5 -20)" 0.00001 && break; sleep 0.1; done
+near "$(last 0 meter)" "$(db 0.5 -20)" 0.00001; step $? "output_set 0 meter carries $(db 0.5 -20) ($(last 0 meter))"
+
+# ---- lv2:enabled is the host's bypass: 0 on, 1 (its processing value) off ----
+expect "param_set 0 enabled 0" "resp 0"
+expect "param_get 0 :bypass" "resp 0 1.0000"
+expect "param_get 0 enabled" "resp 0 0.0000"
+reads 1 meter "$(db 0.5 -6)" 0.00006 "bypassed by enabled 0, effect_0 passes its input"
+expect "param_set 0 enabled 1" "resp 0"
+expect "param_get 0 :bypass" "resp 0 0.0000"
+expect "param_get 0 enabled" "resp 0 1.0000"
+reads 1 meter "$(db 0.5 -26)" 0.00006 "enabled 1 again"
+expect "bypass 0 1" "resp 0"
+expect "param_get 0 enabled" "resp 0 0.0000"
+expect "param_get 0 2" "resp 0 0.0000"
+expect "bypass 0 0" "resp 0"
+expect "param_set 0 2 0" "resp 0"
+expect "param_get 0 :bypass" "resp 0 1.0000"
+expect "param_set 0 :bypass 0" "resp 0"
+expect "param_get 0 enabled" "resp 0 1.0000"
+reads 1 meter "$(db 0.5 -26)" 0.00006 "the bypass off"
+
+# ---- state and presets ----
+expect "state_save $runtime/state" "resp 0"
+grep -q 'offset_db' "$runtime/state/effect_0.clapstate" && grep -q -- '-6' "$runtime/state/effect_0.clapstate"
+step $? "effect_0.clapstate holds the -6 dB offset as LV2 Turtle"
+expect "preset_load 0 $fixture-preset:quiet" "resp 0"
+reads 0 meter "$(db 0.5 -17)" 0.00006 "the preset quiet: -14 dB and -3 dB"
+expect "preset_load 0 $fixture-preset:quiet-wrong" "resp -104"
+expect "preset_load 0 urn:openmixer:test:no-preset" "resp -104"
+reads 0 meter "$(db 0.5 -17)" 0.00006 "a refused preset changes nothing"
+expect "state_load $runtime/state" "resp 0"
+reads 0 meter "$(db 0.5 -20)" 0.00006 "the state loaded: -6 dB again"
+reads 3 meter "$(db 0.25 -26)" 0.00006 "the other fixture untouched"
+
+# ---- remove ----
+expect "remove 0" "resp 0"
+[ -z "$(ports effect_0 i)$(ports effect_0 o)" ]; step $? "remove leaves no effect_0 port"
+expect "param_get 0 gain_db" "resp -3"
+expect "remove 1" "resp 0"
+expect "remove 3" "resp 0"
+[ -z "$(pw-link -i 2>/dev/null | grep '^effect_')$(pw-link -o 2>/dev/null | grep '^effect_')" ]; step $? "no effect_ port is left in the graph"
+expect "quit" "resp 0"
+sleep 0.3
+! kill -0 "$host_pid" 2>/dev/null; step $? "host exited on quit"
+
+if [ "$failures" -eq 0 ]; then
+    echo "jack lv2 e2e ok"
+    exit 0
+fi
+echo "jack lv2 e2e FAILED ($failures)"
+exit 1

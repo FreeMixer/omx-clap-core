@@ -99,7 +99,7 @@ INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 LDFLAGS += -Wl,--no-undefined
 
 # source and object files
-SRC = src/main.c src/effects.c
+SRC = src/main.c src/effects.c src/lv2_locate.c
 OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
@@ -136,9 +136,9 @@ $(CORE_SONAME): $(CORE_FILE)
 $(CORE_SO): $(CORE_SONAME)
 	ln -sf $< $@
 
-# linking rule
-$(PROG): $(OBJ) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(OBJ) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
+# linking rule: the LV2 adapter is linked in, and lilv is not: the adapter dlopens it on the first LV2 add
+$(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
+	$(CC) $(OBJ) $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
@@ -151,6 +151,10 @@ $(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
 # meta-rule to generate the object files
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the host adds an LV2 plugin through the adapter: its header, and the LV2 headers that names
+src/effects.o: src/effects.c
+	$(CC) -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 lv2/core/%.o: lv2/core/%.c
@@ -555,6 +559,13 @@ lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in
 
 test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
 	./lv2/tests/lv2_link_test $(abspath build/lv2/omx-host-fixture.lv2)
+
+# an LV2 plugin through the host over jack in the same kind of namespace: the fixture bundles on LV2_PATH, lv2:<uri> and the
+# bare URI, the adapter's refusals with their codes in the reply, the control ports by symbol, lv2:enabled as the bypass,
+# state, presets by URI and remove; the host links the adapter and not lilv
+test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source
+	@! readelf -d $(PROG) | grep -q 'liblilv' && echo "ok   $(PROG) does not link lilv: the adapter dlopens it"
+	./tests/jack_lv2_e2e.sh
 
 lv2-cost: lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 	./lv2/tests/lv2_cost build/lv2/omx-lv2-fakes.lv2

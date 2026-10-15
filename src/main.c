@@ -86,6 +86,7 @@ static const host_backend_t g_clap_backend = {
 
 static const char g_help_msg[] =
     "add clap:<path>#<plugin_id> <instance_number> [client_name]\n"
+    "add lv2:<uri> <instance_number> [client_name]\n"
     "remove <instance_number>\n"
     "bypass <instance_number> <bypass_value>\n"
     "param_set <instance_number> <param_id> <param_value>\n"
@@ -111,6 +112,22 @@ static const char g_help_msg[] =
 *           LOCAL FUNCTIONS
 ************************************************************************************************************************
 */
+
+/* add, as mod-host answers it, with the hosting.* code of a refusal after the error code: "resp -102 <code>" */
+static void add_cb(proto_t *proto)
+{
+    char reply[256];
+    const char *client_name = proto->list_count > 3 ? proto->list[3] : NULL;
+    int resp = effects_add(proto->list[1], atoi(proto->list[2]), client_name);
+
+    if (resp < 0 && effects_add_reason()[0])
+    {
+        snprintf(reply, sizeof(reply), "resp %i %s", resp, effects_add_reason());
+        protocol_response(reply, proto);
+    }
+    else
+        protocol_response_int(resp, proto);
+}
 
 static void cpu_load_cb(proto_t *proto)
 {
@@ -193,6 +210,8 @@ static void term_signal(int sig)
 
 static int host_init(int socket_port, int feedback_port)
 {
+    // the first command registered under a verb is the one that answers it: this add, not the dispatch's
+    protocol_add_command(EFFECT_ADD, add_cb);
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(PHD_VERB_PIN_EXPECT " %i %s", pin_expect_cb);
