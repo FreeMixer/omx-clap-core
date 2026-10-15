@@ -28,6 +28,16 @@ jobs:
       - name: VERSION is the spec's Version and the newest debian/changelog entry
         run: make version-check
 
+  private-refs:
+    name: no tracked file points into a private repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: make private-refs
+        run: make private-refs
+
   docs:
     name: make docs (the public headers are fully documented)
     runs-on: ubuntu-latest
@@ -170,7 +180,7 @@ jobs:
 
       - name: Name what this job does not run
         run: |
-          echo "test-jack and test-identity are NOT run here: they load omx-delay (.clap and .lv2), from the omx-plugins packages."
+          echo "test-jack and test-identity are NOT run here: they load omx-delay (.clap from the omx-plugins-clap package, .lv2 from omx-plugins-lv2)."
           echo "They stay in the Makefile for the desk: make test-jack CLAP_TEST_PLUGIN=<omx-delay.clap>; make test-identity."
 
   # The ABI of libomx-clap-core.so.0 against the baseline of the last release: an addition needs a new minor, a removal or a

@@ -20,7 +20,7 @@
 
 /*
  * lv2_worker_gain.h — a TEST LV2 plugin whose gain reaches the audio ONLY through the LV2 worker
- * round-trip (docs/design/specs/2026-09-29-host-backend-one-contract.md §3, the worker's RT rule):
+ * round-trip (the worker's RT rule):
  * `run()` schedules the new dB value, `work()` converts it to linear and responds, and
  * `work_response()` is the one place the applied gain moves. It REQUIRES `urid:map`,
  * `worker:schedule` and `options` carrying `bufsz:maxBlockLength` — `instantiate` returns NULL
