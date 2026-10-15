@@ -170,6 +170,14 @@ The directories searched for the bundle of an LV2 plugin, separated by
 .BR : ;
 unset, ~/.lv2, /usr/local/lib64/lv2, /usr/local/lib/lv2, /usr/lib64/lv2 and
 /usr/lib/lv2.
+.TP
+.B OMX_CLAP_HOST_CORE_DUMPS
+A plugin that aborts or faults takes the host down with it. By default the
+host then dies at once, of the same signal, without a core dump: writing the
+core keeps every plugin of the host silent for 100 ms or more before its
+supervisor can start it again. Set this to
+.B 1
+to keep the core dumps, for a crash to debug.
 .SH SEE ALSO
 .BR mod\-host (1),
 .BR jackd (1),

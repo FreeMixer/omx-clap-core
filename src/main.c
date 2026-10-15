@@ -45,6 +45,7 @@
 #include "socket.h"
 #include "protocol.h"
 #include "effects.h"
+#include "quiet_death.h"
 
 
 /*
@@ -294,7 +295,8 @@ int main(int argc, char **argv)
                     "  -f, --feedback-port=<port>     feedback port definition\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
-                    "  -h, --help                     print this help and exit\n",
+                    "  -h, --help                     print this help and exit\n"
+                    "A crash ends the host without a core dump; " QUIET_DEATH_KEEP_CORES_ENV "=1 keeps it.\n",
                 argv[0]);
                 exit(EXIT_SUCCESS);
         }
@@ -322,6 +324,9 @@ int main(int argc, char **argv)
             exit(EXIT_SUCCESS);
         }
     }
+
+    // a plugin that crashes takes the host down at once, not after its core dump (quiet_death.h)
+    quiet_death_install();
 
     if (host_init(socket_port, feedback_port) != 0)
         exit(EXIT_FAILURE);
