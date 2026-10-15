@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.7.0
+Version:        0.8.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -130,6 +130,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 15 2026 Pau Aliagas <linuxnow@gmail.com> - 0.8.0-1
+- A new header, omx_clap_raw.h, opens a CLAP plugin the raw way (dlopen,
+  clap_entry, factory, a null host) for programs that do not use the core.
+- The LV2 adapter takes the feature options a host applies, and installs
+  omx_lv2_features.h, the one provider of the features an LV2 plugin asks for.
+- The omx-dsp dependency is a floor (0.18.0) with no upper bound.
+
 * Thu Oct 15 2026 Pau Aliagas <linuxnow@gmail.com> - 0.7.0-1
 - The host's whole transport (position, bar, time signature, loop) reaches the
   plugins, and the LV2 adapter forges it as time:Position.
