@@ -59,7 +59,7 @@
 #define CLAP_HOST_CODE_NO_AUDIO_INPUT "hosting.topology.no-audio-input"  ///< the plugin has no audio input
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT "hosting.topology.no-audio-output"  ///< the plugin has no audio output
 #define CLAP_HOST_CODE_WIDER_THAN_STRIP "hosting.topology.wider-than-strip"  ///< the plugin is wider than the strip
-#define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has more auxiliary inputs than the core holds
+#define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has extra inputs, fed silence
 #define CLAP_HOST_CODE_CRASHED_LIVE "hosting.stability.crashed-live-on-this-rig"  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE "hosting.output.non-finite"  ///< the plugin produced non-finite output
 
