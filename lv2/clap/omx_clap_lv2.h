@@ -56,6 +56,8 @@ typedef struct omx_clap_lv2_config {
   uint32_t atom_buffer_bytes;   /* the smallest atom port buffer; a port's rsz:minimumSize raises it */
   uint32_t latency_hold_ms;     /* §6.7 */
   const char *lilv_soname;      /* NULL: liblilv-0.so.0 */
+  const char *state_root;       /* an absolute directory, made by the configure: state:makePath makes each plugin
+                                 * instance's directory in it. NULL: state:makePath is not offered */
 } omx_clap_lv2_config_t;
 
 /* [main-thread] 0, or -1 with `why` naming the refusal. Called once per process; a second call
