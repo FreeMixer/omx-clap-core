@@ -30,6 +30,9 @@
  *             -20 dB row + -6 dB default state reads -26.00 dB, its latency port reads 7, a -10 dB row write reads
  *             -16.00 dB, its meter output is read back.
  *   refusals  one twin per refusal code of the port reader, from the TTL alone, before the binary is opened.
+ *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs refused
+ *             hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
+ *             frame for frame, against the closed form computed here.
  *   worker    the worker gain: options carry the rate and the block lengths, ONE worker thread per instance, the gain
  *             reaches the audio only through the round trip, work() on that thread, the thread joined at deactivate.
  *   role      the host's audio-role predicate classifies urid:map and schedule_work.
@@ -62,6 +65,7 @@
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
+static char g_cv[PATH_MAX];
 static char g_fp[PATH_MAX], g_fp_so[PATH_MAX + 32];
 static const char *g_lilv;
 static pthread_t g_main;
@@ -315,7 +319,6 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.midi-in-fed-empty" },
-        { FIXTURE_URI "#cv", "hosting.features.cv-ports" },
         { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
         { FIXTURE_URI "#no-out", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
@@ -332,6 +335,85 @@ static void t_refusals(void)
         CHECK(!p && strcmp(why, cases[i].code) == 0, "refusal: %s is refused %s from the TTL (got '%s'; the binary has no descriptor for it)", cases[i].uri, cases[i].code, why);
         lv2_plugin_close(p);
     }
+}
+
+/* ---- the CV ports ---- */
+
+#define CV_URI "urn:openmixer:test:cv-fixture"
+
+static void t_cv(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_cv, CV_URI, why);
+
+    CHECK(p != NULL, "cv: the CV fixture is admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->legs == 1 && p->in_ports[0] == 0 && p->out_ports[0] == 1 && p->n_side == 0,
+              "cv: its audio is one mono pair, 0 -> 1, and no CV port is read as a side chain (%u side chains)", p->n_side);
+        CHECK(p->n_cv_in == 1 && p->cv_in[0] == 2 && p->cv_in_name[0] && strcmp(p->cv_in_name[0], "Mod") == 0,
+              "cv: one CV input, port 2, named Mod (%u, %s)", p->n_cv_in, p->cv_in_name[0] ? p->cv_in_name[0] : "-");
+        CHECK(p->n_cv_out == 1 && p->cv_out[0] == 3 && p->cv_out_name[0] && strcmp(p->cv_out_name[0], "Env") == 0,
+              "cv: one CV output, port 3, named Env (%u, %s)", p->n_cv_out, p->cv_out_name[0] ? p->cv_out_name[0] : "-");
+        CHECK(p->n_controls == 0, "cv: a CV port is not a control (%u controls)", p->n_controls);
+    }
+    lv2_plugin_close(p);
+    p = open_plugin(g_cv, CV_URI "#many", why);
+    CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV inputs, one past the limit, are refused from the TTL (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_fixture, FIXTURE_URI "#cv", why);
+    CHECK(p && p->n_cv_in == 1 && p->cv_in[0] == 2 && p->n_cv_out == 0, "cv: the host fixture's CV twin is admitted, its CV input port 2 (%s)", why);
+    lv2_plugin_close(p);
+}
+
+/* the CV fixture at `rate`: blocks of several lengths, the CV input a ramp the audio does not share; the audio output is
+ * in x mod and the CV output the one-pole of its magnitude, both computed here and compared bit for bit */
+static void t_cv_run(double rate)
+{
+    static const uint32_t lens[] = { BLOCK, 17u, 1u, BLOCK, 40u, BLOCK };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_cv, CV_URI, why);
+    struct lv2_instance *in = NULL;
+    uint32_t b, i, at = 0, out_bad = 0, env_bad = 0;
+    float e = 0.0f;
+
+    if (!p || lv2_plugin_load(p, why) != 0 || !(in = lv2_instance_new(p)) || lv2_instance_activate(in, rate, 1, BLOCK, why) != 0)
+    {
+        CHECK(0, "cv %.0f: the CV fixture runs (%s)", rate, why);
+        lv2_instance_free(in);
+        lv2_plugin_close(p);
+        return;
+    }
+    for (b = 0; b < sizeof(lens) / sizeof(lens[0]); b++)
+    {
+        const uint32_t n = lens[b];
+        float x[BLOCK], m[BLOCK];
+
+        for (i = 0; i < n; i++)
+        {
+            x[i] = 0.5f * sinf(0.0613f * (float)(at + i));
+            m[i] = (float)(at + i) / 256.0f - 0.25f;
+        }
+        memcpy(lv2_instance_audio_in(in, 0), x, n * sizeof(float));
+        memcpy(lv2_instance_cv_in(in, 0), m, n * sizeof(float));
+        g_in_run = 1;
+        lv2_instance_run(in, n, NULL, NULL);
+        g_in_run = 0;
+        for (i = 0; i < n; i++)
+        {
+            const float y = x[i] * m[i];
+
+            e = e + 0.125f * (fabsf(y) - e);
+            out_bad += memcmp(&lv2_instance_audio_out(in, 0)[i], &y, sizeof(float)) != 0;
+            env_bad += memcmp(&lv2_instance_cv_out(in, 0)[i], &e, sizeof(float)) != 0;
+        }
+        at += n;
+    }
+    CHECK(out_bad == 0, "cv %.0f: %u frames in blocks of 64, 17, 1, 64, 40, 64: the audio output is the input times the CV input on every frame (%u differ)",
+          rate, at, out_bad);
+    CHECK(env_bad == 0, "cv %.0f: the CV output is the one-pole of |out| on every frame, across the blocks (%u differ)", rate, env_bad);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
 }
 
 /* ---- the MIDI ports ---- */
@@ -802,6 +884,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", g_build);
     if (abs_dir(dir, g_midi) != 0)
         return 1;
+    snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
+    if (abs_dir(dir, g_cv) != 0)
+        return 1;
     setenv("LV2_PATH", g_build, 1);     // what load_all would find: every bundle is there
 
     in_child("lazy", lazy);
@@ -818,8 +903,12 @@ int main(int argc, char **argv)
     t_midi_ports();
     t_midi_run();
     t_sidechains();
+    t_cv();
     for (r = 0; r < N_RATES; r++)
+    {
+        t_cv_run(RATES[r]);
         t_worker(RATES[r]);
+    }
     t_options();
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");
     return g_failures == 0 ? 0 : 1;
