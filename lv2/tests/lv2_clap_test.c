@@ -1636,7 +1636,7 @@ static void t_make_path(double rate)
               "make-path %.0f: omx_clap_lv2_saved_dir names the plugin's copy directory (%s)", rate, bdir);
         snprintf(saved_a, sizeof(saved_a), "%s.saved", dir);
         // a path that is no copy directory of the root is refused, and left as it was
-        snprintf(other, sizeof(other), "%sx-%.0f.saved", g_build, rate);
+        snprintf(other, sizeof(other), "%slv2-7-%.0f.saved", g_build, rate);     // named like a copy, outside the root
         mkdir(other, 0755);
         snprintf(link, sizeof(link), "%s/lv2-9-%.0f.saved", g_root, rate);
         unlink(link);
