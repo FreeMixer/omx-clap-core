@@ -1247,7 +1247,8 @@ static void state_set(const char *symbol, void *user, const void *value, uint32_
 }
 
 char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const float *controls,
-                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap)
+                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap,
+                            const char *scratch_dir, const char *copy_dir)
 {
     struct state_io io;
     LilvInstance instance;
@@ -1262,8 +1263,9 @@ char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const
     io.p = p;
     io.controls = (float *)controls;
     io.float_type = map->map(map->handle, LV2_ATOM__Float);
-    state = L.lilv_state_new_from_instance(p->lilv_plugin, &instance, map, NULL, NULL, NULL, NULL, state_get, &io, 0,
-                                           features);
+    // the files the plugin made under its directory are copied out of it, so the state names what it held at the save
+    state = L.lilv_state_new_from_instance(p->lilv_plugin, &instance, map, scratch_dir, scratch_dir ? copy_dir : NULL, NULL,
+                                           NULL, state_get, &io, 0, features);
     if (!state)
         return NULL;
     // lilv writes a state with a subject, and the state of this plugin is the plugin's own

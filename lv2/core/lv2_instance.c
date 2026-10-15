@@ -28,6 +28,11 @@
 * promised real-time safe, and an LV2 plugin may dereference any port it declares. The audio buffers are the
 * instance's too, so a plugin flagged lv2:inPlaceBroken is safe by construction.
 *
+* state:makePath. An instance of a host configured with a state root has a directory of its own under it,
+* <root>/lv2-<pid>-<n>, named at creation and made on the plugin's first request; a path is made only inside it, never
+* on the audio role. A state save copies the files of it the state names to <root>/lv2-<pid>-<n>.saved (lilv's scratch
+* and copy directories), and the instance's directory is removed when the instance is freed: the copies stay.
+*
 * The worker. One non-RT thread per instance whose plugin has a worker interface, started at the end of activate and
 * joined at deactivate, before LV2 deactivate. Two rings (omx_msgring.h), requests and responses. schedule_work never waits:
 * a full request ring answers LV2_WORKER_ERR_NO_SPACE and is counted. respond is legal only inside work(), which a
@@ -44,12 +49,16 @@
 ************************************************************************************************************************
 */
 
+#include <ftw.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <lv2/atom/atom.h>
 #include <lv2/atom/util.h>
@@ -59,6 +68,7 @@
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
 #include <lv2/patch/patch.h>
+#include <lv2/state/state.h>
 #include <lv2/time/time.h>
 #include <lv2/worker/worker.h>
 
@@ -185,6 +195,13 @@ struct lv2_instance
     struct lv2_time_urids time_urid;
     struct lv2_time time_last;
     int time_have;
+    // state:makePath: the instance's directory and where a save copies its files, NULL without a state root; the
+    // directory is made on the first request, under the lock, from whichever non-RT thread the plugin calls on
+    char *dir, *saved_dir;
+    int dir_made;
+    pthread_mutex_t dir_lock;
+    LV2_State_Make_Path make_path;
+    _Atomic uint32_t make_path_refused;
 };
 
 
@@ -196,6 +213,9 @@ struct lv2_instance
 
 /* the instance whose work() runs on THIS thread: the only context in which respond is legal */
 static _Thread_local const struct lv2_instance *g_in_work;
+
+/* the instances' directories made in this process so far: the n of lv2-<pid>-<n> */
+static _Atomic uint32_t g_dir_serial;
 
 
 /*
@@ -326,6 +346,95 @@ static int inst_log_printf(LV2_Log_Handle h, LV2_URID type, const char *fmt, ...
     n = inst_log_vprintf(h, type, fmt, ap);
     va_end(ap);
     return n;
+}
+
+/* whether a relative path stays inside the directory it is joined to: not empty, not absolute, no `..` component */
+static int path_inside(const char *path)
+{
+    const char *c = path;
+
+    if (!path || !*path || path[0] == '/')
+        return 0;
+    while (*c)
+    {
+        const size_t n = strcspn(c, "/");
+
+        if (n == 2 && c[0] == '.' && c[1] == '.')
+            return 0;
+        c += n;
+        while (*c == '/')
+            c++;
+    }
+    return 1;
+}
+
+/* state:makePath: `path` joined to the instance's directory, which is made on the first call, and the directories the
+ * path names made with it; malloc'd, the plugin frees it with free(). NULL, counted, for a path that would leave the
+ * directory, a call on the audio role, or a directory that cannot be made. */
+static char *inst_make_path(LV2_State_Make_Path_Handle h, const char *path)
+{
+    struct lv2_instance *in = h;
+    char *full, *slash;
+    size_t n;
+    int ok;
+
+    if (on_audio(in) == 1 || !in->dir || !path_inside(path))
+    {
+        omx_hosted_count(&in->make_path_refused, 1);
+        return NULL;
+    }
+    n = strlen(in->dir) + 1u + strlen(path) + 1u;
+    full = malloc(n);
+    if (!full)
+    {
+        omx_hosted_count(&in->make_path_refused, 1);
+        return NULL;
+    }
+    snprintf(full, n, "%s/%s", in->dir, path);
+    // the directories of the path, the instance's own first: everything but the last component. The same directories
+    // under the save's copy directory too, which lilv copies a file into but does not make below its top
+    slash = strrchr(full, '/');
+    *slash = '\0';
+    pthread_mutex_lock(&in->dir_lock);
+    ok = lv2_mkdirs(full) == 0;
+    in->dir_made |= ok;
+    if (ok)
+    {
+        const size_t m = strlen(in->saved_dir) + strlen(full + strlen(in->dir)) + 1u;
+        char *copy = malloc(m);
+
+        ok = copy && snprintf(copy, m, "%s%s", in->saved_dir, full + strlen(in->dir)) > 0 && lv2_mkdirs(copy) == 0;
+        free(copy);
+    }
+    pthread_mutex_unlock(&in->dir_lock);
+    *slash = '/';
+    if (!ok)
+    {
+        free(full);
+        omx_hosted_count(&in->make_path_refused, 1);
+        return NULL;
+    }
+    return full;
+}
+
+/* one entry of the instance's directory, removed deepest first */
+static int dir_entry_remove(const char *path, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st;
+    (void)flag;
+    (void)ftw;
+    remove(path);
+    return 0;
+}
+
+/* one directory of the copies, removed when nothing was copied into it; a file keeps it */
+static int dir_empty_remove(const char *path, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st;
+    (void)ftw;
+    if (flag == FTW_DP)
+        rmdir(path);
+    return 0;
 }
 
 /* [audio] the LV2 schedule_work callback */
@@ -699,13 +808,14 @@ static int options_build(struct lv2_instance *in, double rate, uint32_t min_fram
 /* the feature array, in the providers' order, exactly the configured kinds the instance's options offer */
 static void features_build(struct lv2_instance *in)
 {
-    void *data[LV2_FEATURE_KINDS] = { NULL };
+    void *data[LV2_FEATURE_KINDS + 1] = { NULL };
 
     data[F_MAP] = &in->map;
     data[F_UNMAP] = &in->unmap;
     data[F_OPTIONS] = in->options.opts;
     data[F_WORKER] = &in->schedule;
     data[F_LOG] = &in->log;
+    data[F_MAKE_PATH] = in->dir ? &in->make_path : NULL;
     lv2_features_fill(in->features, in->feature_ptrs, &in->fopts, lv2_features_configured(), data);
 }
 
@@ -888,6 +998,7 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in = calloc(1, sizeof(*in));
     if (!in)
         return NULL;
+    pthread_mutex_init(&in->dir_lock, NULL);
     in->plugin = p;
     in->fopts = *lv2_core_feature_options();
     n = p->n_controls ? p->n_controls : 1u;
@@ -940,6 +1051,23 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->log.handle = in;
     in->log.printf = inst_log_printf;
     in->log.vprintf = inst_log_vprintf;
+    in->make_path.handle = in;
+    in->make_path.path = inst_make_path;
+    if (lv2_feature_on(F_MAKE_PATH) && config->state_root)
+    {
+        const size_t n = strlen(config->state_root) + 64u;
+
+        in->dir = malloc(n);
+        in->saved_dir = malloc(n);
+        if (!in->dir || !in->saved_dir)
+        {
+            lv2_instance_free(in);
+            return NULL;
+        }
+        k = atomic_fetch_add_explicit(&g_dir_serial, 1u, memory_order_relaxed) + 1u;
+        snprintf(in->dir, n, "%s/lv2-%ld-%u", config->state_root, (long)getpid(), k);
+        snprintf(in->saved_dir, n, "%s.saved", in->dir);
+    }
     return in;
 }
 
@@ -1045,6 +1173,15 @@ void lv2_instance_free(struct lv2_instance *in)
     if (!in)
         return;
     instance_drop(in);
+    // the instance's directory goes with it; what a save copied out of it stays
+    if (in->dir && in->dir_made)
+    {
+        nftw(in->dir, dir_entry_remove, 16, FTW_DEPTH | FTW_PHYS);
+        nftw(in->saved_dir, dir_empty_remove, 16, FTW_DEPTH | FTW_PHYS);
+    }
+    free(in->dir);
+    free(in->saved_dir);
+    pthread_mutex_destroy(&in->dir_lock);
     free(in->audio);
     free(in->controls);
     free(in->shown);
@@ -1089,7 +1226,8 @@ char *lv2_instance_state_save(struct lv2_instance *in)
 {
     if (!in || !in->handle)
         return NULL;
-    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->feature_ptrs, &in->map, &in->unmap);
+    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->feature_ptrs, &in->map, &in->unmap,
+                                 in->dir, in->saved_dir);
 }
 
 int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX])
@@ -1327,6 +1465,7 @@ void lv2_instance_counters(const struct lv2_instance *in, struct lv2_counters *o
     out->log_on_audio = atomic_load_explicit(&in->log_on_audio, memory_order_relaxed);
     out->patch_dropped = atomic_load_explicit(&in->patch_dropped, memory_order_relaxed);
     out->midi_in_dropped = atomic_load_explicit(&in->midi_in_dropped, memory_order_relaxed);
+    out->make_path_refused = atomic_load_explicit(&in->make_path_refused, memory_order_relaxed);
 }
 
 void lv2_instance_set_role(struct lv2_instance *in, lv2_audio_role_fn is_audio, void *ctx)
