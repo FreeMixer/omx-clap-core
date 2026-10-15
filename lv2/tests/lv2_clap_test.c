@@ -1583,6 +1583,24 @@ static void t_atom_text(double rate)
     CHECK(strstr(g.host.log, "patch_dropped 1") != NULL && text_is(&g, ATOM_NAME, got_y),
           "atom %.0f: the plugin's 5000-byte reply is dropped, logged as patch_dropped 1, and the value read is the last one carried", rate);
 
+    // a reply of 4096 bytes and no NUL is dropped too, and nothing is written past the slot; 4095 and the NUL are read whole
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "nonul", why) == 0, "atom %.0f: write nonul (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(strstr(g.host.log, "patch_dropped 2") != NULL && text_is(&g, ATOM_NAME, got_y) && text_is(&g, ATOM_FILE, "/srv/take 1.wav"),
+          "atom %.0f: a 4096-byte reply with no NUL is dropped, patch_dropped 2, and neither text is touched", rate);
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "max", why) == 0, "atom %.0f: write max (%s)", rate, why);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+    {
+        char buf[4200];
+        const uint32_t n = omx_clap_lv2_patch_text_get(g.plugin, ATOM_NAME, buf, sizeof(buf));
+
+        CHECK(n == 4095u && strlen(buf) == 4095u && buf[0] == 'x' && buf[4094] == 'x',
+              "atom %.0f: a reply of 4095 bytes and its NUL is read whole (%u)", rate, n);
+    }
+    CHECK(omx_clap_lv2_patch_text_set(g.plugin, ATOM_NAME, "big", why) == 0, "atom %.0f: write big again", rate);
+    process(&g, in, NULL, out, NULL, BLOCK, NULL), blocks++;
+
     // a numeric write: the reply forged as an atom:Blank is the output event, the other object at 99 ignored
     ev_init(&ev);
     ev_param(&ev, ATOM_GAIN_ID, 0.5);
