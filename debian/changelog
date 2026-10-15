@@ -1,3 +1,13 @@
+omx-clap-host (0.8.0) unstable; urgency=medium
+
+  * A new header, omx_clap_raw.h, opens a CLAP plugin the raw way (dlopen,
+    clap_entry, factory, a null host) for programs that do not use the core.
+  * The LV2 adapter takes the feature options a host applies, and installs
+    omx_lv2_features.h, the one provider of the features an LV2 plugin asks for.
+  * The omx-dsp dependency is a floor (0.18.0) with no upper bound.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 15 Oct 2026 14:00:00 +0000
+
 omx-clap-host (0.7.0) unstable; urgency=medium
 
   * The host's whole transport (position, bar, time signature, loop) reaches the
