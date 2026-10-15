@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ */
 /*
  * inproc.c: the in-process path of the hosting bench. Each plugin runs inside a native PipeWire filter's process
  * callback, on the PipeWire data thread, through libomx-clap-core's stage (omx_clap_host_open / _open_entry, activate,

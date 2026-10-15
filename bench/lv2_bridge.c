@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ */
 /*
  * lv2_bridge.c: a bench-only .clap that hands omx-clap-host the LV2 plugins of the bundles named in
  * OMX_BENCH_LV2_BUNDLES (absolute directories, ':'-separated) through libomx-clap-lv2, so the bench can measure
