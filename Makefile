@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h src/clap_meters.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h
 CORE_MAP = src/omx-clap-core.map
 
 PKG_CONFIG ?= pkg-config
@@ -239,7 +239,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -252,7 +252,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring
+test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-raw
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
@@ -271,6 +271,13 @@ test-untrusted-asan: tests/clap_untrusted_asan
 # the worker message ring of the shared host-services layer, single- and two-threaded
 test-msgring: tests/msgring_test
 	./tests/msgring_test
+
+# the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
+test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
+	./tests/clap_raw_test $(abspath tests/fake.clap) $(abspath tests/fault-2.clap)
+
+tests/clap_raw_test: tests/clap_raw_test.c src/omx_clap_raw.h tests/test_util.h
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
 
 tests/msgring_test: tests/msgring_test.c src/omx_msgring.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
@@ -389,7 +396,7 @@ test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 test-jack-info: $(PROG) tests/fake.clap
 	$(PHD_DECLARED) ./tests/jack_info_e2e.sh
 
-tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h
+tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h
 	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
 
 # the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
@@ -511,12 +518,12 @@ test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
 	./lv2/tests/lv2_clap_test build/lv2
 
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged
-lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h
+lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h src/omx_clap_raw.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
 
 # the adapter as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config
 # file and linked by that alone
-lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in omx-clap-core.pc.in
+lv2/tests/lv2_link_test: lv2/tests/lv2_link_test.c $(LV2_LIB) omx-clap-lv2.pc.in omx-clap-core.pc.in src/omx_clap_raw.h
 	rm -rf build/lv2-stage
 	$(MAKE) install-lib install-lv2 PREFIX=$(CURDIR)/build/lv2-stage/usr LIBDIR=$(CURDIR)/build/lv2-stage/usr/lib
 	$(PKG_CONFIG) --exists clap || printf 'Name: clap\nDescription: the headers named by CLAP_CFLAGS\nVersion: 1\nCflags: $(CLAP_CFLAGS)\n' > build/lv2-stage/usr/lib/pkgconfig/clap.pc

@@ -10,7 +10,8 @@ INPUT                  = src/clap_host.h \
                          src/clap_stage.h \
                          src/hosted_stage.h \
                          src/clap_host_limits.h \
-                         src/omx_clap_ext.h
+                         src/omx_clap_ext.h \
+                         src/omx_clap_raw.h
 OPTIMIZE_OUTPUT_FOR_C  = YES
 EXTRACT_ALL            = NO
 EXTRACT_STATIC         = YES

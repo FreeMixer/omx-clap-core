@@ -35,6 +35,7 @@
 
 #include "lv2_core.h"
 #include "omx_clap_lv2.h"
+#include "omx_clap_raw.h"
 #include "fixtures/lv2_fakes.h"
 #include "lv2_test_util.h"
 
@@ -61,18 +62,6 @@ static const clap_event_header_t *in_get(const clap_input_events_t *list, uint32
     return NULL;
 }
 
-static const void *host_ext(const clap_host_t *host, const char *id)
-{
-    (void)host;
-    (void)id;
-    return NULL;
-}
-
-static void host_nop(const clap_host_t *host)
-{
-    (void)host;
-}
-
 static double now_ns(void)
 {
     struct timespec ts;
@@ -95,7 +84,7 @@ int main(int argc, char **argv)
     const uint32_t calls = argc > 2 ? (uint32_t)strtoul(argv[2], NULL, 10) : 310000u;
     char dir[PATH_MAX], why[OMX_CLAP_LV2_WHY_MAX];
     static float l[QUANTUM], r[QUANTUM], ol[QUANTUM], or_[QUANTUM];
-    clap_host_t host = { CLAP_VERSION_INIT, NULL, "lv2_cost", "", "", "0", host_ext, host_nop, host_nop, host_nop };
+    clap_host_t host = OMX_CLAP_RAW_NULL_HOST("lv2_cost");
     const clap_input_events_t in_events = { NULL, in_size, in_get };
     const clap_output_events_t out_events = { NULL, out_push };
     size_t k;
