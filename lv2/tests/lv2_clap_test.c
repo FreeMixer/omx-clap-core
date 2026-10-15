@@ -47,6 +47,14 @@
  *             the outputs after the main one; the audio and the CV output bit-identical with the fixture's binary run
  *             directly with the same buffers, over blocks of several lengths; an input handed no buffer reads silence;
  *             through the core, the CV input an auxiliary input it binds and the CV output an auxiliary output.
+ *   make-path state:makePath under the configured state root: no directory until the plugin asks for a path; a save
+ *             copies the file its state names to <dir>.saved and names the copy; the instance's directory removed with
+ *             it, the copy kept; a second instance loading the state reads the level back from the copy, out = in x 2.5
+ *             on every frame; a path outside the directory and an absolute one answered NULL, nothing written, counted
+ *             as make_path_refused 2; a path through a link, a/../b, an overlong one, a request on the audio role and
+ *             one through a file refused by code; an instance never saved leaves nothing; stale copies of an earlier process of the
+ *             same pid are never taken as an instance's own. Without a root the feature is not offered (a child),
+ *             and a relative root refuses the configure (a child).
  *   rt        no allocation inside process().
  *
  * Through libomx-clap-core's CLAP body, the arms that belong to the CLAP body:
@@ -57,8 +65,11 @@
  *
  *   lv2_clap_test <build/lv2 directory>
  */
+#include <dirent.h>
+#include <ftw.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sys/stat.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #if defined(__x86_64__) || defined(__i386__)
@@ -68,12 +79,14 @@
 #include <clap/clap.h>
 
 #include <lv2/urid/urid.h>
+#include <lv2/state/state.h>
 
 #include "../../src/clap_host.h"
 #include "omx_clap_lv2.h"
 #include "fixtures/lv2_fakes.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "fixtures/lv2_time_probe.h"
+#include "fixtures/lv2_path_probe.h"
 #include "fixtures/lv2_atom_probe.h"
 #include "lv2_test_util.h"
 
@@ -111,6 +124,7 @@ static char g_patch[PATH_MAX];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
+static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
 
@@ -383,7 +397,7 @@ static void fake_trace_clear(void)
 static void unconfigured(void)
 {
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
-    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, HOLD_MS, NULL };
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, HOLD_MS, NULL, NULL };
     static const char *const unknown[] = { "urn:openmixer:test:no-such-feature", NULL };
 
     CHECK(omx_clap_lv2_entry(g_fixture, why) == NULL && strcmp(why, "hosting.no-realisation") == 0, "no entry before the configure (%s)", why);
@@ -459,7 +473,6 @@ static void t_refusals(void)
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
         { FIXTURE_URI "#mappath", "hosting.features.missing" },
-        { FIXTURE_URI "#makepath", "hosting.features.missing" },
         { "urn:openmixer:test:not-in-this-bundle", "hosting.no-realisation" },
     };
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
@@ -1496,6 +1509,291 @@ static void t_sidechain(double rate)
     rig_down(&g);
 }
 
+/* ---- state:makePath: a directory of the instance's own under the state root ---- */
+
+/* the entries of the state root */
+static int root_entries(void)
+{
+    DIR *d = opendir(g_root);
+    struct dirent *e;
+    int n = 0;
+
+    while (d && (e = readdir(d)) != NULL)
+        n += strcmp(e->d_name, ".") != 0 && strcmp(e->d_name, "..") != 0;
+    if (d)
+        closedir(d);
+    return n;
+}
+
+/* the first line of the file at `path`, "" when it cannot be read */
+static const char *file_line(const char *path)
+{
+    static char line[64];
+    FILE *f = fopen(path, "r");
+
+    line[0] = '\0';
+    if (f && !fgets(line, sizeof(line), f))
+        line[0] = '\0';
+    if (f)
+        fclose(f);
+    return line;
+}
+
+static int ends_with(const char *s, const char *tail)
+{
+    const size_t n = strlen(s), t = strlen(tail);
+
+    return n >= t && strcmp(s + n - t, tail) == 0;
+}
+
+#define STALE 400u      // more instance numbers than this run reaches
+
+/* the copies an earlier process of the same pid left: lv2-<pid>-<n>.saved/takes/level.txt holding 9, for every n up to
+ * STALE. An instance must take a name none of them holds, or its save would land beside a stale copy. */
+static int root_entry_remove(const char *path, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st;
+    (void)flag;
+    (void)ftw;
+    remove(path);
+    return 0;
+}
+
+static void stale_copies(void)
+{
+    char path[PATH_MAX + 160];
+    uint32_t n;
+
+    // a root of this pid an earlier run left is cleared first: a run starts from the stale copies alone
+    nftw(g_root, root_entry_remove, 16, FTW_DEPTH | FTW_PHYS);
+    mkdir(g_root, 0755);
+    for (n = 1; n <= STALE; n++)
+    {
+        FILE *f;
+
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved", g_root, (long)getpid(), n);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved/takes", g_root, (long)getpid(), n);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/lv2-%ld-%u.saved/takes/level.txt", g_root, (long)getpid(), n);
+        if ((f = fopen(path, "w")) != NULL)
+        {
+            fputs("9\n", f);
+            fclose(f);
+        }
+    }
+}
+
+static void t_make_path(double rate)
+{
+    static const char TAIL[] = "/takes/level.txt";
+    static float in[BLOCK], out[BLOCK];
+    char dir[600], copy[700], prefix[PATH_MAX + 96];
+    struct lv2_path_probe *pr;
+    struct mem_out saved;
+    struct mem_in given;
+    struct evlist ev;
+    struct rig a, b;
+    struct stat st;
+    uint32_t i;
+    int before, same;
+
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f * sinf(0.0613f * (float)i);
+    if (rig_up(&a, g_path, LV2_PATH_FIXTURE_URI, rate, BLOCK) != 0)
+        return;
+    pr = loaded_symbol(g_path_so, "lv2_path_probe");
+    CHECK(pr && pr->had_make_path, "make-path %.0f: instantiate is handed state:makePath", rate);
+    if (!pr)
+    {
+        rig_down(&a);
+        return;
+    }
+    before = root_entries();
+    ev_init(&ev);
+    ev_param(&ev, 2, 2.5);
+    process(&a, in, NULL, out, NULL, BLOCK, &ev);
+    CHECK(root_entries() == before, "make-path %.0f: no directory is made before the plugin asks for a path (%d entries)", rate, before);
+
+    // the save: the plugin makes takes/level.txt in its directory, lilv copies it out and the state names the copy
+    mo_init(&saved);
+    CHECK(state_of(&a)->save(a.plugin, &saved.stream) && saved.n > 0, "make-path %.0f: the state saves (%zu bytes)", rate, saved.n);
+    snprintf(prefix, sizeof(prefix), "%s/lv2-", g_root);
+    CHECK(strncmp(pr->made, prefix, strlen(prefix)) == 0 && ends_with(pr->made, TAIL) && !strcmp(file_line(pr->made), "2.5\n"),
+          "make-path %.0f: the path made is <root>/lv2-<pid>-<n>/takes/level.txt, its directories made, and the plugin wrote 2.5 into it (%s)",
+          rate, pr->made);
+    snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(pr->made) - strlen(TAIL)), pr->made);
+    snprintf(copy, sizeof(copy), "%s.saved%s", dir, TAIL);
+    CHECK(strtoul(strrchr(dir, '-') + 1, NULL, 10) > STALE, "make-path %.0f: the instance's name is past every stale copy an earlier process left (%s)",
+          rate, strrchr(dir, '/') + 1);
+    CHECK(!strcmp(pr->stored, "takes/level.txt") && strstr(saved.buf, copy) != NULL && !strcmp(file_line(copy), "2.5\n"),
+          "make-path %.0f: the state names the copy in <dir>.saved, which holds 2.5 (stored %s)", rate, pr->stored);
+    rig_down(&a);
+    CHECK(stat(dir, &st) != 0 && errno == ENOENT, "make-path %.0f: the instance's directory is removed with the instance", rate);
+    CHECK(!strcmp(file_line(copy), "2.5\n"), "make-path %.0f: the copy the save made stays", rate);
+
+    // a second instance loads the state before its activate: the plugin reads the level from the copy
+    if (rig_up(&b, g_path, LV2_PATH_FIXTURE_URI, 0.0, BLOCK) != 0)
+        return;
+    mi_init(&given, saved.buf, saved.n);
+    CHECK(state_of(&b)->load(b.plugin, &given.stream) && b.plugin->activate(b.plugin, rate, 1, BLOCK) && b.plugin->start_processing(b.plugin),
+          "make-path %.0f: a second instance loads the state and activates", rate);
+    process(&b, in, NULL, out, NULL, BLOCK, NULL);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out[i] == in[i] * 2.5f;
+    CHECK(pr->restored == 2.5f && !strcmp(pr->restored_from, copy), "make-path %.0f: its plugin read 2.5 from the copy (%g, %s)", rate,
+          (double)pr->restored, pr->restored_from);
+    CHECK(same, "make-path %.0f: it runs at the level read through the file: out = in x 2.5 on every frame", rate);
+    {
+        char bdir[PATH_MAX + 96], why[OMX_CLAP_LV2_WHY_MAX] = "", saved_a[620], other[PATH_MAX + 96], link[PATH_MAX + 96];
+        const uint32_t n = omx_clap_lv2_saved_dir(b.plugin, bdir, sizeof(bdir));
+
+        CHECK(n == strlen(bdir) && strncmp(bdir, prefix, strlen(prefix)) == 0 && ends_with(bdir, ".saved"),
+              "make-path %.0f: omx_clap_lv2_saved_dir names the plugin's copy directory (%s)", rate, bdir);
+        snprintf(saved_a, sizeof(saved_a), "%s.saved", dir);
+        // a path that is no copy directory of the root is refused, and left as it was
+        snprintf(other, sizeof(other), "%slv2-7-%.0f.saved", g_build, rate);     // named like a copy, outside the root
+        mkdir(other, 0755);
+        snprintf(link, sizeof(link), "%s/lv2-9-%.0f.saved", g_root, rate);
+        unlink(link);
+        CHECK(symlink(saved_a, link) == 0, "make-path %.0f: a link named like a copy directory, to A's copies", rate);
+        CHECK(omx_clap_lv2_saved_drop("/tmp", why) == -1 && !strcmp(why, "hosting.state.not-a-copy")
+                  && omx_clap_lv2_saved_drop(g_root, why) == -1 && omx_clap_lv2_saved_drop(other, why) == -1
+                  && omx_clap_lv2_saved_drop(link, why) == -1 && stat(other, &st) == 0 && !strcmp(file_line(copy), "2.5\n"),
+              "make-path %.0f: /tmp, the root, a .saved directory outside the root and a link to A's copies are refused (%s)", rate, why);
+        unlink(link);
+        rmdir(other);
+        CHECK(omx_clap_lv2_saved_drop(saved_a, why) == 0 && stat(saved_a, &st) != 0 && errno == ENOENT,
+              "make-path %.0f: A's copy directory is dropped when the host deletes its state (%s)", rate, why);
+    }
+    rig_down(&b);
+}
+
+/* one makePath request the test makes itself: answered NULL, and the block after it logs `code` as the refusal */
+static int mp_refused(struct rig *g, const LV2_State_Make_Path *mp, const char *path, const char *code)
+{
+    static float in[BLOCK], out[BLOCK];
+    char *r = mp->path(mp->handle, path);
+    int ok;
+
+    g->host.log[0] = '\0';
+    process(g, in, NULL, out, NULL, BLOCK, NULL);
+    g->plugin->on_main_thread(g->plugin);
+    ok = r == NULL && strstr(g->host.log, code) != NULL;
+    free(r);
+    return ok;
+}
+
+/* a path outside the instance's directory, and an absolute one, are answered NULL and counted; nothing is written */
+static void t_make_path_escape(double rate)
+{
+    static const char ABS[] = "/tmp/omx-path-fixture-absolute.txt";
+    static float in[BLOCK], out[BLOCK];
+    char outside[PATH_MAX + 96], made[512], dir[512], copies[600];
+    size_t i;
+    struct lv2_path_probe *pr;
+    struct stat st;
+    struct rig g;
+
+    snprintf(outside, sizeof(outside), "%s/outside.txt", g_root);
+    unlink(ABS);
+    if (rig_up(&g, g_path, LV2_PATH_FIXTURE_URI "#escape", rate, BLOCK) != 0)
+        return;
+    pr = loaded_symbol(g_path_so, "lv2_path_probe");
+    CHECK(pr && pr->escape_null && pr->absolute_null, "make-path %.0f: ../outside.txt and an absolute path are answered NULL", rate);
+    CHECK(stat(outside, &st) != 0 && stat(ABS, &st) != 0, "make-path %.0f: nothing is written outside the instance's directory", rate);
+    memset(in, 0, sizeof(in));
+    process(&g, in, NULL, out, NULL, BLOCK, NULL);
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(strstr(g.host.log, "make_path_refused 2") != NULL && strstr(g.host.log, "hosting.state.path-outside") != NULL,
+          "make-path %.0f: both are counted, make_path_refused 2 and the code hosting.state.path-outside on clap.log", rate);
+    snprintf(made, sizeof(made), "%s", pr ? pr->made : "");
+    CHECK(made[0] && !strcmp(file_line(made), "unsaved\n"), "make-path %.0f: a path inside is made and written (%s)", rate, made);
+    snprintf(dir, sizeof(dir), "%.*s", (int)(strlen(made) > 16 ? strlen(made) - 16 : 0), made);     // less /never/saved.txt
+    if (pr && pr->make_path)
+    {
+        const LV2_State_Make_Path *mp = pr->make_path;
+        static char longest[5000], component[300];
+        char lnk[600], fin[600], blk[600], esc[PATH_MAX + 96], *ok;
+        FILE *bf;
+
+        // a link inside the directory, to the root: a path through it would leave the directory
+        snprintf(lnk, sizeof(lnk), "%s/lnk", dir);
+        snprintf(fin, sizeof(fin), "%s/fin", dir);
+        snprintf(esc, sizeof(esc), "%s/esc", g_root);
+        CHECK(symlink(g_root, lnk) == 0 && symlink(outside, fin) == 0, "make-path %.0f: links lnk -> the root and fin -> outside.txt", rate);
+        CHECK(mp_refused(&g, mp, "lnk/esc/f.txt", "hosting.state.path-symlink") && stat(esc, &st) != 0,
+              "make-path %.0f: a link as a directory component is refused, hosting.state.path-symlink, and nothing is made through it", rate);
+        CHECK(mp_refused(&g, mp, "fin", "hosting.state.path-symlink"), "make-path %.0f: a link as the last component is refused too", rate);
+        CHECK(mp_refused(&g, mp, "a/../b", "hosting.state.path-outside"),
+              "make-path %.0f: a/../b, though it comes back inside, is refused, hosting.state.path-outside", rate);
+        memset(longest, 0, sizeof(longest));
+        for (i = 0; i + 2 < sizeof(longest) - 1; i += 2)
+            longest[i] = 'a', longest[i + 1] = '/';
+        longest[i] = 'f';
+        memset(component, 'c', sizeof(component) - 1);
+        CHECK(mp_refused(&g, mp, longest, "hosting.state.path-too-long") && mp_refused(&g, mp, component, "hosting.state.path-too-long"),
+              "make-path %.0f: a path past PATH_MAX and a component past NAME_MAX are refused, hosting.state.path-too-long", rate);
+        // a request on the audio role: refused before anything is made
+        g_audio = 1;
+        ok = mp->path(mp->handle, "rt/f.txt");
+        g_audio = 0;
+        g.host.log[0] = '\0';
+        process(&g, in, NULL, out, NULL, BLOCK, NULL);
+        g.plugin->on_main_thread(g.plugin);
+        snprintf(blk, sizeof(blk), "%s/rt", dir);
+        CHECK(ok == NULL && strstr(g.host.log, "hosting.state.path-on-audio") != NULL && stat(blk, &st) != 0,
+              "make-path %.0f: a request on the audio role is refused, hosting.state.path-on-audio, and nothing is made", rate);
+        free(ok);
+        // a file where the path needs a directory: the directory cannot be made
+        snprintf(blk, sizeof(blk), "%s/blk", dir);
+        CHECK((bf = fopen(blk, "w")) != NULL && fclose(bf) == 0 && mp_refused(&g, mp, "blk/x.txt", "hosting.state.path-unmakeable"),
+              "make-path %.0f: a path through a file is refused, hosting.state.path-unmakeable", rate);
+        ok = mp->path(mp->handle, "./ok/inside.txt");
+        CHECK(ok && strncmp(ok, dir, strlen(dir)) == 0, "make-path %.0f: ./ok/inside.txt is still made (%s)", rate, ok ? ok : "NULL");
+        free(ok);
+    }
+    rig_down(&g);
+    CHECK(stat(g_root, &st) == 0 && S_ISDIR(st.st_mode), "make-path %.0f: removing the directory removed the link, not the root it named", rate);
+    // never saved: neither the instance's directory nor a copy directory outlives it
+    snprintf(copies, sizeof(copies), "%s.saved", dir);
+    CHECK(dir[0] && stat(dir, &st) != 0 && stat(copies, &st) != 0, "make-path %.0f: an instance never saved leaves nothing under the root (%s)", rate, dir);
+}
+
+/* with no state root, state:makePath is not offered: a plugin that requires it is refused */
+static void make_path_no_root(void)
+{
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL, NULL };
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *e;
+    const clap_plugin_factory_t *f;
+    struct th t;
+
+    CHECK(omx_clap_lv2_configure(&config, why) == 0, "no root: the provided list with no state root configures (%s)", why);
+    e = omx_clap_lv2_entry(g_path, why);
+    f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    th_init(&t);
+    CHECK(f && f->create_plugin(f, &t.host, LV2_PATH_FIXTURE_URI) == NULL && !strcmp(t.log, "hosting.features.missing\n"),
+          "no root: a plugin that requires state:makePath is refused, hosting.features.missing (%.*s)", (int)strcspn(t.log, "\n"), t.log);
+    omx_clap_lv2_entry_release(e);
+    e = omx_clap_lv2_entry(g_fixture, why);
+    f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    th_init(&t);
+    CHECK(f && f->create_plugin(f, &t.host, FIXTURE_URI "#makepath") == NULL && !strcmp(t.log, "hosting.features.missing\n"),
+          "no root: so is the host fixture's makePath twin");
+    omx_clap_lv2_entry_release(e);
+}
+
+/* a state root that is not absolute refuses the configure */
+static void make_path_relative_root(void)
+{
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL, "relative/state" };
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+
+    CHECK(omx_clap_lv2_configure(&config, why) == -1 && !strcmp(why, "lv2.configure.state-root"),
+          "a relative state root refuses the configure (%s)", why);
+}
+
 /* ---- the atom messages beside MIDI: text properties, atom:Blank, patch:Put bodies, notify, time and notes on MIDI ---- */
 
 #define ATOM_NAME LV2_ATOM_FIXTURE_URI "#name"
@@ -2277,7 +2575,7 @@ static void t_warmup_block(double rate, uint32_t act, uint32_t n)
 
 int main(int argc, char **argv)
 {
-    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL };
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 1000u, HOLD_MS, NULL, NULL };
     char dir[PATH_MAX + 32], build[PATH_MAX], why[OMX_CLAP_LV2_WHY_MAX];
     void *volatile probe;
     size_t r;
@@ -2302,6 +2600,14 @@ int main(int argc, char **argv)
     snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
     snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", build);
     abs_dir(dir, g_sc);
+    snprintf(dir, sizeof(dir), "%somx-path-fixture.lv2", build);
+    abs_dir(dir, g_path);
+    snprintf(g_path_so, sizeof(g_path_so), "%somx-path-fixture.so", g_path);
+    // a state root of this run's own: the directories it leaves are build/'s
+    snprintf(g_root, sizeof(g_root), "%sstate-root-%ld", build, (long)getpid());
+    snprintf(g_build, sizeof(g_build), "%s", build);
+    config.state_root = g_root;
+    stale_copies();
     snprintf(g_fakes_so, sizeof(g_fakes_so), "%somx-lv2-fakes.so", g_fakes);
     snprintf(g_wg_so, sizeof(g_wg_so), "%somx-worker-gain.so", g_wg);
     snprintf(dir, sizeof(dir), "%somx-midi-echo.lv2", build);
@@ -2321,6 +2627,8 @@ int main(int argc, char **argv)
     rt_allocs = 0;
 
     in_child("configure", unconfigured);
+    in_child("make path with no root", make_path_no_root);
+    in_child("make path with a relative root", make_path_relative_root);
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
     t_entry();
     t_refusals();
@@ -2344,6 +2652,8 @@ int main(int argc, char **argv)
         t_atom_midi_time(RATES[r]);
         t_sidechain(RATES[r]);
         t_sidechain_core(RATES[r]);
+        t_make_path(RATES[r]);
+        t_make_path_escape(RATES[r]);
         t_cv(RATES[r]);
         t_cv_core(RATES[r]);
         t_core(RATES[r]);

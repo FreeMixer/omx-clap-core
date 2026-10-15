@@ -92,7 +92,7 @@
 /* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
 #define LV2_CORE_PROVIDED_INIT \
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
-      LV2_STATE__loadDefaultState, LV2_LOG__log, NULL }
+      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, NULL }
 
 /* the refusals, the verdict's spelling */
 #define LV2_CODE_NO_REALISATION         "hosting.no-realisation"
@@ -105,6 +105,13 @@
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
 #define LV2_CODE_STATE_UNREADABLE       "hosting.state.unreadable"
 #define LV2_CODE_PRESET_NOT_FOUND       "hosting.preset.not-found"
+#define LV2_CODE_PATH_OUTSIDE           "hosting.state.path-outside"       // makePath: empty, absolute, or a `..` component
+#define LV2_CODE_PATH_SYMLINK           "hosting.state.path-symlink"       // makePath: a component is a symbolic link
+#define LV2_CODE_PATH_TOO_LONG          "hosting.state.path-too-long"      // makePath: PATH_MAX or more, or a long component
+#define LV2_CODE_PATH_ON_AUDIO          "hosting.state.path-on-audio"      // makePath: called on the audio role
+#define LV2_CODE_PATH_UNMAKEABLE        "hosting.state.path-unmakeable"    // makePath: a directory could not be made
+#define LV2_CODE_NOT_A_COPY             "hosting.state.not-a-copy"         // not a save's copy directory of the root
+
 #define LV2_CODE_PATCH_NOT_WRITABLE     "hosting.patch.not-writable"
 #define LV2_CODE_PATCH_TOO_LARGE        "hosting.patch.too-large"
 #define LV2_CODE_PATCH_BUSY             "hosting.patch.busy"
@@ -133,6 +140,8 @@ struct lv2_core_config
     uint32_t worker_ring_bytes;     // a power of two, >= 16
     uint32_t atom_buffer_bytes;
     const char *lilv_soname;        // NULL: LV2_CORE_LILV_SONAME
+    const char *state_root;         // the directory state:makePath makes each instance's directory in, absolute; NULL: the
+                                    // feature is not offered, whatever the list says
 };
 
 /* What a control port is to the instance. */
@@ -255,6 +264,8 @@ struct lv2_counters
     uint32_t patch_dropped;         // patch events of a block that did not fit the atom buffer, and text values the plugin
                                     // reported past LV2_CORE_TEXT_MAX
     uint32_t midi_in_dropped;       // a MIDI input event with no room left in the input buffer: dropped, never waited for
+    uint32_t make_path_refused;     // state:makePath answered NULL: a path outside the instance's directory, a call on the
+                                    // audio role, or a directory that could not be made
 };
 
 /* What lv2_instance_midi_out_each passes for each event the plugin wrote: its frame, as written, and the bytes. */
@@ -268,7 +279,9 @@ typedef void (*lv2_midi_out_fn)(void *ctx, int64_t frame, const uint8_t *data, u
 */
 
 /* Once per process: 0, or -1 with `why`. A list naming a feature no provider serves, a ring size that is not a power
- * of two >= 16, or a poll of 0 is refused; a second call is refused unless it says exactly what the first said. */
+ * of two >= 16, or a poll of 0 is refused; so is a state root that is not absolute or cannot be made
+ * (lv2.configure.state-root), which is made here and taken by its real path. A second call is refused unless it says
+ * exactly what the first said. */
 int lv2_core_configure(const struct lv2_core_config *config, char why[LV2_CORE_WHY_MAX]);
 
 /* The feature options of the plugins opened and the instances made from now on, NULL being the defaults: 0, or -1 with
@@ -410,6 +423,16 @@ float lv2_instance_patch_get(const struct lv2_instance *in, uint32_t j);
 /* [audio] Whether the last run's output carried a patch:Set or patch:Put for patch parameter `j`; if so, *value is the
  * last such value. A run clears every flag first. */
 int lv2_instance_patch_changed(const struct lv2_instance *in, uint32_t j, float *value);
+
+/* [thread-safe] The code of the last state:makePath request the instance answered NULL, "" when none was. */
+const char *lv2_instance_make_path_why(const struct lv2_instance *in);
+
+/* The directory a state save of the instance copies its files to, "" without a state root. */
+const char *lv2_instance_saved_dir(const struct lv2_instance *in);
+
+/* Remove a save's copy directory, `<state_root>/lv2-<pid>-<n>.saved`, and everything in it, links removed as links: 0,
+ * or -1 with `why` (LV2_CODE_NOT_A_COPY) for any other path, a symbolic link, or no state root. */
+int lv2_saved_drop(const char *saved_dir, char why[LV2_CORE_WHY_MAX]);
 
 /* The longest value text property values may have, without the NUL: LV2_CORE_TEXT_MAX - 1, or less when the patch
  * input's buffer cannot carry it beside its message; 0 for a plugin with no patch input. */

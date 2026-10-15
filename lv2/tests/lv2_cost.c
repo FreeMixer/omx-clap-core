@@ -80,7 +80,7 @@ static int cmp_double(const void *a, const void *b)
 int main(int argc, char **argv)
 {
     static const double rates[] = { 96000.0, 192000.0 };
-    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, 250u, NULL };
+    omx_clap_lv2_config_t config = { omx_clap_lv2_provided, 1000u, 4096u, 0u, 250u, NULL, NULL };
     const uint32_t calls = argc > 2 ? (uint32_t)strtoul(argv[2], NULL, 10) : 310000u;
     char dir[PATH_MAX], why[OMX_CLAP_LV2_WHY_MAX];
     static float l[QUANTUM], r[QUANTUM], ol[QUANTUM], or_[QUANTUM];
