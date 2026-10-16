@@ -134,6 +134,14 @@ for one and
 otherwise, and the feedback port carries
 .BI "output_set " "N symbol value"
 whenever the value moves.
+A value the plugin moves itself goes out on the feedback port as
+.BI "param_set " "N param value" ,
+between
+.BI "param_gesture " "N param " begin
+and
+.BI "param_gesture " "N param " end
+when its user holds the control, in the plugin's order, the last value of
+each parameter per idle tick.
 .BI "note_drops " N
 answers
 .BI "resp 0 " "dropped releases sysex unmappable" :
