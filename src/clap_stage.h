@@ -77,6 +77,7 @@
 #include <clap/process.h>
 
 #include "hosted_stage.h"
+#include "omx_clap_midi.h"
 
 
 /*
@@ -139,6 +140,9 @@ enum omx_clap_state
 #define OMX_CLAP_NOTE_SKIPPED           (-2)
 /** mpe_wanted's mark of a request the RT has not taken yet */
 #define OMX_CLAP_MPE_WANTED             0x80000000u
+/** The events of a plugin's note output one ring holds between two reads: a block's worth, the note events a block may hand
+ * a plugin (CLAP_HOST_NOTES_PER_BLOCK); one past them is dropped and counted in the ring's `dropped`. */
+#define OMX_CLAP_NOTE_OUT_DEPTH         CLAP_HOST_NOTES_PER_BLOCK
 
 /** The MPE zone a CLAP-dialect input reads: none, the lower zone (master channel 1, members from 2 up) or the upper one
  * (master channel 16, members from 15 down). The MPE configuration message (RPN 6 on channel 1 or 16) sets it. */
@@ -249,6 +253,33 @@ struct omx_clap_note_ids
     _Atomic uint32_t notes_ended;                       ///< ids the plugin's NOTE_END freed
     _Atomic uint32_t ids_expired;                       ///< ids taken back after their hold with no NOTE_END
 };
+
+/** One event of a plugin's note output, as its MIDI message: what omx_clap_note_out_take hands the reader. */
+struct omx_clap_note_out_event
+{
+    int64_t frame;                                      ///< its frame since activate, in the stage's steady time: the block's first frame plus `time`
+    uint32_t time;                                      ///< the frame in its block the plugin gave it, not clamped to the block
+    uint8_t size;                                       ///< the bytes of the message, 1 to 3
+    uint8_t data[3];                                    ///< the MIDI message
+};
+
+/**
+ * A plugin's note output (ABI 7): a lock-free single-producer, single-consumer ring of MIDI messages. The plugin's
+ * output event list fills it inside process() on the audio role (omx_clap_note_out_push); one reader empties it
+ * (omx_clap_note_out_take), the audio role right after the block in the same cycle, or one other thread. Nothing in it
+ * allocates, locks or calls out. Zeroed with its owner; never reset while either side may run.
+ */
+struct omx_clap_note_out
+{
+    _Atomic uint32_t head;                              ///< consumer: the next event to take
+    _Atomic uint32_t tail;                              ///< producer: the next slot to fill
+    _Atomic uint32_t dropped;                           ///< events the ring had no room for
+    _Atomic uint32_t unmapped;                          ///< events with no MIDI form here: a note expression, a sysex, a MIDI 2
+                                                        ///< event, another port's, a note with no single key or channel
+    struct omx_clap_note_out_event ring[OMX_CLAP_NOTE_OUT_DEPTH];  ///< the events
+};
+
+_Static_assert((OMX_CLAP_NOTE_OUT_DEPTH & (OMX_CLAP_NOTE_OUT_DEPTH - 1u)) == 0, "the note output ring is a power of two");
 
 /**
  * The audio inputs of a stage with auxiliary inputs (ABI 3): the process list, the main input first when the plugin has
@@ -459,6 +490,86 @@ static inline void omx_clap_note_ids_want_mpe(struct omx_clap_note_ids *n, uint3
         zone = OMX_CLAP_MPE_OFF;
     members = members < 1u ? 1u : members > 15u ? 15u : members;
     atomic_store_explicit(&n->mpe_wanted, OMX_CLAP_MPE_WANTED | zone | members << 8, memory_order_release);
+}
+
+
+/*
+************************************************************************************************************************
+*           NOTE OUTPUT
+************************************************************************************************************************
+*/
+
+/**
+ * RT, inside process(): one event the plugin pushed at its output list, kept in `o` when it is note output. A note on,
+ * note off or choke of note port 0 becomes its MIDI message (omx_clap_note_midi), a CLAP_EVENT_MIDI of port 0 is kept
+ * at its length (omx_clap_midi_size); a note expression, a sysex, a MIDI 2 event and a note or MIDI event that has no
+ * such form are counted in `unmapped`. Any other event (a NOTE_END, which tells the host a voice of its input ended, a
+ * parameter's, the transport) is no note output and is left alone. `block_start` is the block's first frame in the
+ * stage's steady time. A full ring drops the event and counts it: the plugin is never refused or made to wait.
+ */
+static inline void omx_clap_note_out_push(struct omx_clap_note_out *o, const clap_event_header_t *h, int64_t block_start)
+{
+    struct omx_clap_note_out_event *slot;
+    uint8_t m[3] = { 0, 0, 0 };
+    uint32_t size = 0, head, tail;
+
+    if (h == NULL || h->space_id != CLAP_CORE_EVENT_SPACE_ID)
+        return;
+    switch (h->type)
+    {
+        case CLAP_EVENT_NOTE_ON:
+        case CLAP_EVENT_NOTE_OFF:
+        case CLAP_EVENT_NOTE_CHOKE:
+            size = omx_clap_note_midi(h, m);
+            break;
+        case CLAP_EVENT_MIDI:
+            if (h->size >= sizeof(clap_event_midi_t) && ((const clap_event_midi_t *)h)->port_index == 0)
+            {
+                memcpy(m, ((const clap_event_midi_t *)h)->data, sizeof(m));
+                size = omx_clap_midi_size(m[0]);
+            }
+            break;
+        case CLAP_EVENT_NOTE_EXPRESSION:
+        case CLAP_EVENT_MIDI_SYSEX:
+        case CLAP_EVENT_MIDI2:
+            break;
+        default:
+            return;
+    }
+    if (size == 0)
+    {
+        omx_hosted_count(&o->unmapped, 1);
+        return;
+    }
+    tail = atomic_load_explicit(&o->tail, memory_order_relaxed);
+    head = atomic_load_explicit(&o->head, memory_order_acquire);
+    if (tail - head >= OMX_CLAP_NOTE_OUT_DEPTH)
+    {
+        omx_hosted_count(&o->dropped, 1);
+        return;
+    }
+    slot = &o->ring[tail & (OMX_CLAP_NOTE_OUT_DEPTH - 1u)];
+    slot->frame = block_start + (int64_t)h->time;
+    slot->time = h->time;
+    slot->size = (uint8_t)size;
+    slot->data[0] = m[0];
+    slot->data[1] = m[1];
+    slot->data[2] = m[2];
+    atomic_store_explicit(&o->tail, tail + 1u, memory_order_release);
+}
+
+/** The ring's one reader: take up to `capacity` events of `o` into `events`, oldest first, and free their slots. Returns
+ * how many; 0 when it is empty. No allocation, no lock, no call out: safe on the audio role. */
+static inline uint32_t omx_clap_note_out_take(struct omx_clap_note_out *o, struct omx_clap_note_out_event *events, uint32_t capacity)
+{
+    uint32_t head = atomic_load_explicit(&o->head, memory_order_relaxed);
+    const uint32_t tail = atomic_load_explicit(&o->tail, memory_order_acquire);
+    uint32_t n = 0;
+
+    while (head != tail && n < capacity)
+        events[n++] = o->ring[head++ & (OMX_CLAP_NOTE_OUT_DEPTH - 1u)];
+    atomic_store_explicit(&o->head, head, memory_order_release);
+    return n;
 }
 
 

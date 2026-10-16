@@ -70,6 +70,9 @@
 #define LV2_URI_SCHEME          "lv2:"
 #define BYPASS_PORT_SYMBOL      ":bypass"
 #define MIDI_PORT_NAME          "midi_in"
+#define MIDI_OUT_PORT_NAME      "midi_out"
+// the note output events one take reads off the library's ring on the audio thread
+#define NOTES_OUT_CHUNK         64u
 #define STATE_FILE_SUFFIX       ".clapstate"
 #define INSTANCE_IS_VALID(id)   ((id) >= 0 && (id) < MAX_INSTANCES)
 #define REQUESTED_CLIENT_NAME_BUF_SIZE  256
@@ -126,6 +129,8 @@ typedef struct EFFECT_T {
     jack_port_t *input_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
     jack_port_t *midi_port;
+    jack_port_t *midi_out_port;             // the plugin's note output, when it has one
+    _Atomic uint32_t midi_out_full;         // messages midi_out had no room for
     struct omx_clap_instance *clap;
     uint32_t latency_published;
     const clap_plugin_meters_t *meters;
@@ -270,6 +275,32 @@ static void publish_gain_adjustment(effect_t *effect, uint32_t runs_before)
     atomic_store_explicit(&effect->gain_adjustment_bits, bits, memory_order_relaxed);
 }
 
+/* audio thread, right after the cycle: what the plugin sent out in it, on midi_out at its frame. A time past the cycle
+ * is written on its last frame, a time before the previous message's on that message's frame, since a jack MIDI buffer
+ * holds its events in order; a message the buffer has no room for is counted. */
+static void notes_out(effect_t *effect, jack_nframes_t nframes)
+{
+    struct omx_clap_note_out_event events[NOTES_OUT_CHUNK];
+    void *midi = jack_port_get_buffer(effect->midi_out_port, nframes);
+    jack_nframes_t last = 0;
+    uint32_t n, i;
+
+    jack_midi_clear_buffer(midi);
+    while ((n = omx_clap_host_notes_out(effect->clap, events, NOTES_OUT_CHUNK)) > 0)
+    {
+        for (i = 0; i < n; i++)
+        {
+            jack_nframes_t time = events[i].time < nframes ? events[i].time : nframes - 1;
+
+            if (time < last)
+                time = last;
+            if (jack_midi_event_write(midi, time, events[i].data, events[i].size) != 0)
+                atomic_fetch_add_explicit(&effect->midi_out_full, 1u, memory_order_relaxed);
+            last = time;
+        }
+    }
+}
+
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
@@ -302,6 +333,8 @@ static int process(jack_nframes_t nframes, void *arg)
     omx_clap_run_io(&effect->clap->stage, inputs, outputs, nframes);
     if (effect->gain_adjustment)
         publish_gain_adjustment(effect, runs);
+    if (effect->midi_out_port)
+        notes_out(effect, nframes);
     return 0;
 }
 
@@ -1250,6 +1283,16 @@ int effects_add(const char *uri, int instance, const char *client_name)
         }
     }
 
+    if (effect->clap->note_outputs)
+    {
+        effect->midi_out_port = jack_port_register(effect->jack_client, MIDI_OUT_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
+        if (!effect->midi_out_port)
+        {
+            error = ERR_JACK_PORT_REGISTER;
+            goto error;
+        }
+    }
+
     jack_set_thread_init_callback(effect->jack_client, jack_thread_init, effect);
     jack_set_process_callback(effect->jack_client, process, effect);
     jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
@@ -1499,6 +1542,21 @@ int effects_note_drops(int effect_id, char *reply, size_t size)
              atomic_load_explicit(&stage->releases_dropped, memory_order_relaxed),
              atomic_load_explicit(&stage->sysex_dropped, memory_order_relaxed),
              atomic_load_explicit(&stage->notes_unmappable, memory_order_relaxed));
+    return SUCCESS;
+}
+
+/* note_out_drops: the plugin's note output counters, read relaxed as the audio thread leaves them: the events the
+ * library's ring had no room for, those with no MIDI form, and the messages midi_out had no room for */
+int effects_note_out_drops(int effect_id, char *reply, size_t size)
+{
+    const effect_t *effect;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    snprintf(reply, size, "resp 0 %u %u %u", atomic_load_explicit(&effect->clap->note_out.dropped, memory_order_relaxed),
+             atomic_load_explicit(&effect->clap->note_out.unmapped, memory_order_relaxed),
+             atomic_load_explicit(&effect->midi_out_full, memory_order_relaxed));
     return SUCCESS;
 }
 
