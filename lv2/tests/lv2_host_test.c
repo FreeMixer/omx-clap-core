@@ -32,7 +32,12 @@
  *   refusals  one twin per refusal code of the port reader, from the TTL alone, before the binary is opened.
  *   atom      the atom fixture's ports: the patch pair, a notify output given a buffer of its own, the string and path
  *             properties beside the numeric one; a MIDI input that takes time:Position too; an input of the plugin's own
- *             objects and a fifth notify output refused hosting.features.midi-in-fed-empty.
+ *             objects hosted; a fifth notify output refused hosting.features.midi-in-fed-empty.
+ *   atom ui   an atom control input that takes no MIDI, in each shape the desk's effects declare (LSP's in_ui, a sequence
+ *             with time:Position, nothing declared, patch:Message with time:Position, atom:String with patch:Message,
+ *             the plugin's own objects): admitted, never a MIDI input, fed a valid sequence at every block, the
+ *             transport's object when it takes time:Position, and the audio bit for bit; an atom input that is no
+ *             sequence and a fifth control input refused hosting.features.atom-in-unfed.
  *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
  *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
@@ -59,6 +64,7 @@
 #include <lv2/worker/worker.h>
 
 #include "lv2_core.h"
+#include "fixtures/lv2_atom_probe.h"
 #include "fixtures/lv2_feature_probe.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "lv2_test_util.h"
@@ -68,7 +74,7 @@
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
-static char g_atom[PATH_MAX];
+static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX];
 static char g_fp[PATH_MAX], g_fp_so[PATH_MAX + 32];
 static const char *g_lilv;
@@ -187,7 +193,7 @@ static void t_one_bundle(void)
     struct lv2_bundle *f = lv2_bundle_ref(g_fixture, why), *w;
     struct lv2_plugin *p;
 
-    CHECK(f && lv2_bundle_count(f) == 10, "bundle: the fixture bundle lists its 10 plugins (%u)", lv2_bundle_count(f));
+    CHECK(f && lv2_bundle_count(f) == 11, "bundle: the fixture bundle lists its 11 plugins (%u)", lv2_bundle_count(f));
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p && strcmp(why, "hosting.no-realisation") == 0, "bundle: LV2_PATH holds the worker gain, the fixture bundle does not know it: one bundle, never load_all (%s)", why);
     w = lv2_bundle_ref(g_wg, why);
@@ -197,7 +203,7 @@ static void t_one_bundle(void)
     lv2_plugin_close(p);
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p, "bundle: with the worker gain's bundle loaded too, the fixture bundle still does not hold it: the plugin must be THAT bundle's (%s)", why);
-    CHECK(lv2_bundle_count(f) == 10, "bundle: and does not list it");
+    CHECK(lv2_bundle_count(f) == 11, "bundle: and does not list it");
     lv2_bundle_unref(w);
     lv2_bundle_unref(f);
 }
@@ -322,7 +328,7 @@ static void t_refusals(void)
 {
     static const struct { const char *uri, *code; } cases[] =
     {
-        { FIXTURE_URI "#atom", "hosting.features.midi-in-fed-empty" },
+        { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
         { FIXTURE_URI "#no-out", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
@@ -384,12 +390,108 @@ static void t_atom_ports(void)
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo", why);
     CHECK(p && !p->midi_time && p->n_texts == 0 && lv2_plugin_text_limit(p) == 0, "atom: the MIDI echo's input takes no time:Position, and it has no text");
     lv2_plugin_close(p);
-    p = open_plugin(g_atom, ATOM_URI "#object-in", why);
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "atom: an input of the plugin's own objects is refused (%s)", why);
-    lv2_plugin_close(p);
     p = open_plugin(g_atom, ATOM_URI "#notify-many", why);
     CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "atom: a fifth notify output is refused (%s)", why);
     lv2_plugin_close(p);
+}
+
+/* ---- the atom control inputs that take no MIDI ---- */
+
+#define ATOM_CODE "hosting.features.atom-in-unfed"
+
+/* each shape of a non-MIDI atom control input: admitted, no MIDI input, and over blocks of several lengths (a transport
+ * on the first) the input a valid sequence at every run, the transport's object read there when the port takes
+ * time:Position, and the audio out = in x 0.5 on every frame */
+static void t_atom_ui(void)
+{
+    // where each input lands: the patch input (and whether the transport is forged into it), the time port, or fed empty
+    static const struct { const char *frag; int time, patch, time_port, fed_empty; } shapes[] =
+    {
+        { "#ui-lsp", 1, 1, 0, 0 }, { "#ui-seq-time", 1, 0, 1, 0 }, { "#ui-none", 0, 0, 0, 1 },
+        { "#ui-patch-time", 1, 1, 0, 0 }, { "#ui-string", 0, 1, 0, 0 }, { "#object-in", 0, 0, 0, 1 },
+    };
+    static const uint32_t lens[] = { BLOCK, 17u, 1u, BLOCK, 40u, BLOCK };
+    struct lv2_atom_probe *pr;
+    size_t s;
+
+    for (s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++)
+    {
+        char why[LV2_CORE_WHY_MAX] = "", uri[128];
+        struct lv2_plugin *p;
+        struct lv2_instance *in = NULL;
+        struct lv2_time t;
+        uint32_t b, i, at = 0, bad = 0;
+
+        snprintf(uri, sizeof(uri), "%s%s", ATOM_URI, shapes[s].frag);
+        p = open_plugin(g_atom, uri, why);
+        CHECK(p != NULL && p->midi_in_port < 0, "atom ui %s: admitted, and its atom input is no MIDI input (%s)", shapes[s].frag, why);
+        CHECK(p && (p->patch_in == 2) == shapes[s].patch && p->patch_time == (shapes[s].patch && shapes[s].time)
+                  && (p->time_port == 2) == shapes[s].time_port && p->n_atom_in == (uint32_t)shapes[s].fed_empty
+                  && (!shapes[s].fed_empty || p->atom_in[0] == 2),
+              "atom ui %s: the input is the %s (patch %d, time %d, fed empty %u)", shapes[s].frag,
+              shapes[s].patch ? "patch input" : shapes[s].time_port ? "time port" : "input fed empty",
+              p ? p->patch_in : -1, p ? p->time_port : -1, p ? p->n_atom_in : 0);
+        if (!p || lv2_plugin_load(p, why) != 0 || !(in = lv2_instance_new(p)) || lv2_instance_activate(in, 48000.0, 1, BLOCK, why) != 0)
+        {
+            CHECK(0, "atom ui %s: runs (%s)", shapes[s].frag, why);
+            lv2_instance_free(in);
+            lv2_plugin_close(p);
+            continue;
+        }
+        pr = loaded_symbol(g_atom_so, "lv2_atom_probe");
+        CHECK(pr != NULL, "atom ui %s: the probe of the atom fixture", shapes[s].frag);
+        if (!pr)
+        {
+            lv2_instance_free(in);
+            lv2_plugin_close(p);
+            continue;
+        }
+        memset(pr, 0, sizeof(*pr));
+        memset(&t, 0, sizeof(t));
+        t.playing = 1;
+        t.has = LV2_TIME_HAS_BPM;
+        t.bpm = 120.0;
+        for (b = 0; b < sizeof(lens) / sizeof(lens[0]); b++)
+        {
+            const uint32_t n = lens[b];
+            float x[BLOCK];
+
+            for (i = 0; i < n; i++)
+                x[i] = 0.5f * sinf(0.0613f * (float)(at + i));
+            memcpy(lv2_instance_audio_in(in, 0), x, n * sizeof(float));
+            t.frame = at;
+            lv2_instance_time(in, b == 0 ? &t : NULL);
+            g_in_run = 1;
+            lv2_instance_run(in, n, NULL, NULL);
+            g_in_run = 0;
+            for (i = 0; i < n; i++)
+            {
+                const float y = x[i] * 0.5f;
+
+                bad += memcmp(&lv2_instance_audio_out(in, 0)[i], &y, sizeof(float)) != 0;
+            }
+            at += n;
+        }
+        CHECK(pr->ui_blocks == 6 && pr->ui_valid == 6, "atom ui %s: the input is a valid sequence at every run (%u of %u)",
+              shapes[s].frag, pr->ui_valid, pr->ui_blocks);
+        CHECK(pr->ui_time == (uint32_t)shapes[s].time && pr->ui_other == 0,
+              "atom ui %s: %s transport object read there, and nothing else (%u objects, %u other)", shapes[s].frag,
+              shapes[s].time ? "the first block's" : "no", pr->ui_time, pr->ui_other);
+        CHECK(bad == 0, "atom ui %s: %u frames in blocks of 64, 17, 1, 64, 40, 64: out = in x 0.5 on every frame (%u differ)",
+              shapes[s].frag, at, bad);
+        lv2_instance_free(in);
+        lv2_plugin_close(p);
+    }
+    {
+        char why[LV2_CORE_WHY_MAX] = "";
+        struct lv2_plugin *p = open_plugin(g_atom, ATOM_URI "#value-in", why);
+
+        CHECK(!p && strcmp(why, ATOM_CODE) == 0, "atom ui: an atom input that is no sequence is refused " ATOM_CODE ", not as MIDI (%s)", why);
+        lv2_plugin_close(p);
+        p = open_plugin(g_atom, ATOM_URI "#ui-many", why);
+        CHECK(!p && strcmp(why, ATOM_CODE) == 0, "atom ui: a fifth control input is refused " ATOM_CODE " (%s)", why);
+        lv2_plugin_close(p);
+    }
 }
 
 /* ---- the CV ports ---- */
@@ -477,7 +579,7 @@ static void t_cv_run(double rate)
 /* ---- the MIDI ports ---- */
 
 /* the echo's MIDI input and output are its two atom ports, found by what they support; a twin with two MIDI inputs is
- * refused from the TTL alone, and the fixture's atom port that supports nothing stays refused too */
+ * refused from the TTL alone, and the fixture's atom input that is no sequence is refused, but not as MIDI */
 static void t_midi_ports(void)
 {
     char why[LV2_CORE_WHY_MAX] = "";
@@ -488,7 +590,7 @@ static void t_midi_ports(void)
           p ? p->midi_in_port : -1, p ? p->midi_out_port : -1);
     lv2_plugin_close(p);
     p = open_plugin(g_fixture, FIXTURE_URI "#atom", why);
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: an atom port that supports no MIDI is still refused (%s)", why);
+    CHECK(!p && strcmp(why, "hosting.features.atom-in-unfed") == 0, "midi: an atom input that is no MIDI port is not refused as MIDI (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
     CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: a second MIDI input is refused (%s)", why);
@@ -945,6 +1047,7 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-atom-fixture.lv2", g_build);
     if (abs_dir(dir, g_atom) != 0)
         return 1;
+    snprintf(g_atom_so, sizeof(g_atom_so), "%somx-atom-fixture.so", g_atom);
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
     if (abs_dir(dir, g_cv) != 0)
         return 1;
@@ -963,6 +1066,7 @@ int main(int argc, char **argv)
     t_refusals();
     t_midi_ports();
     t_atom_ports();
+    t_atom_ui();
     t_midi_run();
     t_sidechains();
     t_cv();

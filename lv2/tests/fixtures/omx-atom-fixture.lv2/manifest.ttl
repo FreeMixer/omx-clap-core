@@ -23,3 +23,38 @@
     a lv2:Plugin ;
     lv2:binary <omx-atom-fixture.so> ;
     rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-lsp>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-seq-time>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-none>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-patch-time>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-string>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#value-in>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-many>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .

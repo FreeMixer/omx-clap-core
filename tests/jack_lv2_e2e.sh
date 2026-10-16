@@ -145,10 +145,11 @@ expect "add lv2:$fixture 3" "resp 3"
 
 # ---- refusals: the adapter's code after the error code, and on stderr ----
 expect "add lv2:$fixture#wide 2" "resp -102 hosting.topology.wider-than-strip"
-expect "add lv2:$fixture#atom 2" "resp -102 hosting.features.midi-in-fed-empty"
+expect "add lv2:$fixture#atom 2" "resp -102 hosting.features.atom-in-unfed"
+expect "add lv2:$fixture#midi-two 2" "resp -102 hosting.features.midi-in-fed-empty"
 expect "add lv2:$fixture#fixed 2" "resp -102 hosting.features.missing"
 expect "add lv2:$fixture#no-out 2" "resp -102 hosting.topology.no-audio-output"
-for code in hosting.topology.wider-than-strip hosting.features.midi-in-fed-empty hosting.features.missing hosting.topology.no-audio-output; do
+for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.features.midi-in-fed-empty hosting.features.missing hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
 done
 expect "add lv2:urn:openmixer:test:on-no-path 2" "resp -101"

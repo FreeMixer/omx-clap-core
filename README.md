@@ -102,7 +102,7 @@ symbols, as with mod-host. A plugin the LV2 adapter cannot run says why:
     send "add lv2:urn:zamaudio:ZamComp 1"                                          # resp 1
     send "param_set 1 thr -20"                                                     # resp 0
     send "param_get 1 thr"                                                         # resp 0 -20.0000
-    send "add lv2:http://lsp-plug.in/plugins/lv2/limiter_stereo 2"                 # resp -102 hosting.features.midi-in-fed-empty
+    send "add lv2:http://moddevices.com/plugins/caps/Plate 2"                       # resp -102 hosting.topology.wider-than-strip
 
 More: [every command, meters, bypass, port layout, latency and scanning](doc/reference.md), the
 manual pages (`man omx-clap-host`, `man omx-clap-scan`) and <https://freemixer.github.io>.
