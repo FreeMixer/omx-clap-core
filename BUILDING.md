@@ -47,6 +47,14 @@ runs `tests/jack_synth_e2e.sh` in the same kind of namespace: the host with
 before the note, at two velocities and after the note off, and the layouts
 the host refuses.
 
+    make test-jack-notes-out
+
+runs `tests/jack_notes_out_e2e.sh` in the same kind of namespace: one note
+played into `effect_<N>:midi_in` of the fake arpeggiators of
+`tests/fake_synth.clap` and of the LV2 `omx-midi-echo` fixture by
+`tests/jack_notes_out_probe`, and every message read off
+`effect_<N>:midi_out` at its frame, in the same cycle.
+
     make test-jack-meters
 
 runs `tests/jack_meters_e2e.sh` in the same kind of namespace: the host with
