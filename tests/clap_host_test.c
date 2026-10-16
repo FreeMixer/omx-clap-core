@@ -626,11 +626,196 @@ static void synth_checks(const char *path)
     CHECK(omx_clap_host_binaries_open() == 0, "synth binary closed");
 }
 
+#define MOVER           "org.omx-clap-host.test.mover"
+#define MOVER_LEVEL     0
+#define MOVER_MOD       1
+#define MOVER_GESTURES  2
+#define MOVER_TRIM      3
+
+/* `blocks` cycles of the mover on a thread of their own, the audio role's, as a host's RT thread runs them: this thread
+ * stays the main thread, never the audio role */
+struct mover_cycles
+{
+    struct omx_clap_instance *instance;
+    uint32_t blocks;
+    _Atomic int go;
+};
+
+static void *mover_cycles_run(void *arg)
+{
+    struct mover_cycles *c = arg;
+    float in_l[BLOCK] = { 0 }, in_r[BLOCK] = { 0 }, out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    uint32_t b;
+
+    while (!atomic_load(&c->go))
+        usleep(100);
+    for (b = 0; b < c->blocks; b++)
+        omx_clap_run_io(&c->instance->stage, inputs, outputs, BLOCK);
+    return NULL;
+}
+
+static void mover_blocks(struct omx_clap_instance *instance, uint32_t blocks)
+{
+    struct mover_cycles c = { instance, blocks, 0 };
+    pthread_t t;
+
+    if (pthread_create(&t, NULL, mover_cycles_run, &c) != 0)
+        return;
+    if (atomic_load(&instance->stage.state) == OMX_CLAP_IDLE)
+        omx_clap_host_publish(instance, t);
+    else
+        omx_clap_host_set_audio_thread(instance, t);
+    atomic_store(&c.go, 1);
+    pthread_join(t, NULL);
+}
+
+static void mover_block(struct omx_clap_instance *instance)
+{
+    mover_blocks(instance, 1);
+}
+
+/* the mover opened under FAKE_MOVER `action` and FAKE_MOVER_FLOOD `flood` (NULL: unset), activated and run `blocks` blocks */
+static struct omx_clap_instance *mover_run(const char *path, const char *action, const char *flood, uint32_t blocks)
+{
+    struct omx_clap_instance *instance = NULL;
+
+    if (action)
+        setenv("FAKE_MOVER", action, 1);
+    else
+        unsetenv("FAKE_MOVER");
+    if (flood)
+        setenv("FAKE_MOVER_FLOOD", flood, 1);
+    else
+        unsetenv("FAKE_MOVER_FLOOD");
+    CHECK(open_ok(path, MOVER, &instance), "open %s (FAKE_MOVER %s, FAKE_MOVER_FLOOD %s)", MOVER, action ? action : "unset",
+          flood ? flood : "unset");
+    if (!instance)
+        return NULL;
+    CHECK(activate(instance), "activate the mover");
+    mover_blocks(instance, blocks);
+    return instance;
+}
+
+/* the plugin's own parameter events, the host's modulation and gestures, rescans, clears and the plugin's text */
+static void mover_checks(const char *path)
+{
+    struct omx_clap_instance *instance;
+    struct omx_clap_param_event ev[OMX_CLAP_PARAM_OUT_DEPTH + 8];
+    struct omx_clap_param_row row;
+    char text[32];
+    double value, applied;
+    uint32_t n;
+
+    instance = mover_run(path, NULL, NULL, 7);
+    if (!instance)
+        return;
+    CHECK(omx_clap_host_param_events_take(instance, ev, 8) == 0, "nothing to take before the plugin moves");
+    mover_block(instance);
+    n = omx_clap_host_param_events_take(instance, ev, 8);
+    CHECK(n == 3 && ev[0].kind == OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN && ev[0].id == MOVER_LEVEL
+          && ev[1].kind == OMX_CLAP_PARAM_EVENT_VALUE && ev[1].id == MOVER_LEVEL && ev[1].value == 0.75
+          && ev[2].kind == OMX_CLAP_PARAM_EVENT_GESTURE_END && ev[2].id == MOVER_LEVEL,
+          "the plugin's move, in order: gesture begin, the value 0.75, gesture end (%u events)", n);
+    CHECK(omx_clap_host_param_events_take(instance, ev, 8) == 0 && omx_clap_host_param_events_dropped(instance) == 0,
+          "taken once, none dropped");
+    CHECK(omx_clap_host_param_read(instance, MOVER_LEVEL, &value) == 0 && value == 0.75, "the plugin holds 0.75 (%g)", value);
+    CHECK(atomic_load(&instance->stage.plugin_changed) == 1 && atomic_load(&instance->stage.out_events_seen) == 3,
+          "the stage still counts the events (%u) and marks the read-back due", atomic_load(&instance->stage.out_events_seen));
+
+    // modulation: the plugin hears the amount, its set value stays
+    CHECK(omx_clap_host_param_modulate(instance, MOVER_LEVEL, 0.25) == 0, "modulate level by 0.25");
+    CHECK(omx_clap_host_param_modulate(instance, MOVER_TRIM, 0.25) == -1, "trim is not modulatable: refused");
+    CHECK(omx_clap_host_param_modulate(instance, MOVER_MOD, 0.25) == -1, "a read-only parameter: refused");
+    CHECK(omx_clap_host_param_modulate(instance, MOVER_LEVEL, NAN) == -1, "a NaN amount: refused");
+    mover_block(instance);
+    CHECK(omx_clap_host_param_read(instance, MOVER_MOD, &value) == 0 && value == 0.25, "the plugin heard the amount 0.25 (%g)", value);
+    CHECK(omx_clap_host_param_read(instance, MOVER_LEVEL, &value) == 0 && value == 0.75,
+          "and its set value is what it was, 0.75 (%g)", value);
+    CHECK(omx_clap_host_param_compare(instance, MOVER_LEVEL, &applied) == -1,
+          "a modulation writes no read-back shadow: nothing was delivered to compare");
+
+    // the host's own gesture around a write: the plugin sees begin, the value, end
+    CHECK(omx_clap_host_param_gesture(instance, MOVER_LEVEL, 1) == 0 && omx_clap_host_param_write(instance, MOVER_LEVEL, 0.6) == 0
+          && omx_clap_host_param_gesture(instance, MOVER_LEVEL, 0) == 0, "a host gesture around a write, queued");
+    CHECK(omx_clap_host_param_gesture(instance, MOVER_MOD, 1) == -1, "no gesture on a read-only parameter");
+    mover_block(instance);
+    CHECK(omx_clap_host_param_read(instance, MOVER_GESTURES, &value) == 0 && value == 2.0
+          && omx_clap_host_param_read(instance, MOVER_LEVEL, &applied) == 0 && applied == 0.6,
+          "the plugin saw two gestures (%g) and the value between them (%g)", value, applied);
+
+    // the plugin's text
+    CHECK(omx_clap_host_param_text(instance, MOVER_LEVEL, 0.75, text, sizeof(text)) == 0 && strcmp(text, "75%") == 0,
+          "the plugin's text for 0.75 is %s", text);
+    CHECK(omx_clap_host_param_parse(instance, MOVER_LEVEL, "40%", &value) == 0 && value == 0.4, "and it reads 40%% as %g", value);
+    CHECK(omx_clap_host_param_text(instance, MOVER_TRIM, 0.5, text, sizeof(text)) == -1
+          && omx_clap_host_param_parse(instance, MOVER_LEVEL, "loud", &value) == -1 && omx_clap_host_param_text(instance, 99, 0.5, text, sizeof(text)) == -1,
+          "no text where the plugin has none, nor for an unknown id");
+    idle(instance);
+    CHECK(omx_clap_host_params_rescanned(instance) == 0, "no rescan without FAKE_MOVER");
+    CHECK(atomic_load(&instance->thread_violations) == 0, "no host call off its thread (%u)", atomic_load(&instance->thread_violations));
+    omx_clap_host_close(instance);
+
+    // a rescan of the info: the row answers the new name, the flag is there once
+    instance = mover_run(path, "info", NULL, 8);
+    if (instance)
+    {
+        idle(instance);     // on_main_thread: the rename and the rescan
+        CHECK(omx_clap_host_tick(instance) == 0 && omx_clap_host_params_rescanned(instance) == CLAP_PARAM_RESCAN_INFO,
+              "params.rescan(INFO) is seen once, and asks for no restart");
+        CHECK(omx_clap_host_params_rescanned(instance) == 0, "and read once");
+        CHECK(omx_clap_host_param_row_of(instance, MOVER_LEVEL, &row) == 0 && strcmp(row.name, "gain") == 0,
+              "the row answers the new name (%s)", row.name);
+        omx_clap_host_close(instance);
+    }
+
+    // a rescan of everything while active: a restart
+    instance = mover_run(path, "all", NULL, 8);
+    if (instance)
+    {
+        omx_clap_host_tick(instance);       // on_main_thread: the rescan
+        CHECK(omx_clap_host_tick(instance) == 1, "params.rescan(ALL) while active asks for a restart");
+        CHECK(omx_clap_host_params_rescanned(instance) == CLAP_PARAM_RESCAN_ALL, "and is seen");
+        CHECK(omx_clap_host_restart(instance) == 0 && omx_clap_host_tick(instance) == 0 && instance->active, "the restart ran");
+        omx_clap_host_close(instance);
+    }
+
+    // a clear of everything: the host drops its read-back of the parameter
+    instance = mover_run(path, "clear", NULL, 2);
+    if (instance)
+    {
+        CHECK(param_set(instance, MOVER_LEVEL, 0.3) == 0, "write level 0.3 before the clear");
+        mover_block(instance);
+        CHECK(omx_clap_host_param_compare(instance, MOVER_LEVEL, &applied) == 1, "its read-back holds");
+        mover_blocks(instance, 6);
+        omx_clap_host_tick(instance);       // on_main_thread: the clear
+        CHECK(omx_clap_host_param_compare(instance, MOVER_LEVEL, &applied) == -1, "params.clear(ALL): the host's read-back is gone");
+        omx_clap_host_close(instance);
+    }
+
+    // more events than the ring holds: the surplus is dropped and counted, the ring keeps the first
+    instance = mover_run(path, NULL, "300", 8);
+    if (instance)
+    {
+        n = omx_clap_host_param_events_take(instance, ev, OMX_CLAP_PARAM_OUT_DEPTH + 8);
+        CHECK(n == OMX_CLAP_PARAM_OUT_DEPTH && omx_clap_host_param_events_dropped(instance) == 303 - OMX_CLAP_PARAM_OUT_DEPTH,
+              "303 events into a ring of %u: %u taken, %u dropped", OMX_CLAP_PARAM_OUT_DEPTH, n,
+              omx_clap_host_param_events_dropped(instance));
+        CHECK(ev[0].kind == OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN && ev[3].kind == OMX_CLAP_PARAM_EVENT_VALUE && ev[3].id == MOVER_TRIM,
+              "in order from the first");
+        omx_clap_host_close(instance);
+    }
+    unsetenv("FAKE_MOVER_FLOOD");
+    CHECK(omx_clap_host_binaries_open() == 0, "mover binary closed");
+}
+
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : NULL;
     const char *fake_path = argc > 2 ? argv[2] : NULL;
     const char *synth_path = argc > 3 ? argv[3] : NULL;
+    const char *mover_path = argc > 4 ? argv[4] : NULL;
     struct omx_clap_instance *first = NULL, *second = NULL;
     float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
     const float *inputs[2] = { in_l, in_r };
@@ -645,7 +830,7 @@ int main(int argc, char **argv)
 
     if (!path)
     {
-        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap [fake_synth.clap]]\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap [fake_synth.clap [fake_mover.clap]]]\n", argv[0]);
         return 2;
     }
     CHECK(configure() == 0, "the process is configured as the isolated host");
@@ -661,6 +846,8 @@ int main(int argc, char **argv)
         contract_checks(fake_path);
         if (synth_path)
             synth_checks(synth_path);
+        if (mover_path)
+            mover_checks(mover_path);
         return report("clap host test ok");
     }
 

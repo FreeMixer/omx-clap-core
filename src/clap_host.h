@@ -139,6 +139,55 @@ struct omx_clap_param_row
     void *cookie;               ///< what get_info returned; rides every event for this id
 };
 
+/** The plugin's own events about its parameters the instance keeps for the control thread, at most this many between
+ * two takes (omx_clap_host_param_events_take); one past them is dropped and counted. */
+#define OMX_CLAP_PARAM_OUT_DEPTH        256u
+
+/** What the plugin said of a parameter on its own, in an output event of process() or params.flush */
+enum omx_clap_param_event_kind
+{
+    OMX_CLAP_PARAM_EVENT_VALUE = 0,          ///< CLAP_EVENT_PARAM_VALUE: the plugin moved the parameter to `value`
+    OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN = 1,  ///< CLAP_EVENT_PARAM_GESTURE_BEGIN: the user took hold of it
+    OMX_CLAP_PARAM_EVENT_GESTURE_END = 2     ///< CLAP_EVENT_PARAM_GESTURE_END: the user let it go
+};
+
+/** One event of the plugin about a parameter, as omx_clap_host_param_events_take hands it over. */
+struct omx_clap_param_event
+{
+    uint32_t kind;  ///< an omx_clap_param_event_kind
+    clap_id id;  ///< the CLAP parameter id
+    double value;  ///< the value, for OMX_CLAP_PARAM_EVENT_VALUE; 0 for a gesture
+};
+
+/** The instance's sink for the plugin's output events: a lock-free single-producer, single-consumer ring the audio role
+ * (process()) or the control thread (params.flush, never at once) fills and the control thread empties. Nothing in it
+ * allocates, locks or calls out. */
+struct omx_clap_param_out
+{
+    struct omx_clap_stage *stage;  ///< the stage whose counters a push still raises
+    _Atomic uint32_t head;  ///< consumer: the next event to take
+    _Atomic uint32_t tail;  ///< producer: the next slot to fill
+    _Atomic uint32_t dropped;  ///< events the ring had no room for
+    struct omx_clap_param_event ring[OMX_CLAP_PARAM_OUT_DEPTH];  ///< the events
+};
+
+/** What a host record that is no plain value carries: the kind it becomes in the block (a CLAP_EVENT_PARAM_MOD, or a
+ * gesture's begin or end) and the plugin's own cookie. Such a record rides the stage's parameter ring like a write, its
+ * cookie pointing at its tag; the instance's input event list turns it into its kind when the plugin reads it. */
+struct omx_clap_param_tag
+{
+    uint32_t type;  ///< the CLAP event type the record becomes
+    void *cookie;  ///< the cookie get_info returned, which the event carries
+};
+
+/** The instance's input event list over the stage's: the stage's own list, and one tag per ring position over two laps
+ * of the ring, so a tag is written again only once the block that read it is long over. */
+struct omx_clap_param_in
+{
+    clap_input_events_t stage_in;  ///< the stage's own list, which this one reads through
+    struct omx_clap_param_tag tag[2 * CLAP_HOST_PARAM_QUEUE_DEPTH];  ///< the tags, by ring position modulo two laps
+};
+
 /** What a parameter's value means, from the plugin's org.openmixer.param-contract/1 (its symbol, unit, scale and step)
  * and its clap.params info (its range, default and flags) as get_info gives them when asked. */
 struct omx_clap_param_meaning
@@ -291,6 +340,13 @@ struct omx_clap_instance
     const struct clap_plugin_meters *meters;  ///< the plugin's clap.meters/1 extension, NULL when it has none read whole
     uint32_t meter_count;  ///< the meters declared, 0 with no extension
     struct omx_clap_meter meter[OMX_CLAP_METER_COUNT_MAX];  ///< the declarations, meter_count of them
+
+    // what the plugin says of its parameters on its own (ABI 0.10): the values it moves and the gestures of its output
+    // events, kept for the control thread, and the rescans it asked for
+    struct omx_clap_param_out param_out;  ///< the output events' sink, bound at activate
+    _Atomic uint32_t params_rescanned;  ///< the CLAP_PARAM_RESCAN_* flags since omx_clap_host_params_rescanned
+    // the host's modulations and gestures (ABI 0.10): the input event list that turns their records into their kind
+    struct omx_clap_param_in param_in;  ///< the input event list over the stage's, bound at activate
 
     // the plugin's org.openmixer.param-contract/1 (ABI 0.10): read and checked once at open, fixed for the instance's
     // life; read by the control thread only
@@ -493,6 +549,39 @@ OMX_CLAP_EXPORT int omx_clap_host_meter_info(const struct omx_clap_instance *in,
  * activated. Calls the plugin's thread-safe get_values(), so any thread but the audio role reads it: a telemetry
  * thread, at its own rate. The caller keeps the instance open while it reads. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity);
+
+/** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
+ * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
+ * waits for the next take. Control thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_param_events_take(struct omx_clap_instance *in, struct omx_clap_param_event *events,
+                                                         uint32_t capacity);
+
+/** The plugin's parameter events dropped since open, for want of room between two takes: when it grows, a value the
+ * plugin moved may have gone unseen, and its parameters are worth reading again. Any thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_param_events_dropped(const struct omx_clap_instance *in);
+
+/** Modulate row `id` by `amount` (CLAP_EVENT_PARAM_MOD, in the parameter's own units) around its set value, which stays
+ * what it was: queued for the next block like a write. -1 for an id that is no row or is not CLAP_PARAM_IS_MODULATABLE,
+ * an inactive instance, or a full ring. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_modulate(struct omx_clap_instance *in, clap_id id, double amount);
+
+/** The host's own gesture on row `id`: `begin` nonzero when a control of the host is taken hold of, 0 when it is let go
+ * (CLAP_EVENT_PARAM_GESTURE_BEGIN or _END), queued for the next block in order with the writes between them. -1 as for a
+ * write. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_gesture(struct omx_clap_instance *in, clap_id id, int begin);
+
+/** The CLAP_PARAM_RESCAN_* flags of every params.rescan the plugin made since the last call, then none. A rescan of
+ * CLAP_PARAM_RESCAN_INFO changes what the rows answer at once (they are read from get_info); a RESCAN_ALL while
+ * active makes omx_clap_host_tick ask for a restart. Control thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_params_rescanned(struct omx_clap_instance *in);
+
+/** The plugin's own text for `value` of parameter `id` (params.value_to_text) into `out`: 0, or -1 when it has none for
+ * it. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_text(struct omx_clap_instance *in, clap_id id, double value, char *out, uint32_t size);
+
+/** The value the plugin reads in `text` for parameter `id` (params.text_to_value): 0 with `*value`, or -1. Control
+ * thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const char *text, double *value);
 
 /** Whether the plugin's org.openmixer.param-contract/1 holds, as checked at open (rules R1, R2, R4 and R5 of openmixer's
  * contract's rules, see omx_clap_ext.h): 1 with `*version`; 0 for an uncontracted plugin, `*why` "absent" when it
