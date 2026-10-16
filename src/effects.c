@@ -289,7 +289,7 @@ static int process(jack_nframes_t nframes, void *arg)
 
         for (e = 0; e < count; e++)
             if (jack_midi_event_get(&event, midi, e) == 0)
-                omx_clap_note_in(&effect->clap->stage, event.time, event.buffer, event.size);
+                omx_clap_host_note_in(effect->clap, event.time, event.buffer, event.size);
     }
 
     for (c = 0; c < effect->clap->in_channels; c++)

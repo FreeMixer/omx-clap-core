@@ -29,7 +29,11 @@
  *   org.omx-clap-host.test.synth-aux      an extra audio input, refused
  *   org.omx-clap-host.test.synth-wide     4 output channels, refused
  *   org.omx-clap-host.test.synth-notes    two note inputs, refused
- *   org.omx-clap-host.test.synth-mpe      a note input with no dialect it can read, refused
+ *   org.omx-clap-host.test.synth-mpe      a note input that reads only MIDI with MPE
+ *   org.omx-clap-host.test.synth-poly     stereo out, CLAP note dialect, a voice per note id: a note off starts a
+ *                                         release of FAKE_SYNTH_RELEASE frames, after which the synth pushes
+ *                                         CLAP_EVENT_NOTE_END with the voice's id, channel and key. A note on whose
+ *                                         id a voice still sounds under is counted (fake_synth_poly_stats)
  *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused */
 
 #include <math.h>
@@ -45,6 +49,12 @@
 #define ID_SYNTH_NOTES  "org.omx-clap-host.test.synth-notes"
 #define ID_SYNTH_MPE    "org.omx-clap-host.test.synth-mpe"
 #define ID_SILENT       "org.omx-clap-host.test.silent"
+#define ID_SYNTH_POLY   "org.omx-clap-host.test.synth-poly"
+
+/** the release of a synth-poly voice, in frames from its note off to its NOTE_END */
+#define FAKE_SYNTH_RELEASE  1024u
+/** the voices synth-poly holds, more than any id pool a host has */
+#define FAKE_SYNTH_VOICES   1024u
 
 typedef struct LAYOUT_T {
     const char *id;
@@ -54,19 +64,48 @@ typedef struct LAYOUT_T {
     uint32_t supported;
     uint32_t preferred;
     int instrument;
+    int poly;
 } layout_t;
 
 static const layout_t g_layouts[] = {
-    { ID_SYNTH,       2, 0, 1, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_CLAP, 1 },
-    { ID_SYNTH_MIDI,  1, 0, 1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI, 1 },
-    { ID_SYNTH_AUX,   2, 1, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1 },
-    { ID_SYNTH_WIDE,  4, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1 },
-    { ID_SYNTH_NOTES, 2, 0, 2, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1 },
-    { ID_SYNTH_MPE,   2, 0, 1, CLAP_NOTE_DIALECT_MIDI_MPE, CLAP_NOTE_DIALECT_MIDI_MPE, 1 },
-    { ID_SILENT,      2, 0, 0, 0, 0, 0 },
+    { ID_SYNTH,       2, 0, 1, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
+    { ID_SYNTH_MIDI,  1, 0, 1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI, 1, 0 },
+    { ID_SYNTH_AUX,   2, 1, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
+    { ID_SYNTH_WIDE,  4, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
+    { ID_SYNTH_NOTES, 2, 0, 2, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
+    { ID_SYNTH_MPE,   2, 0, 1, CLAP_NOTE_DIALECT_MIDI_MPE, CLAP_NOTE_DIALECT_MIDI_MPE, 1, 0 },
+    { ID_SILENT,      2, 0, 0, 0, 0, 0, 0 },
+    { ID_SYNTH_POLY,  2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 1 },
 };
 
 #define LAYOUT_COUNT (sizeof(g_layouts) / sizeof(g_layouts[0]))
+
+/** one synth-poly voice: free, sounding (its key down), or in its release */
+typedef struct VOICE_T {
+    int32_t note_id;
+    int16_t channel;
+    int16_t key;
+    uint32_t release_left;      ///< frames of release left; 0 while the key is down
+    int on;                     ///< 1 sounding or releasing
+} voice_t;
+
+/** What synth-poly saw, for a test that dlsyms fake_synth_poly_stats: the file's one poly instance at a time. */
+typedef struct FAKE_SYNTH_POLY_STATS_T {
+    uint32_t notes_on;          ///< note ons taken
+    uint32_t ids_reused;        ///< note ons whose id a voice still sounds or releases under
+    uint32_t no_id;             ///< note ons with note id -1
+    uint32_t ended;             ///< NOTE_END pushed
+    uint32_t end_refused;       ///< NOTE_END the host's list refused
+    uint32_t voices;            ///< voices sounding or releasing now
+    uint32_t voices_max;        ///< the most at once
+} fake_synth_poly_stats_t;
+
+static fake_synth_poly_stats_t g_poly;
+
+CLAP_EXPORT const fake_synth_poly_stats_t *fake_synth_poly_stats(void)
+{
+    return &g_poly;
+}
 
 typedef struct SYNTH_T {
     clap_plugin_t plugin;
@@ -76,6 +115,7 @@ typedef struct SYNTH_T {
     int16_t key;
     double velocity;
     uint64_t age;
+    voice_t voices[FAKE_SYNTH_VOICES];  ///< synth-poly's voices
 } synth_t;
 
 static const char *const g_synth_features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, NULL };
@@ -149,10 +189,85 @@ static void note_on(synth_t *synth, int16_t key, double velocity)
     synth->age = 0;
 }
 
+static void poly_event(synth_t *synth, const clap_event_header_t *header)
+{
+    const clap_event_note_t *e = (const clap_event_note_t *)header;
+    uint32_t v;
+
+    if (header->type == CLAP_EVENT_NOTE_ON)
+    {
+        g_poly.notes_on++;
+        if (e->note_id < 0)
+            g_poly.no_id++;
+        for (v = 0; v < FAKE_SYNTH_VOICES; v++)
+            if (synth->voices[v].on && e->note_id >= 0 && synth->voices[v].note_id == e->note_id)
+                g_poly.ids_reused++;
+        for (v = 0; v < FAKE_SYNTH_VOICES && synth->voices[v].on; v++)
+            ;
+        if (v == FAKE_SYNTH_VOICES)
+            return;
+        synth->voices[v].on = 1;
+        synth->voices[v].note_id = e->note_id;
+        synth->voices[v].channel = e->channel;
+        synth->voices[v].key = e->key;
+        synth->voices[v].release_left = 0;
+        if (++g_poly.voices > g_poly.voices_max)
+            g_poly.voices_max = g_poly.voices;
+    }
+    else if (header->type == CLAP_EVENT_NOTE_OFF)
+    {
+        for (v = 0; v < FAKE_SYNTH_VOICES; v++)
+        {
+            voice_t *voice = &synth->voices[v];
+
+            if (!voice->on || voice->release_left)
+                continue;
+            if (e->note_id >= 0 ? voice->note_id == e->note_id
+                                : (e->channel < 0 || voice->channel == e->channel) && (e->key < 0 || voice->key == e->key))
+                voice->release_left = FAKE_SYNTH_RELEASE;
+        }
+    }
+}
+
+/* synth-poly, after frame `frame` of the block: a voice whose release ran out ends, and says so */
+static void poly_frame(synth_t *synth, const clap_output_events_t *out, uint32_t frame)
+{
+    uint32_t v;
+
+    for (v = 0; v < FAKE_SYNTH_VOICES; v++)
+    {
+        voice_t *voice = &synth->voices[v];
+        clap_event_note_t end;
+
+        if (!voice->on || voice->release_left == 0 || --voice->release_left)
+            continue;
+        memset(&end, 0, sizeof(end));
+        end.header.size = sizeof(end);
+        end.header.time = frame;
+        end.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        end.header.type = CLAP_EVENT_NOTE_END;
+        end.note_id = voice->note_id;
+        end.port_index = 0;
+        end.channel = voice->channel;
+        end.key = voice->key;
+        if (out->try_push(out, &end.header))
+            g_poly.ended++;
+        else
+            g_poly.end_refused++;
+        voice->on = 0;
+        g_poly.voices--;
+    }
+}
+
 static void take_event(synth_t *synth, const clap_event_header_t *header)
 {
     if (header->space_id != CLAP_CORE_EVENT_SPACE_ID)
         return;
+    if (synth->layout->poly)
+    {
+        poly_event(synth, header);
+        return;
+    }
     if (header->type == CLAP_EVENT_NOTE_ON)
     {
         const clap_event_note_t *e = (const clap_event_note_t *)header;
@@ -222,6 +337,11 @@ static void plugin_reset(const clap_plugin_t *plugin)
 {
     synth_t *synth = plugin->plugin_data;
     synth->sounding = 0;
+    if (synth->layout->poly)
+    {
+        memset(synth->voices, 0, sizeof(synth->voices));
+        g_poly.voices = 0;
+    }
 }
 
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process)
@@ -245,6 +365,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
             out->data32[c][i] = synth->sounding ? sample(synth) : 0.0f;
         if (synth->sounding)
             synth->age++;
+        if (synth->layout->poly)
+        {
+            for (c = 0; c < out->channel_count; c++)
+                out->data32[c][i] = (float)g_poly.voices * 1e-3f;  // a level that says how many voices sound
+            poly_frame(synth, process->out_events, i);
+        }
     }
     return CLAP_PROCESS_CONTINUE;
 }
@@ -292,6 +418,8 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
 
     synth = calloc(1, sizeof(synth_t));
     synth->layout = &g_layouts[i];
+    if (synth->layout->poly)
+        memset(&g_poly, 0, sizeof(g_poly));
     synth->sample_rate = 48000.0;
 
     synth->plugin.desc = &g_descriptors[i];
