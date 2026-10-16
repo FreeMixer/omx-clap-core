@@ -34,7 +34,9 @@
 *     silence its dry body is.
 *  2. Parameter events are drained from the lock-free ring the control thread fills into the stage's own preallocated
 *     event array, CLAP_HOST_EVENTS_PER_BLOCK at most, time 0, the cookie get_info returned; a surplus stays in the ring
-*     for the next block. The note events of the block, written ahead of it by omx_clap_note_in, follow them.
+*     for the next block. The note events of the block, written ahead of it by omx_clap_note_in, follow them. The
+*     last OMX_CLAP_NOTES_RESERVED slots of the note list are kept for releases (a note off, all notes off, all sound
+*     off, a pedal let go): a flood of note ons fills the rest and is counted, and the releases after it still arrive.
 *     out_events.try_push is a counting sink: a CLAP_EVENT_PARAM_VALUE from the plugin raises plugin_changed and nothing
 *     is stored.
 *  3. process() with steady_time a running frame counter from activate, never -1, transport NULL (a processing block
@@ -104,6 +106,17 @@ enum omx_clap_state
 /** the longest sysex the stage carries; a longer one is counted in notes_unmappable, never held past its block */
 #define OMX_CLAP_SYSEX_MAX_BYTES        256u
 
+/**
+ * The slots at the end of a block's note list that only a release takes. A release is a message that ends sound: a note
+ * off (or a note on with velocity 0), all sound off (controller 120), reset all controllers (121), all notes off and
+ * the mode changes that imply it (123 to 127), and a sustain, sostenuto or hold pedal let go (64, 66, 69 below 64).
+ * Every other message (a note on, an expression, a controller, a program change, a sysex) stops at
+ * CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED and is counted in notes_dropped; a release stops only when the
+ * whole list is full and is counted in notes_dropped and releases_dropped. One list, written in arrival order, so the
+ * plugin sees the survivors in the order and at the frames they came.
+ */
+#define OMX_CLAP_NOTES_RESERVED         (CLAP_HOST_NOTES_PER_BLOCK / 2u)
+
 /** the pitch-bend range in semitones a stage starts with: MIDI's default, since RPN 0 (pitch bend sensitivity) is not tracked */
 #define OMX_CLAP_BEND_SEMITONES_DEFAULT 2.0
 
@@ -161,13 +174,15 @@ struct omx_clap_stage
     _Atomic uint32_t constant_channels;                 ///< output channels the plugin reported constant, expanded
     _Atomic uint32_t events_delivered;                  ///< parameter events drained into process()
     _Atomic uint32_t notes_delivered;                   ///< note events handed to process()
-    _Atomic uint32_t notes_dropped;                     ///< note events past CLAP_HOST_NOTES_PER_BLOCK
+    _Atomic uint32_t notes_dropped;                     ///< note events the block had no room for, releases included (OMX_CLAP_NOTES_RESERVED)
     _Atomic uint32_t sysex_dropped;                     ///< a sysex message past OMX_CLAP_SYSEX_PER_BLOCK
     _Atomic uint32_t notes_unmappable;                  ///< a channel message with no mapping into the plugin's dialect: counted, never silently dropped
     _Atomic uint32_t out_events_seen;                   ///< events the plugin pushed at the counting sink
     _Atomic uint32_t plugin_changed;                    ///< a CLAP_EVENT_PARAM_VALUE came back: read-back due
     _Atomic uint32_t resets;                            ///< reset() calls on re-engage, made by the control thread
     _Atomic uint32_t start_refused;                     ///< start_processing() answered false
+    // ABI 5: in the stage's tail padding, so its size and every offset before it are unchanged
+    _Atomic uint32_t releases_dropped;                  ///< of notes_dropped, the releases: past the whole list, CLAP_HOST_NOTES_PER_BLOCK
 };
 
 /**
@@ -471,14 +486,38 @@ static inline void omx_clap_drain(struct omx_clap_stage *s)
         omx_hosted_count(&s->events_delivered, n);
 }
 
-/** The next note slot of this block, filled with the header; NULL, counted as dropped, past CLAP_HOST_NOTES_PER_BLOCK. */
-static inline union omx_clap_note *omx_clap_note_slot(struct omx_clap_stage *s, uint32_t time, uint16_t type, uint32_t size)
+/** Whether a channel message of one to three bytes is a release (OMX_CLAP_NOTES_RESERVED says which). */
+static inline int omx_clap_midi_is_release(const uint8_t *data, size_t size)
 {
+    const uint8_t type = data[0] & 0xf0;
+
+    if (size != 3)
+        return 0;
+    if (type == 0x80 || (type == 0x90 && data[2] == 0))
+        return 1;
+    if (type != 0xb0)
+        return 0;
+    if (data[1] >= 120 && data[1] != 122)       // 122, local control, is the only channel mode message that ends no sound
+        return 1;
+    return (data[1] == 64 || data[1] == 66 || data[1] == 69) && data[2] < 64;
+}
+
+/**
+ * The next note slot of this block, filled with the header. `release` is 1 for a release: it may take the last
+ * OMX_CLAP_NOTES_RESERVED slots, every other event stops before them. NULL past its room, counted in notes_dropped (and a
+ * release in releases_dropped too). Bounded and in place: no allocation, no lock, no call out.
+ */
+static inline union omx_clap_note *omx_clap_note_slot_for(struct omx_clap_stage *s, uint32_t time, uint16_t type, uint32_t size,
+                                                          int release)
+{
+    const uint32_t room = release ? CLAP_HOST_NOTES_PER_BLOCK : CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED;
     union omx_clap_note *slot;
 
-    if (s->n_notes >= CLAP_HOST_NOTES_PER_BLOCK)
+    if (s->n_notes >= room)
     {
         omx_hosted_count(&s->notes_dropped, 1);
+        if (release)
+            omx_hosted_count(&s->releases_dropped, 1);
         return NULL;
     }
     slot = &s->notes[s->n_notes++];
@@ -490,10 +529,17 @@ static inline union omx_clap_note *omx_clap_note_slot(struct omx_clap_stage *s, 
     return slot;
 }
 
+/** The next note slot of this block for a CLAP event `type`: a note off or a choke is a release, anything else is not. */
+static inline union omx_clap_note *omx_clap_note_slot(struct omx_clap_stage *s, uint32_t time, uint16_t type, uint32_t size)
+{
+    return omx_clap_note_slot_for(s, time, type, size, type == CLAP_EVENT_NOTE_OFF || type == CLAP_EVENT_NOTE_CHOKE);
+}
+
 /** RT: fill a CLAP_EVENT_MIDI slot with one raw channel message, one to three bytes. */
 static inline void omx_clap_midi_slot(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
 {
-    union omx_clap_note *slot = omx_clap_note_slot(s, time, CLAP_EVENT_MIDI, sizeof(clap_event_midi_t));
+    union omx_clap_note *slot = omx_clap_note_slot_for(s, time, CLAP_EVENT_MIDI, sizeof(clap_event_midi_t),
+                                                       omx_clap_midi_is_release(data, size));
 
     if (!slot)
         return;
@@ -529,10 +575,14 @@ static inline void omx_clap_expr_slot(struct omx_clap_stage *s, uint32_t time, i
  *    dialects also include MIDI; when they do not, pitch bend and channel or poly pressure become the
  *    CLAP_NOTE_EXPRESSION_TUNING and _PRESSURE expressions (channel-wide, or one key for poly aftertouch). A bend's
  *    full scale is `bend_semitones` either way (default 2, MIDI's default range; RPN 0 is not tracked, so a host that
- *    wants another range sets the field before arming): value = (bend14 - 8192) / 8192 * bend_semitones. Anything
- *    still unmappable (a controller, a program change, a sysex) is counted, never silently dropped.
- * A system real-time byte besides sysex is dropped; a channel message longer than three bytes is counted as unmappable. Past CLAP_HOST_NOTES_PER_BLOCK a message is counted and dropped, and
- * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is the same. A stage with no note input takes none.
+ *    wants another range sets the field before arming): value = (bend14 - 8192) / 8192 * bend_semitones. All sound off
+ *    (controller 120) becomes CLAP_EVENT_NOTE_CHOKE and all notes off (123, and 124 to 127, which imply it)
+ *    CLAP_EVENT_NOTE_OFF, both on every key of the channel (key -1). Anything still unmappable (another controller, a
+ *    program change, a sysex) is counted, never silently dropped.
+ * A system real-time byte besides sysex is dropped; a channel message longer than three bytes is counted as unmappable.
+ * A full block drops what can be lost first: past CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED a message that is
+ * not a release is counted and dropped, and a release only past CLAP_HOST_NOTES_PER_BLOCK (OMX_CLAP_NOTES_RESERVED);
+ * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is counted and dropped too. A stage with no note input takes none.
  */
 static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
 {
@@ -599,6 +649,19 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
     if (also_midi)
     {
         omx_clap_midi_slot(s, time, data, size);
+        return;
+    }
+
+    if (type == 0xb0 && size == 3 && (data[1] == 120 || data[1] >= 123))   // all sound off, all notes off: every key
+    {
+        slot = omx_clap_note_slot(s, time, data[1] == 120 ? CLAP_EVENT_NOTE_CHOKE : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
+        if (!slot)
+            return;
+        slot->note.note_id = -1;
+        slot->note.port_index = 0;
+        slot->note.channel = (int16_t)channel;
+        slot->note.key = -1;
+        slot->note.velocity = 0.0;
         return;
     }
 

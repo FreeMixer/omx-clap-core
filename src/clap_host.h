@@ -68,11 +68,11 @@
 
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
- * 4: the plugin's clap.meters/1 declarations, 0.7). configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up
- * to its own, so a consumer of an older header keeps working, and refuses a newer one: a consumer whose inline code
- * reaches an appended field is refused by a library whose instance lacks it. A removal or a reorder is a new major of
- * the library. */
-#define OMX_CLAP_CORE_ABI               4u
+ * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10).
+ * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
+ * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
+ * whose instance lacks it. A removal or a reorder is a new major of the library. */
+#define OMX_CLAP_CORE_ABI               5u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
