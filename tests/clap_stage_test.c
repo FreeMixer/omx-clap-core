@@ -732,6 +732,172 @@ static void t_channel_messages(void) {
   CHECK(NS.n_notes == 0, "no note input, MIDI dialect: nothing reaches the stage");
 }
 
+/* The survivors of a flood are the messages fed at times 0..n-1 in order: every survivor's time names the message it
+ * came from, the times only rise, and each one carries that message's kind and key. Returns the survivors checked. */
+static uint32_t np_survivors_in_order(const uint8_t (*m)[3], uint32_t n, const char *what) {
+  uint32_t i, last = 0, bad = 0;
+
+  for (i = 0; i < NS.n_notes; i++) {
+    const union omx_clap_note *e = &NS.notes[i];
+    const uint32_t t = e->header.time;
+
+    if (t >= n || (i > 0 && t <= last)) { bad++; continue; }
+    last = t;
+    if (e->header.type == CLAP_EVENT_MIDI)
+      bad += e->midi.data[0] != m[t][0] || e->midi.data[1] != m[t][1] || e->midi.data[2] != m[t][2];
+    else if (e->header.type == CLAP_EVENT_NOTE_ON)
+      bad += (m[t][0] & 0xf0) != 0x90 || m[t][2] == 0 || e->note.key != m[t][1];
+    else if (e->header.type == CLAP_EVENT_NOTE_OFF)
+      bad += ((m[t][0] & 0xf0) == 0x90 ? m[t][2] != 0 : (m[t][0] & 0xf0) != 0x80 && (m[t][0] & 0xf0) != 0xb0) ||
+             ((m[t][0] & 0xf0) != 0xb0 && e->note.key != m[t][1]);
+    else if (e->header.type == CLAP_EVENT_NOTE_CHOKE)
+      bad += (m[t][0] & 0xf0) != 0xb0 || m[t][1] != 120 || e->note.key != -1;
+  }
+  CHECK(bad == 0, "%s: the %u survivors keep the order and the content they arrived with (%u out of place)", what, NS.n_notes, bad);
+  return NS.n_notes;
+}
+
+/* Feed `n` messages at times 0..n-1. */
+static void np_feed(const uint8_t (*m)[3], uint32_t n) {
+  uint32_t i;
+
+  for (i = 0; i < n; i++) ns_in(i, m[i], (m[i][0] & 0xf0) == 0xd0 || (m[i][0] & 0xf0) == 0xc0 ? 2 : 3);
+}
+
+#define NP_FLOOD 300u
+static uint8_t NP[NP_FLOOD + 8][3];
+
+/* `ons` note ons on channel 0, keys cycling, then the `tail` messages after them */
+static uint32_t np_flood(uint32_t ons, const uint8_t (*tail)[3], uint32_t n_tail) {
+  uint32_t i;
+
+  for (i = 0; i < ons; i++) { NP[i][0] = 0x90; NP[i][1] = (uint8_t)(i % 128); NP[i][2] = 100; }
+  for (i = 0; i < n_tail; i++) memcpy(NP[ons + i], tail[i], 3);
+  return ons + n_tail;
+}
+
+/* The block's note list is bounded, and a full one drops what can be lost first: a note off, a note on with velocity
+ * 0, all notes off, all sound off and a sustain pedal let go always arrive, in the order they came. */
+static void t_note_priority(void) {
+  static const uint8_t OFF[][3] = {{0x80, 60, 0}}, VEL0[][3] = {{0x90, 61, 0}};
+  static const uint8_t PANIC[][3] = {{0xb2, 123, 0}, {0xb2, 120, 0}}, PEDAL_UP[][3] = {{0xb0, 64, 0}};
+  static const uint32_t DIALECTS[][2] = {{CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP},
+                                         {CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI},
+                                         {CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI}};
+  static const char *const NAMES[] = {"CLAP", "CLAP+MIDI", "MIDI"};
+  uint32_t d, n, i;
+  const size_t align = _Alignof(struct omx_clap_stage);
+  const size_t before = offsetof(struct omx_clap_stage, start_refused) + sizeof NS.start_refused;
+
+  /* releases_dropped (ABI 5) sits in the tail padding on the 64-bit targets the library ships for: the stage is the size
+   * it was without it, every offset unchanged.
+   * The ABI check cannot see it (libabigail leaves _Atomic members out), so this is the check. */
+  CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before &&
+        sizeof(struct omx_clap_stage) == (before + align - 1) / align * align,
+        "releases_dropped is in the stage's tail padding: size %zu, the end of start_refused rounded to %zu is %zu",
+        sizeof(struct omx_clap_stage), align, (before + align - 1) / align * align);
+
+  for (d = 0; d < 3; d++) {
+    const char *what = NAMES[d];
+    const union omx_clap_note *last;
+
+    /* 300 note ons and then one note off, all in one block: the note off arrives, the last event of the block */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    n = np_flood(NP_FLOOD, OFF, 1);
+    np_feed(NP, n);
+    np_survivors_in_order(NP, n, what);
+    last = &NS.notes[NS.n_notes - 1];
+    CHECK(last->header.time == NP_FLOOD &&
+          (last->header.type == CLAP_EVENT_NOTE_OFF ? last->note.key == 60 : last->midi.data[0] == 0x80 && last->midi.data[1] == 60),
+          "%s: %u note ons then a note off: the note off arrives (the block ends at time %u, type %u)", what, NP_FLOOD,
+          last->header.time, last->header.type);
+    CHECK(NS.n_notes <= CLAP_HOST_NOTES_PER_BLOCK && NS.n_notes + atomic_load(&NS.notes_dropped) == n,
+          "%s: every message is delivered or counted (%u + %u of %u)", what, NS.n_notes, atomic_load(&NS.notes_dropped), n);
+    CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
+          atomic_load(&NS.notes_dropped) == NP_FLOOD - (CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED) &&
+          atomic_load(&NS.releases_dropped) == 0,
+          "%s: the note ons stop %u slots short of the end, the note off takes one of them (%u delivered, %u dropped, %u releases)",
+          what, OMX_CLAP_NOTES_RESERVED, NS.n_notes, atomic_load(&NS.notes_dropped), atomic_load(&NS.releases_dropped));
+
+    /* a note on with velocity 0 is a note off */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    n = np_flood(NP_FLOOD, VEL0, 1);
+    np_feed(NP, n);
+    np_survivors_in_order(NP, n, what);
+    CHECK(NS.notes[NS.n_notes - 1].header.time == NP_FLOOD, "%s: a note on with velocity 0 after the flood arrives", what);
+
+    /* all notes off and all sound off after the flood: both arrive, in order */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    n = np_flood(NP_FLOOD, PANIC, 2);
+    np_feed(NP, n);
+    np_survivors_in_order(NP, n, what);
+    CHECK(NS.n_notes >= 2 && NS.notes[NS.n_notes - 2].header.time == NP_FLOOD && NS.notes[NS.n_notes - 1].header.time == NP_FLOOD + 1,
+          "%s: all notes off and all sound off after the flood both arrive (last at %u)", what, NS.notes[NS.n_notes - 1].header.time);
+
+    /* 300 note offs: the block fills with them and the rest is counted */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    for (i = 0; i < NP_FLOOD; i++) { NP[i][0] = 0x80; NP[i][1] = (uint8_t)(i % 128); NP[i][2] = 0; }
+    np_feed(NP, NP_FLOOD);
+    np_survivors_in_order(NP, NP_FLOOD, what);
+    CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK && atomic_load(&NS.notes_dropped) == NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK,
+          "%s: %u note offs: %u delivered, the %u past the block counted (%u, %u)", what, NP_FLOOD, CLAP_HOST_NOTES_PER_BLOCK,
+          NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK, NS.n_notes, atomic_load(&NS.notes_dropped));
+    CHECK(atomic_load(&NS.releases_dropped) == NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK,
+          "%s: the note offs past the block are counted as releases (%u)", what, atomic_load(&NS.releases_dropped));
+
+    /* the flood, then exactly enough note offs to fill the reserve but one, then all notes off: the list ends full, on it */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    {
+      static uint8_t M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED][3];
+
+      for (i = 0; i < NP_FLOOD; i++) { M[i][0] = 0x90; M[i][1] = (uint8_t)(i % 128); M[i][2] = 100; }
+      for (i = 0; i < OMX_CLAP_NOTES_RESERVED - 1; i++) { M[NP_FLOOD + i][0] = 0x80; M[NP_FLOOD + i][1] = (uint8_t)i; M[NP_FLOOD + i][2] = 0; }
+      M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][0] = 0xb0;
+      M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][1] = 123;
+      M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][2] = 0;
+      np_feed(M, NP_FLOOD + OMX_CLAP_NOTES_RESERVED);
+      np_survivors_in_order(M, NP_FLOOD + OMX_CLAP_NOTES_RESERVED, what);
+      CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK && NS.notes[NS.n_notes - 1].header.time == NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1 &&
+            atomic_load(&NS.releases_dropped) == 0,
+            "%s: %u note ons, %u note offs and all notes off: the block is full and ends on all notes off (%u, %u releases dropped)",
+            what, NP_FLOOD, OMX_CLAP_NOTES_RESERVED - 1, NS.n_notes, atomic_load(&NS.releases_dropped));
+    }
+
+    /* past the flood a pedal pressed, an expression or a program change is not a release: dropped, never a release */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    {
+      static const uint8_t NOT_RELEASES[][3] = {{0xb0, 64, 127}, {0xe0, 0, 0x40}, {0xd0, 90, 0}, {0xb0, 122, 0}};
+
+      n = np_flood(NP_FLOOD, NOT_RELEASES, 4);
+      np_feed(NP, n);
+      np_survivors_in_order(NP, n, what);
+      CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED && atomic_load(&NS.releases_dropped) == 0,
+            "%s: a pedal pressed, a bend, a pressure and local control after the flood are dropped, none a release (%u, %u)", what,
+            NS.n_notes, atomic_load(&NS.releases_dropped));
+    }
+  }
+
+  /* a CLAP-only port has no MIDI: all notes off is a note off and all sound off a choke, every key of the channel */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  n = np_flood(NP_FLOOD, PANIC, 2);
+  np_feed(NP, n);
+  CHECK(NS.n_notes >= 2 && NS.notes[NS.n_notes - 2].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[NS.n_notes - 2].note.key == -1 &&
+        NS.notes[NS.n_notes - 2].note.channel == 2 && NS.notes[NS.n_notes - 2].note.note_id == -1 &&
+        NS.notes[NS.n_notes - 2].note.port_index == 0,
+        "CLAP: all notes off is a note off on every key of channel 2");
+  CHECK(NS.n_notes >= 1 && NS.notes[NS.n_notes - 1].header.type == CLAP_EVENT_NOTE_CHOKE && NS.notes[NS.n_notes - 1].note.key == -1 &&
+        NS.notes[NS.n_notes - 1].note.channel == 2,
+        "CLAP: all sound off is a choke on every key of channel 2");
+
+  /* the sustain pedal let go after a flood arrives where MIDI travels */
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI);
+  n = np_flood(NP_FLOOD, PEDAL_UP, 1);
+  np_feed(NP, n);
+  np_survivors_in_order(NP, n, "MIDI");
+  CHECK(NS.notes[NS.n_notes - 1].header.time == NP_FLOOD && NS.notes[NS.n_notes - 1].midi.data[1] == 64,
+        "MIDI: the sustain pedal let go after the flood arrives");
+}
+
 /** Events queued ahead of a block that never runs (a zero-length call) do not reach the next block. */
 static void t_stale_events(void) {
   static const uint8_t NOTE_ON[] = {0x90, 60, 100}, SYSEX[] = {0xf0, 1, 2, 3, 0xf7};
@@ -795,6 +961,7 @@ int main(void) {
     t_out_events();
     t_xfade();
     t_channel_messages();
+    t_note_priority();
     t_stale_events();
     t_sysex_pool_resets();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);

@@ -92,7 +92,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 4u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 4, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 5u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 5, the oldest accepted 1 (%u)", config.abi);
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;

@@ -146,6 +146,10 @@ expect "add clap:$synth#org.omx-clap-host.test.silent 2" "resp -102 hosting.topo
 grep -q "hosting.topology.no-audio-input" "$runtime/host.log"; step $? "an effect with no input is refused with the reason"
 ! graph_has effect_2:midi_in && ! graph_has effect_2:out_1; step $? "no effect_2 port after the refusals"
 
+# the notes the probe played fit their blocks: nothing dropped, no release lost, no sysex, nothing unmappable
+expect "note_drops 0" "resp 0 0 0 0 0"
+expect "note_drops 1" "resp 0 0 0 0 0"
+expect "note_drops 7" "resp -3"
 expect "bypass 0 1" "resp 0"
 expect "param_get 0 :bypass" "resp 0 1.0000"
 expect "remove 0" "resp 0"
