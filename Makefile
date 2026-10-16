@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
 CORE_MAP = src/omx-clap-core.map
 
 PKG_CONFIG ?= pkg-config
@@ -249,7 +249,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -415,6 +415,14 @@ tests/jack_latency_probe: tests/jack_latency_probe.c
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/jack_synth_probe
 	./tests/jack_synth_e2e.sh
+
+# a plugin's note output over jack in the same kind of namespace: one note into midi_in of a fake arpeggiator, the same in
+# the MIDI dialect and the LV2 midi echo, and every message on midi_out at its frame
+test-jack-notes-out: $(PROG) tests/fake_synth.clap tests/jack_notes_out_probe build/lv2/omx-midi-echo.lv2/omx-midi-echo.so
+	./tests/jack_notes_out_e2e.sh
+
+tests/jack_notes_out_probe: tests/jack_notes_out_probe.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
 
 tests/jack_synth_probe: tests/jack_synth_probe.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
