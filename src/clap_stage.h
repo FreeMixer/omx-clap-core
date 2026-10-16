@@ -120,6 +120,39 @@ enum omx_clap_state
 /** the pitch-bend range in semitones a stage starts with: MIDI's default, since RPN 0 (pitch bend sensitivity) is not tracked */
 #define OMX_CLAP_BEND_SEMITONES_DEFAULT 2.0
 
+/**
+ * The note ids one stage holds at once. A CLAP-dialect note on takes a free id, its note off and its per-note
+ * expressions carry it, and it is free again when the plugin reports CLAP_EVENT_NOTE_END for it, or, for a plugin that
+ * never does, note_id_hold_frames after its note off. A note on with no free id is skipped and counted in
+ * notes_skipped; its note off is then dropped, since nothing holds it.
+ */
+#define OMX_CLAP_NOTE_IDS               256u
+/** how long after its note off an id waits for the plugin's NOTE_END before it may be taken again, in milliseconds */
+#define OMX_CLAP_NOTE_ID_HOLD_MS        2000u
+/** MPE's default pitch-bend range of a zone's member channels, in semitones (the MPE specification's default) */
+#define OMX_CLAP_MPE_MEMBER_BEND_DEFAULT 48.0
+/** MPE's default pitch-bend range of a zone's master channel, in semitones */
+#define OMX_CLAP_MPE_MASTER_BEND_DEFAULT 2.0
+
+/** The MPE zone a CLAP-dialect input reads: none, the lower zone (master channel 1, members from 2 up) or the upper one
+ * (master channel 16, members from 15 down). The MPE configuration message (RPN 6 on channel 1 or 16) sets it. */
+enum omx_clap_mpe
+{
+    OMX_CLAP_MPE_OFF = 0,       ///< no zone: every channel is a plain MIDI channel
+    OMX_CLAP_MPE_LOWER,         ///< master channel 1 (index 0), members 2 .. 1 + mpe_members
+    OMX_CLAP_MPE_UPPER          ///< master channel 16 (index 15), members 15 .. 16 - mpe_members
+};
+
+/** One note id of the pool: free, held by a sounding key, or released and waiting for the plugin's NOTE_END. */
+struct omx_clap_note_id
+{
+    uint8_t state;              ///< 0 free, 1 held (its key is down), 2 released (its note off sent)
+    uint8_t channel;            ///< the channel of the note it names
+    uint8_t key;                ///< the key of the note it names
+    uint8_t pad;                ///< zero
+    int64_t released_at;        ///< the frame its note off was sent at, in the stage's steady time
+};
+
 /** Every event the host hands a plugin ahead of a block besides the parameter writes */
 union omx_clap_note
 {
@@ -183,6 +216,21 @@ struct omx_clap_stage
     _Atomic uint32_t start_refused;                     ///< start_processing() answered false
     // ABI 5: in the stage's tail padding, so its size and every offset before it are unchanged
     _Atomic uint32_t releases_dropped;                  ///< of notes_dropped, the releases: past the whole list, CLAP_HOST_NOTES_PER_BLOCK
+    // ABI 6: note ids, the MPE zone and note end, appended after every earlier field
+    uint32_t note_ids;                                  ///< 1: CLAP notes carry ids from the pool (omx_clap_note_ids_reset sets it)
+    uint32_t note_id_hold_frames;                       ///< frames after a note off an id waits for NOTE_END; the host sets it at activate
+    uint32_t mpe;                                       ///< enum omx_clap_mpe: the zone the input reads
+    uint32_t mpe_members;                               ///< the zone's member channels, 1 to 15
+    double mpe_master_bend;                             ///< the master channel's bend range in semitones (RPN 0 on the master)
+    double mpe_member_bend;                             ///< the member channels' bend range in semitones (RPN 0 on a member)
+    uint8_t rpn[16][2];                                 ///< the RPN each channel selected (controllers 101, 100); 127 none
+    int32_t chan_id[16];                                ///< the id of the newest note held on each channel, -1 none: an MPE member's note
+    int32_t key_id[16][128];                            ///< the id each held key sounds under, -1 none
+    struct omx_clap_note_id ids[OMX_CLAP_NOTE_IDS];     ///< the pool
+    uint16_t free_ids[OMX_CLAP_NOTE_IDS];               ///< the free ids, a stack
+    uint32_t n_free;                                    ///< the ids on the stack
+    _Atomic uint32_t notes_skipped;                     ///< note ons with no free id: skipped, and their note offs dropped
+    _Atomic uint32_t notes_ended;                       ///< NOTE_END events from the plugin that freed an id
 };
 
 /**
@@ -233,14 +281,129 @@ static inline const clap_event_header_t *omx_clap_in_get(const struct clap_input
     return index < omx_clap_notes_in_view(s) ? &s->notes[index].header : NULL;
 }
 
+/*
+************************************************************************************************************************
+*           NOTE IDS
+************************************************************************************************************************
+*/
+
+/**
+ * Control thread, holding the audio role (or before the first block): every id free, no key held, the MPE zone and the
+ * RPNs forgotten, ids on. omx_clap_stage_init calls it; the host calls it again when it resets the plugin, whose voices
+ * are then gone.
+ */
+static inline void omx_clap_note_ids_reset(struct omx_clap_stage *s)
+{
+    uint32_t i, k;
+
+    s->note_ids = 1;
+    s->mpe = OMX_CLAP_MPE_OFF;
+    s->mpe_members = 15;
+    s->mpe_master_bend = OMX_CLAP_MPE_MASTER_BEND_DEFAULT;
+    s->mpe_member_bend = OMX_CLAP_MPE_MEMBER_BEND_DEFAULT;
+    for (i = 0; i < 16; i++)
+    {
+        s->rpn[i][0] = s->rpn[i][1] = 127;
+        s->chan_id[i] = -1;
+        for (k = 0; k < 128; k++)
+            s->key_id[i][k] = -1;
+    }
+    memset(s->ids, 0, sizeof(s->ids));
+    for (i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+        s->free_ids[i] = (uint16_t)(OMX_CLAP_NOTE_IDS - 1u - i);    // popped from the top: id 0 first
+    s->n_free = OMX_CLAP_NOTE_IDS;
+}
+
+/** RT: forget id `id` wherever a key or a channel still names it. */
+static inline void omx_clap_note_id_unmap(struct omx_clap_stage *s, int32_t id)
+{
+    const struct omx_clap_note_id *n = &s->ids[id];
+
+    if (s->key_id[n->channel][n->key] == id)
+        s->key_id[n->channel][n->key] = -1;
+    if (s->chan_id[n->channel] == id)
+        s->chan_id[n->channel] = -1;
+}
+
+/** RT: id `id` is free again: its voice ended, or its hold ran out. */
+static inline void omx_clap_note_id_free(struct omx_clap_stage *s, int32_t id)
+{
+    if (s->ids[id].state == 0)
+        return;
+    omx_clap_note_id_unmap(s, id);
+    s->ids[id].state = 0;
+    s->free_ids[s->n_free++] = (uint16_t)id;
+}
+
+/** RT: a free id for a note on channel `channel`, key `key`, or -1 when none is free. A released id whose hold has run
+ * out by `now` is taken back first. Bounded: one pass over the pool, only when the stack is empty. */
+static inline int32_t omx_clap_note_id_take(struct omx_clap_stage *s, uint8_t channel, uint8_t key, int64_t now)
+{
+    int32_t id;
+
+    if (s->n_free == 0)
+        for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+            if (s->ids[i].state == 2 && now - s->ids[i].released_at >= (int64_t)s->note_id_hold_frames)
+                omx_clap_note_id_free(s, (int32_t)i);
+    if (s->n_free == 0)
+        return -1;
+    id = s->free_ids[--s->n_free];
+    s->ids[id].state = 1;
+    s->ids[id].channel = channel;
+    s->ids[id].key = key;
+    return id;
+}
+
+/** RT: id `id`'s note off was sent at `now`: it no longer names its key, and waits for NOTE_END or its hold. */
+static inline void omx_clap_note_id_release(struct omx_clap_stage *s, int32_t id, int64_t now)
+{
+    if (s->ids[id].state != 1)
+        return;
+    omx_clap_note_id_unmap(s, id);
+    s->ids[id].state = 2;
+    s->ids[id].released_at = now;
+}
+
+/** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed; with no id (-1), every id of its channel
+ * and key is (-1 in either: every channel or every key). */
+static inline void omx_clap_note_end(struct omx_clap_stage *s, const clap_event_note_t *e)
+{
+    if (e->note_id >= 0)
+    {
+        if ((uint32_t)e->note_id < OMX_CLAP_NOTE_IDS && s->ids[e->note_id].state != 0)
+        {
+            omx_clap_note_id_free(s, e->note_id);
+            omx_hosted_count(&s->notes_ended, 1);
+        }
+        return;
+    }
+    for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+    {
+        const struct omx_clap_note_id *n = &s->ids[i];
+
+        if (n->state == 0 || (e->channel >= 0 && n->channel != e->channel) || (e->key >= 0 && n->key != e->key))
+            continue;
+        omx_clap_note_id_free(s, (int32_t)i);
+        omx_hosted_count(&s->notes_ended, 1);
+    }
+}
+
+/**
+ * The output event list: every push is counted. A CLAP_EVENT_PARAM_VALUE raises plugin_changed; a CLAP_EVENT_NOTE_END
+ * frees the note id it names (stages with note ids). Nothing is stored on the RT.
+ */
 static inline bool omx_clap_out_push(const struct clap_output_events *list, const clap_event_header_t *event)
 {
     struct omx_clap_stage *s = (struct omx_clap_stage *)list->ctx;
 
     omx_hosted_count(&s->out_events_seen, 1);
-    if (event != NULL && event->space_id == CLAP_CORE_EVENT_SPACE_ID && event->type == CLAP_EVENT_PARAM_VALUE)
+    if (event == NULL || event->space_id != CLAP_CORE_EVENT_SPACE_ID)
+        return true;
+    if (event->type == CLAP_EVENT_PARAM_VALUE)
         atomic_store_explicit(&s->plugin_changed, 1u, memory_order_relaxed);
-    return true;    ///< accepted and counted; nothing is stored on the RT
+    else if (event->type == CLAP_EVENT_NOTE_END && s->note_ids && event->size >= sizeof(clap_event_note_t))
+        omx_clap_note_end(s, (const clap_event_note_t *)event);
+    return true;    ///< accepted and counted
 }
 
 
@@ -266,6 +429,7 @@ static inline int omx_clap_stage_init(struct omx_clap_stage *s, const struct omx
     s->out_ptrs[0] = s->h.out_l;
     s->out_ptrs[1] = s->h.out_r;
     s->bend_semitones = OMX_CLAP_BEND_SEMITONES_DEFAULT;
+    omx_clap_note_ids_reset(s);
     s->in_events.ctx = s;
     s->in_events.size = omx_clap_in_size;
     s->in_events.get = omx_clap_in_get;
@@ -549,20 +713,186 @@ static inline void omx_clap_midi_slot(struct omx_clap_stage *s, uint32_t time, c
     slot->midi.data[2] = size > 2 ? data[2] : 0;
 }
 
-/** RT: fill a CLAP_EVENT_NOTE_EXPRESSION slot; `key` -1 for a channel-wide expression. */
-static inline void omx_clap_expr_slot(struct omx_clap_stage *s, uint32_t time, int32_t expression_id, int16_t channel,
-                                      int16_t key, double value)
+/** RT: fill a CLAP_EVENT_NOTE_EXPRESSION slot for note id `note_id` (-1: by channel and key); `key` -1 for every key
+ * of the channel, `channel` -1 for every channel. */
+static inline void omx_clap_expr_slot_id(struct omx_clap_stage *s, uint32_t time, int32_t expression_id, int32_t note_id,
+                                         int16_t channel, int16_t key, double value)
 {
     union omx_clap_note *slot = omx_clap_note_slot(s, time, CLAP_EVENT_NOTE_EXPRESSION, sizeof(clap_event_note_expression_t));
 
     if (!slot)
         return;
     slot->expr.expression_id = expression_id;
-    slot->expr.note_id = -1;
+    slot->expr.note_id = note_id;
     slot->expr.port_index = 0;
     slot->expr.channel = channel;
     slot->expr.key = key;
     slot->expr.value = value;
+}
+
+/** RT: fill a CLAP_EVENT_NOTE_EXPRESSION slot with no note id; `key` -1 for a channel-wide expression. */
+static inline void omx_clap_expr_slot(struct omx_clap_stage *s, uint32_t time, int32_t expression_id, int16_t channel,
+                                      int16_t key, double value)
+{
+    omx_clap_expr_slot_id(s, time, expression_id, -1, channel, key, value);
+}
+
+/** RT: fill a CLAP note on or off slot. NULL past the block's room (omx_clap_note_slot). */
+static inline union omx_clap_note *omx_clap_note_event(struct omx_clap_stage *s, uint32_t time, uint16_t type, int32_t note_id,
+                                                       int16_t channel, int16_t key, double velocity)
+{
+    union omx_clap_note *slot = omx_clap_note_slot(s, time, type, sizeof(clap_event_note_t));
+
+    if (!slot)
+        return NULL;
+    slot->note.note_id = note_id;
+    slot->note.port_index = 0;
+    slot->note.channel = channel;
+    slot->note.key = key;
+    slot->note.velocity = velocity;
+    return slot;
+}
+
+/**
+ * RT: a MIDI note on (`on`, velocity above 0) or note off as a CLAP note event. With note ids, a note on takes a free id
+ * (none free: skipped and counted in notes_skipped) and a key already held is first released under its old id, so no
+ * voice is left without its note off; a note off carries the id its note on took and is dropped when nothing holds the
+ * key. A note off with no room in the block keeps its key held, so a later one still ends it.
+ */
+static inline void omx_clap_note_onoff(struct omx_clap_stage *s, uint32_t time, uint8_t channel, uint8_t key, uint8_t velocity,
+                                       int on)
+{
+    const int64_t now = s->steady_time + (int64_t)time;
+    int32_t id = -1;
+
+    if (!s->note_ids)
+    {
+        omx_clap_note_event(s, time, on ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, -1, channel, key, (double)velocity / 127.0);
+        return;
+    }
+    if (!on)
+    {
+        id = s->key_id[channel][key];
+        if (id < 0)
+            return;     // its note on was skipped, or never came: nothing holds the key
+        if (omx_clap_note_event(s, time, CLAP_EVENT_NOTE_OFF, id, channel, key, (double)velocity / 127.0))
+            omx_clap_note_id_release(s, id, now);
+        return;
+    }
+    if (s->key_id[channel][key] >= 0)
+    {
+        const int32_t old = s->key_id[channel][key];
+
+        omx_clap_note_event(s, time, CLAP_EVENT_NOTE_OFF, old, channel, key, 0.0);
+        omx_clap_note_id_release(s, old, now);
+    }
+    id = omx_clap_note_id_take(s, channel, key, now);
+    if (id < 0)
+    {
+        omx_hosted_count(&s->notes_skipped, 1);
+        return;
+    }
+    if (!omx_clap_note_event(s, time, CLAP_EVENT_NOTE_ON, id, channel, key, (double)velocity / 127.0))
+    {
+        omx_clap_note_id_free(s, id);   // the block had no room: the note never started
+        return;
+    }
+    s->key_id[channel][key] = id;
+    s->chan_id[channel] = id;
+}
+
+/** RT: every key held on `channel` is released at `now` (all notes off, all sound off). */
+static inline void omx_clap_note_ids_release_channel(struct omx_clap_stage *s, uint8_t channel, int64_t now)
+{
+    for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+        if (s->ids[i].state == 1 && s->ids[i].channel == channel)
+            omx_clap_note_id_release(s, (int32_t)i, now);
+}
+
+/** What channel `channel` is in the MPE zone: 0 outside it (or no zone), 1 its master, 2 a member. */
+static inline int omx_clap_mpe_role(const struct omx_clap_stage *s, uint8_t channel)
+{
+    if (s->mpe == OMX_CLAP_MPE_LOWER)
+        return channel == 0 ? 1 : channel <= s->mpe_members ? 2 : 0;
+    if (s->mpe == OMX_CLAP_MPE_UPPER)
+        return channel == 15 ? 1 : channel + s->mpe_members >= 15u ? 2 : 0;
+    return 0;
+}
+
+/**
+ * RT: a controller of the RPN protocol (101 and 100 select, 6 and 38 set), tracked per channel. RPN 0 (pitch bend
+ * sensitivity) on a zone's master sets mpe_master_bend, on a member mpe_member_bend (semitones from 6, cents from 38).
+ * RPN 6 on channel 1 or 16 is MPE's configuration message: its value is the member channel count of the lower or the
+ * upper zone (0: no zone), and the zone's bend ranges return to MPE's defaults. Nothing is consumed: the message still
+ * goes where its dialect takes it.
+ */
+static inline void omx_clap_rpn(struct omx_clap_stage *s, uint8_t channel, uint8_t cc, uint8_t value)
+{
+    const int bend = s->rpn[channel][0] == 0 && s->rpn[channel][1] == 0;
+    const int role = omx_clap_mpe_role(s, channel);
+
+    if (cc == 101 || cc == 100)
+    {
+        s->rpn[channel][cc == 101 ? 0 : 1] = value;
+        return;
+    }
+    if (cc == 6 && s->rpn[channel][0] == 0 && s->rpn[channel][1] == 6 && (channel == 0 || channel == 15))
+    {
+        const uint32_t zone = channel == 0 ? OMX_CLAP_MPE_LOWER : OMX_CLAP_MPE_UPPER;
+
+        if (value == 0)
+        {
+            if (s->mpe == zone)
+                s->mpe = OMX_CLAP_MPE_OFF;
+            return;
+        }
+        s->mpe = zone;
+        s->mpe_members = value > 15 ? 15u : value;
+        s->mpe_master_bend = OMX_CLAP_MPE_MASTER_BEND_DEFAULT;
+        s->mpe_member_bend = OMX_CLAP_MPE_MEMBER_BEND_DEFAULT;
+        return;
+    }
+    if (!bend || role == 0 || (cc != 6 && cc != 38))
+        return;
+    double *range = role == 1 ? &s->mpe_master_bend : &s->mpe_member_bend;
+    *range = cc == 6 ? (double)value : floor(*range) + (double)value / 100.0;
+}
+
+/**
+ * RT: a message of a channel of the MPE zone that MPE makes per note: pitch bend (TUNING, the member or master range),
+ * channel pressure (PRESSURE, 0 to 1) and controller 74 (BRIGHTNESS, 0 to 1). On a member channel the expression
+ * carries the id, channel and key of the newest note held there (channel-wide when none is); on the master it reaches
+ * every note (channel -1). 1 when the message was taken.
+ */
+static inline int omx_clap_mpe_in(struct omx_clap_stage *s, uint32_t time, uint8_t type, uint8_t channel, const uint8_t *data,
+                                  size_t size)
+{
+    const int role = omx_clap_mpe_role(s, channel);
+    const int32_t id = role == 2 ? s->chan_id[channel] : -1;
+    const int16_t key = id >= 0 ? (int16_t)s->ids[id].key : -1;
+    const int16_t ch = role == 2 ? (int16_t)channel : -1;
+
+    if (role == 0)
+        return 0;
+    if (type == 0xe0 && size == 3)
+    {
+        const int bend14 = ((int)data[2] << 7 | data[1]) - 8192;
+        const double range = role == 2 ? s->mpe_member_bend : s->mpe_master_bend;
+
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_TUNING, id, ch, key, (double)bend14 / 8192.0 * range);
+        return 1;
+    }
+    if (type == 0xd0 && size == 2)
+    {
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, id, ch, key, (double)data[1] / 127.0);
+        return 1;
+    }
+    if (type == 0xb0 && size == 3 && data[1] == 74)
+    {
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_BRIGHTNESS, id, ch, key, (double)data[2] / 127.0);
+        return 1;
+    }
+    return 0;
 }
 
 /**
@@ -627,24 +957,26 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
     type = data[0] & 0xf0;
     channel = data[0] & 0x0f;
 
-    if (s->note_dialect == CLAP_NOTE_DIALECT_MIDI)
+    if (s->note_dialect == CLAP_NOTE_DIALECT_MIDI || s->note_dialect == CLAP_NOTE_DIALECT_MIDI_MPE)
     {
-        omx_clap_midi_slot(s, time, data, size);
+        omx_clap_midi_slot(s, time, data, size);     // MIDI_MPE: raw, the plugin reads the zone itself
         return;
     }
 
     if ((type == 0x80 || type == 0x90) && size == 3)
     {
-        slot = omx_clap_note_slot(s, time, type == 0x90 && data[2] ? CLAP_EVENT_NOTE_ON : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
-        if (!slot)
-            return;
-        slot->note.note_id = -1;
-        slot->note.port_index = 0;
-        slot->note.channel = (int16_t)channel;
-        slot->note.key = data[1];
-        slot->note.velocity = (double)data[2] / 127.0;
+        omx_clap_note_onoff(s, time, channel, data[1] & 0x7f, data[2] & 0x7f, type == 0x90 && data[2]);
         return;
     }
+
+    if (type == 0xb0 && size == 3)
+    {
+        omx_clap_rpn(s, channel, data[1], data[2]);
+        if (s->note_ids && (data[1] == 120 || data[1] >= 123))   // the plugin ends every note of the channel
+            omx_clap_note_ids_release_channel(s, channel, s->steady_time + (int64_t)time);
+    }
+    if (s->mpe && omx_clap_mpe_in(s, time, type, channel, data, size))
+        return;
 
     if (also_midi)
     {
@@ -654,14 +986,7 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
 
     if (type == 0xb0 && size == 3 && (data[1] == 120 || data[1] >= 123))   // all sound off, all notes off: every key
     {
-        slot = omx_clap_note_slot(s, time, data[1] == 120 ? CLAP_EVENT_NOTE_CHOKE : CLAP_EVENT_NOTE_OFF, sizeof(clap_event_note_t));
-        if (!slot)
-            return;
-        slot->note.note_id = -1;
-        slot->note.port_index = 0;
-        slot->note.channel = (int16_t)channel;
-        slot->note.key = -1;
-        slot->note.velocity = 0.0;
+        omx_clap_note_event(s, time, data[1] == 120 ? CLAP_EVENT_NOTE_CHOKE : CLAP_EVENT_NOTE_OFF, -1, (int16_t)channel, -1, 0.0);
         return;
     }
 
@@ -677,9 +1002,11 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
         omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, (int16_t)channel, -1, (double)data[1] / 127.0);
         return;
     }
-    if (type == 0xa0 && size == 3)              // poly aftertouch -> one key of the channel
+    if (type == 0xa0 && size == 3)              // poly aftertouch -> one key of the channel, under its note's id
     {
-        omx_clap_expr_slot(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, (int16_t)channel, (int16_t)data[1], (double)data[2] / 127.0);
+        const int32_t id = s->note_ids ? s->key_id[channel][data[1] & 0x7f] : -1;
+
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, id, (int16_t)channel, (int16_t)data[1], (double)data[2] / 127.0);
         return;
     }
     omx_hosted_count(&s->notes_unmappable, 1);  // a controller or a program change: no CLAP note expression carries it
