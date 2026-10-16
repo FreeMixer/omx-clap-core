@@ -6,7 +6,9 @@
 # LV2 adapter on the port layout of a CLAP plugin, answers each refusal of the
 # adapter with its hosting code, addresses the control ports by their LV2
 # symbols, maps lv2:enabled onto its bypass, saves, loads and takes a preset
-# by its URI, and removes the plugin leaving no port behind. The values are
+# by its URI, makes the path fixture's state files in its state root
+# ($XDG_STATE_HOME/omx-clap-host, or -s) and takes them back on remove, and
+# removes the plugin leaving no port behind. The values are
 # read from the plugin's own meter port: a constant input (jack_meter_source,
 # 0.5) through the fixture, out = in * 10^((gain_db + offset_db) / 20), the
 # offset -6 dB from the default state and -3 dB from the preset `quiet`, and a
@@ -51,6 +53,10 @@ step() {
 runtime=$(mktemp -d /tmp/omx-clap-host-lv2.XXXXXX)
 feedback=$runtime/feedback.log
 export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH=$runtime/pulse
+# the host's state root is $XDG_STATE_HOME/omx-clap-host: here, never the caller's
+export XDG_STATE_HOME=$runtime/xdg-state
+sroot=$XDG_STATE_HOME/omx-clap-host
+pathfix=urn:openmixer:test:path-fixture
 unset DBUS_SESSION_BUS_ADDRESS
 pids=()
 cleanup() {
@@ -223,6 +229,28 @@ expect "state_load $runtime/state" "resp 0"
 reads 0 meter "$(db 0.5 -20)" 0.00006 "the state loaded: -6 dB again"
 reads 3 meter "$(db 0.25 -26)" 0.00006 "the other fixture untouched"
 
+# ---- state:makePath in the state root: the path fixture saves its level to a file it makes, a load reads it back ----
+expect "add lv2:$pathfix 4" "resp 4"
+[ -d "$sroot" ]; step $? "the state root $sroot is made at start"
+expect "add lv2:$fixture 5" "resp 5"
+expect "param_set 5 gain_db 0" "resp 0"
+pw-link effect_3:out_1 effect_4:in_1; step $? "effect_3:out_1 -> effect_4:in_1"
+pw-link effect_4:out_1 effect_5:in_1; step $? "effect_4:out_1 -> effect_5:in_1"
+reads 5 meter "$(db 0.25 -32)" 0.00006 "the path fixture passes at gain 1, the probe after it at -6 dB"
+expect "param_set 4 level 0.5" "resp 0"
+expect "state_save $runtime/state2" "resp 0"
+made=$(find "$sroot" -path "$sroot/lv2-*" -name level.txt ! -path '*.saved/*' | head -1)
+[ -n "$made" ] && [ "$(cat "$made")" = 0.5 ]; step $? "the save made takes/level.txt in the instance's directory of the state root: ${made:-none}"
+copy=$(find "$sroot" -path '*.saved/*' -name level.txt | head -1)
+[ -n "$copy" ] && [ "$(cat "$copy")" = 0.5 ]; step $? "and the save's copy of it beside: ${copy:-none}"
+[ -z "$(find "$runtime" -name level.txt ! -path "$sroot/*")" ]; step $? "no file of it outside the state root"
+expect "state_load $runtime/state2" "resp 0"
+reads 5 meter "$(db 0.125 -32)" 0.00006 "the load read the level back from the file: the fixture's gain is 0.5"
+expect "remove 4" "resp 0"
+[ ! -e "$(dirname "$(dirname "$made")")" ]; step $? "remove takes the instance's directory away"
+[ -e "$copy" ]; step $? "the save's copy stays: the saved state names it"
+expect "remove 5" "resp 0"
+
 # ---- remove ----
 expect "remove 0" "resp 0"
 [ -z "$(ports effect_0 i)$(ports effect_0 o)" ]; step $? "remove leaves no effect_0 port"
@@ -233,6 +261,22 @@ expect "remove 3" "resp 0"
 expect "quit" "resp 0"
 sleep 0.3
 ! kill -0 "$host_pid" 2>/dev/null; step $? "host exited on quit"
+
+# ---- a state root that cannot be made (a file where a directory should be): makePath is not offered, the rest of LV2
+# is, and a plugin that requires it is refused with the code it had before there was a root ----
+: >"$runtime/afile"
+port=$((port + 2))
+LV2_PATH=$bundles "$host" -n -p "$port" -f "$((port + 1))" -s "$runtime/afile/state" >"$runtime/host-noroot.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do grep -q "ready!" "$runtime/host-noroot.log" && break; sleep 0.1; done
+grep -q "^the state root $runtime/afile/state is not a directory this host can write: state:makePath is not offered\$" "$runtime/host-noroot.log"
+step $? "-s under a file says so: $(grep 'state root' "$runtime/host-noroot.log")"
+exec 3>&- 4>&-
+exec 3<>"/dev/tcp/127.0.0.1/$port"
+exec 4<>"/dev/tcp/127.0.0.1/$((port + 1))"
+expect "add lv2:$pathfix 0" "resp -102 hosting.features.missing"
+expect "add lv2:$fixture 1" "resp 1"
+expect "quit" "resp 0"
 
 if [ "$failures" -eq 0 ]; then
     echo "jack lv2 e2e ok"

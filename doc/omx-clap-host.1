@@ -9,6 +9,8 @@ omx\-clap\-host \- CLAP plugin host for JACK, driven over mod\-host's socket pro
 .IR port ]
 .RB [ \-f
 .IR port ]
+.RB [ \-s
+.IR dir ]
 .br
 .B omx\-clap\-host
 .RB { \-V | \-h }
@@ -79,6 +81,25 @@ Listen for commands on this TCP port (default 5555).
 .TP
 .BI \-f " port" "\fR, \fB\-\-feedback\-port=" port
 Send feedback on this TCP port (default none).
+.TP
+.BI \-s " dir" "\fR, \fB\-\-state\-root=" dir
+The state root: the directory an LV2 plugin's
+.B state:makePath
+makes its files in, one directory
+.BI lv2\- pid \- n
+per instance, removed with it, and the copies a
+.B state_save
+makes of them,
+.BI lv2\- pid \- n .saved ,
+which stay. Default
+.IR $XDG_STATE_HOME/omx\-clap\-host ,
+else
+.IR ~/.local/state/omx\-clap\-host .
+A root the host cannot make or write is said on stderr, and a plugin that
+requires
+.B state:makePath
+is then refused with
+.BR "resp \-102 hosting.features.missing" .
 .TP
 .BR \-V ", " \-\-version
 Print the version and exit.
@@ -178,9 +199,29 @@ one blob per instance, beside mod\-host's
 directories when both hosts share
 .IR dir .
 .TP
+.IB root /lv2\- pid \- n /
+The files an LV2 plugin made through
+.BR state:makePath ,
+under the state root
+.RB ( \-s );
+removed with the instance.
+.TP
+.IB root /lv2\- pid \- n .saved/
+The copies of them a
+.B state_save
+made, named by the saved state; they stay.
+.TP
 .I /tmp/omx\-clap\-host.pid
 The pid of the forked host.
 .SH ENVIRONMENT
+.TP
+.B XDG_STATE_HOME
+The state root is
+.I $XDG_STATE_HOME/omx\-clap\-host
+without
+.BR \-s ;
+an unset or relative value is
+.IR ~/.local/state .
 .TP
 .B LV2_PATH
 The directories searched for the bundle of an LV2 plugin, separated by

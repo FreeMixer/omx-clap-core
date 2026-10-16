@@ -270,6 +270,7 @@ int main(int argc, char **argv)
         {"verbose", no_argument, 0, 'v'},
         {"socket-port", required_argument, 0, 'p'},
         {"feedback-port", required_argument, 0, 'f'},
+        {"state-root", required_argument, 0, 's'},
         {"version", no_argument, 0, 'V'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -280,7 +281,7 @@ int main(int argc, char **argv)
     int socket_port = SOCKET_DEFAULT_PORT, feedback_port = 0;
     struct sigaction sig;
 
-    while ((opt = getopt_long(argc, argv, "nvp:f:Vh", long_options, &opt_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "nvp:f:s:Vh", long_options, &opt_index)) != -1)
     {
         switch (opt)
         {
@@ -301,6 +302,10 @@ int main(int argc, char **argv)
                 feedback_port = atoi(optarg);
                 break;
 
+            case 's':
+                effects_set_state_root(optarg);
+                break;
+
             case 'V':
                 printf("%s version: %s\n", argv[0], VERSION);
                 exit(EXIT_SUCCESS);
@@ -308,10 +313,12 @@ int main(int argc, char **argv)
 
             case 'h':
                 printf(
-                    "Usage: %s [-vh] [-p <port>]\n"
+                    "Usage: %s [-vh] [-p <port>] [-f <port>] [-s <dir>]\n"
                     "  -v, --verbose                  verbose messages\n"
                     "  -p, --socket-port=<port>       socket port definition\n"
                     "  -f, --feedback-port=<port>     feedback port definition\n"
+                    "  -s, --state-root=<dir>         where LV2 plugins make their state files\n"
+                    "                                 (default $XDG_STATE_HOME/omx-clap-host)\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
                     "  -h, --help                     print this help and exit\n"
