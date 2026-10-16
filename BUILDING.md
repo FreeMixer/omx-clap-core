@@ -68,6 +68,20 @@ scale, range, default, step and symbol; with `FAKE_CONTRACT=fingerprint`
 `-511` and the broken rule in the host's log), and every call of the plugin
 on the thread that ran `init`.
 
+    make test-jack-params
+
+runs `tests/jack_params_e2e.sh` in the same kind of namespace: the mover
+(`tests/fake_mover.clap`) takes hold of its level on its eighth block, moves
+it to 0.75 and lets it go, and the feedback socket carries `param_gesture
+begin`, `param_set 0.75` and `param_gesture end` in that order, once; a value
+the controller sets is not echoed. With `FAKE_MOVER_FLOOD=300`, more values
+than the ring holds between two ticks, the last line of each parameter is
+what the plugin holds. `make test-fake` drives the same plugin through the
+library: the events in order, a modulation the plugin hears with its set
+value unchanged, the host's gestures around a write, the plugin's text,
+`params.rescan` of the info and of everything, `params.clear`, and the ring's
+drops counted.
+
     make test-jack-pin
 
 runs `tests/jack_pin_e2e.sh` in the same kind of namespace: `pin_expect` with
