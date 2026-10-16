@@ -150,6 +150,15 @@ jobs:
             echo "::warning::test-jack-info SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # a plugin that moves its own parameter: param_gesture and param_set on the feedback port, in order
+      - name: Test the values and gestures a plugin makes itself over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-params
+          else
+            echo "::warning::test-jack-params SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # An LV2 plugin through the host: the fixture bundles on LV2_PATH, add lv2:<uri>, the adapter's refusals with their
       # codes in the reply, the control ports by symbol, lv2:enabled as the bypass, state, presets by URI and remove.
       - name: Test an LV2 plugin through the host over jack

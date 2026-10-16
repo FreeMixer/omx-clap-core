@@ -427,6 +427,11 @@ test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 test-jack-info: $(PROG) tests/fake.clap
 	$(PHD_DECLARED) ./tests/jack_info_e2e.sh
 
+# a plugin that moves its own parameter over jack in the same kind of namespace: param_gesture and param_set on the
+# feedback port, in order, and the values read again when there were more than the ring holds
+test-jack-params: $(PROG) tests/fake_mover.clap
+	./tests/jack_params_e2e.sh
+
 tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h
 	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
 

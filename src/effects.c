@@ -136,6 +136,7 @@ typedef struct EFFECT_T {
     const clap_plugin_entry_t *lv2_entry;   // an LV2 plugin: the adapter's entry of its bundle; NULL for a CLAP plugin
     lv2_param_t *lv2_params;
     uint32_t lv2_params_count;
+    uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
 } effect_t;
 
 
@@ -850,6 +851,92 @@ static int floats_differ(float a, float b)
     return fabsf(a - b) >= FLT_EPSILON;
 }
 
+/* the feedback words for what a plugin does with its parameters by itself: mod-host's param_set line for a value it
+ * moved, and param_gesture <N> <param> begin|end for its user's hold of a control, the shape FreeMixer/plugin-hostd#47
+ * proposes for plugin-hostd's vocabulary */
+#define PARAM_SET_FEEDBACK      "param_set %i %s %f"
+#define PARAM_GESTURE_FEEDBACK  "param_gesture %i %s %s"
+/* the parameter events taken per batch, and the values one batch holds back to send the last of each */
+#define PARAM_EVENTS_BATCH      64
+
+/* what a feedback line names a parameter by: an LV2 control port's symbol, else the CLAP id in decimal */
+static const char *param_name(const effect_t *effect, clap_id id, char *buf, size_t size)
+{
+    const lv2_param_t *lv2 = effect->lv2_entry ? lv2_param_by_id(effect, id) : NULL;
+
+    if (lv2 && lv2->symbol)
+        return lv2->symbol;
+    snprintf(buf, size, "%u", id);
+    return buf;
+}
+
+static void param_set_feedback(const effect_t *effect, clap_id id, double value)
+{
+    char line[128], name[16];
+
+    snprintf(line, sizeof(line), PARAM_SET_FEEDBACK, effect->instance, param_name(effect, id, name, sizeof(name)), value);
+    socket_send_feedback(line);
+}
+
+/* control thread, at the idle rate: the values the plugin moved by itself, the last of each parameter per batch, and its
+ * gestures, in order (a value held back goes out before a gesture on the same parameter). Only a row is reported: a
+ * read-only parameter is an output, monitor_output's. When the library dropped events for want of room, every row's
+ * value goes out as the plugin reads it now, so the controller misses no final value. */
+static void param_events_notify(effect_t *effect)
+{
+    struct omx_clap_param_event ev[PARAM_EVENTS_BATCH];
+    struct { clap_id id; double value; } held[PARAM_EVENTS_BATCH];
+    const uint32_t dropped = omx_clap_host_param_events_dropped(effect->clap);
+    uint32_t n, i, j, k;
+
+    while ((n = omx_clap_host_param_events_take(effect->clap, ev, PARAM_EVENTS_BATCH)) > 0)
+    {
+        k = 0;
+        for (i = 0; i < n; i++)
+        {
+            if (!omx_clap_host_param_is_row(effect->clap, ev[i].id))
+                continue;
+            if (ev[i].kind == OMX_CLAP_PARAM_EVENT_VALUE)
+            {
+                for (j = 0; j < k && held[j].id != ev[i].id; j++)
+                    ;
+                held[j].id = ev[i].id;
+                held[j].value = ev[i].value;
+                k += j == k;
+                continue;
+            }
+            for (j = 0; j < k && held[j].id != ev[i].id; j++)
+                ;
+            if (j < k)
+            {
+                param_set_feedback(effect, held[j].id, held[j].value);
+                held[j] = held[--k];
+            }
+            {
+                char line[128], name[16];
+
+                snprintf(line, sizeof(line), PARAM_GESTURE_FEEDBACK, effect->instance,
+                         param_name(effect, ev[i].id, name, sizeof(name)),
+                         ev[i].kind == OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN ? "begin" : "end");
+                socket_send_feedback(line);
+            }
+        }
+        for (j = 0; j < k; j++)
+            param_set_feedback(effect, held[j].id, held[j].value);
+    }
+    if (dropped != effect->param_events_dropped)
+    {
+        const uint32_t count = omx_clap_host_param_count(effect->clap);
+        struct omx_clap_param_row row;
+        double value;
+
+        effect->param_events_dropped = dropped;
+        for (i = 0; i < count; i++)
+            if (omx_clap_host_param_row(effect->clap, i, &row) == 0 && omx_clap_host_param_read(effect->clap, row.id, &value) == 0)
+                param_set_feedback(effect, row.id, value);
+    }
+}
+
 /* control thread, at the idle rate: each monitored output whose value moved, and the first value of one just monitored,
  * goes out as output_set on the feedback socket; a move is mod-host's for an output port, FLT_EPSILON or more */
 static void outputs_notify(effect_t *effect)
@@ -1378,6 +1465,7 @@ void effects_idle(void)
         }
         if (omx_clap_host_latency(effect->clap) != effect->latency_published)
             publish_latency(effect);
+        param_events_notify(effect);
         outputs_notify(effect);
     }
 }
