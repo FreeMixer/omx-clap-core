@@ -185,7 +185,7 @@ MANDIR = $(DATADIR)/man/man1
 LIBEXECDIR = $(PREFIX)/libexec
 # the test fixtures, in a directory of their own so no plugin scanner finds them
 TESTDIR = $(LIBEXECDIR)/$(PROG)/tests
-TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_source
+TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_source tests/socket_conformance.py
 
 # the library, its headers, the pkg-config file and the export list: what a program that hosts CLAP plugins builds against
 install-lib: $(CORE_SO)
@@ -254,7 +254,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core
+test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -390,6 +390,10 @@ tests/crash.clap: tests/crash_plugin.c
 
 tests/clap_scan_test: tests/clap_scan_test.c
 	$(CC) $(CFLAGS) -Werror -o $@ $<
+
+# the command socket's framing, in a PipeWire of its own: tests/socket_conformance.py against the host (#103)
+test-socket: $(PROG)
+	./tests/socket_e2e.sh
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
 test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
