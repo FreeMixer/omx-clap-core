@@ -25,6 +25,7 @@ Commands
     connect <origin_port> <destination_port>
     disconnect <origin_port> <destination_port>
     cpu_load
+    note_drops <instance_number>
     help
     quit
 
@@ -97,13 +98,25 @@ arrived on, in the dialect the note port prefers:
 - CLAP: a note on (`0x9n`, velocity above 0) and a note off (`0x8n`, or a
   note on with velocity 0) become `CLAP_EVENT_NOTE_ON` and
   `CLAP_EVENT_NOTE_OFF` with the key, the channel, the velocity as
-  `v / 127` and no note id. Nothing else is passed: a controller, pitch
-  bend or program change is dropped.
+  `v / 127` and no note id. All notes off (controller 123, and 124 to 127,
+  which imply it) becomes a `CLAP_EVENT_NOTE_OFF` and all sound off (120) a
+  `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Nothing
+  else is passed: another controller, pitch bend or program change is dropped.
 - MIDI: every channel message of one to three bytes becomes a
   `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
 
-A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`); the surplus is
-counted and dropped. Nothing is allocated or locked on the audio thread.
+A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
+128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on
+with velocity 0, all sound off, reset all controllers, all notes off and the
+mode changes that imply it, and a sustain, sostenuto or hold pedal let go.
+Every other message stops at 128 and the surplus is counted and dropped; a
+release is dropped only when all 256 are taken. So 300 note ons and then one
+note off in one cycle deliver the first 128 note ons and the note off, in the
+order they came, and count 172 dropped. `note_drops <N>` answers
+`resp 0 <dropped> <releases> <sysex> <unmappable>`: every message the cycle
+had no room for, of them the releases, the sysex past a cycle's eight, and the
+messages no dialect of the plugin carries, since the instance was added.
+Nothing is allocated or locked on the audio thread.
 
 A main port wider than stereo, a main pair of different widths, a second
 note input, a note input that reads neither the CLAP nor the MIDI dialect, or

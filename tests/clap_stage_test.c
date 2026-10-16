@@ -786,6 +786,16 @@ static void t_note_priority(void) {
                                          {CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI}};
   static const char *const NAMES[] = {"CLAP", "CLAP+MIDI", "MIDI"};
   uint32_t d, n, i;
+  const size_t align = _Alignof(struct omx_clap_stage);
+  const size_t before = offsetof(struct omx_clap_stage, start_refused) + sizeof NS.start_refused;
+
+  /* releases_dropped (ABI 5) sits in the tail padding on the 64-bit targets the library ships for: the stage is the size
+   * it was without it, every offset unchanged.
+   * The ABI check cannot see it (libabigail leaves _Atomic members out), so this is the check. */
+  CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before &&
+        sizeof(struct omx_clap_stage) == (before + align - 1) / align * align,
+        "releases_dropped is in the stage's tail padding: size %zu, the end of start_refused rounded to %zu is %zu",
+        sizeof(struct omx_clap_stage), align, (before + align - 1) / align * align);
 
   for (d = 0; d < 3; d++) {
     const char *what = NAMES[d];
@@ -803,6 +813,11 @@ static void t_note_priority(void) {
           last->header.time, last->header.type);
     CHECK(NS.n_notes <= CLAP_HOST_NOTES_PER_BLOCK && NS.n_notes + atomic_load(&NS.notes_dropped) == n,
           "%s: every message is delivered or counted (%u + %u of %u)", what, NS.n_notes, atomic_load(&NS.notes_dropped), n);
+    CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
+          atomic_load(&NS.notes_dropped) == NP_FLOOD - (CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED) &&
+          atomic_load(&NS.releases_dropped) == 0,
+          "%s: the note ons stop %u slots short of the end, the note off takes one of them (%u delivered, %u dropped, %u releases)",
+          what, OMX_CLAP_NOTES_RESERVED, NS.n_notes, atomic_load(&NS.notes_dropped), atomic_load(&NS.releases_dropped));
 
     /* a note on with velocity 0 is a note off */
     ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
@@ -827,6 +842,39 @@ static void t_note_priority(void) {
     CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK && atomic_load(&NS.notes_dropped) == NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK,
           "%s: %u note offs: %u delivered, the %u past the block counted (%u, %u)", what, NP_FLOOD, CLAP_HOST_NOTES_PER_BLOCK,
           NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK, NS.n_notes, atomic_load(&NS.notes_dropped));
+    CHECK(atomic_load(&NS.releases_dropped) == NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK,
+          "%s: the note offs past the block are counted as releases (%u)", what, atomic_load(&NS.releases_dropped));
+
+    /* the flood, then exactly enough note offs to fill the reserve but one, then all notes off: the list ends full, on it */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    {
+      static uint8_t M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED][3];
+
+      for (i = 0; i < NP_FLOOD; i++) { M[i][0] = 0x90; M[i][1] = (uint8_t)(i % 128); M[i][2] = 100; }
+      for (i = 0; i < OMX_CLAP_NOTES_RESERVED - 1; i++) { M[NP_FLOOD + i][0] = 0x80; M[NP_FLOOD + i][1] = (uint8_t)i; M[NP_FLOOD + i][2] = 0; }
+      M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][0] = 0xb0;
+      M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][1] = 123;
+      M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][2] = 0;
+      np_feed(M, NP_FLOOD + OMX_CLAP_NOTES_RESERVED);
+      np_survivors_in_order(M, NP_FLOOD + OMX_CLAP_NOTES_RESERVED, what);
+      CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK && NS.notes[NS.n_notes - 1].header.time == NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1 &&
+            atomic_load(&NS.releases_dropped) == 0,
+            "%s: %u note ons, %u note offs and all notes off: the block is full and ends on all notes off (%u, %u releases dropped)",
+            what, NP_FLOOD, OMX_CLAP_NOTES_RESERVED - 1, NS.n_notes, atomic_load(&NS.releases_dropped));
+    }
+
+    /* past the flood a pedal pressed, an expression or a program change is not a release: dropped, never a release */
+    ns_up(1, DIALECTS[d][0], DIALECTS[d][1]);
+    {
+      static const uint8_t NOT_RELEASES[][3] = {{0xb0, 64, 127}, {0xe0, 0, 0x40}, {0xd0, 90, 0}, {0xb0, 122, 0}};
+
+      n = np_flood(NP_FLOOD, NOT_RELEASES, 4);
+      np_feed(NP, n);
+      np_survivors_in_order(NP, n, what);
+      CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED && atomic_load(&NS.releases_dropped) == 0,
+            "%s: a pedal pressed, a bend, a pressure and local control after the flood are dropped, none a release (%u, %u)", what,
+            NS.n_notes, atomic_load(&NS.releases_dropped));
+    }
   }
 
   /* a CLAP-only port has no MIDI: all notes off is a note off and all sound off a choke, every key of the channel */

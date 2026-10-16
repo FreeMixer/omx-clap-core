@@ -1341,6 +1341,23 @@ float effects_jack_cpu_load(void)
     return g_jack_global_client ? jack_cpu_load(g_jack_global_client) : 0.0f;
 }
 
+/* note_drops: the stage's note counters, read relaxed as the audio thread leaves them: every note event the block had no
+ * room for, of them the releases (a note off, all notes off, a pedal let go), the sysex past the block's pool, and the
+ * messages no dialect of the plugin carries */
+int effects_note_drops(int effect_id, char *reply, size_t size)
+{
+    const struct omx_clap_stage *stage;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    stage = &g_effects[effect_id].clap->stage;
+    snprintf(reply, size, "resp 0 %u %u %u %u", atomic_load_explicit(&stage->notes_dropped, memory_order_relaxed),
+             atomic_load_explicit(&stage->releases_dropped, memory_order_relaxed),
+             atomic_load_explicit(&stage->sysex_dropped, memory_order_relaxed),
+             atomic_load_explicit(&stage->notes_unmappable, memory_order_relaxed));
+    return SUCCESS;
+}
+
 void effects_idle(void)
 {
     int i;

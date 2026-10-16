@@ -459,7 +459,7 @@ static void synth_checks(const char *path)
     static const midi_at_t running_off[] = { { 10, { 0x90, 69, 127 }, 3 }, { 20, { 0x90, 60, 0 }, 3 }, { 40, { 0x90, 69, 0 }, 3 } };
     static const midi_at_t others[] = { { 0, { 0xb0, 1, 64 }, 3 }, { 1, { 0xe0, 0, 64 }, 3 }, { 2, { 0xc0, 5, 0 }, 2 }, { 3, { 0xf8, 0, 0 }, 1 } };
     static const midi_at_t held[] = { { 0, { 0x90, 69, 127 }, 3 } };
-    midi_at_t flood[CLAP_HOST_NOTES_PER_BLOCK + 44];
+    midi_at_t flood[CLAP_HOST_NOTES_PER_BLOCK + 45];
     float out_l[BLOCK], out_r[BLOCK];
     float stop_l[BLOCK], stop_r[BLOCK];
     struct omx_clap_instance *synth;
@@ -521,9 +521,17 @@ static void synth_checks(const char *path)
         flood[i].data[2] = 100;
         flood[i].size = 3;
     }
-    run_block(synth, flood, CLAP_HOST_NOTES_PER_BLOCK + 44, out_l, out_r);
-    CHECK(atomic_load(&synth->stage.notes_delivered) == CLAP_HOST_NOTES_PER_BLOCK && atomic_load(&synth->stage.notes_dropped) == 44,
-          "%u messages: %u delivered, %u dropped", CLAP_HOST_NOTES_PER_BLOCK + 44, atomic_load(&synth->stage.notes_delivered), atomic_load(&synth->stage.notes_dropped));
+    // the last message a note off: the note ons stop OMX_CLAP_NOTES_RESERVED short of the end, the note off arrives
+    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].time = BLOCK - 1;
+    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].data[0] = 0x80;
+    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].data[1] = 69;
+    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].data[2] = 0;
+    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].size = 3;
+    run_block(synth, flood, CLAP_HOST_NOTES_PER_BLOCK + 45, out_l, out_r);
+    CHECK(atomic_load(&synth->stage.notes_delivered) == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
+          atomic_load(&synth->stage.notes_dropped) == OMX_CLAP_NOTES_RESERVED + 44 && atomic_load(&synth->stage.releases_dropped) == 0,
+          "%u note ons and a note off: %u delivered, the note off with them, %u dropped, %u of them releases", CLAP_HOST_NOTES_PER_BLOCK + 44,
+          atomic_load(&synth->stage.notes_delivered), atomic_load(&synth->stage.notes_dropped), atomic_load(&synth->stage.releases_dropped));
     omx_clap_host_close(synth);
     CHECK(omx_clap_host_binaries_open() == 0, "synth binary closed");
 }
