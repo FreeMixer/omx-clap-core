@@ -34,7 +34,13 @@
  *                                         release of FAKE_SYNTH_RELEASE frames, after which the synth pushes
  *                                         CLAP_EVENT_NOTE_END with the voice's id, channel and key. A note on whose
  *                                         id a voice still sounds under is counted (fake_synth_poly_stats)
- *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused */
+ *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused
+ *   org.omx-clap-host.test.synth-arp      silent stereo out, a CLAP note input and a CLAP note output: an arpeggiator.
+ *                                         A note on of key k at frame f sends note ons of k, k + 4 and k + 7 at f,
+ *                                         f + s and f + 2s, s FAKE_ARP_STEP_MS at the activated rate, across blocks;
+ *                                         its note off sends their three note offs at its frame, and a NOTE_END of
+ *                                         the input note, which is the host's and never note output
+ *   org.omx-clap-host.test.synth-arp-midi the same, its note output in the MIDI dialect: CLAP_EVENT_MIDI */
 
 #include <math.h>
 #include <stdio.h>
@@ -50,11 +56,20 @@
 #define ID_SYNTH_MPE    "org.omx-clap-host.test.synth-mpe"
 #define ID_SILENT       "org.omx-clap-host.test.silent"
 #define ID_SYNTH_POLY   "org.omx-clap-host.test.synth-poly"
+#define ID_SYNTH_ARP    "org.omx-clap-host.test.synth-arp"
+#define ID_SYNTH_ARP_MIDI "org.omx-clap-host.test.synth-arp-midi"
 
 /** the release of a synth-poly voice, in frames from its note off to its NOTE_END */
 #define FAKE_SYNTH_RELEASE  1024u
 /** the voices synth-poly holds, more than any id pool a host has */
 #define FAKE_SYNTH_VOICES   1024u
+/** the arpeggiator's step, a duration: frames at the activated rate, rounded */
+#define FAKE_ARP_STEP_MS    2.0
+/** the arpeggiator's intervals above the key it is played, in semitones */
+static const int16_t g_arp_intervals[] = { 0, 4, 7 };
+#define ARP_NOTES           (sizeof(g_arp_intervals) / sizeof(g_arp_intervals[0]))
+/** the note events an arpeggiator holds ahead of their frame */
+#define ARP_PENDING         64u
 
 typedef struct LAYOUT_T {
     const char *id;
@@ -65,17 +80,21 @@ typedef struct LAYOUT_T {
     uint32_t preferred;
     int instrument;
     int poly;
+    uint32_t note_outputs;      ///< 0 or 1: the arpeggiator's note output
+    uint32_t out_dialect;       ///< the note output's one dialect
 } layout_t;
 
 static const layout_t g_layouts[] = {
-    { ID_SYNTH,       2, 0, 1, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
-    { ID_SYNTH_MIDI,  1, 0, 1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI, 1, 0 },
-    { ID_SYNTH_AUX,   2, 1, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
-    { ID_SYNTH_WIDE,  4, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
-    { ID_SYNTH_NOTES, 2, 0, 2, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0 },
-    { ID_SYNTH_MPE,   2, 0, 1, CLAP_NOTE_DIALECT_MIDI_MPE, CLAP_NOTE_DIALECT_MIDI_MPE, 1, 0 },
-    { ID_SILENT,      2, 0, 0, 0, 0, 0, 0 },
-    { ID_SYNTH_POLY,  2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 1 },
+    { ID_SYNTH,       2, 0, 1, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_CLAP, 1, 0, 0, 0 },
+    { ID_SYNTH_MIDI,  1, 0, 1, CLAP_NOTE_DIALECT_MIDI, CLAP_NOTE_DIALECT_MIDI, 1, 0, 0, 0 },
+    { ID_SYNTH_AUX,   2, 1, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 0, 0 },
+    { ID_SYNTH_WIDE,  4, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 0, 0 },
+    { ID_SYNTH_NOTES, 2, 0, 2, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 0, 0 },
+    { ID_SYNTH_MPE,   2, 0, 1, CLAP_NOTE_DIALECT_MIDI_MPE, CLAP_NOTE_DIALECT_MIDI_MPE, 1, 0, 0, 0 },
+    { ID_SILENT,      2, 0, 0, 0, 0, 0, 0, 0, 0 },
+    { ID_SYNTH_POLY,  2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 1, 0, 0 },
+    { ID_SYNTH_ARP,   2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 1, CLAP_NOTE_DIALECT_CLAP },
+    { ID_SYNTH_ARP_MIDI, 2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 1, CLAP_NOTE_DIALECT_MIDI },
 };
 
 #define LAYOUT_COUNT (sizeof(g_layouts) / sizeof(g_layouts[0]))
@@ -107,6 +126,16 @@ CLAP_EXPORT const fake_synth_poly_stats_t *fake_synth_poly_stats(void)
     return &g_poly;
 }
 
+/** one note event the arpeggiator sends at `frame`, in the plugin's steady time */
+typedef struct ARP_EVENT_T {
+    int64_t frame;
+    uint16_t type;              ///< CLAP_EVENT_NOTE_ON, _NOTE_OFF or _NOTE_END
+    int16_t channel;
+    int16_t key;
+    int32_t note_id;            ///< the input note's, for its NOTE_END
+    double velocity;
+} arp_event_t;
+
 typedef struct SYNTH_T {
     clap_plugin_t plugin;
     const layout_t *layout;
@@ -116,6 +145,9 @@ typedef struct SYNTH_T {
     double velocity;
     uint64_t age;
     voice_t voices[FAKE_SYNTH_VOICES];  ///< synth-poly's voices
+    arp_event_t arp[ARP_PENDING];       ///< the arpeggiator's events ahead of their frame, in frame order
+    uint32_t n_arp;
+    int64_t now;                        ///< the frame process() is at, in steady time
 } synth_t;
 
 static const char *const g_synth_features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, NULL };
@@ -162,7 +194,7 @@ static const clap_plugin_audio_ports_t g_audio_ports = { audio_ports_count, audi
 static uint32_t note_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const synth_t *synth = plugin->plugin_data;
-    return is_input ? synth->layout->note_inputs : 0;
+    return is_input ? synth->layout->note_inputs : synth->layout->note_outputs;
 }
 
 static bool note_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_note_port_info_t *info)
@@ -173,8 +205,8 @@ static bool note_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_
         return false;
     memset(info, 0, sizeof(*info));
     info->id = index;
-    info->supported_dialects = synth->layout->supported;
-    info->preferred_dialect = synth->layout->preferred;
+    info->supported_dialects = is_input ? synth->layout->supported : synth->layout->out_dialect;
+    info->preferred_dialect = is_input ? synth->layout->preferred : synth->layout->out_dialect;
     snprintf(info->name, sizeof(info->name), "notes %u", index);
     return true;
 }
@@ -259,10 +291,88 @@ static void poly_frame(synth_t *synth, const clap_output_events_t *out, uint32_t
     }
 }
 
+/* the arpeggiator: hold one event for its frame, after those it holds for the same or an earlier frame */
+static void arp_hold(synth_t *synth, int64_t frame, uint16_t type, int16_t channel, int16_t key, int32_t note_id, double velocity)
+{
+    uint32_t at = synth->n_arp;
+
+    if (synth->n_arp == ARP_PENDING)
+        return;
+    while (at > 0 && synth->arp[at - 1].frame > frame)
+    {
+        synth->arp[at] = synth->arp[at - 1];
+        at--;
+    }
+    synth->arp[at] = (arp_event_t){ frame, type, channel, key, note_id, velocity };
+    synth->n_arp++;
+}
+
+static void arp_event(synth_t *synth, const clap_event_header_t *header)
+{
+    const clap_event_note_t *e = (const clap_event_note_t *)header;
+    const int64_t step = (int64_t)lround(synth->sample_rate * FAKE_ARP_STEP_MS / 1000.0);
+    uint32_t k;
+
+    if (header->type != CLAP_EVENT_NOTE_ON && header->type != CLAP_EVENT_NOTE_OFF)
+        return;
+    for (k = 0; k < ARP_NOTES; k++)
+    {
+        if (header->type == CLAP_EVENT_NOTE_ON)
+            arp_hold(synth, synth->now + (int64_t)k * step, CLAP_EVENT_NOTE_ON, e->channel, (int16_t)(e->key + g_arp_intervals[k]), -1,
+                     e->velocity);
+        else
+            arp_hold(synth, synth->now, CLAP_EVENT_NOTE_OFF, e->channel, (int16_t)(e->key + g_arp_intervals[k]), -1, e->velocity);
+    }
+    if (header->type == CLAP_EVENT_NOTE_OFF)
+        arp_hold(synth, synth->now, CLAP_EVENT_NOTE_END, e->channel, e->key, e->note_id, 0.0);
+}
+
+/* the arpeggiator, at frame `frame` of the block: every event held for this frame goes out, in the note output's dialect */
+static void arp_send(synth_t *synth, const clap_output_events_t *out, uint32_t frame)
+{
+    while (synth->n_arp > 0 && synth->arp[0].frame <= synth->now)
+    {
+        const arp_event_t a = synth->arp[0];
+
+        memmove(&synth->arp[0], &synth->arp[1], (synth->n_arp - 1) * sizeof(synth->arp[0]));
+        synth->n_arp--;
+        if (synth->layout->out_dialect == CLAP_NOTE_DIALECT_MIDI && a.type != CLAP_EVENT_NOTE_END)
+        {
+            clap_event_midi_t m;
+
+            memset(&m, 0, sizeof(m));
+            m.header = (clap_event_header_t){ sizeof(m), frame, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0 };
+            m.port_index = 0;
+            m.data[0] = (uint8_t)((a.type == CLAP_EVENT_NOTE_ON ? 0x90 : 0x80) | a.channel);
+            m.data[1] = (uint8_t)a.key;
+            m.data[2] = (uint8_t)lround(a.velocity * 127.0);
+            out->try_push(out, &m.header);
+        }
+        else
+        {
+            clap_event_note_t n;
+
+            memset(&n, 0, sizeof(n));
+            n.header = (clap_event_header_t){ sizeof(n), frame, CLAP_CORE_EVENT_SPACE_ID, a.type, 0 };
+            n.note_id = a.note_id;
+            n.port_index = 0;
+            n.channel = a.channel;
+            n.key = a.key;
+            n.velocity = a.velocity;
+            out->try_push(out, &n.header);
+        }
+    }
+}
+
 static void take_event(synth_t *synth, const clap_event_header_t *header)
 {
     if (header->space_id != CLAP_CORE_EVENT_SPACE_ID)
         return;
+    if (synth->layout->note_outputs)
+    {
+        arp_event(synth, header);
+        return;
+    }
     if (synth->layout->poly)
     {
         poly_event(synth, header);
@@ -337,6 +447,7 @@ static void plugin_reset(const clap_plugin_t *plugin)
 {
     synth_t *synth = plugin->plugin_data;
     synth->sounding = 0;
+    synth->n_arp = 0;
     if (synth->layout->poly)
     {
         memset(synth->voices, 0, sizeof(synth->voices));
@@ -353,6 +464,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
     for (i = 0; i < process->frames_count; i++)
     {
+        synth->now = process->steady_time + (int64_t)i;
         while (next < count)
         {
             const clap_event_header_t *header = process->in_events->get(process->in_events, next);
@@ -371,6 +483,8 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                 out->data32[c][i] = (float)g_poly.voices * 1e-3f;  // a level that says how many voices sound
             poly_frame(synth, process->out_events, i);
         }
+        if (synth->layout->note_outputs)
+            arp_send(synth, process->out_events, i);
     }
     return CLAP_PROCESS_CONTINUE;
 }
@@ -381,7 +495,7 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
 
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS))
         return &g_audio_ports;
-    if (!strcmp(id, CLAP_EXT_NOTE_PORTS) && synth->layout->note_inputs)
+    if (!strcmp(id, CLAP_EXT_NOTE_PORTS) && (synth->layout->note_inputs || synth->layout->note_outputs))
         return &g_note_ports;
     return NULL;
 }

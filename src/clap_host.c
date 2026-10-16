@@ -591,6 +591,7 @@ static const char *read_topology(struct omx_clap_instance *in)
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->channels = main_out;
     in->in_channels = n_main_in ? main_in : 0;
+    in->note_outputs = in->note_ports ? in->note_ports->count(in->plugin, false) : 0;
     return NULL;
 }
 
@@ -828,12 +829,13 @@ static void *timed_open_run(void *arg)
 */
 
 /* The instance's output event sink, in the stage's place: still counts every event and raises plugin_changed on a value,
- * as the stage's own sink does, and keeps the plugin's values and gestures in the instance's ring for the control
- * thread. Runs in process() on the audio role or in params.flush on the control thread, never both at once: bounded,
+ * as the stage's own sink does, keeps the plugin's values and gestures in the instance's ring for the control
+ * thread, and its note output in the note output ring. Runs in process() on the audio role or in params.flush on the control thread, never both at once: bounded,
  * no allocation, no lock, no call out. A full ring drops the event and counts it. */
 static bool param_out_push(const struct clap_output_events *list, const clap_event_header_t *event)
 {
     struct omx_clap_param_out *o = (struct omx_clap_param_out *)list->ctx;
+    struct omx_clap_instance *in = (struct omx_clap_instance *)((char *)o - offsetof(struct omx_clap_instance, param_out));
     struct omx_clap_param_event *slot;
     uint32_t kind, head, tail;
     clap_id id;
@@ -860,6 +862,11 @@ static bool param_out_push(const struct clap_output_events *list, const clap_eve
             id = ((const clap_event_param_gesture_t *)event)->param_id;
             break;
         default:
+            // a note or MIDI event of the plugin's note output: kept for the reader only inside a processing block
+            // of the audio role, never from the warm-up or a flush on the control thread
+            if (in->note_outputs && atomic_load_explicit(&o->stage->in_cycle, memory_order_relaxed)
+                && atomic_load_explicit(&o->stage->state, memory_order_relaxed) == OMX_CLAP_PROCESSING)
+                omx_clap_note_out_push(&in->note_out, event, o->stage->steady_time);
             return true;
     }
     tail = atomic_load_explicit(&o->tail, memory_order_relaxed);
