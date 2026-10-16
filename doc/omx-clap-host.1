@@ -104,6 +104,13 @@ requires
 is then refused with
 .BR "resp \-102 hosting.features.missing" .
 .TP
+.BR \-t ", " \-\-follow\-jack\-transport
+Hand every plugin the JACK transport: playing while it rolls, its frame as
+the song position, its bars and beats when a timebase master gives them.
+Without it the host's own transport, which
+.BR set_bpm ", " set_bpb " and " transport
+drive, is handed instead; the host never moves the JACK transport.
+.TP
 .BR \-V ", " \-\-version
 Print the version and exit.
 .TP
@@ -117,7 +124,8 @@ answered with
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
 .BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", "
-.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", " help ", " quit .
+.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", "
+.BR set_bpm ", " set_bpb ", " transport ", " transport_sync ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
 or
