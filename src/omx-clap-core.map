@@ -79,7 +79,14 @@ OMX_CLAP_CORE_0.10
 {
   global:
     omx_clap_host_param_contract;
+    omx_clap_host_param_events_dropped;
+    omx_clap_host_param_events_take;
+    omx_clap_host_param_gesture;
     omx_clap_host_param_meaning;
+    omx_clap_host_param_modulate;
+    omx_clap_host_param_parse;
+    omx_clap_host_param_text;
+    omx_clap_host_params_rescanned;
     omx_clap_param_number;
     omx_clap_param_scale_name;
     omx_clap_param_unit_name;
