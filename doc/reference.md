@@ -41,6 +41,45 @@ host delivers it itself through the plugin's `params.flush` on the control
 thread, so `param_get`, `state_save` and the plugin always see the last
 value written.
 
+What a plugin does with its parameters by itself
+------------------------------------------------
+
+A plugin moves a parameter of its own when its user turns its own control,
+loads a preset of its own or follows a learned MIDI control: it says so with
+a `CLAP_EVENT_PARAM_VALUE` among its output events, and brackets its user's
+hold of a control with `CLAP_EVENT_PARAM_GESTURE_BEGIN` and `_END`. The
+feedback socket carries them, in the order the plugin pushed them, at the
+idle rate (every 20 ms), never from the audio thread:
+
+    param_gesture <N> <param> begin
+    param_set <N> <param> <value>
+    param_gesture <N> <param> end
+
+`param_set` is mod-host's feedback line, the value as `%f`; `param_gesture`
+is the shape FreeMixer/plugin-hostd#47 proposes for plugin-hostd's
+vocabulary. `<param>` is what `param_set` takes: the CLAP id, or an LV2
+control port's symbol. Only a parameter `param_set` takes is reported; a
+read-only one is an output, `monitor_output`'s. Of the values one idle tick
+finds for a parameter, the last goes out, before a gesture on it. The plugin
+pushes into a ring of `OMX_CLAP_PARAM_OUT_DEPTH` (256) events between two
+ticks, on the audio thread with no allocation, lock or call out; past it an
+event is dropped and counted, and the next tick sends every parameter's
+value as the plugin reads it then, so the controller still ends on what the
+plugin holds. A value the controller sets is not echoed back.
+
+A program that hosts plugins through the library reads the same events with
+`omx_clap_host_param_events_take` (and `omx_clap_host_param_events_dropped`),
+and has the rest of what CLAP's parameters offer:
+`omx_clap_host_param_modulate` sends `CLAP_EVENT_PARAM_MOD` around the set
+value, which stays what it was (only for a `CLAP_PARAM_IS_MODULATABLE`
+parameter); `omx_clap_host_param_gesture` wraps the host's own writes in a
+gesture; `omx_clap_host_params_rescanned` says which `params.rescan` flags
+the plugin raised (a `CLAP_PARAM_RESCAN_INFO` changes what the rows answer at
+once, a `RESCAN_ALL` while active makes the tick ask for a restart);
+`params.clear` with `CLAP_PARAM_CLEAR_ALL` drops the host's read-back of the
+parameter; `omx_clap_host_param_text` and `omx_clap_host_param_parse` give
+the plugin's own text for a value and back.
+
 Meters
 ------
 
@@ -103,7 +142,9 @@ arrived on, in the dialect the note port prefers:
   `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Nothing
   else is passed: another controller, pitch bend or program change is dropped.
 - MIDI: every channel message of one to three bytes becomes a
-  `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
+  `CLAP_EVENT_MIDI`. A sysex of up to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a
+  `CLAP_EVENT_MIDI_SYSEX`, eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer
+  one is counted as unmappable. System real-time bytes are dropped.
 
 A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
 128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on

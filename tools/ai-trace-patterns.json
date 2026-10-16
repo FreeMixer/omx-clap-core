@@ -1,0 +1,33 @@
+{
+ "$comment": "SPDX-License-Identifier: GPL-3.0-or-later. The AI-attribution patterns (Python re, flags IGNORECASE|MULTILINE) read by ai-trace-commit-check.sh. Edit here only.",
+ "markers": [
+  {
+   "name": "robot-footer",
+   "pattern": "^[^\\S\\r\\n]*[_*>]*[^\\S\\r\\n]*🤖[^\\r\\n]*?(?:Claude|claude\\.(?:ai|com))[^\\r\\n]*"
+  },
+  {
+   "name": "generated-footer",
+   "pattern": "(?:🤖[^\\S\\r\\n]*)?Generated[^\\S\\r\\n]+(?:with|by)[^\\S\\r\\n]+\\[?Claude[^\\S\\r\\n]+Code\\]?(?:\\([^)\\s]*\\))?"
+  },
+  {
+   "name": "co-authored-by",
+   "pattern": "Co-Authored-By:[^\\S\\r\\n]*Claude\\b[^\\r\\n<`]*(?:<[^>\\r\\n]*>)?"
+  },
+  {
+   "name": "ai-co-author",
+   "pattern": "Co-Authored-By:[^\\S\\r\\n]*(?:Anthropic|OpenAI|ChatGPT|Copilot|Gemini|Codex|Cursor|Aider|Devin)\\b[^\\r\\n<`]*(?:<[^>\\r\\n]*>)?"
+  },
+  {
+   "name": "anthropic-noreply",
+   "pattern": "noreply@anthropic\\.com"
+  },
+  {
+   "name": "claude-session",
+   "pattern": "Claude-Session:[^\\S\\r\\n]*[^\\s`]*"
+  },
+  {
+   "name": "claude.ai/code",
+   "pattern": "\\[[^\\]\\r\\n]*\\]\\([^\\S\\r\\n]*<?https?://claude\\.ai/code[^)\\s]*>?[^\\S\\r\\n]*\\)|<?https?://claude\\.ai/code\\b[^\\s)>`]*>?"
+  }
+ ]
+}
