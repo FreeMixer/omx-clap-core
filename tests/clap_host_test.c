@@ -304,6 +304,96 @@ static void configuration_checks(const char *path)
 }
 
 /* open must fail with the hosting code */
+/* the fake's org.openmixer.param-contract/1 as FAKE_CONTRACT arms it: trusted whole, or not at all, naming the rule */
+static void contract_open(const char *path, const char *arm, struct omx_clap_instance **instance)
+{
+    if (arm)
+        setenv("FAKE_CONTRACT", arm, 1);
+    else
+        unsetenv("FAKE_CONTRACT");
+    *instance = NULL;
+    CHECK(open_ok(path, FAKE_PASSTHROUGH, instance), "open %s with FAKE_CONTRACT %s", FAKE_PASSTHROUGH, arm ? arm : "unset");
+}
+
+static void contract_refused(const char *path, const char *arm, const char *rule)
+{
+    struct omx_clap_instance *instance;
+    struct omx_clap_param_meaning m;
+    const char *why = NULL;
+    uint32_t version = 99;
+
+    contract_open(path, arm, &instance);
+    if (!instance)
+        return;
+    CHECK(omx_clap_host_param_contract(instance, &version, &why) == 0 && version == 0, "%s: uncontracted", arm);
+    CHECK(why && strncmp(why, rule, strlen(rule)) == 0, "%s: the reason names %s (%s)", arm, rule, why ? why : "NULL");
+    CHECK(omx_clap_host_param_meaning(instance, 0, &m) == -1, "%s: no meaning for parameter 0, not even its sound half", arm);
+    omx_clap_host_tick(instance);
+    why = omx_clap_host_log_take(instance);
+    CHECK(why && strstr(why, "parameter contract is not trusted") && strstr(why, rule), "%s: said in the log (%s)", arm, why ? why : "NULL");
+    omx_clap_host_close(instance);
+}
+
+static void contract_checks(const char *path)
+{
+    struct omx_clap_instance *instance;
+    struct omx_clap_param_meaning m;
+    const char *why = NULL;
+    uint32_t version = 0;
+    char text[64];
+
+    contract_open(path, NULL, &instance);
+    if (instance)
+    {
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 0 && why && strcmp(why, "absent") == 0,
+              "no extension: uncontracted, \"absent\" (%s)", why ? why : "NULL");
+        CHECK(omx_clap_host_param_meaning(instance, 0, &m) == -1, "no extension: no meaning");
+        omx_clap_host_tick(instance);
+        CHECK(omx_clap_host_log_take(instance) == NULL, "no extension: nothing said in the log");
+        omx_clap_host_close(instance);
+    }
+
+    contract_open(path, "good", &instance);
+    if (instance)
+    {
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 1 && version == 1 && why == NULL,
+              "good: contracted, version %u", version);
+        CHECK(omx_clap_host_param_meaning(instance, 0, &m) == 0 && m.id == 0 && strcmp(m.symbol, "latency") == 0
+              && m.unit == 6 && m.scale == 2 && m.step == 1.0 && m.min == 0.0 && m.max == 4096.0 && m.def == 64.0
+              && (m.flags & CLAP_PARAM_IS_STEPPED),
+              "good: parameter 0 is latency, frame, stepped, step 1, 0..4096, default 64");
+        CHECK(strcmp(omx_clap_param_unit_name(m.unit), "frame") == 0 && strcmp(omx_clap_param_scale_name(m.scale), "stepped") == 0,
+              "good: named frame and stepped");
+        CHECK(omx_clap_host_param_meaning(instance, FAKE_PARAM_PROCESS_CALLS, &m) == 0 && strcmp(m.symbol, "process_calls") == 0
+              && m.unit == 0 && (m.flags & CLAP_PARAM_IS_READONLY), "good: a read-only parameter has its meaning too");
+        CHECK(omx_clap_host_param_meaning(instance, 99, &m) == -1, "good: no meaning for an id clap.params does not list");
+        omx_clap_host_close(instance);
+    }
+
+    contract_open(path, "migrated", &instance);
+    if (instance)
+    {
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 1 && version == 2,
+              "migrated: a rename step at version 2 is contracted (version %u)", version);
+        omx_clap_host_close(instance);
+    }
+
+    contract_refused(path, "fingerprint", "R4");
+    contract_refused(path, "missing", "R1");
+    contract_refused(path, "duplicate", "R1");
+    contract_refused(path, "symbol", "R2");
+    contract_refused(path, "step", "R2");
+    contract_refused(path, "noop", "R5");
+    unsetenv("FAKE_CONTRACT");
+
+    CHECK(omx_clap_param_unit_name(0x103) && strcmp(omx_clap_param_unit_name(0x103), "lufs") == 0
+          && omx_clap_param_unit_name(25) == NULL && omx_clap_param_scale_name(3) == NULL, "the unit and scale tables");
+    CHECK(omx_clap_param_number(0.10000000149011612, text, sizeof(text)) > 0 && strcmp(text, "0.10000000149011612") == 0,
+          "a float's travel in the shortest decimal that reads back (%s)", text);
+    CHECK(omx_clap_param_number(NAN, text, sizeof(text)) == -1 && omx_clap_param_number(1.0, text, 1) == -1,
+          "no number for NaN, nor in a buffer too small");
+}
+
 static void fake_plugin_checks(const char *path)
 {
     struct omx_clap_instance *instance = NULL;
@@ -568,6 +658,7 @@ int main(int argc, char **argv)
         }
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
+        contract_checks(fake_path);
         if (synth_path)
             synth_checks(synth_path);
         return report("clap host test ok");
