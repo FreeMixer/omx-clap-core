@@ -25,6 +25,7 @@
  * A third argument names tests/fake_synth.clap: the instrument layouts the core admits and refuses, and the notes it
  * makes from MIDI, to the sample. */
 
+#include <dlfcn.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
@@ -475,7 +476,7 @@ static void run_block(struct omx_clap_instance *instance, const midi_at_t *messa
     uint32_t i;
 
     for (i = 0; i < count; i++)
-        omx_clap_note_in(&instance->stage, messages[i].time, messages[i].data, messages[i].size);
+        omx_clap_host_note_in(instance, messages[i].time, messages[i].data, messages[i].size);
     omx_clap_run_io(&instance->stage, NULL, outputs, BLOCK);
 }
 
@@ -544,6 +545,81 @@ static void synth_notes_checks(const char *path, const char *id, uint32_t output
     omx_clap_host_close(synth);
 }
 
+/* What synth-poly saw: the fake's own counters, read through the symbol fake_synth.clap exports (the core holds the
+ * file open, so this dlopen shares it). */
+typedef struct
+{
+    uint32_t notes_on, ids_reused, no_id, ended, end_refused, voices, voices_max;
+} poly_stats_t;
+
+static const poly_stats_t *poly_stats(const char *path)
+{
+    void *file = dlopen(path, RTLD_NOW | RTLD_NOLOAD);
+    const poly_stats_t *(*stats)(void) = file ? (const poly_stats_t *(*)(void))dlsym(file, "fake_synth_poly_stats") : NULL;
+    const poly_stats_t *answer = stats ? stats() : NULL;
+
+    if (file)
+        dlclose(file);
+    return answer;
+}
+
+/*
+ * Note ids through the core, against synth-poly, a voice per id that pushes NOTE_END FAKE_SYNTH_RELEASE frames after
+ * its note off. 40 blocks of 32 note ons, each block ending the previous block's 32: 1280 notes, five times the pool,
+ * and up to 32 held and 160 in their release at once. The core frees an id only on its NOTE_END (the hold is far longer
+ * than the run), so no note is skipped, no id is handed out while its voice still sounds, and every id is free at the end.
+ */
+#define POLY_PER_BLOCK  32u
+#define POLY_BLOCKS     40u
+static void synth_ids_checks(const char *path)
+{
+    midi_at_t m[2 * POLY_PER_BLOCK];
+    float out_l[BLOCK], out_r[BLOCK];
+    struct omx_clap_instance *synth = open_synth(path, SYNTH_POLY, 2, CLAP_NOTE_DIALECT_CLAP);
+    const poly_stats_t *seen;
+    uint32_t b, k, n, note = 0;
+
+    if (!synth)
+        return;
+    seen = poly_stats(path);
+    CHECK(seen != NULL, "synth-poly's counters are read through fake_synth_poly_stats");
+    if (!seen)
+    {
+        omx_clap_host_close(synth);
+        return;
+    }
+    CHECK(synth->note_ids.hold_frames == (uint32_t)(SAMPLE_RATE * OMX_CLAP_NOTE_ID_HOLD_MS / 1000.0) &&
+          synth->note_ids.hold_frames > (POLY_BLOCKS + 8) * BLOCK,
+          "the hold is %u ms at the activated rate, %u frames, longer than the run", OMX_CLAP_NOTE_ID_HOLD_MS, synth->note_ids.hold_frames);
+    for (b = 0; b < POLY_BLOCKS + 8; b++)
+    {
+        n = 0;
+        for (k = 0; b > 0 && b <= POLY_BLOCKS && k < POLY_PER_BLOCK; k++)    // the previous block's notes end
+        {
+            const uint32_t prev = note - POLY_PER_BLOCK + k;
+
+            m[n++] = (midi_at_t){ k, { (uint8_t)(0x80 | (prev / 128 % 16)), (uint8_t)(prev % 128), 0 }, 3 };
+        }
+        for (k = 0; b < POLY_BLOCKS && k < POLY_PER_BLOCK; k++, note++)
+            m[n++] = (midi_at_t){ 64 + k, { (uint8_t)(0x90 | (note / 128 % 16)), (uint8_t)(note % 128), 100 }, 3 };
+        run_block(synth, m, n, out_l, out_r);
+    }
+    CHECK(seen->notes_on == POLY_BLOCKS * POLY_PER_BLOCK && seen->no_id == 0, "%u notes reached the synth, each with an id (%u, %u without)",
+          POLY_BLOCKS * POLY_PER_BLOCK, seen->notes_on, seen->no_id);
+    CHECK(seen->ids_reused == 0, "no id was handed out while a voice still sounded under it (%u)", seen->ids_reused);
+    CHECK(atomic_load(&synth->note_ids.notes_skipped) == 0 && atomic_load(&synth->note_ids.ids_expired) == 0,
+          "no note skipped and no hold ran out: NOTE_END alone freed the ids (%u skipped, %u expired)",
+          atomic_load(&synth->note_ids.notes_skipped), atomic_load(&synth->note_ids.ids_expired));
+    CHECK(seen->ended == POLY_BLOCKS * POLY_PER_BLOCK && seen->end_refused == 0 &&
+          atomic_load(&synth->note_ids.notes_ended) == POLY_BLOCKS * POLY_PER_BLOCK,
+          "every voice ended with NOTE_END and the core freed its id (%u pushed, %u freed)", seen->ended,
+          atomic_load(&synth->note_ids.notes_ended));
+    CHECK(synth->note_ids.n_free == OMX_CLAP_NOTE_IDS && seen->voices == 0, "every id is free again (%u of %u)",
+          synth->note_ids.n_free, OMX_CLAP_NOTE_IDS);
+    CHECK(seen->voices_max > POLY_PER_BLOCK, "voices overlapped: up to %u at once", seen->voices_max);
+    omx_clap_host_close(synth);
+}
+
 static void synth_checks(const char *path)
 {
     static const midi_at_t running_off[] = { { 10, { 0x90, 69, 127 }, 3 }, { 20, { 0x90, 60, 0 }, 3 }, { 40, { 0x90, 69, 0 }, 3 } };
@@ -574,6 +650,7 @@ static void synth_checks(const char *path)
 
     synth_notes_checks(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     synth_notes_checks(path, SYNTH_MIDI, 1, CLAP_NOTE_DIALECT_MIDI);
+    synth_ids_checks(path);
 
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     if (!synth)
@@ -581,7 +658,7 @@ static void synth_checks(const char *path)
     run_block(synth, running_off, 3, out_l, out_r);
     CHECK(is_sine(out_l, 10, 40, 1.0, 69, 0) && is_silent(out_l, 40, BLOCK), "a note on with velocity 0 is a note off, of its own key only");
     for (i = 0; i < sizeof(others) / sizeof(others[0]); i++)
-        omx_clap_note_in(&synth->stage, others[i].time, others[i].data, others[i].size);
+        omx_clap_host_note_in(synth, others[i].time, others[i].data, others[i].size);
     omx_clap_run_io(&synth->stage, NULL, (float *[]){ out_l, out_r }, BLOCK);
     CHECK(atomic_load(&synth->stage.notes_delivered) == 6 && atomic_load(&synth->stage.notes_unmappable) == 0,
           "controllers, bend and program change reach a note port that also declares the MIDI dialect, as CLAP_EVENT_MIDI; the clock does not (%u delivered, %u unmappable)",
@@ -603,11 +680,12 @@ static void synth_checks(const char *path)
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     if (!synth)
         return;
+    // each note on a key of its own (128 keys a channel), so no note on ends an earlier one under its id
     for (i = 0; i < CLAP_HOST_NOTES_PER_BLOCK + 44; i++)
     {
         flood[i].time = i % BLOCK;
-        flood[i].data[0] = 0x90;
-        flood[i].data[1] = 69;
+        flood[i].data[0] = (uint8_t)(0x90 | (i / 128));
+        flood[i].data[1] = (uint8_t)(i % 128);
         flood[i].data[2] = 100;
         flood[i].size = 3;
     }
