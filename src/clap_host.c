@@ -324,11 +324,21 @@ static void host_params_rescan(const clap_host_t *host, clap_param_rescan_flags 
         atomic_fetch_or_explicit(&instance_of(host)->params_rescan_flags, (uint32_t)flags, memory_order_relaxed);
 }
 
+/* clear: the host keeps no automation and no modulation of its own past the block it queued it for, so what it drops
+ * is its reference to the parameter, the read-back shadow, when the plugin clears all of it */
 static void host_params_clear(const clap_host_t *host, clap_id id, clap_param_clear_flags flags)
 {
-    (void)id;
-    (void)flags;
-    main_thread_call(host);
+    struct omx_clap_instance *in = instance_of(host);
+    uint32_t i;
+
+    if (!main_thread_call(host) || !(flags & CLAP_PARAM_CLEAR_ALL))
+        return;
+    for (i = 0; i < in->shadow_n; i++)
+        if (in->shadow[i].id == id)
+        {
+            in->shadow[i] = in->shadow[--in->shadow_n];
+            break;
+        }
 }
 
 static void host_params_request_flush(const clap_host_t *host)
@@ -787,6 +797,100 @@ static void *timed_open_run(void *arg)
 ************************************************************************************************************************
 */
 
+/* The instance's output event sink, in the stage's place: still counts every event and raises plugin_changed on a value,
+ * as the stage's own sink does, and keeps the plugin's values and gestures in the instance's ring for the control
+ * thread. Runs in process() on the audio role or in params.flush on the control thread, never both at once: bounded,
+ * no allocation, no lock, no call out. A full ring drops the event and counts it. */
+static bool param_out_push(const struct clap_output_events *list, const clap_event_header_t *event)
+{
+    struct omx_clap_param_out *o = (struct omx_clap_param_out *)list->ctx;
+    struct omx_clap_param_event *slot;
+    uint32_t kind, head, tail;
+    clap_id id;
+    double value = 0.0;
+
+    omx_hosted_count(&o->stage->out_events_seen, 1);
+    if (event == NULL || event->space_id != CLAP_CORE_EVENT_SPACE_ID)
+        return true;
+    switch (event->type)
+    {
+        case CLAP_EVENT_PARAM_VALUE:
+            if (event->size < sizeof(clap_event_param_value_t))
+                return true;
+            atomic_store_explicit(&o->stage->plugin_changed, 1u, memory_order_relaxed);
+            kind = OMX_CLAP_PARAM_EVENT_VALUE;
+            id = ((const clap_event_param_value_t *)event)->param_id;
+            value = ((const clap_event_param_value_t *)event)->value;
+            break;
+        case CLAP_EVENT_PARAM_GESTURE_BEGIN:
+        case CLAP_EVENT_PARAM_GESTURE_END:
+            if (event->size < sizeof(clap_event_param_gesture_t))
+                return true;
+            kind = event->type == CLAP_EVENT_PARAM_GESTURE_BEGIN ? OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN : OMX_CLAP_PARAM_EVENT_GESTURE_END;
+            id = ((const clap_event_param_gesture_t *)event)->param_id;
+            break;
+        default:
+            return true;
+    }
+    tail = atomic_load_explicit(&o->tail, memory_order_relaxed);
+    head = atomic_load_explicit(&o->head, memory_order_acquire);
+    if (tail - head >= OMX_CLAP_PARAM_OUT_DEPTH)
+    {
+        omx_hosted_count(&o->dropped, 1);
+        return true;
+    }
+    slot = &o->ring[tail & (OMX_CLAP_PARAM_OUT_DEPTH - 1u)];
+    slot->kind = kind;
+    slot->id = id;
+    slot->value = value;
+    atomic_store_explicit(&o->tail, tail + 1u, memory_order_release);
+    return true;
+}
+
+_Static_assert((OMX_CLAP_PARAM_OUT_DEPTH & (OMX_CLAP_PARAM_OUT_DEPTH - 1u)) == 0, "the output event ring is a power of two");
+_Static_assert(sizeof(clap_event_param_mod_t) == sizeof(clap_event_param_value_t)
+               && offsetof(clap_event_param_mod_t, amount) == offsetof(clap_event_param_value_t, value)
+               && offsetof(clap_event_param_mod_t, cookie) == offsetof(clap_event_param_value_t, cookie)
+               && offsetof(clap_event_param_mod_t, param_id) == offsetof(clap_event_param_value_t, param_id)
+               && offsetof(clap_event_param_gesture_t, param_id) == offsetof(clap_event_param_value_t, param_id)
+               && sizeof(clap_event_param_gesture_t) <= sizeof(clap_event_param_value_t),
+               "a modulation and a gesture take a value event's slot");
+// a tag is written again two laps of the ring later: by then the block that read it has ended, since one block drains
+// at most CLAP_HOST_EVENTS_PER_BLOCK records
+_Static_assert(CLAP_HOST_EVENTS_PER_BLOCK <= CLAP_HOST_PARAM_QUEUE_DEPTH, "a block drains at most one lap of the ring");
+
+/* The instance's input event list: the stage's, with a record whose cookie is one of the instance's tags turned, in its
+ * slot of the block's array, into what the tag says (a modulation, its amount where the value was, or a gesture) and
+ * given the plugin's own cookie back. The first read of an event turns it; a later read finds a plain cookie and leaves
+ * it. Runs where the plugin reads its events: process() on the audio role, params.flush on the control thread. Bounded,
+ * no allocation, no lock, no call out. */
+static uint32_t param_in_size(const struct clap_input_events *list)
+{
+    const struct omx_clap_param_in *p = (const struct omx_clap_param_in *)list->ctx;
+
+    return p->stage_in.size(&p->stage_in);
+}
+
+static const clap_event_header_t *param_in_get(const struct clap_input_events *list, uint32_t index)
+{
+    const struct omx_clap_param_in *p = (const struct omx_clap_param_in *)list->ctx;
+    const clap_event_header_t *h = p->stage_in.get(&p->stage_in, index);
+    clap_event_param_value_t *e;
+    const struct omx_clap_param_tag *tag;
+
+    if (!h || h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE)
+        return h;
+    e = (clap_event_param_value_t *)h;
+    tag = (const struct omx_clap_param_tag *)e->cookie;
+    if (tag < &p->tag[0] || tag >= &p->tag[2 * CLAP_HOST_PARAM_QUEUE_DEPTH])
+        return h;
+    e->cookie = tag->cookie;
+    e->header.type = (uint16_t)tag->type;
+    if (tag->type != CLAP_EVENT_PARAM_MOD)
+        e->header.size = sizeof(clap_event_param_gesture_t);
+    return h;
+}
+
 /* Eight buffers of max_block floats in one mapping with a guard page at each end: the silence pair the unbound auxiliary
  * inputs read, the scratch pair for the auxiliary outputs, then the stage's four, the last of them flush against the
  * guard page above, so the first sample written past a block faults here, in this mapping, and never lands in a foreign
@@ -818,6 +922,15 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     bounce.max_block = max_block;
     if (omx_clap_stage_init(&in->stage, &bounce, in->recs, in->rec_cap) != 0)
         return -1;
+    // the plugin's output events go to the instance's sink, which keeps its values and gestures
+    in->param_out.stage = &in->stage;
+    in->stage.out_events.ctx = &in->param_out;
+    in->stage.out_events.try_push = param_out_push;
+    // and the plugin reads its input events through the instance's list, which turns a tagged record into its kind
+    in->param_in.stage_in = in->stage.in_events;
+    in->stage.in_events.ctx = &in->param_in;
+    in->stage.in_events.size = param_in_size;
+    in->stage.in_events.get = param_in_get;
     in->stage.h.guards = (g_config.clamp ? OMX_HOSTED_GUARD_CLAMP : 0u) | (g_config.nonfinite ? OMX_HOSTED_GUARD_NONFINITE : 0u);
     in->stage.note_inputs = in->note_inputs;
     in->stage.note_dialect = in->note_dialect;
@@ -1762,8 +1875,94 @@ int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location
     return in->preset_load->from_location(in->plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL) ? 0 : -1;
 }
 
+uint32_t omx_clap_host_param_events_take(struct omx_clap_instance *in, struct omx_clap_param_event *events, uint32_t capacity)
+{
+    struct omx_clap_param_out *o = &in->param_out;
+    uint32_t head = atomic_load_explicit(&o->head, memory_order_relaxed);
+    const uint32_t tail = atomic_load_explicit(&o->tail, memory_order_acquire);
+    uint32_t n = 0;
+
+    while (head != tail && n < capacity)
+        events[n++] = o->ring[head++ & (OMX_CLAP_PARAM_OUT_DEPTH - 1u)];
+    atomic_store_explicit(&o->head, head, memory_order_release);
+    return n;
+}
+
+uint32_t omx_clap_host_param_events_dropped(const struct omx_clap_instance *in)
+{
+    return atomic_load_explicit(&in->param_out.dropped, memory_order_relaxed);
+}
+
+/* a modulation or a gesture of the host: queued like a write, after the same checks, its cookie the tag of the ring
+ * position it takes (the control thread is the ring's one producer, so the position is the tail it reads), and no
+ * shadow: the set value is what it was */
+static int param_push_tagged(struct omx_clap_instance *in, clap_id id, uint32_t type, double value, uint32_t needs)
+{
+    clap_param_info_t info;
+    struct omx_clap_param_tag *tag;
+    uint32_t tail;
+
+    if (info_of(in, id, &info) != 0 || !is_row(&info) || (info.flags & needs) != needs || !in->active)
+        return -1;
+    tail = atomic_load_explicit(&in->stage.queue.tail, memory_order_relaxed);
+    tag = &in->param_in.tag[tail & (2 * CLAP_HOST_PARAM_QUEUE_DEPTH - 1u)];
+    tag->type = type;
+    tag->cookie = info.cookie;
+    return omx_clap_param_push(&in->stage, id, value, tag);
+}
+
+int omx_clap_host_param_modulate(struct omx_clap_instance *in, clap_id id, double amount)
+{
+    return isfinite(amount) ? param_push_tagged(in, id, CLAP_EVENT_PARAM_MOD, amount, CLAP_PARAM_IS_MODULATABLE) : -1;
+}
+
+int omx_clap_host_param_gesture(struct omx_clap_instance *in, clap_id id, int begin)
+{
+    return param_push_tagged(in, id, begin ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END, 0.0, 0u);
+}
+
+uint32_t omx_clap_host_params_rescanned(struct omx_clap_instance *in)
+{
+    return atomic_exchange_explicit(&in->params_rescanned, 0u, memory_order_relaxed);
+}
+
+int omx_clap_host_param_text(struct omx_clap_instance *in, clap_id id, double value, char *out, uint32_t size)
+{
+    clap_param_info_t info;
+
+    if (!out || size == 0 || !in->params || !in->params->value_to_text || info_of(in, id, &info) != 0)
+        return -1;
+    out[0] = '\0';
+    if (!in->params->value_to_text(in->plugin, id, value, out, size))
+        return -1;
+    out[size - 1] = '\0';  // the plugin's own buffer use: read no further than what it was given
+    return 0;
+}
+
+int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const char *text, double *value)
+{
+    clap_param_info_t info;
+    double v;
+
+    if (!text || !value || !in->params || !in->params->text_to_value || info_of(in, id, &info) != 0)
+        return -1;
+    if (!in->params->text_to_value(in->plugin, id, text, &v) || !isfinite(v))
+        return -1;
+    *value = v;
+    return 0;
+}
+
 int omx_clap_host_tick(struct omx_clap_instance *in)
 {
+    const uint32_t rescan = atomic_exchange_explicit(&in->params_rescan_flags, 0u, memory_order_relaxed);
+
+    // a rescan of everything is only the plugin's to make while inactive: made while active, it is a restart
+    if (rescan)
+    {
+        atomic_fetch_or_explicit(&in->params_rescanned, rescan, memory_order_relaxed);
+        if ((rescan & CLAP_PARAM_RESCAN_ALL) && in->active)
+            atomic_store_explicit(&in->restart_requested, 1u, memory_order_relaxed);
+    }
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         in->plugin->on_main_thread(in->plugin);
     if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))

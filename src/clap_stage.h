@@ -38,7 +38,9 @@
 *     last OMX_CLAP_NOTES_RESERVED slots of the note list are kept for releases (a note off, all notes off, all sound
 *     off, a pedal let go): a flood of note ons fills the rest and is counted, and the releases after it still arrive.
 *     out_events.try_push is a counting sink: a CLAP_EVENT_PARAM_VALUE from the plugin raises plugin_changed and nothing
-*     is stored.
+*     is stored. libomx-clap-core's instance puts lists of its own in the stage's two (clap_host.h): its sink also keeps
+*     the plugin's values and gestures for the control thread, and its input list turns the host's modulations and
+*     gestures, which ride the ring as tagged records, into their events.
 *  3. process() with steady_time a running frame counter from activate, never -1, transport NULL (a processing block
 *     of omx_clap_run_transport carries the host's transport; the warm-up never does). CLAP_PROCESS_ERROR
 *     discards the block (the lane passes dry); SLEEP, CONTINUE_IF_NOT_QUIET and TAIL are CONTINUE: a published plugin is
