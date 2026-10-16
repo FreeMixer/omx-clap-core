@@ -38,7 +38,7 @@ Debian bookworm and trixie and Raspberry Pi OS (amd64 and arm64):
     echo "deb [signed-by=/usr/share/keyrings/freemixer.asc] https://freemixer.github.io/deb/debian/$(. /etc/os-release; echo $VERSION_CODENAME) ./" | sudo tee /etc/apt/sources.list.d/freemixer.list
     sudo apt update && sudo apt install omx-clap-host
 
-Version 0.8.0 ships these packages, all from the same release:
+Version 0.9.0 ships these packages, all from the same release:
 
 | What | Fedora | Debian |
 |---|---|---|
@@ -53,7 +53,7 @@ For your own program, install the `-devel` / `-dev` package and build with
 Status
 ------
 
-Version 0.8.0 is released and packaged for Fedora 44 and Debian bookworm and trixie. What
+Version 0.9.0 is released and packaged for Fedora 44 and Debian bookworm and trixie. What
 the continuous integration runs on every push, and the packages it builds:
 
 - The plugin lifecycle and the scanner against fake plugins, including a plugin that crashes.

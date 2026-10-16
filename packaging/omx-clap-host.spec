@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.8.0
+Version:        0.9.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -133,6 +133,22 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Oct 16 2026 Pau Aliagas <linuxnow@gmail.com> - 0.9.0-1
+- omx-clap-host runs LV2 plugins: `add lv2:<uri>` finds the bundle on
+  LV2_PATH and loads it through the LV2 adapter, and a refusal answers with
+  its code.
+- The LV2 adapter tells a host the code of its last refusal and the LV2
+  symbol of a parameter.
+- LV2 CV ports work, each one a mono CLAP audio port, up to 8 each way.
+- LV2 atom messages work at every rate; a reported text that fills its slot
+  with no terminator is dropped instead of overrunning it. Patch parameter
+  ids come in a different order than in earlier versions.
+- A plugin's makePath requests stay in a directory of its own under the
+  configured state root; a path that would leave it, a symbolic link or a
+  request on the audio thread is refused with a code.
+- A crash ends omx-clap-host at once, without writing a core dump;
+  OMX_CLAP_HOST_CORE_DUMPS=1 keeps the dump for debugging a plugin.
+
 * Thu Oct 15 2026 Pau Aliagas <linuxnow@gmail.com> - 0.8.0-1
 - A new header, omx_clap_raw.h, opens a CLAP plugin the raw way (dlopen,
   clap_entry, factory, a null host) for programs that do not use the core.
