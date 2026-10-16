@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+#
+# commit-msg: refuse a message that carries an AI-attribution line (tools/ai-trace-commit-check.sh;
+# the patterns are tools/ai-trace-patterns.json). Enable once per clone:
+#   git config core.hooksPath .githooks
+root=$(git rev-parse --show-toplevel) || exit 0
+exec "$root/tools/ai-trace-commit-check.sh" --msg-file "$1"
