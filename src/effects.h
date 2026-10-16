@@ -90,6 +90,8 @@ int effects_transport(int rolling, double bpb, double bpm);
 int effects_transport_sync(const char *mode);
 /* -t, before the first add: every plugin reads the JACK transport instead of the host's */
 void effects_follow_jack_transport(int on);
+/* note_out_drops: "resp 0 <dropped> <unmapped> <port_full>", the instance's note output counters since add */
+int effects_note_out_drops(int effect_id, char *reply, size_t size);
 void effects_idle(void);
 
 

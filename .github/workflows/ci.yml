@@ -132,6 +132,15 @@ jobs:
             echo "::warning::test-jack-transport SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # A plugin's note output over jack the same way: the arpeggiator's notes and the LV2 echo on midi_out at their frames.
+      - name: Test the note output over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-notes-out
+          else
+            echo "::warning::test-jack-notes-out SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # The meters over jack the same way: monitor_output on each derived symbol and the output_set lines of the feedback socket.
       - name: Test the meters over jack
         run: |
@@ -280,7 +289,7 @@ jobs:
             files "$rpm" > files.txt
             printf '%s\n' '/usr/lib*/libomx-clap-core.so' '/usr/lib*/pkgconfig/omx-clap-core.pc' /usr/include/omx-clap-host/clap_host.h \
               /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
-              /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h \
+              /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h /usr/include/omx-clap-host/omx_clap_midi.h \
               /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done

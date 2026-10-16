@@ -56,6 +56,14 @@ handed as read-only parameters; `set_bpm`, `set_bpb`, `transport` and
 `-t` while `tests/jack_transport_ctl` locates, starts and stops the JACK
 transport.
 
+    make test-jack-notes-out
+
+runs `tests/jack_notes_out_e2e.sh` in the same kind of namespace: one note
+played into `effect_<N>:midi_in` of the fake arpeggiators of
+`tests/fake_synth.clap` and of the LV2 `omx-midi-echo` fixture by
+`tests/jack_notes_out_probe`, and every message read off
+`effect_<N>:midi_out` at its frame, in the same cycle.
+
     make test-jack-meters
 
 runs `tests/jack_meters_e2e.sh` in the same kind of namespace: the host with
@@ -156,6 +164,10 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   `omx_clap_raw_close` deinits and dlcloses. None of the hosted path's protections apply, on
   purpose: a program that judges a plugin sees what the plugin does alone. `make test-raw`
   runs it against the fake effect.
+- `omx_clap_midi.h`: the MIDI form of CLAP's note events, header only and safe on the audio
+  thread: `omx_clap_midi_size` is a message's length from its status byte, `omx_clap_note_midi`
+  the MIDI message of a CLAP note on, note off or choke. The host's note output and the LV2
+  adapter's MIDI input both convert with it.
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a

@@ -105,6 +105,7 @@ static const char g_help_msg[] =
     "disconnect <origin_port> <destination_port>\n"
     "cpu_load\n"
     "note_drops <instance_number>\n"
+    "note_out_drops <instance_number>\n"
     "set_bpm <beats_per_minute>\n"
     "set_bpb <beats_per_bar>\n"
     "transport <rolling> <beats_per_bar> <beats_per_minute>\n"
@@ -160,6 +161,17 @@ static void transport_cb(proto_t *proto)
 static void transport_sync_cb(proto_t *proto)
 {
     protocol_response_int(effects_transport_sync(proto->list[1]), proto);
+}
+
+static void note_out_drops_cb(proto_t *proto)
+{
+    char reply[128];
+    int resp = effects_note_out_drops(atoi(proto->list[1]), reply, sizeof(reply));
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
 }
 
 static void note_drops_cb(proto_t *proto)
@@ -269,6 +281,7 @@ static int host_init(int socket_port, int feedback_port)
     host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command("note_drops %i", note_drops_cb);
+    protocol_add_command("note_out_drops %i", note_out_drops_cb);
     protocol_add_command(HELP, help_cb);
     protocol_add_command(QUIT, quit_cb);
 

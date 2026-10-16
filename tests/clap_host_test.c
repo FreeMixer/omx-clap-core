@@ -620,6 +620,90 @@ static void synth_ids_checks(const char *path)
     omx_clap_host_close(synth);
 }
 
+/*
+ * Note output through the core, against synth-arp: a note on of key 60 on channel 2 at frame 100 sends 60, 64 and 67, a
+ * step of FAKE_ARP_STEP_MS apart, each at its own frame across the blocks it falls in; the note off sends their three
+ * note offs at its own frame, and the NOTE_END the arpeggiator pushes for the input note is not note output. Read after
+ * every block as the audio role reads it, at every rate the contract declares, through the CLAP dialect and through
+ * CLAP_EVENT_MIDI (synth-arp-midi): the same bytes at the same frames.
+ */
+#define ARP_STEP_MS     2.0     /* the fake's FAKE_ARP_STEP_MS */
+#define ARP_OUT_MAX     16u
+static uint32_t arp_blocks(struct omx_clap_instance *arp, const midi_at_t *messages, uint32_t count, uint32_t blocks,
+                           struct omx_clap_note_out_event *got, uint32_t have)
+{
+    float out_l[BLOCK], out_r[BLOCK];
+    uint32_t b;
+
+    for (b = 0; b < blocks; b++)
+    {
+        run_block(arp, b == 0 ? messages : NULL, b == 0 ? count : 0, out_l, out_r);
+        have += omx_clap_host_notes_out(arp, got + have, ARP_OUT_MAX - have);
+    }
+    return have;
+}
+
+static void synth_out_checks(const char *path, const char *id, double rate)
+{
+    static const midi_at_t on[] = { { 100, { 0x91, 60, 100 }, 3 } };
+    static const midi_at_t off[] = { { 10, { 0x81, 60, 0 }, 3 } };
+    static const uint8_t keys[] = { 60, 64, 67 };
+    const int64_t step = (int64_t)lround(rate * ARP_STEP_MS / 1000.0);
+    const uint32_t blocks = (uint32_t)(2 * step / BLOCK) + 2;
+    struct omx_clap_note_out_event got[ARP_OUT_MAX];
+    struct omx_clap_instance *arp = NULL;
+    char why[OMX_CLAP_WHY_MAX];
+    float out_l[BLOCK], out_r[BLOCK];
+    int64_t start;
+    uint32_t n, k, ok;
+
+    CHECK(open_ok(path, id, &arp), "open %s", id);
+    if (!arp)
+        return;
+    CHECK(arp->note_outputs == 1 && arp->note_inputs == 1, "%s: one note output read at open, beside its note input (%u, %u)", id,
+          arp->note_outputs, arp->note_inputs);
+    CHECK(omx_clap_host_activate(arp, rate, BLOCK, why) == 0, "%s: activate at %.0f (%s)", id, rate, why);
+    omx_clap_host_publish(arp, pthread_self());
+    run_block(arp, NULL, 0, out_l, out_r);
+    CHECK(omx_clap_host_notes_out(arp, got, ARP_OUT_MAX) == 0, "%s @%.0f: nothing sent out before a note", id, rate);
+
+    start = arp->stage.steady_time;
+    n = arp_blocks(arp, on, 1, blocks, got, 0);
+    ok = n == 3;
+    for (k = 0; ok && k < 3; k++)
+        ok = got[k].frame == start + 100 + (int64_t)k * step && got[k].time == (uint32_t)((100 + k * step) % BLOCK) && got[k].size == 3 &&
+             got[k].data[0] == 0x91 && got[k].data[1] == keys[k] && got[k].data[2] == 100;
+    CHECK(ok, "%s @%.0f: one note on gives 60, 64 and 67 at frames +100, +%lld and +%lld, each in its block (%u events; first %lld %02x %u %u)",
+          id, rate, (long long)(100 + step), (long long)(100 + 2 * step), n, n ? (long long)(got[0].frame - start) : -1LL,
+          n ? got[0].data[0] : 0, n ? got[0].data[1] : 0, n ? got[0].data[2] : 0);
+
+    start = arp->stage.steady_time;
+    n = arp_blocks(arp, off, 1, 1, got, 0);
+    ok = n == 3;
+    for (k = 0; ok && k < 3; k++)
+        ok = got[k].frame == start + 10 && got[k].time == 10 && got[k].size == 3 && got[k].data[0] == 0x81 && got[k].data[1] == keys[k] &&
+             got[k].data[2] == 0;
+    CHECK(ok, "%s @%.0f: its note off gives their three note offs at its own frame, and the plugin's NOTE_END goes nowhere (%u events)",
+          id, rate, n);
+    CHECK(atomic_load(&arp->note_out.dropped) == 0 && atomic_load(&arp->note_out.unmapped) == 0,
+          "%s @%.0f: nothing dropped, nothing unmapped (%u, %u)", id, rate, atomic_load(&arp->note_out.dropped),
+          atomic_load(&arp->note_out.unmapped));
+    omx_clap_host_close(arp);
+}
+
+static void synth_out_all(const char *path)
+{
+    static const int rates[] = OMX_RME_RATES_INIT;
+    size_t r;
+
+    for (r = 0; r < sizeof(rates) / sizeof(rates[0]); r++)
+    {
+        synth_out_checks(path, SYNTH_ARP, (double)rates[r]);
+        synth_out_checks(path, SYNTH_ARP_MIDI, (double)rates[r]);
+    }
+    CHECK(omx_clap_host_binaries_open() == 0, "the arpeggiator's binary is closed (%u open)", omx_clap_host_binaries_open());
+}
+
 static void synth_checks(const char *path)
 {
     static const midi_at_t running_off[] = { { 10, { 0x90, 69, 127 }, 3 }, { 20, { 0x90, 60, 0 }, 3 }, { 40, { 0x90, 69, 0 }, 3 } };
@@ -924,7 +1008,10 @@ int main(int argc, char **argv)
         fake_plugin_checks(fake_path);
         contract_checks(fake_path);
         if (synth_path)
+        {
             synth_checks(synth_path);
+            synth_out_all(synth_path);
+        }
         if (mover_path)
             mover_checks(mover_path);
         return report("clap host test ok");
@@ -1045,7 +1132,10 @@ int main(int argc, char **argv)
         fake_plugin_checks(fake_path);
     }
     if (synth_path)
+    {
         synth_checks(synth_path);
+        synth_out_all(synth_path);
+    }
 
     return report("clap host test ok");
 }
