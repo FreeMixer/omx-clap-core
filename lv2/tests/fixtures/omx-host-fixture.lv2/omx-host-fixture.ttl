@@ -6,6 +6,7 @@
 @prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
 @prefix doap:  <http://usefulinc.com/ns/doap#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
 @prefix rdf:   <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix state: <http://lv2plug.in/ns/ext/state#> .
@@ -55,6 +56,21 @@ fx:offset_db
     ] , [
         a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Atom ;
         lv2:index 2 ; lv2:symbol "events" ; lv2:name "Events"
+    ] .
+
+<urn:openmixer:test:host-fixture#midi-two>
+    a lv2:Plugin ;
+    doap:name "openmixer host fixture (two MIDI inputs twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
     ] .
 
 <urn:openmixer:test:host-fixture#wide>
