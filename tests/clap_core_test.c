@@ -46,6 +46,10 @@
  *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
  *     binding while it runs, a bad port or a stereo port with one channel is refused; two auxiliary inputs beyond the
  *     core's count, or one of three channels, are refused.
+ *  9. THE NOTE OUTPUT: an effect with a note output that pushes 300 note ons, a note expression and a NOTE_END on every
+ *     block: its note output port is read at open, the warm-up's 64 blocks put nothing in the ring, and each live block
+ *     of omx_clap_host_run keeps 256 for omx_clap_host_notes_out at the block's frames, counts 44 dropped and the
+ *     expression unmapped, and never forwards the NOTE_END, with no allocation on either side under the witness.
  */
 #include <pthread.h>
 #include <sched.h>
@@ -92,10 +96,14 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 6u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 6, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 7u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 7, the oldest accepted 1 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
-        "the note ids are the instance's last field (%zu)", offsetof(struct omx_clap_instance, note_ids));
+        "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
+  /* ABI 7 appends the note output after them */
+  CHECK(offsetof(struct omx_clap_instance, note_outputs) >= offsetof(struct omx_clap_instance, note_ids) + sizeof(struct omx_clap_note_ids) &&
+            offsetof(struct omx_clap_instance, note_out) > offsetof(struct omx_clap_instance, note_outputs),
+        "the note output is the instance's last field (%zu)", offsetof(struct omx_clap_instance, note_out));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
@@ -1031,6 +1039,99 @@ static const clap_plugin_factory_t MT_FACTORY = {sc_count, mt_desc, mt_create};
 static const void *mt_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &MT_FACTORY : NULL; }
 static const clap_plugin_entry_t MT_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, mt_factory};
 
+/* ---- 9. the note output ---- */
+#define NO_FLOOD 300u
+static _Atomic uint32_t g_no_runs;
+static uint32_t no_note_ports_count(const clap_plugin_t *p, bool is_input) { (void)p; return is_input ? 0 : 1; }
+static bool no_note_ports_get(const clap_plugin_t *p, uint32_t i, bool is_input, clap_note_port_info_t *info) {
+  (void)p;
+  if (is_input || i != 0) return false;
+  memset(info, 0, sizeof *info);
+  info->supported_dialects = CLAP_NOTE_DIALECT_CLAP;
+  info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
+  snprintf(info->name, sizeof info->name, "notes out");
+  return true;
+}
+static const clap_plugin_note_ports_t NO_NOTE_PORTS = {no_note_ports_count, no_note_ports_get};
+static clap_process_status no_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  (void)p;
+  atomic_fetch_add(&g_no_runs, 1);
+  for (uint32_t c = 0; c < 2; c++) memcpy(pr->audio_outputs[0].data32[c], pr->audio_inputs[0].data32[c], pr->frames_count * sizeof(float));
+  clap_event_note_t e;
+  memset(&e, 0, sizeof e);
+  e.header = (clap_event_header_t){sizeof e, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_ON, 0};
+  e.note_id = -1, e.port_index = 0, e.velocity = 1.0;
+  for (uint32_t i = 0; i < NO_FLOOD; i++) {
+    e.header.time = i % pr->frames_count;
+    e.channel = (int16_t)(i / 128 % 16), e.key = (int16_t)(i % 128);
+    pr->out_events->try_push(pr->out_events, &e.header);
+  }
+  clap_event_note_expression_t x;
+  memset(&x, 0, sizeof x);
+  x.header = (clap_event_header_t){sizeof x, pr->frames_count - 1, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_EXPRESSION, 0};
+  x.note_id = -1, x.port_index = 0, x.channel = 0, x.key = 0, x.value = 0.5;
+  pr->out_events->try_push(pr->out_events, &x.header);
+  e.header.type = CLAP_EVENT_NOTE_END, e.header.time = pr->frames_count - 1;
+  pr->out_events->try_push(pr->out_events, &e.header);
+  return CLAP_PROCESS_CONTINUE;
+}
+static const void *no_ext(const clap_plugin_t *p, const char *id) {
+  (void)p;
+  if (strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0) return &ASK_PORTS;
+  if (strcmp(id, CLAP_EXT_NOTE_PORTS) == 0) return &NO_NOTE_PORTS;
+  return NULL;
+}
+static const clap_plugin_descriptor_t NO_DESC = {CLAP_VERSION_INIT, "org.omx-clap-host.test.core-notes-out", "core notes out", "omx-clap-host", "", "", "", "0", "",
+                                                 ASK_FEATURES};
+static const clap_plugin_descriptor_t *no_desc(const clap_plugin_factory_t *f, uint32_t i) { (void)f; return i == 0 ? &NO_DESC : NULL; }
+static const clap_plugin_t *no_create(const clap_plugin_factory_t *f, const clap_host_t *host, const char *id) {
+  (void)f, (void)host;
+  if (strcmp(id, NO_DESC.id) != 0) return NULL;
+  clap_plugin_t *p = calloc(1, sizeof *p);
+  *p = (clap_plugin_t){&NO_DESC, NULL, sc_init, ask_destroy, ask_activate, ask_nop, ask_start, ask_nop, ask_nop, no_process, no_ext, ask_nop};
+  return p;
+}
+static const clap_plugin_factory_t NO_FACTORY = {ask_count, no_desc, no_create};
+static const void *no_factory(const char *id) { return strcmp(id, CLAP_PLUGIN_FACTORY_ID) == 0 ? &NO_FACTORY : NULL; }
+static const clap_plugin_entry_t NO_ENTRY = {CLAP_VERSION_INIT, ask_entry_init, ask_entry_deinit, no_factory};
+
+static void t_notes_out(void) {
+  static struct omx_clap_note_out_event got[OMX_CLAP_NOTE_OUT_DEPTH + 8];
+  char why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+  float bl[64], br[64];
+
+  CHECK(omx_clap_host_open_entry(&NO_ENTRY, NO_DESC.id, &in, why) == 0, "the note output effect opens (%s)", why);
+  if (!in) return;
+  CHECK(in->note_outputs == 1 && in->note_inputs == 0, "its note output port is read at open, with note inputs refused (%u, %u)", in->note_outputs,
+        in->note_inputs);
+  atomic_store(&g_no_runs, 0);
+  CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate it (%s)", why);
+  CHECK(atomic_load(&g_no_runs) >= CLAP_HOST_WARMUP_BLOCKS && omx_clap_host_notes_out(in, got, OMX_CLAP_NOTE_OUT_DEPTH + 8) == 0 &&
+            atomic_load(&in->note_out.dropped) == 0 && atomic_load(&in->note_out.unmapped) == 0,
+        "the warm-up ran (%u blocks) and sent nothing out", atomic_load(&g_no_runs));
+  omx_clap_host_publish(in, pthread_self());
+  for (uint32_t b = 1; b <= 2; b++) {
+    const int64_t start = in->stage.steady_time;
+    for (uint32_t i = 0; i < 64; i++) bl[i] = br[i] = 0.25f;
+    in_rt = 1;
+    omx_clap_host_run(in, bl, br, 64);
+    const uint32_t n = omx_clap_host_notes_out(in, got, OMX_CLAP_NOTE_OUT_DEPTH + 8);
+    in_rt = 0;
+    CHECK(n == OMX_CLAP_NOTE_OUT_DEPTH && got[0].frame == start && got[0].data[0] == 0x90 && got[0].data[1] == 0 && got[0].data[2] == 127 &&
+              got[n - 1].frame == start + (OMX_CLAP_NOTE_OUT_DEPTH - 1) % 64 && got[n - 1].data[0] == 0x91 &&
+              got[n - 1].data[1] == (OMX_CLAP_NOTE_OUT_DEPTH - 1) % 128,
+          "block %u: %u of the %u note ons come out, the first at the block's first frame (%u)", b, OMX_CLAP_NOTE_OUT_DEPTH, NO_FLOOD, n);
+    CHECK(atomic_load(&in->note_out.dropped) == b * (NO_FLOOD - OMX_CLAP_NOTE_OUT_DEPTH) && atomic_load(&in->note_out.unmapped) == b,
+          "block %u: %u dropped and the expression unmapped, so far %u and %u; the NOTE_END is neither", b, NO_FLOOD - OMX_CLAP_NOTE_OUT_DEPTH,
+          atomic_load(&in->note_out.dropped), atomic_load(&in->note_out.unmapped));
+  }
+  omx_clap_request_stop(&in->stage);
+  omx_clap_host_run(in, bl, br, 64);
+  CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "unpublish the note output effect");
+  omx_clap_host_close(in);
+}
+
 /* the telemetry thread: one read of meter 7 off the audio thread */
 struct mt_read_job { struct omx_clap_instance *in; double gr; uint32_t n; };
 static void *mt_telemetry(void *arg) {
@@ -1112,6 +1213,7 @@ int main(int argc, char **argv) {
   t_side_chain_mono();
   t_side_chain_refused();
   t_meters();
+  t_notes_out();
   CHECK(rt_allocs == 0, "no allocation inside omx_clap_host_run across the run (%d)", rt_allocs);
   if (failures) {
     fprintf(stderr, "clap_core: %d failure(s)\n", failures);
