@@ -732,6 +732,189 @@ static void t_channel_messages(void) {
   CHECK(NS.n_notes == 0, "no note input, MIDI dialect: nothing reaches the stage");
 }
 
+/* ---- 9b. NOTE IDS AND MPE: a CLAP-dialect input fed with the stage's note ids ---- */
+static struct omx_clap_note_ids NI;
+
+/* a CLAP-only input with note ids, held `hold` frames after a note off; the block's notes emptied */
+static void ni_up(uint32_t hold) {
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  memset(&NI, 0, sizeof NI);
+  omx_clap_note_ids_bind(&NI, &NS, hold);
+}
+static void ni_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in_ids(&NS, &NI, time, m, n); }
+static void ni_block(void) { NS.n_notes = 0; NS.n_sysex = 0; }
+/* the plugin's NOTE_END for `note_id` (-1: by channel and key), through the sink process() is handed */
+static void ni_end(int32_t note_id, int16_t channel, int16_t key) {
+  clap_event_note_t e;
+  memset(&e, 0, sizeof e);
+  e.header.size = sizeof e, e.header.space_id = CLAP_CORE_EVENT_SPACE_ID, e.header.type = CLAP_EVENT_NOTE_END;
+  e.note_id = note_id, e.channel = channel, e.key = key;
+  NS.proc.out_events->try_push(NS.proc.out_events, &e.header);
+}
+static int ni_expr(uint32_t i, int32_t expr, int32_t id, int16_t channel, int16_t key, double value) {
+  const clap_event_note_expression_t *e = &NS.notes[i].expr;
+  return i < NS.n_notes && NS.notes[i].header.type == CLAP_EVENT_NOTE_EXPRESSION && e->expression_id == expr &&
+         e->note_id == id && e->channel == channel && e->key == key && e->value == value;
+}
+
+/* every note on gets a fresh id, its note off the same; NOTE_END frees it; the hold frees an id a plugin never ends */
+static void t_note_ids(void) {
+  static const uint8_t ON60[] = {0x90, 60, 100}, ON62[] = {0x90, 62, 90}, OFF60[] = {0x80, 60, 0}, OFF62[] = {0x90, 62, 0};
+  static const uint8_t POLY62[] = {0xa0, 62, 64}, OFF70[] = {0x80, 70, 0}, ALL_OFF[] = {0xb0, 123, 0};
+  static const int RATES_C[] = OMX_RME_RATES_INIT;
+  int32_t a, b;
+  uint32_t i, ri;
+
+  ni_up(1000);
+  ni_in(0, ON60, 3);
+  ni_in(1, ON62, 3);
+  a = NS.notes[0].note.note_id, b = NS.notes[1].note.note_id;
+  CHECK(NS.n_notes == 2 && a >= 0 && b >= 0 && a != b && NI.n_free == OMX_CLAP_NOTE_IDS - 2,
+        "two note ons take two fresh ids (%d, %d, %u free)", a, b, NI.n_free);
+  ni_in(2, POLY62, 3);
+  CHECK(ni_expr(2, CLAP_NOTE_EXPRESSION_PRESSURE, b, 0, 62, 64.0 / 127.0), "poly aftertouch on key 62 carries its note's id %d", b);
+  ni_in(3, OFF60, 3);
+  ni_in(4, OFF62, 3);
+  CHECK(NS.notes[3].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[3].note.note_id == a && NS.notes[3].note.key == 60 &&
+        NS.notes[4].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[4].note.note_id == b,
+        "each note off carries its note on's id, a note on with velocity 0 too (%d, %d)", NS.notes[3].note.note_id, NS.notes[4].note.note_id);
+  CHECK(NI.n_free == OMX_CLAP_NOTE_IDS - 2, "a released id is not free until NOTE_END (%u)", NI.n_free);
+  ni_end(a, 0, 60);
+  CHECK(NI.n_free == OMX_CLAP_NOTE_IDS - 1 && atomic_load(&NI.notes_ended) == 1 && atomic_load(&NS.out_events_seen) == 1,
+        "the plugin's NOTE_END frees id %d, counted on the stage's sink too (%u free)", a, NI.n_free);
+  ni_end(-1, 0, 62);
+  CHECK(NI.n_free == OMX_CLAP_NOTE_IDS && atomic_load(&NI.notes_ended) == 2, "a NOTE_END by channel and key frees that key's id (%u)", NI.n_free);
+  ni_end(a, 0, 60);
+  ni_end(OMX_CLAP_NOTE_IDS + 3, 0, 60);
+  CHECK(atomic_load(&NI.notes_ended) == 2, "a NOTE_END for an id no note holds frees nothing (%u)", atomic_load(&NI.notes_ended));
+
+  /* a key struck again while it sounds: the old note ends under its id before the new one starts under another */
+  ni_up(1000);
+  ni_in(0, ON60, 3);
+  a = NS.notes[0].note.note_id;
+  ni_in(1, ON60, 3);
+  b = NS.notes[2].note.note_id;
+  CHECK(NS.n_notes == 3 && NS.notes[1].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[1].note.note_id == a &&
+        NS.notes[2].header.type == CLAP_EVENT_NOTE_ON && b >= 0 && b != a, "a key struck twice ends id %d before it takes %d", a, b);
+  ni_in(2, OFF70, 3);
+  CHECK(NS.n_notes == 4 && NS.notes[3].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[3].note.note_id == -1,
+        "a note off of a key no id holds goes with id -1");
+  ni_in(3, ALL_OFF, 3);
+  CHECK(NI.ids[b].state == 2, "all notes off releases every id of the channel");
+
+  /* the pool runs out: a note on is skipped and counted, and its note off dropped; the hold gives the ids back, at every rate */
+  for (ri = 0; ri < sizeof RATES_C / sizeof RATES_C[0]; ri++) {
+    const uint32_t hold = (uint32_t)lround(RATES_C[ri] * OMX_CLAP_NOTE_ID_HOLD_MS / 1000.0);
+    uint8_t on[3] = {0x90, 0, 100}, off[3] = {0x80, 0, 0};
+
+    ni_up(hold);
+    for (i = 0; i < OMX_CLAP_NOTE_IDS; i++) {
+      on[0] = (uint8_t)(0x90 | i / 128), on[1] = (uint8_t)(i % 128);
+      off[0] = (uint8_t)(0x80 | i / 128), off[1] = on[1];
+      ni_block();
+      ni_in(0, on, 3);
+      ni_in(1, off, 3);
+    }
+    CHECK(NI.n_free == 0 && atomic_load(&NS.notes_delivered) == 0, "@%d: %u notes played and released hold every id (%u free)", RATES_C[ri],
+          OMX_CLAP_NOTE_IDS, NI.n_free);
+    ni_block();
+    on[0] = 0x95, off[0] = 0x85, on[1] = off[1] = 1;
+    ni_in(0, on, 3);
+    ni_in(1, off, 3);
+    CHECK(NS.n_notes == 0 && atomic_load(&NI.notes_skipped) == 1, "@%d: a note on past the pool is skipped and counted, its note off dropped (%u events, %u skipped)",
+          RATES_C[ri], NS.n_notes, atomic_load(&NI.notes_skipped));
+    NS.steady_time = hold - 2;     // the last id was released at frame 1
+    ni_in(0, on, 3);
+    CHECK(NS.n_notes == 0 && atomic_load(&NI.notes_skipped) == 2, "@%d: one frame short of the %u-frame hold, still none free", RATES_C[ri], hold);
+    NS.steady_time = hold + 1;
+    ni_in(0, on, 3);
+    CHECK(NS.n_notes == 1 && NS.notes[0].note.note_id >= 0 && atomic_load(&NI.ids_expired) == OMX_CLAP_NOTE_IDS,
+          "@%d: once the hold (%u frames, %u ms) has run out, the ids come back (%u expired)", RATES_C[ri], hold, OMX_CLAP_NOTE_ID_HOLD_MS,
+          atomic_load(&NI.ids_expired));
+  }
+}
+
+/* an MPE zone: each member channel's bend, pressure and CC74 are per-note expressions of the note sounding on it */
+static void t_mpe(void) {
+  static const uint8_t MCM_LOWER[][3] = {{0xb0, 101, 0}, {0xb0, 100, 6}, {0xb0, 6, 15}};
+  static const uint8_t ON2[] = {0x91, 60, 100}, ON3[] = {0x92, 64, 100}, BEND2_MAX[] = {0xe1, 0x7f, 0x7f};
+  static const uint8_t PRESS3[] = {0xd2, 64}, BRIGHT2[] = {0xb1, 74, 127}, BEND1_MIN[] = {0xe0, 0, 0};
+  static const uint8_t RPN0_MEMBER[][3] = {{0xb2, 101, 0}, {0xb2, 100, 0}, {0xb2, 6, 24}}, BEND3_MIN[] = {0xe2, 0, 0};
+  static const uint8_t OFF2[] = {0x81, 60, 0}, BRIGHT2_ALONE[] = {0xb1, 74, 0};
+  static const uint8_t MCM_UPPER2[][3] = {{0xbf, 101, 0}, {0xbf, 100, 6}, {0xbf, 6, 2}}, BEND14[] = {0xed, 0, 0}, BEND13[] = {0xec, 0, 0};
+  int32_t a, b;
+  uint32_t i;
+
+  ni_up(1000);
+  for (i = 0; i < 3; i++) ni_in(0, MCM_LOWER[i], 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 15, "the MPE configuration message on channel 1 sets the lower zone, 15 members");
+  ni_block();
+  ni_in(0, ON2, 3);
+  ni_in(1, ON3, 3);
+  a = NS.notes[0].note.note_id, b = NS.notes[1].note.note_id;
+  ni_in(2, BEND2_MAX, 3);
+  ni_in(3, PRESS3, 2);
+  ni_in(4, BRIGHT2, 3);
+  ni_in(5, BEND1_MIN, 3);
+  CHECK(ni_expr(2, CLAP_NOTE_EXPRESSION_TUNING, a, 1, 60, 8191.0 / 8192.0 * 48.0),
+        "a member's bend is TUNING of the note on it (id %d, channel 2, key 60), 48 semitones full scale (%g)", a, NS.notes[2].expr.value);
+  CHECK(ni_expr(3, CLAP_NOTE_EXPRESSION_PRESSURE, b, 2, 64, 64.0 / 127.0), "a member's channel pressure is PRESSURE of its note (id %d)", b);
+  CHECK(ni_expr(4, CLAP_NOTE_EXPRESSION_BRIGHTNESS, a, 1, 60, 1.0), "a member's controller 74 is BRIGHTNESS of its note (id %d)", a);
+  CHECK(ni_expr(5, CLAP_NOTE_EXPRESSION_TUNING, -1, -1, -1, -2.0), "the master's bend reaches every note, 2 semitones full scale (%g)",
+        NS.notes[5].expr.value);
+  CHECK(NS.n_notes == 6 && atomic_load(&NS.notes_unmappable) == 0, "nothing of the zone is counted unmappable (%u)", atomic_load(&NS.notes_unmappable));
+
+  /* RPN 0 on a member sets the members' bend range */
+  ni_block();
+  for (i = 0; i < 3; i++) ni_in(0, RPN0_MEMBER[i], 3);
+  ni_in(1, BEND3_MIN, 3);
+  CHECK(NI.mpe_member_bend == 24.0 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, b, 2, 64, -24.0),
+        "RPN 0 on a member sets 24 semitones: the bottom of the bend is -24 (%g)", NS.notes[0].expr.value);
+  /* a member with no note sounding: its expressions reach the whole channel */
+  ni_block();
+  ni_in(0, OFF2, 3);
+  ni_in(1, BRIGHT2_ALONE, 3);
+  CHECK(NS.notes[0].note.note_id == a && ni_expr(1, CLAP_NOTE_EXPRESSION_BRIGHTNESS, -1, 1, -1, 0.0),
+        "after its note off, a member's controller 74 is BRIGHTNESS of the whole channel");
+
+  /* the upper zone of two members: channels 15 and 14 are members, 13 is outside and keeps its plain mapping */
+  ni_up(1000);
+  for (i = 0; i < 3; i++) ni_in(0, MCM_UPPER2[i], 3);
+  ni_block();
+  ni_in(0, BEND14, 3);
+  ni_in(1, BEND13, 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_UPPER && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, -1, 13, -1, -48.0) &&
+        ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, -1, 12, -1, -2.0),
+        "the upper zone of 2: channel 14 is a member (-48), channel 13 a plain channel (-2) (%g, %g)", NS.notes[0].expr.value,
+        NS.notes[1].expr.value);
+  ni_in(2, (const uint8_t[]){0xbf, 6, 0}, 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_OFF, "a configuration message of 0 members ends the zone");
+
+  /* a zone the control thread asks for is taken ahead of the next message */
+  ni_up(1000);
+  omx_clap_note_ids_want_mpe(&NI, OMX_CLAP_MPE_LOWER, 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_OFF, "a zone asked for waits for the RT");
+  ni_in(0, ON2, 3);
+  ni_in(1, BRIGHT2, 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 3 && ni_expr(1, CLAP_NOTE_EXPRESSION_BRIGHTNESS, NS.notes[0].note.note_id, 1, 60, 1.0),
+        "the zone asked for is the input's from the next message: controller 74 is the note's BRIGHTNESS");
+
+  /* the stage with no note ids reads no zone: the same messages go as before, channel-wide, id -1 */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  for (i = 0; i < 3; i++) ns_in(0, MCM_LOWER[i], 3);
+  ns_in(1, ON2, 3);
+  ns_in(2, BEND2_MAX, 3);
+  CHECK(NS.notes[0].note.note_id == -1 && ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, -1, 1, -1, 8191.0 / 8192.0 * 2.0),
+        "with no note ids: note id -1 and a channel-wide bend of 2 semitones");
+
+  /* a MIDI_MPE-dialect input: every message raw, the zone the plugin's own */
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI_MPE, CLAP_NOTE_DIALECT_MIDI_MPE);
+  ns_in(0, ON2, 3);
+  ns_in(1, BEND2_MAX, 3);
+  CHECK(NS.n_notes == 2 && NS.notes[0].header.type == CLAP_EVENT_MIDI && NS.notes[0].midi.data[0] == 0x91 &&
+        NS.notes[1].header.type == CLAP_EVENT_MIDI && NS.notes[1].midi.data[0] == 0xe1, "MIDI_MPE: note on and bend reach the plugin raw");
+}
+
 /* The survivors of a flood are the messages fed at times 0..n-1 in order: every survivor's time names the message it
  * came from, the times only rise, and each one carries that message's kind and key. Returns the survivors checked. */
 static uint32_t np_survivors_in_order(const uint8_t (*m)[3], uint32_t n, const char *what) {
@@ -961,6 +1144,8 @@ int main(void) {
     t_out_events();
     t_xfade();
     t_channel_messages();
+    t_note_ids();
+    t_mpe();
     t_note_priority();
     t_stale_events();
     t_sysex_pool_resets();
