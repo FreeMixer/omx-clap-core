@@ -106,6 +106,10 @@ static const char g_help_msg[] =
     "cpu_load\n"
     "note_drops <instance_number>\n"
     "note_out_drops <instance_number>\n"
+    "set_bpm <beats_per_minute>\n"
+    "set_bpb <beats_per_bar>\n"
+    "transport <rolling> <beats_per_bar> <beats_per_minute>\n"
+    "transport_sync <mode>\n"
     "help\n"
     "quit\n";
 
@@ -137,6 +141,26 @@ static void cpu_load_cb(proto_t *proto)
     char buffer[128];
     sprintf(buffer, "resp 0 %.04f", effects_jack_cpu_load());
     protocol_response(buffer, proto);
+}
+
+static void set_bpm_cb(proto_t *proto)
+{
+    protocol_response_int(effects_set_bpm(atof(proto->list[1])), proto);
+}
+
+static void set_bpb_cb(proto_t *proto)
+{
+    protocol_response_int(effects_set_bpb(atof(proto->list[1])), proto);
+}
+
+static void transport_cb(proto_t *proto)
+{
+    protocol_response_int(effects_transport(atoi(proto->list[1]), atof(proto->list[2]), atof(proto->list[3])), proto);
+}
+
+static void transport_sync_cb(proto_t *proto)
+{
+    protocol_response_int(effects_transport_sync(proto->list[1]), proto);
 }
 
 static void note_out_drops_cb(proto_t *proto)
@@ -250,6 +274,10 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
+    protocol_add_command(EFFECT_SET_BPM, set_bpm_cb);
+    protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
+    protocol_add_command(TRANSPORT, transport_cb);
+    protocol_add_command(TRANSPORT_SYNC, transport_sync_cb);
     host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command("note_drops %i", note_drops_cb);
@@ -284,6 +312,7 @@ int main(int argc, char **argv)
         {"socket-port", required_argument, 0, 'p'},
         {"feedback-port", required_argument, 0, 'f'},
         {"state-root", required_argument, 0, 's'},
+        {"follow-jack-transport", no_argument, 0, 't'},
         {"version", no_argument, 0, 'V'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -294,7 +323,7 @@ int main(int argc, char **argv)
     int socket_port = SOCKET_DEFAULT_PORT, feedback_port = 0;
     struct sigaction sig;
 
-    while ((opt = getopt_long(argc, argv, "nvp:f:s:Vh", long_options, &opt_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "nvp:f:s:tVh", long_options, &opt_index)) != -1)
     {
         switch (opt)
         {
@@ -319,6 +348,10 @@ int main(int argc, char **argv)
                 effects_set_state_root(optarg);
                 break;
 
+            case 't':
+                effects_follow_jack_transport(1);
+                break;
+
             case 'V':
                 printf("%s version: %s\n", argv[0], VERSION);
                 exit(EXIT_SUCCESS);
@@ -326,12 +359,13 @@ int main(int argc, char **argv)
 
             case 'h':
                 printf(
-                    "Usage: %s [-vh] [-p <port>] [-f <port>] [-s <dir>]\n"
+                    "Usage: %s [-vht] [-p <port>] [-f <port>] [-s <dir>]\n"
                     "  -v, --verbose                  verbose messages\n"
                     "  -p, --socket-port=<port>       socket port definition\n"
                     "  -f, --feedback-port=<port>     feedback port definition\n"
                     "  -s, --state-root=<dir>         where LV2 plugins make their state files\n"
                     "                                 (default $XDG_STATE_HOME/omx-clap-host)\n"
+                    "  -t, --follow-jack-transport    hand every plugin the JACK transport\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
                     "  -h, --help                     print this help and exit\n"

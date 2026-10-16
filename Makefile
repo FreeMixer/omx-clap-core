@@ -249,7 +249,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -262,7 +262,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-raw test-quiet-death test-lv2-locate test-param-contract
+test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
@@ -277,6 +277,14 @@ test-stage: tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test
 # own buffers is an error here, not luck. Needs libasan; CI runs it, the package builds do not
 test-untrusted-asan: tests/clap_untrusted_asan
 	ASAN_OPTIONS=detect_leaks=0:check_printf=1 ./tests/clap_untrusted_asan
+
+# omx-clap-host's transport against closed forms at every rate the contract declares: none until a tempo, the beats of
+# a block from the frames played (exact over 10^6 blocks), stop, play, a tempo change, bars, the JACK transport followed
+test-host-transport: tests/host_transport_test
+	./tests/host_transport_test
+
+tests/host_transport_test: tests/host_transport_test.c src/host_transport.h src/clap_stage.h tests/test_util.h
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -lm
 
 # the worker message ring of the shared host-services layer, single- and two-threaded
 test-msgring: tests/msgring_test
@@ -415,6 +423,17 @@ tests/jack_latency_probe: tests/jack_latency_probe.c
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/jack_synth_probe
 	./tests/jack_synth_e2e.sh
+
+# the transport over jack in the same kind of namespace: set_bpm, set_bpb, transport and transport_sync against a CLAP
+# transport probe, then with -t the JACK transport located, started and stopped by tests/jack_transport_ctl
+test-jack-transport: $(PROG) tests/fake_transport.clap tests/jack_transport_ctl
+	./tests/jack_transport_e2e.sh
+
+tests/fake_transport.clap: tests/fake_transport.c
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+
+tests/jack_transport_ctl: tests/jack_transport_ctl.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
 
 # a plugin's note output over jack in the same kind of namespace: one note into midi_in of a fake arpeggiator, the same in
 # the MIDI dialect and the LV2 midi echo, and every message on midi_out at its frame

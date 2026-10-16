@@ -123,6 +123,15 @@ jobs:
             echo "::warning::test-jack-synth SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # The transport over jack the same way: the host's own and, with -t, the JACK transport followed.
+      - name: Test the transport over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-transport
+          else
+            echo "::warning::test-jack-transport SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # A plugin's note output over jack the same way: the arpeggiator's notes and the LV2 echo on midi_out at their frames.
       - name: Test the note output over jack
         run: |

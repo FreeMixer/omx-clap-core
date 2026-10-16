@@ -10,6 +10,7 @@ to mod-host and want CLAP plugins as well.
 - Every plugin is a JACK client `effect_<N>` with ports `in_<k>` and `out_<k>`, laid out as mod-host lays out an LV2 plugin.
 - Instruments work too: a note input becomes a MIDI port, `effect_<N>:midi_in`, and a note output another, `effect_<N>:midi_out`.
 - LV2 plugins too: `add lv2:<uri> <N>` (or the URI alone, as mod-host takes it) runs an LV2 plugin from `LV2_PATH` on the same ports, its controls addressed by their LV2 symbols.
+- Tempo-synced plugins get a transport: `set_bpm`, `set_bpb` and `transport` drive the host's own, or `-t` follows the JACK transport.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
 - `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
 

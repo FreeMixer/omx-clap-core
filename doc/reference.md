@@ -7,7 +7,9 @@ Running
     omx-clap-host -n -p 5555
 
 The options are mod-host's: `-n` no fork, `-v` verbose, `-p <port>` the
-command socket, `-f <port>` the feedback socket, `-V`, `-h`.
+command socket, `-f <port>` the feedback socket, `-V`, `-h`; and this host's
+own `-s <dir>`, the LV2 state root ([LV2 plugins](#lv2-plugins)), and `-t`,
+follow the JACK transport ([Transport](#transport)).
 
 Commands
 --------
@@ -27,6 +29,10 @@ Commands
     cpu_load
     note_drops <instance_number>
     note_out_drops <instance_number>
+    set_bpm <beats_per_minute>
+    set_bpb <beats_per_bar>
+    transport <rolling> <beats_per_bar> <beats_per_minute>
+    transport_sync <mode>
     help
     quit
 
@@ -117,6 +123,46 @@ while the plugin idles. `bypass <N> 0` crossfades back and the plugin
 runs again. The plugin's own bypass parameter, when it declares one, is
 never written and is refused to `param_set`; `param_get <N> :bypass`
 answers the commanded value.
+
+Transport
+---------
+
+Every plugin the host runs reads one transport, the host's, from the block
+after a command changes it. The commands are mod-host's:
+
+| command | what it does | reply |
+|---|---|---|
+| `set_bpm <bpm>` | the tempo, 20 to 280 | `resp 0`; `resp -207` out of the range |
+| `set_bpb <bpb>` | the beats per bar, 1 to 16 | `resp 0`; `resp -207` out of the range |
+| `transport <rolling> <bpb> <bpm>` | play (`1`) or stop (`0`), with the beats per bar and the tempo | `resp 0`; `resp -207` when the bpb or the bpm is out of the range |
+| `transport_sync <mode>` | `none` | `resp 0` |
+| | `link` (Ableton Link) and `midi` (MIDI clock): the host has neither | `resp -902` |
+
+Until a tempo is given (`set_bpm` or `transport`) a plugin is handed no
+transport at all, never an invented one. From then on it is handed, every
+block: the tempo, the time signature (the beats per bar over 4; 4 beats per
+bar until `set_bpb` or `transport` says otherwise, as mod-host starts), the
+song position of the block's first frame in beats and in seconds, the bar and
+its first beat, and, while rolling, `CLAP_TRANSPORT_IS_PLAYING`. The position
+starts at 0 and moves only while rolling; a stop holds it, the next play goes
+on from it. It is counted from the frames the graph has played since the
+command that last changed it, at that command's tempo, never by adding a
+block's increment to the last, so it carries no drift however long it plays.
+A tempo change while rolling takes effect at the frame the command arrives
+on: the beats played up to it stay as they were.
+
+With `-t` the host follows the JACK transport instead: each block reads
+`jack_transport_query`, so the plugin is playing while the JACK transport
+rolls and its song position in seconds is the transport's frame over the
+rate. When a JACK timebase master gives bars and beats, the plugin gets its
+tempo, time signature, bar and beat; when none does, the beats are the
+seconds at the tempo `set_bpm` or `transport` gave, and with no tempo given
+the plugin is handed the seconds and the play state alone. `transport` then
+sets the tempo and the beats per bar only: the host never starts, stops or
+moves the JACK transport.
+
+A program that hosts plugins through the library hands them a transport of its
+own with `omx_clap_host_set_transport` and `omx_clap_transport_publish`.
 
 Replies are mod-host's: `resp <code>`, with mod-host's error codes. A refused
 `add` that has a `hosting.*` code says it after the error code, `resp -102
