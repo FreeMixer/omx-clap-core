@@ -31,6 +31,9 @@
  *                                      output. out = in x gain.
  *   ...#midi-time                      one input that takes both midi:MidiEvent and time:Position: each block's events
  *                                      recorded in order. out = in.
+ *   ...#ui-*, ...#object-in            one atom control input that takes no MIDI, in each shape the TTL lists: whether
+ *                                      each block's input is a valid sequence, and the time:Position objects and other
+ *                                      events in it, counted. out = in x 0.5.
  *
  * What either saw is in lv2_atom_probe (lv2_atom_probe.h). Nothing is allocated or locked in run().
  */
@@ -59,11 +62,11 @@ struct fx
 {
     const float *in;
     float *out;
-    const LV2_Atom_Sequence *patch_in, *events;
+    const LV2_Atom_Sequence *patch_in, *events, *ui;
     LV2_Atom_Sequence *patch_out, *notify;
     LV2_Atom_Forge forge;
     LV2_URID object, blank, set, put, property, value, body, urid, float_t, string_t, path_t, midi_t, position;
-    LV2_URID gain, name, file, other, peak, speed, bpm;
+    LV2_URID gain, name, file, other, peak, speed, bpm, sequence, frame_time;
     float gain_value;
     char big[BIG_BYTES];
 };
@@ -98,6 +101,8 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
     f->position = map->map(map->handle, LV2_TIME__Position);
     f->speed = map->map(map->handle, LV2_TIME__speed);
     f->bpm = map->map(map->handle, LV2_TIME__beatsPerMinute);
+    f->sequence = map->map(map->handle, LV2_ATOM__Sequence);
+    f->frame_time = map->map(map->handle, LV2_ATOM__frameTime);
     f->gain = map->map(map->handle, FX_PREFIX "gain");
     f->name = map->map(map->handle, FX_PREFIX "name");
     f->file = map->map(map->handle, FX_PREFIX "file");
@@ -116,7 +121,7 @@ static void connect_port(LV2_Handle h, uint32_t port, void *data)
     {
     case 0: f->in = data; break;
     case 1: f->out = data; break;
-    case 2: f->patch_in = data; f->events = data; break;
+    case 2: f->patch_in = data; f->events = data; f->ui = data; break;
     case 3: f->patch_out = data; break;
     case 4: f->notify = data; break;
     default: break;
@@ -288,17 +293,47 @@ static void midi_time_run(LV2_Handle h, uint32_t n)
     memcpy(f->out, f->in, n * sizeof(float));
 }
 
+/* the UI plugins: the control input read as the LV2 atom rules make it, a sequence whose size is its body at least,
+ * its unit frames (0 or atom:frameTime); a block that is not is not counted valid */
+static void ui_run(LV2_Handle h, uint32_t n)
+{
+    struct fx *f = h;
+    uint32_t i;
+
+    lv2_atom_probe.ui_blocks++;
+    if (f->ui && f->ui->atom.type == f->sequence && f->ui->atom.size >= sizeof(LV2_Atom_Sequence_Body)
+        && (f->ui->body.unit == 0 || f->ui->body.unit == f->frame_time))
+    {
+        lv2_atom_probe.ui_valid++;
+        LV2_ATOM_SEQUENCE_FOREACH(f->ui, ev)
+        {
+            if (ev->body.type == f->object && ((const LV2_Atom_Object *)&ev->body)->body.otype == f->position)
+                lv2_atom_probe.ui_time++;
+            else
+                lv2_atom_probe.ui_other++;
+        }
+    }
+    for (i = 0; i < n; i++)
+        f->out[i] = f->in[i] * 0.5f;
+}
+
 static void cleanup(LV2_Handle h)
 {
     free(h);
 }
 
-static const LV2_Descriptor g_descriptors[2] = {
+static const LV2_Descriptor g_descriptors[] = {
     { LV2_ATOM_FIXTURE_URI, instantiate, connect_port, NULL, text_run, NULL, cleanup, NULL },
     { FX_PREFIX "midi-time", instantiate, connect_port, NULL, midi_time_run, NULL, cleanup, NULL },
+    { FX_PREFIX "ui-lsp", instantiate, connect_port, NULL, ui_run, NULL, cleanup, NULL },
+    { FX_PREFIX "ui-seq-time", instantiate, connect_port, NULL, ui_run, NULL, cleanup, NULL },
+    { FX_PREFIX "ui-none", instantiate, connect_port, NULL, ui_run, NULL, cleanup, NULL },
+    { FX_PREFIX "ui-patch-time", instantiate, connect_port, NULL, ui_run, NULL, cleanup, NULL },
+    { FX_PREFIX "ui-string", instantiate, connect_port, NULL, ui_run, NULL, cleanup, NULL },
+    { FX_PREFIX "object-in", instantiate, connect_port, NULL, ui_run, NULL, cleanup, NULL },
 };
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index < 2u ? &g_descriptors[index] : NULL;
+    return index < sizeof(g_descriptors) / sizeof(g_descriptors[0]) ? &g_descriptors[index] : NULL;
 }

@@ -227,6 +227,9 @@ struct lv2_instance
     // the notify outputs: one buffer each of notify_bytes, offered at every block and never read
     uint8_t *notify;
     uint32_t notify_bytes;
+    // the atom inputs fed empty: one sequence buffer each of atom_in_bytes, emptied before every block
+    uint8_t *atom_in_seq;
+    uint32_t atom_in_bytes;
     // the text properties, one slot each, their URIDs mapped at creation
     struct text_slot *texts;
     char *text_mem;
@@ -697,6 +700,22 @@ static void patch_forge_inputs(struct lv2_instance *in)
     put32(buf + 4, in->urids.sequence);
     put32(buf + 8, in->urids.time_frame);
     put32(buf + 12, 0);
+    // a patch input that takes time:Position too gets the block's transport object first, as lv2_instance_time forged
+    // it: copied whole when it fits, never cut
+    if (p->patch_time && in->time_buf)
+    {
+        LV2_ATOM_SEQUENCE_FOREACH(in->time_buf, tev)
+        {
+            const uint32_t size = (uint32_t)sizeof(LV2_Atom_Event) + tev->body.size;
+            const uint32_t total = pad8(size);
+
+            if (used + total > in->atom_cap)
+                break;
+            memcpy(buf + used, tev, size);
+            memset(buf + used + size, 0, total - size);
+            used += total;
+        }
+    }
     for (j = 0; j < p->n_patches; j++)
     {
         const struct lv2_patch *pp = &p->patches[j];
@@ -964,15 +983,16 @@ static void patch_read_outputs(struct lv2_instance *in)
 ************************************************************************************************************************
 */
 
-/* the size of each patch port's atom buffer: max(atom_buffer_bytes, rsz:minimumSize), room for one numeric event at least,
- * rounded up to 8 */
+/* the size of each patch port's atom buffer: max(atom_buffer_bytes, rsz:minimumSize), room for one numeric event at least
+ * (and a transport object before it when the input takes time:Position too), rounded up to 8 */
 static uint32_t patch_cap(const struct lv2_plugin *p)
 {
     const struct lv2_core_config *config = lv2_core_config();
+    const uint32_t least = SEQ_HEADER_BYTES + PATCH_EVENT_BYTES + (p->patch_time ? TIME_MIN_BYTES : 0u);
     uint32_t cap = config->atom_buffer_bytes > p->atom_min ? config->atom_buffer_bytes : p->atom_min;
 
-    if (cap < SEQ_HEADER_BYTES + PATCH_EVENT_BYTES)
-        cap = SEQ_HEADER_BYTES + PATCH_EVENT_BYTES;
+    if (cap < least)
+        cap = least;
     return (cap + 7u) & ~7u;
 }
 
@@ -1039,12 +1059,14 @@ static int time_make(struct lv2_instance *in)
     free(in->time_buf);
     in->time_buf = NULL;
     in->time_have = 0;
-    if (in->plugin->time_port < 0 && !in->plugin->midi_time)
+    if (in->plugin->time_port < 0 && !in->plugin->midi_time && !in->plugin->patch_time)
         return 0;
     in->time_bytes = config->atom_buffer_bytes > TIME_MIN_BYTES ? config->atom_buffer_bytes : TIME_MIN_BYTES;
     in->time_buf = calloc(1, in->time_bytes);
     if (!in->time_buf)
         return -1;
+    // a run before the first lv2_instance_time reads an empty sequence, never a zeroed atom
+    sequence_clear(in->time_buf, lv2_urid_lookup(LV2_ATOM__Sequence));
     in->time_map.handle = NULL;
     in->time_map.map = time_map_fn;
     in->time_urid.frame_time = lv2_urid_lookup(LV2_ATOM__frameTime);
@@ -1148,6 +1170,16 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
+    free(in->atom_in_seq);
+    in->atom_in_seq = NULL;
+    in->atom_in_bytes = p->atom_in_min > in->midi_bytes ? (p->atom_in_min + 7u) & ~7u : in->midi_bytes;
+    if (p->n_atom_in && !(in->atom_in_seq = calloc(p->n_atom_in, in->atom_in_bytes)))
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    for (k = 0; k < p->n_atom_in; k++)
+        sequence_clear((LV2_Atom_Sequence *)(in->atom_in_seq + k * (size_t)in->atom_in_bytes), in->urid_sequence);
     for (i = 0, k = 0; i < p->n_ports; i++)
     {
         void *at = NULL;
@@ -1172,6 +1204,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         for (leg = 0; leg < p->n_notify && !at; leg++)
             if (p->notify_out[leg] == i)
                 at = in->notify + leg * (size_t)in->notify_bytes;
+        for (leg = 0; leg < p->n_atom_in && !at; leg++)
+            if (p->atom_in[leg] == i)
+                at = in->atom_in_seq + leg * (size_t)in->atom_in_bytes;
         for (leg = 0; leg < p->n_side_legs && !at; leg++)
             if (p->side_in[leg] == i)
                 at = in->audio + (4u + leg) * (size_t)max_frames;
@@ -1262,7 +1297,7 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->urids.object = lv2_urid_lookup(LV2_ATOM__Object);
     in->urids.sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
     in->urids.urid = lv2_urid_lookup(LV2_ATOM__URID);
-    in->urids.time_frame = lv2_urid_lookup(LV2_TIME__frame);
+    in->urids.time_frame = lv2_urid_lookup(LV2_ATOM__frameTime);   // the unit the atom spec names; time:frame is a property
     in->urids.blank = lv2_urid_lookup(LV2_ATOM__Blank);
     in->urids.body = lv2_urid_lookup(LV2_PATCH__body);
     in->urids.string = lv2_urid_lookup(LV2_ATOM__String);
@@ -1455,6 +1490,7 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->midi[1]);
     free(in->time_buf);
     free(in->notify);
+    free(in->atom_in_seq);
     free(in->texts);
     free(in->text_key);
     free(in->text_mem);
@@ -1666,6 +1702,9 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     for (k = 0; k < p->n_notify; k++)
         sequence_offer((LV2_Atom_Sequence *)(in->notify + k * (size_t)in->notify_bytes), in->urid_sequence,
                        in->notify_bytes - (uint32_t)sizeof(LV2_Atom));
+    // an input the adapter sends nothing to is an empty sequence at every block, whatever the plugin left in it
+    for (k = 0; k < p->n_atom_in; k++)
+        sequence_clear((LV2_Atom_Sequence *)(in->atom_in_seq + k * (size_t)in->atom_in_bytes), in->urid_sequence);
     if (before)
         before(ctx);
     patch_forge_inputs(in);

@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # lv2_atom_fixture.c's plugins. The atom fixture: a gain with a string and a path property on its patch ports, and a
-# notify output for its own objects. The MIDI-and-time plugin: one input that takes MIDI and time:Position. The twins:
-# an input that takes the plugin's own objects only (refused: CLAP has nothing to feed it), and five notify outputs, one
-# more than the adapter gives a buffer to (refused).
+# notify output for its own objects. The MIDI-and-time plugin: one input that takes MIDI and time:Position. The UI
+# plugins: a fixed gain of 0.5 with one atom control input that takes no MIDI, one per shape the desk's effects declare
+# (LSP's in_ui and out_ui; atom:Sequence and time:Position; nothing; patch:Message and time:Position; atom:String and
+# patch:Message), and an input of the plugin's own objects: each is hosted, fed a valid sequence. The twins: five notify
+# outputs, one more than the adapter gives a buffer to (refused); an atom input that is no sequence, and five control
+# inputs, one more than the adapter feeds (refused hosting.features.atom-in-unfed).
 @prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
 @prefix doap:  <http://usefulinc.com/ns/doap#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
@@ -74,7 +77,8 @@ fx:Peak
 
 <urn:openmixer:test:atom-fixture#object-in>
     a lv2:Plugin ;
-    doap:name "openmixer atom fixture (own objects in twin)" ;
+    lv2:requiredFeature urid:map ;
+    doap:name "openmixer atom fixture (an input of its own objects)" ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
     ] , [
@@ -106,4 +110,115 @@ fx:Peak
     ] , [
         a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
         lv2:index 6 ; lv2:symbol "notify4" ; lv2:name "Notify 4"
+    ] .
+
+<urn:openmixer:test:atom-fixture#ui-lsp>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (LSP's UI ports)" ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports atom:Sequence , patch:Message , time:Position ;
+        rsz:minimumSize 12288 ;
+        lv2:portProperty lv2:connectionOptional ; lv2:designation lv2:control ;
+        lv2:index 2 ; lv2:symbol "in_ui" ; lv2:name "UI Input"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports atom:Sequence , patch:Message , time:Position ;
+        lv2:portProperty lv2:connectionOptional ; lv2:designation lv2:control ; rsz:minimumSize 100352 ;
+        lv2:index 3 ; lv2:symbol "out_ui" ; lv2:name "UI Output"
+    ] .
+
+<urn:openmixer:test:atom-fixture#ui-seq-time>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (atom:Sequence and time:Position)" ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports atom:Sequence , time:Position ;
+        lv2:portProperty lv2:connectionOptional ; lv2:designation lv2:control ;
+        lv2:index 2 ; lv2:symbol "in_ui" ; lv2:name "UI Input"
+    ] .
+
+<urn:openmixer:test:atom-fixture#ui-none>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (an atom input that supports nothing)" ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ;
+        lv2:portProperty lv2:connectionOptional ; lv2:designation lv2:control ;
+        lv2:index 2 ; lv2:symbol "in_ui" ; lv2:name "UI Input"
+    ] .
+
+<urn:openmixer:test:atom-fixture#ui-patch-time>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (patch:Message and time:Position)" ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports patch:Message , time:Position ;
+        lv2:portProperty lv2:connectionOptional ; lv2:designation lv2:control ;
+        lv2:index 2 ; lv2:symbol "in_ui" ; lv2:name "UI Input"
+    ] .
+
+<urn:openmixer:test:atom-fixture#ui-string>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (atom:String and patch:Message)" ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports atom:String , patch:Message ;
+        lv2:portProperty lv2:connectionOptional ; lv2:designation lv2:control ;
+        lv2:index 2 ; lv2:symbol "in_ui" ; lv2:name "UI Input"
+    ] .
+
+<urn:openmixer:test:atom-fixture#value-in>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (an atom input that is no sequence twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Atom ;
+        lv2:index 2 ; lv2:symbol "value" ; lv2:name "Value"
+    ] .
+
+<urn:openmixer:test:atom-fixture#ui-many>
+    a lv2:Plugin ;
+    doap:name "openmixer atom fixture (five control inputs twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 2 ; lv2:symbol "control0" ; lv2:name "Control 0"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 3 ; lv2:symbol "control1" ; lv2:name "Control 1"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 4 ; lv2:symbol "control2" ; lv2:name "Control 2"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 5 ; lv2:symbol "control3" ; lv2:name "Control 3"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports fx:Peak ;
+        lv2:index 6 ; lv2:symbol "control4" ; lv2:name "Control 4"
     ] .
