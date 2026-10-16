@@ -298,18 +298,13 @@ static inline const clap_event_header_t *omx_clap_in_get(const struct clap_input
     return index < omx_clap_notes_in_view(s) ? &s->notes[index].header : NULL;
 }
 
-/** RT, inside process(): one event the plugin pushed is counted, and a CLAP_EVENT_PARAM_VALUE raises plugin_changed. */
-static inline void omx_clap_out_count(struct omx_clap_stage *s, const clap_event_header_t *event)
+static inline bool omx_clap_out_push(const struct clap_output_events *list, const clap_event_header_t *event)
 {
+    struct omx_clap_stage *s = (struct omx_clap_stage *)list->ctx;
+
     omx_hosted_count(&s->out_events_seen, 1);
     if (event != NULL && event->space_id == CLAP_CORE_EVENT_SPACE_ID && event->type == CLAP_EVENT_PARAM_VALUE)
         atomic_store_explicit(&s->plugin_changed, 1u, memory_order_relaxed);
-}
-
-/** The output event list: every push is counted (omx_clap_out_count). Nothing is stored on the RT. */
-static inline bool omx_clap_out_push(const struct clap_output_events *list, const clap_event_header_t *event)
-{
-    omx_clap_out_count((struct omx_clap_stage *)list->ctx, event);
     return true;    ///< accepted and counted; nothing is stored on the RT
 }
 
@@ -417,13 +412,15 @@ static inline void omx_clap_note_end(struct omx_clap_note_ids *n, const clap_eve
     }
 }
 
-/** The output event list of a stage with note ids: omx_clap_out_push's count and read-back, and a CLAP_EVENT_NOTE_END
- * frees the id it names. Nothing is stored on the RT. */
+/** The output event list of a stage with note ids: every event goes on to the stage's own sink (s->out_events, which
+ * counts it, raises plugin_changed on a value, and in libomx-clap-core's instance also keeps the plugin's values and
+ * gestures), and a CLAP_EVENT_NOTE_END frees the id it names. Nothing else is stored on the RT. */
 static inline bool omx_clap_out_push_ids(const struct clap_output_events *list, const clap_event_header_t *event)
 {
     struct omx_clap_note_ids *n = (struct omx_clap_note_ids *)list->ctx;
+    const clap_output_events_t *sink = &n->stage->out_events;
 
-    omx_clap_out_count(n->stage, event);
+    sink->try_push(sink, event);
     if (event != NULL && event->space_id == CLAP_CORE_EVENT_SPACE_ID && event->type == CLAP_EVENT_NOTE_END &&
         event->size >= sizeof(clap_event_note_t))
         omx_clap_note_end(n, (const clap_event_note_t *)event);
@@ -433,7 +430,8 @@ static inline bool omx_clap_out_push_ids(const struct clap_output_events *list, 
 /**
  * Control thread, after omx_clap_bind_ports (which points process() at the stage's own sink) and before the stage is
  * armed: give stage `s` the note ids `n` (zeroed before the first bind), every id free, the hold `hold_frames` long (OMX_CLAP_NOTE_ID_HOLD_MS at the
- * activated rate). process() then hands the plugin n's sink, which reads NOTE_END; feed the stage through
+ * activated rate). process() then hands the plugin n's sink, which reads NOTE_END and passes every event on to the
+ * stage's sink, so a sink put in s->out_events before the bind still sees them all; feed the stage through
  * omx_clap_note_in_ids with `n`.
  */
 static inline void omx_clap_note_ids_bind(struct omx_clap_note_ids *n, struct omx_clap_stage *s, uint32_t hold_frames)

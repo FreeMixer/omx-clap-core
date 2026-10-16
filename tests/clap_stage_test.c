@@ -595,6 +595,8 @@ static void ns_up(uint32_t inputs, uint32_t dialect, uint32_t dialects) {
   NS.note_dialect = dialect;
   NS.note_dialects = dialects;
   NS.bend_semitones = OMX_CLAP_BEND_SEMITONES_DEFAULT;
+  NS.out_events.ctx = &NS;      // the stage's own sink, as omx_clap_stage_init sets it: the note ids' sink passes to it
+  NS.out_events.try_push = omx_clap_out_push;
 }
 
 static void ns_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in(&NS, time, m, n); }
