@@ -5,7 +5,8 @@
 # script re-runs itself in a private user, net, pid and mount namespace with its own /proc, starts pipewire on a
 # private runtime dir, then drives the host over its socket and reads its feedback socket. The fake plugin's
 # passthrough reads clap.track-info and has two remote pages; its FAKE_LOG says what the host's get answered and
-# whether any call came from another thread than init's. Nothing here touches the PipeWire of the session that runs it.
+# whether any call came from another thread than init's; FAKE_CONTRACT makes it offer org.openmixer.param-contract/1,
+# whole or broken, for param_info. Nothing here touches the PipeWire of the session that runs it.
 #
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
 # JACK_E2E_PORT:    the socket port (default 5566); the feedback port is the next one
@@ -133,7 +134,8 @@ expect "remote_pages 9" "resp -3"
 ! grep -q "^$id remote_controls.get past the count" "$log"
 step $? "a page past the count is refused without asking the plugin"
 
-# param_info: a parameter with no checked contract falls back to qualification; what is not a parameter is -103
+# param_info: a parameter of a plugin with no parameter contract falls back to qualification; what is not a parameter
+# (a read-only one, an unknown id, the host's bypass) is -103
 expect "param_info 0 0" "resp $PHD_ERR_NO_PARAM_CONTRACT"
 expect "param_info 0 1" "resp -103"
 expect "param_info 0 99" "resp -103"
@@ -144,6 +146,36 @@ expect "param_info 9 0" "resp -3"
 step $? "every CLAP call landed on the thread that ran init: $(grep -c "wrong thread" "$log") off it"
 
 expect "remove 0" "resp 0"
+expect "quit" "resp 0"
+
+# the same plugin offering org.openmixer.param-contract/1 (FAKE_CONTRACT): whole, param_info answers its unit, scale,
+# range, default, step and symbol; broken by one rule, every parameter falls back to qualification and the log says why
+contract_host() {
+    exec 3>&- 4>&-
+    port=$((port + 2))
+    FAKE_CONTRACT=$1 "$host" -n -p "$port" -f "$((port + 1))" >"$runtime/host-$1.log" 2>&1 &
+    pids+=($!)
+    for _ in $(seq 50); do grep -q "ready!" "$runtime/host-$1.log" && break; sleep 0.1; done
+    grep -q "ready!" "$runtime/host-$1.log"
+    step $? "omx-clap-host with FAKE_CONTRACT=$1 ready on port $port"
+    exec 3<>"/dev/tcp/127.0.0.1/$port"
+    exec 4<>"/dev/tcp/127.0.0.1/$((port + 1))"
+}
+
+contract_host good
+expect "add $uri 0" "resp 0"
+expect "param_info 0 0" "resp 0 frame stepped 0 4096 64 1 latency"
+expect "param_info 0 1" "resp -103"
+expect "param_info 0 99" "resp -103"
+expect "param_info 0 :bypass" "resp -103"
+expect "quit" "resp 0"
+
+contract_host fingerprint
+expect "add $uri 0" "resp 0"
+expect "param_info 0 0" "resp $PHD_ERR_NO_PARAM_CONTRACT"
+for _ in $(seq 30); do grep -q "parameter contract is not trusted: R4" "$runtime/host-fingerprint.log" && break; sleep 0.1; done
+grep -q "^$id: the parameter contract is not trusted: R4 " "$runtime/host-fingerprint.log"
+step $? "the host's log names the broken rule: $(grep -o 'not trusted: R4.*' "$runtime/host-fingerprint.log")"
 expect "quit" "resp 0"
 
 if [ "$failures" -eq 0 ]; then

@@ -1486,18 +1486,28 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
     return used < size ? SUCCESS : ERR_INVALID_OPERATION;
 }
 
-/* param_info: -103 for what is not a parameter param_set takes; every parameter is uncontracted until the host reads
- * org.openmixer.param-contract/1, so the controller falls back to qualification */
-int effects_param_info(int effect_id, const char *symbol)
+/* param_info: -103 for what is not a parameter param_set takes; -511 for a parameter of a plugin whose
+ * org.openmixer.param-contract/1 is absent or broke a rule (the controller falls back to qualification); else the unit,
+ * the scale and the step the contract gives, the range and the default clap.params gives, and the contract's symbol */
+int effects_param_info(int effect_id, const char *symbol, char *reply, size_t size)
 {
+    struct omx_clap_param_meaning m;
+    char min[32], max[32], def[32], step[32];
     const lv2_param_t *lv2;
     clap_id id;
+    int used;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
     if (param_of(&g_effects[effect_id], symbol, &id, &lv2) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
-    return PHD_ERR_NO_PARAM_CONTRACT;
+    if (omx_clap_host_param_meaning(g_effects[effect_id].clap, id, &m) != 0
+        || omx_clap_param_number(m.min, min, sizeof(min)) < 0 || omx_clap_param_number(m.max, max, sizeof(max)) < 0
+        || omx_clap_param_number(m.def, def, sizeof(def)) < 0 || omx_clap_param_number(m.step, step, sizeof(step)) < 0)
+        return PHD_ERR_NO_PARAM_CONTRACT;
+    used = snprintf(reply, size, "resp 0 %s %s %s %s %s %s %s", omx_clap_param_unit_name(m.unit),
+                    omx_clap_param_scale_name(m.scale), min, max, def, step, m.symbol);
+    return used > 0 && (size_t)used < size ? SUCCESS : ERR_INVALID_OPERATION;
 }
 
 /* monitor_output: 0 once `symbol` is monitored, its first value going out with the next idle call */

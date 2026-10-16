@@ -62,8 +62,11 @@ runs `tests/jack_info_e2e.sh` in the same kind of namespace: `track_info`
 read back byte for byte by the fake plugin through `clap.track-info`, the
 names and colours that are refused, both remote pages of the fake with the
 slots `param_set` would refuse written `-`, `remote_pages_changed` on the
-feedback socket when the fake calls the host's `changed`, `param_info`, and
-every call of the plugin on the thread that ran `init`.
+feedback socket when the fake calls the host's `changed`, `param_info` (`-511`
+with no parameter contract; with `FAKE_CONTRACT=good` the contract's unit,
+scale, range, default, step and symbol; with `FAKE_CONTRACT=fingerprint`
+`-511` and the broken rule in the host's log), and every call of the plugin
+on the thread that ran `init`.
 
     make test-jack-pin
 
@@ -185,6 +188,14 @@ thread of its host: a 4-byte size, then the payload, contiguous; a full ring ref
 a record and never waits. Header only, so it changes nothing in the ABI. `make
 test-msgring` runs its closed-form test, and `make test-fake` includes it. The LV2
 adapter's worker uses the same ring.
+
+`make test-param-contract` checks the parameter contract's arithmetic against
+answers computed elsewhere: SHA-256 against FIPS 180-4's examples, the
+canonical fingerprint against the contract's worked vector and the fake
+plugin's (node's SHA-256 of the same lines), and the shortest decimals against
+node's `String(n)`. `make test-fake` includes it, and `tests/clap_host_test`
+opens the fake plugin with each `FAKE_CONTRACT` arm: whole, at version 2 with
+one rename step, and broken by R1, R2, R4 or R5, each named.
 
 The LV2 adapter
 ---------------

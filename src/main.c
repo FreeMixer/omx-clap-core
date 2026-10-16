@@ -186,7 +186,13 @@ static void remote_page_get_cb(proto_t *proto)
 
 static void param_info_cb(proto_t *proto)
 {
-    protocol_response_int(effects_param_info(atoi(proto->list[1]), proto->list[2]), proto);
+    char reply[SOCKET_MSG_BUFFER_SIZE];
+    const int resp = effects_param_info(atoi(proto->list[1]), proto->list[2], reply, sizeof(reply));
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
 }
 
 static void help_cb(proto_t *proto)

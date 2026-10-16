@@ -151,8 +151,15 @@ and the feedback port carries
 when the plugin changes its pages;
 .BI "param_info " "N id"
 answers
+.BI "resp 0 " "unit scale min max default step symbol"
+from the plugin's
+.B org.openmixer.param\-contract/1
+and its
+.BR clap.params ,
+and
 .B "resp \-511"
-until the host reads a parameter contract.
+for a plugin that offers no such contract or one that breaks a rule, which
+the log names.
 Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its

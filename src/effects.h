@@ -75,7 +75,8 @@ int effects_monitor_output(int effect_id, const char *symbol);
 int effects_track_info(int effect_id, const char *name, const char *color, const char *kind);
 int effects_remote_pages(int effect_id);
 int effects_remote_page_get(int effect_id, int page, char *reply, size_t size);
-int effects_param_info(int effect_id, const char *symbol);
+/* param_info: "resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>" from the plugin's parameter contract */
+int effects_param_info(int effect_id, const char *symbol, char *reply, size_t size);
 float effects_jack_cpu_load(void);
 /* note_drops: "resp 0 <dropped> <releases> <sysex> <unmappable>", the instance's note counters since add */
 int effects_note_drops(int effect_id, char *reply, size_t size);
