@@ -214,13 +214,13 @@ static void synth_checks(const char *scan, const char *synth, char *out)
     int status = run(out, "%s --json %s", scan, synth);
 
     CHECK(status == 0 && !has(out, "\"error\""), "fake_synth.clap scans (%i)", status);
-    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 7, "its seven plugins are listed (%i)",
+    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 8, "its eight plugins are listed (%i)",
           count(out, "\"id\":\"org.omx-clap-host.test."));
     CHECK(has(out, "\"id\":\"org.omx-clap-host.test.synth\",\"name\":\"synth\"") && has(out, "\"features\":[\"instrument\",\"synthesizer\"]"),
           "the synth is an instrument");
     CHECK(has(out, "\"audio_ports\":{\"inputs\":[],\"outputs\":[{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":2}]}"),
           "with no audio input and a stereo main output");
-    CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 5, "one note input on five of them (%i)",
+    CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 6, "one note input on six of them (%i)",
           count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}"));
     CHECK(count(out, "\"note_ports\":{\"inputs\":2,\"outputs\":0}") == 1, "two on synth-notes (%i)",
           count(out, "\"note_ports\":{\"inputs\":2,\"outputs\":0}"));

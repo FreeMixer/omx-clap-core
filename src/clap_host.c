@@ -862,9 +862,13 @@ static void drop_bounce(struct omx_clap_instance *in)
     in->recs = NULL;
 }
 
+/* the ports, then the note ids over the stage's sink: every id free, held OMX_CLAP_NOTE_ID_HOLD_MS at the rate */
 static int bind_stage(struct omx_clap_instance *in)
 {
-    return omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_in);
+    if (omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_in) != 0)
+        return -1;
+    omx_clap_note_ids_bind(&in->note_ids, &in->stage, (uint32_t)lround(in->rate * OMX_CLAP_NOTE_ID_HOLD_MS / 1000.0));
+    return 0;
 }
 
 static void publish_latency(struct omx_clap_instance *in)
@@ -1530,6 +1534,7 @@ void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
     {
         if (in->plugin->reset)
             in->plugin->reset(in->plugin);
+        omx_clap_note_ids_reset(&in->note_ids);     // the plugin's voices are gone, and with them every id
         omx_hosted_count(&in->stage.resets, 1);
         in->stage.need_reset = 0;
     }
