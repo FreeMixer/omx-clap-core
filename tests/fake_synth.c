@@ -29,7 +29,7 @@
  *   org.omx-clap-host.test.synth-aux      an extra audio input, refused
  *   org.omx-clap-host.test.synth-wide     4 output channels, refused
  *   org.omx-clap-host.test.synth-notes    two note inputs, refused
- *   org.omx-clap-host.test.synth-mpe      a note input with no dialect it can read, refused
+ *   org.omx-clap-host.test.synth-mpe      a note input that reads only MIDI with MPE
  *   org.omx-clap-host.test.synth-poly     stereo out, CLAP note dialect, a voice per note id: a note off starts a
  *                                         release of FAKE_SYNTH_RELEASE frames, after which the synth pushes
  *                                         CLAP_EVENT_NOTE_END with the voice's id, channel and key. A note on whose

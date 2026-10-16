@@ -488,12 +488,16 @@ static const char *read_note_input(struct omx_clap_instance *in)
     memset(&info, 0, sizeof(info));
     if (!ports->get(in->plugin, 0, true, &info))
         return CLAP_HOST_CODE_NOTE_INPUT;
-    if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
+    if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI_MPE && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE))
+        in->note_dialect = CLAP_NOTE_DIALECT_MIDI_MPE;     // raw MIDI, the plugin reads the MPE zone itself
+    else if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
         in->note_dialect = CLAP_NOTE_DIALECT_CLAP;
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI)
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
+    else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE)
+        in->note_dialect = CLAP_NOTE_DIALECT_MIDI_MPE;
     else
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->note_dialects = info.supported_dialects;
