@@ -42,6 +42,8 @@ its CLAP worker: a plugin that reads the track information the host passes
 it, a compressor that reports meters, and a JACK client that plays a constant
 level. They are installed in %{_libexecdir}/omx-clap-host/tests, away from the
 directories CLAP hosts scan, and are of no use to anyone else.
+socket_conformance.py, beside them, checks how any server of the mod-host
+socket protocol splits what it receives into commands.
 
 %package -n omx-clap-core
 Summary: The engine that runs CLAP plugins for omx-clap-host, as a library
