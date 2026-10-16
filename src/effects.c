@@ -31,6 +31,7 @@
 ************************************************************************************************************************
 */
 
+#include <ctype.h>
 #include <errno.h>
 #include <float.h>
 #include <limits.h>
@@ -45,12 +46,15 @@
 #include <jack/jack.h>
 #include <jack/midiport.h>
 #include <clap/ext/draft/gain-adjustment-metering.h>
+#include <clap/factory/preset-discovery.h>
 #include <plugin-hostd/protocol.h>
 
 #include "effects.h"
 #include "clap_host.h"
 #include "clap_meters.h"
 #include "layout_pin.h"
+#include "lv2_locate.h"
+#include "omx_clap_lv2.h"
 #include "host-dispatch.h"
 #include "socket.h"
 
@@ -63,6 +67,7 @@
 
 #define REMOVE_ALL              (-1)
 #define URI_SCHEME              "clap:"
+#define LV2_URI_SCHEME          "lv2:"
 #define BYPASS_PORT_SYMBOL      ":bypass"
 #define MIDI_PORT_NAME          "midi_in"
 #define STATE_FILE_SUFFIX       ".clapstate"
@@ -77,6 +82,13 @@
 #define METER_CHANNELS_MAX      64
 #define OUTPUT_SYMBOL_SIZE      (CLAP_NAME_SIZE + 16)
 
+// the LV2 adapter's numbers: its worker's poll and ring, the smallest atom buffer (0: the adapter's own), the latency hold
+#define LV2_WORKER_POLL_US      1000u
+#define LV2_WORKER_RING_BYTES   4096u
+#define LV2_ATOM_BUFFER_BYTES   0u
+// the adapter's code for a plugin it has no way to run, lv2/core's LV2_CODE_NO_REALISATION
+#define HOSTING_NO_REALISATION  "hosting.no-realisation"
+
 
 /*
 ************************************************************************************************************************
@@ -90,6 +102,7 @@ typedef struct OUTPUT_T {
     char symbol[OUTPUT_SYMBOL_SIZE];
     char name[CLAP_NAME_SIZE];  // the meter's, for a refusal to name
     int gain_adjustment;        // the standard value, not a meter
+    int param;                  // a read-only parameter, an LV2 output control port: `meter` is its id
     clap_id meter;
     uint32_t channel;
     uint32_t channels;          // the meter's: what get_values fills
@@ -97,6 +110,15 @@ typedef struct OUTPUT_T {
     int notified;               // a value went out since monitor_output
     float value;                // the last value that went out
 } output_t;
+
+/* an LV2 plugin's control port, as param_set, param_get and monitor_output name it: its lv2:symbol, its CLAP id (the port
+ * index), its flags, and, for the plugin's own bypass, the value that keeps it processing */
+typedef struct LV2_PARAM_T {
+    const char *symbol;         // the adapter's, alive as long as the plugin
+    clap_id id;
+    uint32_t flags;
+    double hold;
+} lv2_param_t;
 
 typedef struct EFFECT_T {
     int instance;
@@ -111,6 +133,9 @@ typedef struct EFFECT_T {
     _Atomic uint32_t gain_adjustment_bits;  // the float the audio thread published after its last cycle
     output_t *outputs;
     uint32_t outputs_count;
+    const clap_plugin_entry_t *lv2_entry;   // an LV2 plugin: the adapter's entry of its bundle; NULL for a CLAP plugin
+    lv2_param_t *lv2_params;
+    uint32_t lv2_params_count;
 } effect_t;
 
 
@@ -124,6 +149,10 @@ static effect_t g_effects[MAX_INSTANCES];
 // the layout digest pin_expect named for the next add of an instance, empty when none
 static char g_layout_pins[MAX_INSTANCES][PHD_SHA256_HEX_LEN + 1];
 static jack_client_t *g_jack_global_client;
+// the hosting.* code of the last add that failed with one, "" otherwise: the add reply carries it
+static char g_add_reason[OMX_CLAP_LV2_WHY_MAX > OMX_CLAP_WHY_MAX ? OMX_CLAP_LV2_WHY_MAX : OMX_CLAP_WHY_MAX];
+// the LV2 adapter took its configuration: an LV2 add can be tried
+static int g_lv2_ready;
 
 
 /*
@@ -351,7 +380,11 @@ static void instance_free(effect_t *effect)
         omx_clap_host_stop(effect->clap);
         omx_clap_host_close(effect->clap);
     }
+    // the entry outlives the plugin made from it
+    if (effect->lv2_entry)
+        omx_clap_lv2_entry_release(effect->lv2_entry);
     free(effect->outputs);
+    free(effect->lv2_params);
     memset(effect, 0, sizeof(effect_t));
 }
 
@@ -389,9 +422,155 @@ static int open_clap(const char *path, const char *id, struct omx_clap_instance 
     if (ret != 0)
     {
         fprintf(stderr, "%s: %s\n", id, why);
+        snprintf(g_add_reason, sizeof(g_add_reason), "%s", why);
         return ERR_LV2_INSTANTIATION;
     }
     return SUCCESS;
+}
+
+/* what an LV2 add looks for on the LV2 path: the bundle whose entry lists the URI, and the refusal of a bundle the
+ * adapter could not read */
+struct lv2_search {
+    const char *uri;
+    const clap_plugin_entry_t *entry;
+    char why[OMX_CLAP_LV2_WHY_MAX];
+};
+
+/* a candidate bundle: its entry, kept when its factory lists the URI and released otherwise */
+static int lv2_candidate(const char *bundle, void *ctx)
+{
+    struct lv2_search *search = ctx;
+    const clap_plugin_factory_t *factory;
+    const clap_plugin_entry_t *entry;
+    char why[OMX_CLAP_LV2_WHY_MAX];
+    uint32_t i, count;
+
+    entry = omx_clap_lv2_entry(bundle, why);
+    if (!entry)
+    {
+        fprintf(stderr, "%s: %s\n", bundle, why);
+        snprintf(search->why, sizeof(search->why), "%s", why);
+        return 0;
+    }
+    factory = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+    count = factory ? factory->get_plugin_count(factory) : 0;
+    for (i = 0; i < count; i++)
+    {
+        const clap_plugin_descriptor_t *desc = factory->get_plugin_descriptor(factory, i);
+
+        if (desc && desc->id && strcmp(desc->id, search->uri) == 0)
+        {
+            search->entry = entry;
+            return 1;
+        }
+    }
+    omx_clap_lv2_entry_release(entry);
+    return 0;
+}
+
+/* the reason a refusal of the core names, or the adapter's own when the core saw only the plugin fail */
+static void lv2_reason(char why[OMX_CLAP_WHY_MAX])
+{
+    const char *adapter = omx_clap_lv2_last_refusal();
+
+    if (strcmp(why, CLAP_HOST_CODE_HEADLESS_FAILED) == 0 && adapter[0])
+        snprintf(why, OMX_CLAP_WHY_MAX, "%s", adapter);
+}
+
+/* the bundle on the LV2 path that holds `uri`, and the plugin in it through the adapter, judged as a CLAP plugin is: a
+ * URI no bundle holds is an invalid URI, anything the adapter or the core refuses an instantiation error, with its
+ * hosting code on stderr and in the reply */
+static int open_lv2(const char *uri, effect_t *effect)
+{
+    struct lv2_search search;
+    char why[OMX_CLAP_WHY_MAX];
+
+    memset(&search, 0, sizeof(search));
+    search.uri = uri;
+    if (!g_lv2_ready)
+    {
+        fprintf(stderr, "%s: %s: the LV2 adapter is not configured\n", uri, HOSTING_NO_REALISATION);
+        snprintf(g_add_reason, sizeof(g_add_reason), "%s", HOSTING_NO_REALISATION);
+        return ERR_LV2_INSTANTIATION;
+    }
+    if (!lv2_locate(NULL, uri, lv2_candidate, &search))
+    {
+        if (search.why[0])
+        {
+            // a bundle that may hold it could not be read: lilv missing, or the bundle broken
+            fprintf(stderr, "%s: %s\n", uri, search.why);
+            snprintf(g_add_reason, sizeof(g_add_reason), "%s", search.why);
+            return ERR_LV2_INSTANTIATION;
+        }
+        fprintf(stderr, "%s: no bundle on the LV2 path holds it\n", uri);
+        return ERR_LV2_INVALID_URI;
+    }
+    effect->lv2_entry = search.entry;
+    if (omx_clap_host_open_entry(search.entry, uri, &effect->clap, why) != 0)
+    {
+        lv2_reason(why);
+        fprintf(stderr, "%s: %s\n", uri, why);
+        snprintf(g_add_reason, sizeof(g_add_reason), "%s", why);
+        return ERR_LV2_INSTANTIATION;
+    }
+    return SUCCESS;
+}
+
+/* an LV2 plugin's control ports by their symbols, read once at the add */
+static int lv2_params_build(effect_t *effect)
+{
+    struct omx_clap_instance *clap = effect->clap;
+    uint32_t i, count = clap->params ? clap->params->count(clap->plugin) : 0;
+
+    effect->lv2_params = count ? calloc(count, sizeof(lv2_param_t)) : NULL;
+    if (count && !effect->lv2_params)
+        return -1;
+    for (i = 0; i < count; i++)
+    {
+        clap_param_info_t info;
+        const char *symbol;
+        lv2_param_t *param;
+
+        memset(&info, 0, sizeof(info));
+        if (!clap->params->get_info(clap->plugin, i, &info))
+            return -1;
+        symbol = omx_clap_lv2_param_symbol(clap->plugin, info.id);
+        if (!symbol)
+            continue;
+        param = &effect->lv2_params[effect->lv2_params_count++];
+        param->symbol = symbol;
+        param->id = info.id;
+        param->flags = info.flags;
+        param->hold = info.default_value;
+    }
+    return 0;
+}
+
+static const lv2_param_t *lv2_param_by_symbol(const effect_t *effect, const char *symbol)
+{
+    uint32_t i;
+
+    for (i = 0; i < effect->lv2_params_count; i++)
+        if (strcmp(effect->lv2_params[i].symbol, symbol) == 0)
+            return &effect->lv2_params[i];
+    return NULL;
+}
+
+static const lv2_param_t *lv2_param_by_id(const effect_t *effect, clap_id id)
+{
+    uint32_t i;
+
+    for (i = 0; i < effect->lv2_params_count; i++)
+        if (effect->lv2_params[i].id == id)
+            return &effect->lv2_params[i];
+    return NULL;
+}
+
+/* the plugin's own bypass of an LV2 plugin (lv2:enabled, a bypass port) is the host's: the value that keeps the plugin
+ * processing is the host's bypass off, any other value on */
+static int lv2_bypass_param(const lv2_param_t *param)
+{
+    return param && (param->flags & CLAP_PARAM_IS_BYPASS);
 }
 
 /* a write on a plugin no cycle drains yet reaches it through params.flush; one a cycle runs waits for the cycle */
@@ -593,6 +772,25 @@ static int output_add(effect_t *effect, const char *name, int gain_adjustment, c
     return 0;
 }
 
+/* an LV2 plugin's read-only parameter, an output control port, monitored by its lv2:symbol */
+static int output_param_add(effect_t *effect, const lv2_param_t *param)
+{
+    output_t *outputs, *output;
+
+    outputs = realloc(effect->outputs, (effect->outputs_count + 1) * sizeof(output_t));
+    if (!outputs)
+        return -1;
+    effect->outputs = outputs;
+    output = &outputs[effect->outputs_count++];
+    memset(output, 0, sizeof(output_t));
+    snprintf(output->symbol, sizeof(output->symbol), "%s", param->symbol);
+    snprintf(output->name, sizeof(output->name), "%s", param->symbol);
+    output->param = 1;
+    output->meter = param->id;
+    output->channels = 1;
+    return 0;
+}
+
 /* control thread, at load: the plugin's clap.meters/1, else its clap.gain-adjustment-metering/0, each value an output
  * symbol (docs/meters.md). A meter that can't be read or a symbol that is taken refuses the plugin. */
 static int outputs_build(effect_t *effect)
@@ -625,6 +823,15 @@ static int outputs_build(effect_t *effect)
                 if (output_add(effect, info.name, 0, info.id, c, info.channel_count) != 0)
                     return -1;
         }
+        return 0;
+    }
+
+    if (effect->lv2_entry)
+    {
+        // an LV2 plugin's output control ports, by their symbols, as mod-host monitors them
+        for (i = 0; i < effect->lv2_params_count; i++)
+            if ((effect->lv2_params[i].flags & CLAP_PARAM_IS_READONLY) && output_param_add(effect, &effect->lv2_params[i]) != 0)
+                return -1;
         return 0;
     }
 
@@ -665,6 +872,14 @@ static void outputs_notify(effect_t *effect)
             const uint32_t bits = atomic_load_explicit(&effect->gain_adjustment_bits, memory_order_relaxed);
 
             memcpy(&value, &bits, sizeof(value));
+        }
+        else if (output->param)
+        {
+            double v;
+
+            if (omx_clap_host_param_read(effect->clap, output->meter, &v) != 0)
+                continue;
+            value = (float)v;
         }
         else
         {
@@ -740,6 +955,25 @@ static int configure_core(void)
     return omx_clap_host_configure(&config);
 }
 
+/* the LV2 adapter, once: every feature it provides, the numbers above. lilv is not loaded here, only by the first LV2
+ * add, so a host that never adds an LV2 plugin never maps it */
+static void configure_lv2(void)
+{
+    omx_clap_lv2_config_t config;
+    char why[OMX_CLAP_LV2_WHY_MAX];
+
+    memset(&config, 0, sizeof(config));
+    config.features = omx_clap_lv2_provided;
+    config.worker_poll_us = LV2_WORKER_POLL_US;
+    config.worker_ring_bytes = LV2_WORKER_RING_BYTES;
+    config.atom_buffer_bytes = LV2_ATOM_BUFFER_BYTES;
+    config.latency_hold_ms = CLAP_HOST_LATENCY_HOLD_MS;
+    config.lilv_soname = NULL;
+    g_lv2_ready = omx_clap_lv2_configure(&config, why) == 0;
+    if (!g_lv2_ready)
+        fprintf(stderr, "the LV2 adapter refused its configuration: %s; no LV2 plugin can be added\n", why);
+}
+
 int effects_init(void)
 {
     if (configure_core() != 0)
@@ -747,6 +981,7 @@ int effects_init(void)
         fprintf(stderr, "can't configure the clap core\n");
         return ERR_INSTANCE_INVALID;
     }
+    configure_lv2();
     g_jack_global_client = jack_client_open("omx-clap-host", JackNoStartServer, NULL);
     if (!g_jack_global_client)
     {
@@ -765,18 +1000,40 @@ int effects_finish(void)
     return SUCCESS;
 }
 
+/* an LV2 plugin's URI: lv2:<uri>, or the URI alone as mod-host takes it; NULL for anything else */
+static const char *lv2_uri_of(const char *uri)
+{
+    if (!uri || strncmp(uri, URI_SCHEME, strlen(URI_SCHEME)) == 0)
+        return NULL;
+    if (strncmp(uri, LV2_URI_SCHEME, strlen(LV2_URI_SCHEME)) == 0)
+        uri += strlen(LV2_URI_SCHEME);
+    // an absolute URI: a scheme, then ':' and something after it
+    if (!isalpha((unsigned char)uri[0]) || !strchr(uri, ':') || strchr(uri, ':')[1] == '\0')
+        return NULL;
+    return uri;
+}
+
+const char *effects_add_reason(void)
+{
+    return g_add_reason;
+}
+
 int effects_add(const char *uri, int instance, const char *client_name)
 {
     char path[PATH_MAX];
     char port_name[32];
     char why[OMX_CLAP_WHY_MAX];
     char pin[PHD_SHA256_HEX_LEN + 1];
-    const char *id;
+    const char *id, *lv2_uri;
     effect_t *effect;
     uint32_t c;
     int error;
 
-    if (parse_uri(uri, path, sizeof(path), &id) != 0)
+    g_add_reason[0] = '\0';
+    lv2_uri = lv2_uri_of(uri);
+    if (lv2_uri)
+        id = lv2_uri;
+    else if (parse_uri(uri, path, sizeof(path), &id) != 0)
         return ERR_LV2_INVALID_URI;
     if (!INSTANCE_IS_VALID(instance))
         return ERR_INSTANCE_INVALID;
@@ -798,9 +1055,15 @@ int effects_add(const char *uri, int instance, const char *client_name)
         return ERR_JACK_CLIENT_CREATION;
     }
 
-    error = open_clap(path, id, &effect->clap);
+    error = lv2_uri ? open_lv2(lv2_uri, effect) : open_clap(path, id, &effect->clap);
     if (error != SUCCESS)
         goto error;
+    if (lv2_uri && lv2_params_build(effect) != 0)
+    {
+        fprintf(stderr, "%s: its parameters cannot be read\n", id);
+        error = ERR_LV2_INSTANTIATION;
+        goto error;
+    }
     if (layout_check(effect, pin, id) != 0)
     {
         error = PHD_ERR_PIN_LAYOUT_MISMATCH;
@@ -850,7 +1113,10 @@ int effects_add(const char *uri, int instance, const char *client_name)
 
     if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
     {
+        if (lv2_uri)
+            lv2_reason(why);
         fprintf(stderr, "%s: %s\n", id, why);
+        snprintf(g_add_reason, sizeof(g_add_reason), "%s", why);
         error = ERR_LV2_INSTANTIATION;
         goto error;
     }
@@ -929,8 +1195,25 @@ int effects_bypass(int effect_id, int value)
     return SUCCESS;
 }
 
+/* the parameter a param_set, param_get or param_info names: its CLAP id in decimal, or, for an LV2 plugin, a control
+ * port's lv2:symbol; `*lv2` the LV2 control port it is, NULL for a CLAP plugin's parameter or a patch parameter */
+static int param_of(const effect_t *effect, const char *control_symbol, clap_id *id, const lv2_param_t **lv2)
+{
+    const lv2_param_t *param = NULL;
+
+    if (parse_param_id(control_symbol, id) == 0)
+        param = effect->lv2_entry ? lv2_param_by_id(effect, *id) : NULL;
+    else if (effect->lv2_entry && (param = lv2_param_by_symbol(effect, control_symbol)) != NULL)
+        *id = param->id;
+    else
+        return -1;
+    *lv2 = param;
+    return 0;
+}
+
 int effects_set_parameter(int effect_id, const char *control_symbol, float value)
 {
+    const lv2_param_t *lv2;
     clap_id id;
 
     if (!instance_exist(effect_id))
@@ -940,13 +1223,19 @@ int effects_set_parameter(int effect_id, const char *control_symbol, float value
         omx_clap_host_bypass(g_effects[effect_id].clap, value > 0.5f);
         return SUCCESS;
     }
-    if (parse_param_id(control_symbol, &id) != 0)
+    if (param_of(&g_effects[effect_id], control_symbol, &id, &lv2) != 0)
         return ERR_LV2_INVALID_PARAM_SYMBOL;
+    if (lv2_bypass_param(lv2))
+    {
+        omx_clap_host_bypass(g_effects[effect_id].clap, (value > 0.5f) != (lv2->hold > 0.5));
+        return SUCCESS;
+    }
     return clap_param_set(g_effects[effect_id].clap, id, value);
 }
 
 int effects_get_parameter(int effect_id, const char *control_symbol, float *value)
 {
+    const lv2_param_t *lv2;
     clap_id id;
     double v;
     int ret;
@@ -958,8 +1247,15 @@ int effects_get_parameter(int effect_id, const char *control_symbol, float *valu
         *value = omx_clap_host_bypassed(g_effects[effect_id].clap) ? 1.0f : 0.0f;
         return SUCCESS;
     }
-    if (parse_param_id(control_symbol, &id) != 0)
+    if (param_of(&g_effects[effect_id], control_symbol, &id, &lv2) != 0)
         return ERR_LV2_INVALID_PARAM_SYMBOL;
+    if (lv2_bypass_param(lv2))
+    {
+        const int processing = lv2->hold > 0.5;
+
+        *value = omx_clap_host_bypassed(g_effects[effect_id].clap) ? !processing : processing;
+        return SUCCESS;
+    }
 
     ret = clap_param_get(g_effects[effect_id].clap, id, &v);
     if (ret == SUCCESS)
@@ -969,11 +1265,18 @@ int effects_get_parameter(int effect_id, const char *control_symbol, float *valu
 
 int effects_preset_load(int effect_id, const char *location)
 {
+    struct omx_clap_instance *clap;
+
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    if (!g_effects[effect_id].clap->preset_load)
+    clap = g_effects[effect_id].clap;
+    if (!clap->preset_load)
         return ERR_INVALID_OPERATION;
-    return omx_clap_host_preset_load(g_effects[effect_id].clap, location) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
+    // an LV2 preset is named by its URI, as mod-host takes it: a preset of the plugin's bundle, the URI its load key
+    if (g_effects[effect_id].lv2_entry)
+        return clap->preset_load->from_location(clap->plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, location)
+            ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
+    return omx_clap_host_preset_load(clap, location) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
 }
 
 int effects_state_save(const char *dir)
@@ -1170,11 +1473,12 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
  * org.openmixer.param-contract/1, so the controller falls back to qualification */
 int effects_param_info(int effect_id, const char *symbol)
 {
+    const lv2_param_t *lv2;
     clap_id id;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    if (parse_param_id(symbol, &id) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
+    if (param_of(&g_effects[effect_id], symbol, &id, &lv2) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
     return PHD_ERR_NO_PARAM_CONTRACT;
 }

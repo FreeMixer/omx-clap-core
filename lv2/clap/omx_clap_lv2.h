@@ -121,6 +121,17 @@ uint32_t omx_clap_lv2_patch_text_get(const clap_plugin_t *plugin, const char *ur
  * a test that compares two hosts pins the worker's schedule. The real worker thread runs; only the schedule is pinned. */
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin);
 
+/* [main-thread] The code of the last refusal on the calling thread: what create_plugin, init or activate of a plugin
+ * this adapter makes wrote to the host's clap.log before it failed (a hosting.* code), "" when the last of those calls
+ * did not fail. A host that sees create_plugin return NULL, or init or activate return false, reads the reason here
+ * rather than from its log. */
+const char *omx_clap_lv2_last_refusal(void);
+
+/* [main-thread] The lv2:symbol of the control port that is the parameter `id` (its port index) of a plugin this adapter
+ * created; NULL for an id that is no control port's (a patch parameter, the latency port, an audio port) or for a
+ * plugin the adapter did not create. */
+const char *omx_clap_lv2_param_symbol(const clap_plugin_t *plugin, clap_id id);
+
 #ifdef __cplusplus
 }
 #endif

@@ -13,6 +13,7 @@ Commands
 --------
 
     add clap:<absolute path>.clap#<plugin id> <instance_number> [client_name]
+    add lv2:<uri> <instance_number> [client_name]
     remove <instance_number>
     bypass <instance_number> <bypass_value>
     param_set <instance_number> <param_id> <param_value>
@@ -27,8 +28,9 @@ Commands
     help
     quit
 
-`<param_id>` is the plugin's CLAP parameter id in decimal; `:bypass` reads
-and writes the bypass like mod-host's pseudo port. `state_save` writes one
+`<param_id>` is the plugin's CLAP parameter id in decimal, or for an LV2
+plugin the LV2 symbol of a control port ([LV2 plugins](#lv2-plugins));
+`:bypass` reads and writes the bypass like mod-host's pseudo port. `state_save` writes one
 `<dir>/effect_<N>.clapstate` per instance. Every other mod-host command
 answers `resp -902`.
 
@@ -75,7 +77,9 @@ runs again. The plugin's own bypass parameter, when it declares one, is
 never written and is refused to `param_set`; `param_get <N> :bypass`
 answers the commanded value.
 
-Replies are mod-host's: `resp <code>`, with mod-host's error codes.
+Replies are mod-host's: `resp <code>`, with mod-host's error codes. A refused
+`add` that has a `hosting.*` code says it after the error code, `resp -102
+hosting.topology.wider-than-strip`, and on stderr as `<plugin id>: <code>`.
 
 Port layout
 -----------
@@ -103,8 +107,8 @@ counted and dropped. Nothing is allocated or locked on the audio thread.
 
 A main port wider than stereo, a main pair of different widths, a second
 note input, a note input that reads neither the CLAP nor the MIDI dialect, or
-no audio input and no note input is refused at `add` with `resp -102` and the
-`hosting.*` code on stderr: `hosting.topology.wider-than-strip`,
+no audio input and no note input is refused at `add` with `resp -102` followed
+by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
 `hosting.clap.note-input`, `hosting.topology.no-audio-input`. An extra audio
 input (a sidechain, one or two channels, up to eight) is admitted and fed
 silence: the command line has no verb that binds it, so the plugin reads
@@ -115,6 +119,76 @@ unconnected: the plugin is handed a scratch buffer for it. A plugin is admitted 
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
 and then leaves the plugin idle: notes that arrive meanwhile are dropped.
+
+LV2 plugins
+-----------
+
+    add lv2:urn:openmixer:test:host-fixture 0
+    add urn:openmixer:test:host-fixture 0
+
+An LV2 plugin is added by its URI, after `lv2:` or alone as mod-host takes it
+(anything that is not `clap:` and reads as an absolute URI). The host finds its
+bundle on `LV2_PATH` (unset: `~/.lv2`, `/usr/local/lib64/lv2`,
+`/usr/local/lib/lv2`, `/usr/lib64/lv2`, `/usr/lib/lv2`), each directory in
+order and the bundles in each in name order: the first bundle whose
+`manifest.ttl` names the URI, whole (`<uri>`) or as a prefixed name of a prefix
+it declares, and whose plugin list holds it. A manifest that spells the URI
+any other way, relative to `@base` for instance, is not found. plugin-hostd
+narrows `LV2_PATH` to the plugin's own bundle.
+
+The plugin runs through `libomx-clap-lv2`, the LV2 to CLAP adapter, linked into
+the host: one CLAP plugin with the same client, ports, latency, meters and
+bypass as a CLAP plugin (`effect_<N>`, `in_<k>` and `out_<k>`, `midi_in` for a
+plugin with an LV2 MIDI input). lilv is not linked: the adapter loads it on the
+first LV2 add, so a host that never adds one never maps it.
+[docs/lv2-compatibility.md](../docs/lv2-compatibility.md) says what the adapter
+carries.
+
+What an LV2 `add` answers:
+
+| | reply |
+|---|---|
+| the plugin runs | `resp <N>` |
+| no bundle on the path holds the URI, or the word is no URI | `resp -101` |
+| the adapter or the host refuses the plugin | `resp -102 <hosting code>`, e.g. `resp -102 hosting.features.midi-in-fed-empty`; stderr says `<uri>: <hosting code>` |
+| lilv cannot be loaded, or the plugin's binary cannot | `resp -102 hosting.no-realisation` |
+
+The codes are the adapter's (`hosting.features.*`, `hosting.topology.*`,
+`hosting.no-realisation`) and the host's own (`hosting.topology.*`,
+`hosting.clap.*`). A refusal names only its own `add`: the next `add` starts
+with no code.
+
+Parameters. The adapter makes each LV2 control port one CLAP parameter whose
+id is the port's `lv2:index`; the host keeps the port's `lv2:symbol` beside it,
+so a control port answers to either:
+
+| LV2 | CLAP parameter | `param_set` / `param_get` | `monitor_output` |
+|---|---|---|---|
+| an input control port | id = `lv2:index`, automatable | by its symbol or its id | no |
+| an output control port | id = `lv2:index`, read-only | `param_get` by its symbol or id; `param_set` answers `resp -103` | by its symbol: `output_set <N> <symbol> <value>` when it moves, as mod-host sends it |
+| `lv2:enabled`, or a control input whose symbol is `bypass` | id = `lv2:index`, `IS_BYPASS`, held at its processing value | by its symbol or id: the host's bypass (below) | no |
+| the latency port | `clap.latency`, no parameter | `resp -103` | no |
+| a numeric `patch:writable` property | id = the port count plus its index in `patch:writable` order | by its id only | no |
+| an audio, CV or atom port | none | `resp -103` | no |
+
+`param_info <N> <symbol>` takes the symbol too.
+
+Bypass. mod-host bypasses an LV2 plugin through its `lv2:enabled` port; here
+that port is the host's bypass: `param_set <N> enabled 0` is `bypass <N> 1` (the
+one-block crossfade to the dry input) and `param_set <N> enabled 1` is
+`bypass <N> 0`; `param_get <N> enabled` answers 0 while the host bypasses the
+plugin and 1 otherwise, whichever verb set it. A port whose symbol is `bypass`
+is the same, the other way round. The plugin itself is never written: it is
+held at its processing value.
+
+State and presets. `state_save` writes the plugin's LV2 state, as Turtle, to
+`<dir>/effect_<N>.clapstate` and `state_load` reads it back, applied by a
+restart of the plugin. `preset_load <N> <preset uri>` loads an LV2 preset of
+the plugin's bundle by its URI, as mod-host does, also applied by a restart; a
+preset of another plugin, or one the bundle does not hold, answers `resp -104`.
+
+`remove <N>` closes the client, so none of `effect_<N>`'s ports stays in the
+graph, then the plugin and the bundle's entry.
 
 Latency
 -------

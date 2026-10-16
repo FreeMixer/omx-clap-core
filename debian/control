@@ -18,12 +18,14 @@ Rules-Requires-Root: no
 Package: omx-clap-host
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Recommends: liblilv-0-0
 Description: use CLAP plugins on a JACK rig, driven like mod-host
  omx-clap-host brings CLAP plugins, the modern open plugin format, into a
  live JACK or PipeWire rig. Each plugin runs as a JACK client with its own
  ports, and an instrument gets a MIDI input as well. Anything that already
  controls mod-host can control it over the same socket with the same
- commands.
+ commands. LV2 plugins run in it too, by their URI, through its LV2 to CLAP
+ adapter, which loads lilv when the first one is added.
  .
  It comes with omx-clap-scan, which lists what is in a CLAP bundle and
  survives a plugin that crashes while loading.

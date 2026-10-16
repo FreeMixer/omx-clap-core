@@ -41,9 +41,26 @@ input or a note input read in neither dialect is refused at
 .B add
 with
 .B resp \-102
-and its hosting code on standard error. An extra audio input (a sidechain) is
+followed by its hosting code, which standard error carries too. An extra audio input (a sidechain) is
 admitted and fed silence: nothing on the command line binds it. An extra audio
 output is admitted and left unconnected.
+.PP
+An LV2 plugin is added by its URI,
+.BI lv2: uri
+or the URI alone as mod\-host takes it, from the bundle on
+.B LV2_PATH
+that holds it. It runs through the LV2 to CLAP adapter linked into the host,
+on the same ports and under the same rules as a CLAP plugin; a plugin the
+adapter cannot run is refused with
+.B resp \-102
+and the adapter's hosting code, and a URI no bundle holds with
+.BR "resp \-101" .
+Its control ports are addressed by their LV2 symbols, its output control ports
+are output symbols, its
+.B lv2:enabled
+port is the host's bypass, and
+.B preset_load
+takes a preset's URI. lilv is loaded on the first LV2 add.
 .PP
 The plugin's latency is published on its JACK ports and republished when
 the plugin changes it. Bypass is the host's own one\-block crossfade to the
@@ -79,7 +96,9 @@ using mod\-host's codes:
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
-and a parameter by its decimal CLAP id;
+or
+.BI lv2: uri ,
+and a parameter by its decimal CLAP id, or an LV2 plugin's by its port symbol;
 .B :bypass
 reads and writes the bypass. A meter the plugin reports through
 .B clap.meters/1
@@ -128,15 +147,6 @@ Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its
 arguments.
-.SH ENVIRONMENT
-.TP
-.B OMX_CLAP_HOST_CORE_DUMPS
-A plugin that aborts or faults takes the host down with it. By default the
-host then dies at once, of the same signal, without a core dump: writing the
-core keeps every plugin of the host silent for 100 ms or more before its
-supervisor can start it again. Set this to
-.B 1
-to keep the core dumps, for a crash to debug.
 .SH FILES
 .TP
 .IB dir /effect_ N .clapstate
@@ -153,6 +163,21 @@ directories when both hosts share
 .TP
 .I /tmp/omx\-clap\-host.pid
 The pid of the forked host.
+.SH ENVIRONMENT
+.TP
+.B LV2_PATH
+The directories searched for the bundle of an LV2 plugin, separated by
+.BR : ;
+unset, ~/.lv2, /usr/local/lib64/lv2, /usr/local/lib/lv2, /usr/lib64/lv2 and
+/usr/lib/lv2.
+.TP
+.B OMX_CLAP_HOST_CORE_DUMPS
+A plugin that aborts or faults takes the host down with it. By default the
+host then dies at once, of the same signal, without a core dump: writing the
+core keeps every plugin of the host silent for 100 ms or more before its
+supervisor can start it again. Set this to
+.B 1
+to keep the core dumps, for a crash to debug.
 .SH SEE ALSO
 .BR mod\-host (1),
 .BR jackd (1),

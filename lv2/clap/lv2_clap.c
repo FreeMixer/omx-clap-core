@@ -163,6 +163,9 @@ static struct slot g_slots[OMX_CLAP_LV2_BUNDLES];
 static uint32_t g_latency_hold_ms;
 static int g_configured;
 
+// the code of the last refusal of create_plugin, init or activate on this thread, "" after one that did not refuse
+static __thread char g_last_refusal[OMX_CLAP_LV2_WHY_MAX];
+
 static const char *const g_features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL };
 
 
@@ -194,6 +197,13 @@ static void host_log(const clap_host_t *host, clap_log_severity severity, const 
 
     if (log && log->log)
         log->log(host, severity, msg);
+}
+
+/* a refusal of create_plugin, init or activate: the code on the host's clap.log, and kept for omx_clap_lv2_last_refusal */
+static void refuse(const clap_host_t *host, const char *code)
+{
+    why_set(g_last_refusal, code);
+    host_log(host, CLAP_LOG_ERROR, code);
 }
 
 /* the host's audio role, by its own predicate: lv2/core classifies map, log and schedule_work by it */
@@ -640,16 +650,17 @@ static bool plugin_init(const clap_plugin_t *plugin)
     char why[LV2_CORE_WHY_MAX];
     uint32_t k;
 
+    g_last_refusal[0] = '\0';
     if (lv2_plugin_load(s->lv2, why) != 0)
     {
-        host_log(s->host, CLAP_LOG_ERROR, why);
+        refuse(s->host, why);
         return false;
     }
     s->control_of_port = malloc((s->lv2->n_ports ? s->lv2->n_ports : 1u) * sizeof(*s->control_of_port));
     s->in = lv2_instance_new(s->lv2);
     if (!s->control_of_port || !s->in)
     {
-        host_log(s->host, CLAP_LOG_ERROR, LV2_CODE_NO_REALISATION);
+        refuse(s->host, LV2_CODE_NO_REALISATION);
         return false;
     }
     for (k = 0; k < s->lv2->n_ports; k++)
@@ -678,9 +689,10 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     struct shim *s = SHIM_OF(plugin);
     char why[LV2_CORE_WHY_MAX];
 
+    g_last_refusal[0] = '\0';
     if (lv2_instance_activate(s->in, rate, min_frames, max_frames, why) != 0)
     {
-        host_log(s->host, CLAP_LOG_ERROR, why);
+        refuse(s->host, why);
         return false;
     }
     s->active = 1;
@@ -1080,19 +1092,20 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *factory,
     struct lv2_plugin *lv2;
     struct shim *s;
 
+    g_last_refusal[0] = '\0';
     if (!host || !id || !clap_version_is_compatible(host->clap_version))
         return NULL;
     lv2 = lv2_plugin_open(slot->bundle, id, why);
     if (!lv2)
     {
-        host_log(host, CLAP_LOG_ERROR, why);
+        refuse(host, why);
         return NULL;
     }
     s = calloc(1, sizeof(*s));
     if (!s)
     {
         lv2_plugin_close(lv2);
-        host_log(host, CLAP_LOG_ERROR, LV2_CODE_NO_REALISATION);
+        refuse(host, LV2_CODE_NO_REALISATION);
         return NULL;
     }
     s->lv2 = lv2;
@@ -1271,6 +1284,19 @@ void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry)
         memset(slot, 0, sizeof(*slot));
         return;
     }
+}
+
+const char *omx_clap_lv2_last_refusal(void)
+{
+    return g_last_refusal;
+}
+
+const char *omx_clap_lv2_param_symbol(const clap_plugin_t *plugin, clap_id id)
+{
+    const struct shim *s = plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+    const int32_t k = s && s->control_of_port ? control_of_id(s, id) : -1;
+
+    return k >= 0 ? s->lv2->controls[k].symbol : NULL;
 }
 
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin)

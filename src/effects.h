@@ -59,6 +59,8 @@
 int effects_init(void);
 int effects_finish(void);
 int effects_add(const char *uri, int instance, const char *client_name);
+/* the hosting.* code of the last effects_add that failed with one, "" when it named none */
+const char *effects_add_reason(void);
 int effects_pin_expect(int instance, const char *layout);
 int effects_remove(int effect_id);
 int effects_bypass(int effect_id, int value);

@@ -490,6 +490,21 @@ static void t_refusals(void)
         CHECK(f->create_plugin(f, &t.host, cases[i].uri) == NULL && strcmp(t.log, want) == 0,
               "create_plugin refuses %s, and clap.log carries %s word for word (got '%.*s')", cases[i].uri, cases[i].code,
               (int)(strlen(t.log) ? strlen(t.log) - 1 : 0), t.log);
+        CHECK(strcmp(omx_clap_lv2_last_refusal(), cases[i].code) == 0, "the last refusal reads %s (got '%s')", cases[i].code,
+              omx_clap_lv2_last_refusal());
+    }
+    // a create that succeeds clears it: the code of an earlier add never names a later one
+    if (f)
+    {
+        struct th t;
+        const clap_plugin_t *p;
+
+        th_init(&t);
+        p = f->create_plugin(f, &t.host, FIXTURE_URI);
+        CHECK(p && strcmp(omx_clap_lv2_last_refusal(), "") == 0, "a create that succeeds leaves no last refusal (got '%s')",
+              omx_clap_lv2_last_refusal());
+        if (p)
+            p->destroy(p);
     }
     omx_clap_lv2_entry_release(e);
 }
@@ -551,6 +566,12 @@ static void t_fixture(double rate)
           && info.max_value == 0.0 && info.default_value == -20.0 && info.flags == CLAP_PARAM_IS_AUTOMATABLE,
           "fixture %.0f: gain_db is id 3 (its port index), \"Gain\", -60..0, default -20", rate);
     CHECK(g.params->get_info(g.plugin, 2, &info) && info.id == 4 && info.flags == CLAP_PARAM_IS_READONLY, "fixture %.0f: the meter is id 4, read-only", rate);
+    CHECK(omx_clap_lv2_param_symbol(g.plugin, 2) && strcmp(omx_clap_lv2_param_symbol(g.plugin, 2), "enabled") == 0
+          && omx_clap_lv2_param_symbol(g.plugin, 3) && strcmp(omx_clap_lv2_param_symbol(g.plugin, 3), "gain_db") == 0
+          && omx_clap_lv2_param_symbol(g.plugin, 4) && strcmp(omx_clap_lv2_param_symbol(g.plugin, 4), "meter") == 0,
+          "fixture %.0f: ids 2, 3 and 4 answer the symbols enabled, gain_db and meter", rate);
+    CHECK(!omx_clap_lv2_param_symbol(g.plugin, 0) && !omx_clap_lv2_param_symbol(g.plugin, 5) && !omx_clap_lv2_param_symbol(g.plugin, 99)
+          && !omx_clap_lv2_param_symbol(NULL, 3), "fixture %.0f: an audio port, the latency port, an id past the ports and no plugin answer no symbol", rate);
     CHECK(g.params->value_to_text(g.plugin, 3, -20.0, text, sizeof(text)) && strcmp(text, "-20") == 0
           && g.params->text_to_value(g.plugin, 3, "-12.5", &v) && v == -12.5, "fixture %.0f: value and text both ways", rate);
     CHECK(g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1 && g.ports->get(g.plugin, 0, false, &port)
