@@ -154,6 +154,8 @@ static jack_client_t *g_jack_global_client;
 static char g_add_reason[OMX_CLAP_LV2_WHY_MAX > OMX_CLAP_WHY_MAX ? OMX_CLAP_LV2_WHY_MAX : OMX_CLAP_WHY_MAX];
 // the LV2 adapter took its configuration: an LV2 add can be tried
 static int g_lv2_ready;
+/* the state root the LV2 adapter makes each instance's state:makePath directory in: -s, else the XDG default */
+static const char *g_state_root_given;
 
 
 /*
@@ -1044,10 +1046,44 @@ static int configure_core(void)
 
 /* the LV2 adapter, once: every feature it provides, the numbers above. lilv is not loaded here, only by the first LV2
  * add, so a host that never adds an LV2 plugin never maps it */
-static void configure_lv2(void)
+void effects_set_state_root(const char *dir)
+{
+    g_state_root_given = dir;
+}
+
+/* the state root: the one -s names, else $XDG_STATE_HOME/omx-clap-host (an absolute XDG_STATE_HOME only, as the base
+ * directory specification says), else $HOME/.local/state/omx-clap-host; NULL when there is none */
+static const char *state_root(char *buf, size_t size)
+{
+    const char *xdg = getenv("XDG_STATE_HOME"), *home = getenv("HOME");
+    int n;
+
+    if (g_state_root_given)
+        n = snprintf(buf, size, "%s", g_state_root_given);
+    else if (xdg && xdg[0] == '/')
+        n = snprintf(buf, size, "%s/omx-clap-host", xdg);
+    else if (home && home[0] == '/')
+        n = snprintf(buf, size, "%s/.local/state/omx-clap-host", home);
+    else
+        return NULL;
+    return n > 0 && (size_t)n < size ? buf : NULL;
+}
+
+/* an existing directory this process cannot make entries in is no root; one that does not exist yet the adapter makes */
+static int state_root_usable(const char *root)
+{
+    struct stat st;
+
+    if (root[0] != '/')
+        return 0;
+    if (stat(root, &st) != 0)
+        return errno == ENOENT;
+    return S_ISDIR(st.st_mode) && access(root, W_OK | X_OK) == 0;
+}
+
+static int configure_lv2_with(const char *root, char why[OMX_CLAP_LV2_WHY_MAX])
 {
     omx_clap_lv2_config_t config;
-    char why[OMX_CLAP_LV2_WHY_MAX];
 
     memset(&config, 0, sizeof(config));
     config.features = omx_clap_lv2_provided;
@@ -1056,7 +1092,28 @@ static void configure_lv2(void)
     config.atom_buffer_bytes = LV2_ATOM_BUFFER_BYTES;
     config.latency_hold_ms = CLAP_HOST_LATENCY_HOLD_MS;
     config.lilv_soname = NULL;
-    g_lv2_ready = omx_clap_lv2_configure(&config, why) == 0;
+    config.state_root = root;
+    return omx_clap_lv2_configure(&config, why);
+}
+
+/* the adapter with a state root, so state:makePath is offered; a root that cannot be made or written leaves it
+ * unoffered, said once, and a plugin that requires it is refused at add (hosting.features.missing) as before */
+static void configure_lv2(void)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX], buf[PATH_MAX];
+    const char *root = state_root(buf, sizeof(buf));
+
+    if (root && !state_root_usable(root))
+    {
+        fprintf(stderr, "the state root %s is not a directory this host can write: state:makePath is not offered\n", root);
+        root = NULL;
+    }
+    g_lv2_ready = configure_lv2_with(root, why) == 0;
+    if (!g_lv2_ready && root && strcmp(why, "lv2.configure.state-root") == 0)
+    {
+        fprintf(stderr, "the state root %s cannot be made (%s): state:makePath is not offered\n", root, why);
+        g_lv2_ready = configure_lv2_with(NULL, why) == 0;
+    }
     if (!g_lv2_ready)
         fprintf(stderr, "the LV2 adapter refused its configuration: %s; no LV2 plugin can be added\n", why);
 }
@@ -1574,18 +1631,28 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
     return used < size ? SUCCESS : ERR_INVALID_OPERATION;
 }
 
-/* param_info: -103 for what is not a parameter param_set takes; every parameter is uncontracted until the host reads
- * org.openmixer.param-contract/1, so the controller falls back to qualification */
-int effects_param_info(int effect_id, const char *symbol)
+/* param_info: -103 for what is not a parameter param_set takes; -511 for a parameter of a plugin whose
+ * org.openmixer.param-contract/1 is absent or broke a rule (the controller falls back to qualification); else the unit,
+ * the scale and the step the contract gives, the range and the default clap.params gives, and the contract's symbol */
+int effects_param_info(int effect_id, const char *symbol, char *reply, size_t size)
 {
+    struct omx_clap_param_meaning m;
+    char min[32], max[32], def[32], step[32];
     const lv2_param_t *lv2;
     clap_id id;
+    int used;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
     if (param_of(&g_effects[effect_id], symbol, &id, &lv2) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
-    return PHD_ERR_NO_PARAM_CONTRACT;
+    if (omx_clap_host_param_meaning(g_effects[effect_id].clap, id, &m) != 0
+        || omx_clap_param_number(m.min, min, sizeof(min)) < 0 || omx_clap_param_number(m.max, max, sizeof(max)) < 0
+        || omx_clap_param_number(m.def, def, sizeof(def)) < 0 || omx_clap_param_number(m.step, step, sizeof(step)) < 0)
+        return PHD_ERR_NO_PARAM_CONTRACT;
+    used = snprintf(reply, size, "resp 0 %s %s %s %s %s %s %s", omx_clap_param_unit_name(m.unit),
+                    omx_clap_param_scale_name(m.scale), min, max, def, step, m.symbol);
+    return used > 0 && (size_t)used < size ? SUCCESS : ERR_INVALID_OPERATION;
 }
 
 /* monitor_output: 0 once `symbol` is monitored, its first value going out with the next idle call */

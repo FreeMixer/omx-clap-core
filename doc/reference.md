@@ -196,6 +196,18 @@ first LV2 add, so a host that never adds one never maps it.
 [docs/lv2-compatibility.md](../docs/lv2-compatibility.md) says what the adapter
 carries.
 
+A plugin that asks for `state:makePath` makes its files in the host's state
+root: `-s <dir>`, else `$XDG_STATE_HOME/omx-clap-host`, else
+`~/.local/state/omx-clap-host`, made at start. Each instance has a directory
+of its own there, `lv2-<pid>-<n>/`, removed with the instance; `state_save`
+copies the files the plugin's state names to `lv2-<pid>-<n>.saved/`, and the
+saved state names those copies by their absolute path, so they stay. A root
+that is not a directory the host can write, or that cannot be made, is said
+on stderr and `state:makePath` is not offered: a plugin that requires it
+answers `resp -102 hosting.features.missing`, and every other LV2 plugin
+still adds. plugin-hostd's workers inherit its environment, so the default
+root is the daemon's user's.
+
 What an LV2 `add` answers:
 
 | | reply |
@@ -323,6 +335,27 @@ Strip and controls
   `param_set` takes, or `-` for an empty slot and for an id `param_set` would
   refuse. A plugin's call of the host's `changed` writes
   `remote_pages_changed <N>` on the feedback socket.
-- `param_info <N> <param_id>` answers `resp -511` (`PHD_ERR_NO_PARAM_CONTRACT`)
-  for every parameter until the host reads `org.openmixer.param-contract/1`,
-  and `resp -103` for an id `param_set` would refuse.
+- `param_info <N> <param_id>` answers what a parameter's value means:
+  `resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>`. The
+  unit, the scale, the step and the symbol come from the plugin's
+  `org.openmixer.param-contract/1` (`omx_clap_ext.h`); the range and the
+  default from `clap.params` when asked. The unit is a name of the contract's
+  table (`none`, LV2's local names `s`, `ms`, `db`, `hz`, `semitone12TET` and
+  the rest, then `dbfs`, `dbu`, `ratio`, `lufs`), the scale `linear`, `log` or
+  `stepped`, and each number the shortest decimal that reads back to the same
+  double (`0.10000000149011612`, `1e-7`). The host reads and checks the
+  contract once, at `add`: a plugin that offers none, or whose contract breaks
+  one rule (an id with no entry, two entries with one symbol, a malformed
+  symbol, unit, scale or step, a fingerprint that is not the one the host
+  computes, a malformed migration step), answers `resp -511`
+  (`PHD_ERR_NO_PARAM_CONTRACT`) for every parameter, and the host's log names
+  the broken rule once (`<plugin id>: the parameter contract is not trusted:
+  R4 ...`). An id `param_set` would refuse (a read-only parameter, the
+  plugin's own bypass, an unknown id, `:bypass`) answers `resp -103`. An LV2
+  plugin answers `resp -511`: the adapter offers no contract.
+
+  The same reading is libomx-clap-core's: `omx_clap_host_param_contract` says
+  whether the contract holds (or which rule it broke) and
+  `omx_clap_host_param_meaning` what one parameter means;
+  `omx_clap_param_unit_name`, `omx_clap_param_scale_name` and
+  `omx_clap_param_number` write the words and numbers above.

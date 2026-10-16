@@ -49,6 +49,7 @@
 
 #include "clap_host.h"
 #include "clap_meters.h"
+#include "param_contract.h"
 
 
 /*
@@ -708,6 +709,30 @@ static void meters_read(struct omx_clap_instance *in)
     in->meters = n ? meters : NULL;
 }
 
+/* the plugin's org.openmixer.param-contract/1, checked once: the entries, or the reason it is uncontracted, said once in
+ * the log unless the plugin simply offers none, or the open has said already that it serves only the first parameters */
+static void contract_read(struct omx_clap_instance *in, uint32_t rows, uint32_t reported)
+{
+    struct pc_contract c;
+
+    memset(&c, 0, sizeof(c));
+    if (reported > rows)
+        snprintf(c.why, sizeof(c.why), "R1 more parameters than the host serves");
+    else
+        pc_read(&c, in->plugin, in->params, rows);
+    in->contract = c.entry;
+    in->contract_count = c.entry ? c.count : 0;
+    in->contract_version = c.entry ? c.version : 0;
+    snprintf(in->contract_why, sizeof(in->contract_why), "%s", c.entry ? "" : c.why);
+    if (!c.entry && strcmp(c.why, "absent") != 0 && reported <= rows)
+    {
+        char text[CLAP_HOST_LOG_BYTES];
+
+        snprintf(text, sizeof(text), "the parameter contract is not trusted: %s", c.why);
+        log_to_ring(in, text);
+    }
+}
+
 /* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
  * reference on `bin`. */
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
@@ -776,6 +801,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
         log_to_ring(in, text);
     }
     meters_read(in);
+    contract_read(in, rows, reported);
     *out = in;
     if (why)
         why[0] = '\0';
@@ -1143,6 +1169,51 @@ int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index,
     return 0;
 }
 
+int omx_clap_host_param_contract(struct omx_clap_instance *in, uint32_t *version, const char **why)
+{
+    if (version)
+        *version = in->contract_version;
+    if (why)
+        *why = in->contract ? NULL : in->contract_why;
+    return in->contract != NULL;
+}
+
+int omx_clap_host_param_meaning(struct omx_clap_instance *in, clap_id id, struct omx_clap_param_meaning *meaning)
+{
+    const struct pc_contract c = { in->contract, in->contract_count, in->contract_version, "" };
+    const omx_clap_param_contract_entry_t *entry = pc_entry(&c, id);
+    clap_param_info_t info;
+
+    if (!entry || info_of(in, id, &info) != 0)
+        return -1;
+    memset(meaning, 0, sizeof(*meaning));
+    meaning->id = id;
+    memcpy(meaning->symbol, entry->symbol, sizeof(meaning->symbol));
+    meaning->unit = entry->unit;
+    meaning->scale = entry->scale;
+    meaning->step = entry->step;
+    meaning->min = info.min_value;
+    meaning->max = info.max_value;
+    meaning->def = info.default_value;
+    meaning->flags = info.flags;
+    return 0;
+}
+
+const char *omx_clap_param_unit_name(uint32_t unit)
+{
+    return pc_unit_name(unit);
+}
+
+const char *omx_clap_param_scale_name(uint32_t scale)
+{
+    return pc_scale_name(scale);
+}
+
+int omx_clap_param_number(double value, char *out, size_t size)
+{
+    return pc_number(value, out, size);
+}
+
 uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity)
 {
     double read[OMX_CLAP_METER_CHANNELS_MAX];
@@ -1306,6 +1377,7 @@ void omx_clap_host_close(struct omx_clap_instance *in)
     in->plugin->destroy(in->plugin);
     binary_unref(in->bin);
     free(in->shadow);
+    free(in->contract);
     free(in);
 }
 
