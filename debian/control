@@ -32,13 +32,15 @@ Description: use CLAP plugins on a JACK rig, driven like mod-host
 
 Package: omx-clap-host-tests
 Architecture: any
-Depends: omx-clap-host (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Depends: omx-clap-host (= ${binary:Version}), python3, ${shlibs:Depends}, ${misc:Depends}
 Description: fixtures to test a program that drives omx-clap-host
  Plugins and a signal source for testing a program that runs omx-clap-host as
  its CLAP worker: a plugin that reads the track information the host passes
  it, a compressor that reports meters, and a JACK client that plays a
  constant level. They are installed in /usr/libexec/omx-clap-host/tests, away
  from the directories CLAP hosts scan, and are of no use to anyone else.
+ socket_conformance.py, beside them, checks how any server of the mod-host
+ socket protocol splits what it receives into commands.
 
 Package: libomx-clap-core0
 Section: libs
