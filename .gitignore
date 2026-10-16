@@ -10,6 +10,8 @@ tests/jack_identity
 tests/fake_synth.clap
 tests/fake_mover.clap
 tests/jack_synth_probe
+tests/jack_transport_ctl
+tests/fake_transport.clap
 tests/fake_compressor.clap
 tests/jack_meter_source
 *.d
@@ -22,6 +24,7 @@ tests/fault-*.clap
 tests/clap_stage_test
 tests/clap_core_test
 tests/msgring_test
+tests/host_transport_test
 tests/quiet_death_test
 tests/clap_raw_test
 tests/lv2_locate_test

@@ -82,6 +82,14 @@ int effects_param_info(int effect_id, const char *symbol, char *reply, size_t si
 float effects_jack_cpu_load(void);
 /* note_drops: "resp 0 <dropped> <releases> <sysex> <unmappable>", the instance's note counters since add */
 int effects_note_drops(int effect_id, char *reply, size_t size);
+/* the host's transport: set_bpm, set_bpb and transport answer ERR_JACK_VALUE_OUT_OF_RANGE outside mod-host's ranges;
+ * transport_sync answers ERR_INVALID_OPERATION for link and midi */
+int effects_set_bpm(double bpm);
+int effects_set_bpb(double bpb);
+int effects_transport(int rolling, double bpb, double bpm);
+int effects_transport_sync(const char *mode);
+/* -t, before the first add: every plugin reads the JACK transport instead of the host's */
+void effects_follow_jack_transport(int on);
 void effects_idle(void);
 
 
