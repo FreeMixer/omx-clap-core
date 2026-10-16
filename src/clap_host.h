@@ -708,6 +708,15 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
     omx_clap_run_transport(&in->stage, l, r, n, &in->transport, &rec);
 }
 
+/** The audio role, a cycle as a client with separate input and output buffers has it (JACK): the lane is the output pair,
+ * an effect's input copied onto it and an instrument's starting silent (omx_clap_io_lane), then omx_clap_host_run on it,
+ * the host's transport or tempo handed to the plugin as there. */
+static inline void omx_clap_host_run_io(struct omx_clap_instance *in, const float *const *inputs, float *const *outputs, uint32_t n)
+{
+    omx_clap_io_lane(&in->stage, inputs, outputs, n);
+    omx_clap_host_run(in, outputs[0], in->stage.h.n_out == 2 ? outputs[1] : NULL, n);
+}
+
 /** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
  * carrying the instance's note ids and its MPE zone read (omx_clap_note_in_ids). */
 static inline void omx_clap_host_note_in(struct omx_clap_instance *in, uint32_t time, const uint8_t *data, size_t size)

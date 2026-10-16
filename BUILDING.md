@@ -47,6 +47,15 @@ runs `tests/jack_synth_e2e.sh` in the same kind of namespace: the host with
 before the note, at two velocities and after the note off, and the layouts
 the host refuses.
 
+    make test-jack-transport
+
+runs `tests/jack_transport_e2e.sh` in the same kind of namespace: the host
+with `tests/fake_transport.clap`, a probe that keeps the transport it is
+handed as read-only parameters; `set_bpm`, `set_bpb`, `transport` and
+`transport_sync` and what the probe reads after each, then the host with
+`-t` while `tests/jack_transport_ctl` locates, starts and stops the JACK
+transport.
+
     make test-jack-notes-out
 
 runs `tests/jack_notes_out_e2e.sh` in the same kind of namespace: one note
