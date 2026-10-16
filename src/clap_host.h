@@ -70,11 +70,11 @@
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
- * instance's note ids, beside its stage).
+ * instance's note ids, beside its stage; 7: the instance's note output).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               6u
+#define OMX_CLAP_CORE_ABI               7u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -359,6 +359,11 @@ struct omx_clap_instance
     // the note ids, the MPE zone and the note ends of the stage (ABI 6): bound to it at activate, freed by the plugin's
     // NOTE_END or a hold of OMX_CLAP_NOTE_ID_HOLD_MS; the RT owns them, the control thread resets them holding the role
     struct omx_clap_note_ids note_ids;  ///< fed by omx_clap_host_note_in
+
+    // the plugin's note output (ABI 7): what it sends out on its first note output port inside process(), as MIDI, for
+    // one reader (omx_clap_host_notes_out); the warm-up and params.flush on the control thread put nothing in it
+    uint32_t note_outputs;  ///< the plugin's note output ports, read at open
+    struct omx_clap_note_out note_out;  ///< filled by the instance's output event list inside a processing block
 };
 
 
@@ -717,6 +722,16 @@ static inline void omx_clap_host_run_io(struct omx_clap_instance *in, const floa
 static inline void omx_clap_host_note_in(struct omx_clap_instance *in, uint32_t time, const uint8_t *data, size_t size)
 {
     omx_clap_note_in_ids(&in->stage, &in->note_ids, time, data, size);
+}
+
+/** RT right after omx_clap_host_run, in the same cycle, or one other thread that is the ring's only reader: take up to
+ * `capacity` of the notes and MIDI the plugin sent out on its first note output, oldest first, each as its MIDI message
+ * with its frame in its block and since activate (omx_clap_note_out_take). The ring holds OMX_CLAP_NOTE_OUT_DEPTH
+ * events; in->note_out.dropped counts those it had no room for and in->note_out.unmapped those with no MIDI form. */
+static inline uint32_t omx_clap_host_notes_out(struct omx_clap_instance *in, struct omx_clap_note_out_event *events,
+                                               uint32_t capacity)
+{
+    return omx_clap_note_out_take(&in->note_out, events, capacity);
 }
 
 /** Any thread: read the instance's note input as MPE zone `zone` (enum omx_clap_mpe; OMX_CLAP_MPE_OFF for none) with

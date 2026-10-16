@@ -56,6 +56,11 @@
  * 13. RT: no allocation inside omx_clap_run across every arm above, and the witness: a fake that allocates inside
  *     process() is seen by the same counter.
  * 14. XFADE: omx_wetdry_xfade_block against (1 - i/n)·from + (i/n)·to to < 1e-7; identical bodies bit-exact.
+ * 15. NOTE OUTPUT: what a plugin pushes on its note output, through omx_clap_note_out_push as the instance's sink calls
+ *     it, comes out of omx_clap_note_out_take as MIDI at its frames: a note on, a program change of two bytes, a choke
+ *     and a note off; a NOTE_END and a parameter's event are no note output; a note expression, a sysex, a note with no
+ *     key, another port's note and MIDI are counted unmapped; 300 more in one block keep 256 and count the rest
+ *     dropped, the order kept; a take of fewer than the ring holds leaves the rest for the next. All under the witness.
  * The tempo a run hands the plugin is clap_engine_test.c's (omx_clap_host_run).
  */
 #include <clap/clap.h>
@@ -99,7 +104,7 @@ static int failures = 0;
   } while (0)
 
 /* ---- the fake plugins: one instance shape, behaviour chosen by kind ---- */
-enum kind { K_PAD, K_CLOBBER, K_NAN, K_HOT, K_ERROR, K_CONSTANT, K_ALLOC, K_TALK };
+enum kind { K_PAD, K_CLOBBER, K_NAN, K_HOT, K_ERROR, K_CONSTANT, K_ALLOC, K_TALK, K_NOTES };
 struct fake {
   clap_plugin_t plugin; /* first, so plugin_data may simply be the fake */
   enum kind kind;
@@ -123,6 +128,7 @@ struct fake {
   double saw_tempo;      /* its tempo, when it carried CLAP_TRANSPORT_HAS_TEMPO; else 0 */
   uint32_t saw_tflags;   /* its flags */
   int saw_theader_ok;    /* size, space, type and time 0 as CLAP fixes them */
+  uint32_t flood;        /* K_NOTES: note ons pushed on top of the block's own events */
 };
 
 #define PAD_GAIN 0.1f /* -20 dB, the fake's own definition */
@@ -141,6 +147,48 @@ static void f_deactivate(const clap_plugin_t *p) { (void)p; }
 static bool f_start(const clap_plugin_t *p) { ((struct fake *)p->plugin_data)->starts++; return true; }
 static void f_stop(const clap_plugin_t *p) { ((struct fake *)p->plugin_data)->stops++; }
 static void f_reset(const clap_plugin_t *p) { ((struct fake *)p->plugin_data)->resets++; }
+
+/* K_NOTES: one block's note output, in frame order, then `flood` note ons on its last frame */
+static void note_push(const clap_output_events_t *out, uint16_t type, uint32_t time, int16_t port, int16_t channel, int16_t key, double velocity) {
+  clap_event_note_t e;
+  memset(&e, 0, sizeof e);
+  e.header = (clap_event_header_t){sizeof e, time, CLAP_CORE_EVENT_SPACE_ID, type, 0};
+  e.note_id = -1, e.port_index = port, e.channel = channel, e.key = key, e.velocity = velocity;
+  out->try_push(out, &e.header);
+}
+static void midi_push(const clap_output_events_t *out, uint32_t time, uint16_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
+  clap_event_midi_t m;
+  memset(&m, 0, sizeof m);
+  m.header = (clap_event_header_t){sizeof m, time, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0};
+  m.port_index = port, m.data[0] = b0, m.data[1] = b1, m.data[2] = b2;
+  out->try_push(out, &m.header);
+}
+static void notes_push(struct fake *f, const clap_output_events_t *out, uint32_t n) {
+  static const uint8_t SYSEX[] = {0xf0, 0x7e, 0x7f, 0x06, 0x01, 0xf7};
+  clap_event_note_expression_t x;
+  clap_event_midi_sysex_t sx;
+  clap_event_param_value_t pv;
+  note_push(out, CLAP_EVENT_NOTE_ON, 3, 0, 1, 60, 0.5);        /* 91 3c 40 */
+  midi_push(out, 5, 0, 0xc2, 5, 0);                             /* c2 05: two bytes */
+  note_push(out, CLAP_EVENT_NOTE_CHOKE, 7, -1, 1, 62, 1.0);    /* 81 3e 00 */
+  note_push(out, CLAP_EVENT_NOTE_END, 8, 0, 1, 60, 0.0);       /* the host's: no output */
+  memset(&pv, 0, sizeof pv);
+  pv.header = (clap_event_header_t){sizeof pv, 8, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+  out->try_push(out, &pv.header);                               /* a parameter's: no output */
+  memset(&x, 0, sizeof x);
+  x.header = (clap_event_header_t){sizeof x, 9, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_NOTE_EXPRESSION, 0};
+  x.expression_id = CLAP_NOTE_EXPRESSION_PRESSURE, x.note_id = -1, x.port_index = 0, x.channel = 1, x.key = 60, x.value = 0.5;
+  out->try_push(out, &x.header);                                /* unmapped */
+  memset(&sx, 0, sizeof sx);
+  sx.header = (clap_event_header_t){sizeof sx, 9, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI_SYSEX, 0};
+  sx.buffer = SYSEX, sx.size = sizeof SYSEX;
+  out->try_push(out, &sx.header);                               /* unmapped */
+  note_push(out, CLAP_EVENT_NOTE_OFF, 9, 0, 1, -1, 0.0);       /* every key: unmapped */
+  note_push(out, CLAP_EVENT_NOTE_ON, 9, 1, 1, 61, 1.0);        /* port 1: unmapped */
+  midi_push(out, 9, 1, 0x91, 61, 100);                          /* port 1: unmapped */
+  note_push(out, CLAP_EVENT_NOTE_OFF, n - 1, 0, 1, 60, 0.0);   /* 81 3c 00 */
+  for (uint32_t i = 0; i < f->flood; i++) note_push(out, CLAP_EVENT_NOTE_ON, n - 1, 0, (int16_t)(i / 128 % 16), (int16_t)(i % 128), 1.0);
+}
 
 static clap_process_status f_process(const clap_plugin_t *p, const clap_process_t *pr) {
   struct fake *f = (struct fake *)p->plugin_data;
@@ -212,6 +260,7 @@ static clap_process_status f_process(const clap_plugin_t *p, const clap_process_
     clap_event_header_t other = {sizeof other, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_MIDI, 0};
     pr->out_events->try_push(pr->out_events, &other);
   }
+  if (f->kind == K_NOTES && pr->out_events) notes_push(f, pr->out_events, n);
   return f->kind == K_TALK ? CLAP_PROCESS_TAIL : CLAP_PROCESS_CONTINUE;
 }
 
@@ -555,6 +604,73 @@ static void t_out_events(void) {
   CHECK(atomic_load(&g.st.out_events_seen) == 2, "both pushes accepted and counted (%u)", atomic_load(&g.st.out_events_seen));
   CHECK(atomic_load(&g.st.plugin_changed) == 1, "a PARAM_VALUE from the plugin raises plugin_changed");
   CHECK(atomic_load(&g.st.h.runs) == 1 && atomic_load(&g.st.h.fault) == 0, "TAIL is honoured as CONTINUE");
+}
+
+/* ---- 15. NOTE OUTPUT ---- */
+/* the instance's sink, reduced: every event the plugin pushes goes to the ring at the block's first frame */
+struct note_sink {
+  clap_output_events_t list;
+  struct omx_clap_stage *st;
+  struct omx_clap_note_out ring;
+};
+static bool note_sink_push(const clap_output_events_t *list, const clap_event_header_t *e) {
+  struct note_sink *k = (struct note_sink *)list->ctx;
+  omx_clap_note_out_push(&k->ring, e, k->st->steady_time);
+  return true;
+}
+static uint32_t notes_take(struct note_sink *k, struct omx_clap_note_out_event *got, uint32_t cap) {
+  in_rt = 1;
+  const uint32_t n = omx_clap_note_out_take(&k->ring, got, cap);
+  in_rt = 0;
+  return n;
+}
+static int note_is(const struct omx_clap_note_out_event *e, int64_t frame, uint32_t time, uint8_t size, uint8_t b0, uint8_t b1, uint8_t b2) {
+  return e->frame == frame && e->time == time && e->size == size && e->data[0] == b0 && e->data[1] == b1 && (size < 3 || e->data[2] == b2);
+}
+static void t_notes_out(void) {
+  static struct rig g;
+  static struct note_sink k;
+  static struct omx_clap_note_out_event got[OMX_CLAP_NOTE_OUT_DEPTH + 64];
+  float l[MAXB], r[MAXB];
+  rig_up(&g, K_NOTES, 2, QCAP);
+  memset(&k, 0, sizeof k);
+  k.st = &g.st;
+  k.list.ctx = &k;
+  k.list.try_push = note_sink_push;
+  g.st.proc.out_events = &k.list;
+  fill(l, 64, 0.1f), fill(r, 64, 0.1f);
+  run(&g, l, r, 64);  /* the first block: start_processing, the fade in */
+  notes_take(&k, got, OMX_CLAP_NOTE_OUT_DEPTH + 64);
+  const uint32_t unmapped0 = atomic_load(&k.ring.unmapped);
+  CHECK(unmapped0 == 5, "five events with no MIDI form are counted: an expression, a sysex, a note on every key, port 1's note and MIDI (%u)", unmapped0);
+
+  int64_t start = g.st.steady_time;
+  run(&g, l, r, 64);
+  uint32_t n = notes_take(&k, got, OMX_CLAP_NOTE_OUT_DEPTH + 64);
+  CHECK(n == 4 && note_is(&got[0], start + 3, 3, 3, 0x91, 60, 64) && note_is(&got[1], start + 5, 5, 2, 0xc2, 5, 0) &&
+            note_is(&got[2], start + 7, 7, 3, 0x81, 62, 0) && note_is(&got[3], start + 63, 63, 3, 0x81, 60, 0),
+        "a note on, a program change, a choke and a note off come out as MIDI at their frames; the NOTE_END and the parameter do not (%u)", n);
+  CHECK(atomic_load(&k.ring.unmapped) == unmapped0 + 5 && atomic_load(&k.ring.dropped) == 0, "five more unmapped, none dropped (%u, %u)",
+        atomic_load(&k.ring.unmapped) - unmapped0, atomic_load(&k.ring.dropped));
+
+  g.f.flood = 300;
+  start = g.st.steady_time;
+  run(&g, l, r, 64);
+  n = notes_take(&k, got, OMX_CLAP_NOTE_OUT_DEPTH + 64);
+  CHECK(n == OMX_CLAP_NOTE_OUT_DEPTH && atomic_load(&k.ring.dropped) == 304 - OMX_CLAP_NOTE_OUT_DEPTH,
+        "304 events in one block: the ring keeps %u and counts %u dropped, never blocking (%u, %u)", OMX_CLAP_NOTE_OUT_DEPTH,
+        304 - OMX_CLAP_NOTE_OUT_DEPTH, n, atomic_load(&k.ring.dropped));
+  CHECK(n == OMX_CLAP_NOTE_OUT_DEPTH && note_is(&got[0], start + 3, 3, 3, 0x91, 60, 64) && note_is(&got[3], start + 63, 63, 3, 0x81, 60, 0) &&
+            note_is(&got[4], start + 63, 63, 3, 0x90, 0, 127) && note_is(&got[n - 1], start + 63, 63, 3, 0x91, 123, 127),
+        "the first %u are kept, in the order the plugin pushed them", OMX_CLAP_NOTE_OUT_DEPTH);
+
+  g.f.flood = 0;
+  start = g.st.steady_time;
+  run(&g, l, r, 64);
+  n = notes_take(&k, got, 3);
+  const uint32_t rest = notes_take(&k, got + 3, 8);
+  CHECK(n == 3 && rest == 1 && note_is(&got[3], start + 63, 63, 3, 0x81, 60, 0), "a take of three leaves the fourth for the next (%u, %u)", n, rest);
+  CHECK(notes_take(&k, got, 8) == 0, "and the ring is empty after it");
 }
 
 /* ---- 14. XFADE closed form ---- */
@@ -1165,6 +1281,7 @@ int main(void) {
     t_note_priority();
     t_stale_events();
     t_sysex_pool_resets();
+    t_notes_out();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

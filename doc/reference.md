@@ -28,6 +28,7 @@ Commands
     disconnect <origin_port> <destination_port>
     cpu_load
     note_drops <instance_number>
+    note_out_drops <instance_number>
     set_bpm <beats_per_minute>
     set_bpb <beats_per_bar>
     transport <rolling> <beats_per_bar> <beats_per_minute>
@@ -243,6 +244,46 @@ unconnected: the plugin is handed a scratch buffer for it. A plugin is admitted 
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
 and then leaves the plugin idle: notes that arrive meanwhile are dropped.
+
+Note and MIDI output. A plugin with a CLAP note output port (an
+arpeggiator, a chord generator, a synth that echoes what it plays, an LV2
+plugin with a MIDI output) gets one jack MIDI output port on its client,
+`effect_<N>:midi_out`. What the plugin sends out on its first note output
+in a cycle is written to `midi_out` in the same cycle, at the frame the
+plugin gave it:
+
+- `CLAP_EVENT_NOTE_ON` and `CLAP_EVENT_NOTE_OFF` become a MIDI note on and
+  note off of their channel and key, the velocity scaled to 0..127 and
+  rounded; a note on is never sent at velocity 0. `CLAP_EVENT_NOTE_CHOKE`
+  becomes a note off at velocity 0. A note event with no single key or
+  channel (-1) names no MIDI message.
+- `CLAP_EVENT_MIDI` is sent as it is: three bytes, or two for a program
+  change and a channel pressure.
+- `CLAP_EVENT_NOTE_END` is the plugin telling the host a voice ended
+  (above): it is never sent out.
+- A note expression, a sysex, a MIDI 2 event, an event of another note
+  output port and a note event with no single key or channel are counted as
+  unmapped and not sent.
+
+A time past the cycle is written on its last frame, and a time before the
+previous event's on the previous event's frame, since a jack MIDI buffer
+holds its events in order. The library keeps the plugin's output in a
+lock-free ring of 256 events (`OMX_CLAP_NOTE_OUT_DEPTH`, a block's
+`CLAP_HOST_NOTES_PER_BLOCK`), written inside `process()` and read on the
+audio thread right after it; past it an event is dropped and counted.
+Only a processing cycle fills it: the warm-up and a parameter flush send
+nothing out. `note_out_drops <N>` answers `resp 0 <dropped> <unmapped>
+<port_full>`: the events the ring had no room for, the events with no MIDI
+form, and the messages the jack port had no room for, since the instance was
+added. Nothing is allocated or locked on the audio thread.
+
+A program that hosts plugins through the library reads the same events with
+`omx_clap_host_notes_out`, on the audio role right after
+`omx_clap_host_run` in the same cycle, or on one other thread that is the
+ring's only reader: each event carries its frame in the block, the frame
+since activate and its MIDI bytes. `omx_clap_note_midi` and
+`omx_clap_midi_size` (`omx_clap_midi.h`) are the conversion above, the LV2
+adapter's too.
 
 LV2 plugins
 -----------

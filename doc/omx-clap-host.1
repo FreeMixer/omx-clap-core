@@ -40,7 +40,11 @@ events when the input prefers the MIDI or the MIDI MPE dialect, on the frame
 they arrived on. An id is free again when the plugin ends its voice. In an MPE
 zone a member channel's bend, pressure and controller 74 become per-note
 expressions of the note on that channel. Controllers, program change and
-system messages reach only an input that reads MIDI events. A wider main port,
+system messages reach only an input that reads MIDI events. A plugin with a
+note output gets a JACK MIDI output port,
+.BR midi_out :
+the notes and MIDI the plugin sends out on its first note output are written
+there in the same cycle, at their frame. A wider main port,
 a main pair of different widths, a second note input or a note input read in
 none of those dialects is refused at
 .B add
@@ -124,7 +128,7 @@ answered with
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
 .BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", "
-.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", "
+.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", " note_out_drops ", "
 .BR set_bpm ", " set_bpb ", " transport ", " transport_sync ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
@@ -163,6 +167,15 @@ notes off, all sound off, a pedal let go), the sysex messages past a cycle's
 eight, and the messages no dialect of the plugin carries. A cycle keeps the
 last 128 of its 256 note slots for releases, so a flood of note ons never
 crowds out the note off that ends one.
+.BI "note_out_drops " N
+answers
+.BI "resp 0 " "dropped unmapped port_full" :
+the events instance
+.I N
+sent out that its ring of 256 had no room for, those with no MIDI form (a note
+expression, a sysex, another note output's), and the messages
+.B midi_out
+had no room for, since it was added.
 .BI "pin_expect " "N scheme" : sha256
 is plugin\-hostd's: the next
 .B add
