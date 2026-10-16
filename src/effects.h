@@ -56,6 +56,8 @@
 ************************************************************************************************************************
 */
 
+/* the state root -s names, before effects_init; NULL for the default ($XDG_STATE_HOME/omx-clap-host) */
+void effects_set_state_root(const char *dir);
 int effects_init(void);
 int effects_finish(void);
 int effects_add(const char *uri, int instance, const char *client_name);
