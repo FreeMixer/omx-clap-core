@@ -157,6 +157,18 @@ first LV2 add, so a host that never adds one never maps it.
 [docs/lv2-compatibility.md](../docs/lv2-compatibility.md) says what the adapter
 carries.
 
+A plugin that asks for `state:makePath` makes its files in the host's state
+root: `-s <dir>`, else `$XDG_STATE_HOME/omx-clap-host`, else
+`~/.local/state/omx-clap-host`, made at start. Each instance has a directory
+of its own there, `lv2-<pid>-<n>/`, removed with the instance; `state_save`
+copies the files the plugin's state names to `lv2-<pid>-<n>.saved/`, and the
+saved state names those copies by their absolute path, so they stay. A root
+that is not a directory the host can write, or that cannot be made, is said
+on stderr and `state:makePath` is not offered: a plugin that requires it
+answers `resp -102 hosting.features.missing`, and every other LV2 plugin
+still adds. plugin-hostd's workers inherit its environment, so the default
+root is the daemon's user's.
+
 What an LV2 `add` answers:
 
 | | reply |
