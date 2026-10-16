@@ -98,12 +98,36 @@ arrived on, in the dialect the note port prefers:
 - CLAP: a note on (`0x9n`, velocity above 0) and a note off (`0x8n`, or a
   note on with velocity 0) become `CLAP_EVENT_NOTE_ON` and
   `CLAP_EVENT_NOTE_OFF` with the key, the channel, the velocity as
-  `v / 127` and no note id. All notes off (controller 123, and 124 to 127,
-  which imply it) becomes a `CLAP_EVENT_NOTE_OFF` and all sound off (120) a
-  `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Nothing
-  else is passed: another controller, pitch bend or program change is dropped.
+  `v / 127` and a note id (below). All notes off (controller 123, and 124 to
+  127, which imply it) becomes a `CLAP_EVENT_NOTE_OFF` and all sound off (120)
+  a `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Pitch
+  bend and channel or poly pressure become `CLAP_NOTE_EXPRESSION_TUNING` and
+  `_PRESSURE`, unless the port also reads MIDI, which then gets them raw.
 - MIDI: every channel message of one to three bytes becomes a
   `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
+- MIDI with MPE: a port that prefers `CLAP_NOTE_DIALECT_MIDI_MPE` gets every
+  channel message raw, as the MIDI dialect does, and reads the MPE zone
+  itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`.
+
+Note ids. Every CLAP note on takes a fresh id from a pool of 256 per
+instance (`OMX_CLAP_NOTE_IDS`), and its note off and every per-note
+expression of it carry the same id. A note on of a key that already sounds
+first ends the old note, a note off under its old id. The id is free again
+when the plugin pushes `CLAP_EVENT_NOTE_END` for it, or, for a plugin that
+never does, 2 seconds after its note off (`OMX_CLAP_NOTE_ID_HOLD_MS`, in
+frames at the rate the instance is activated at). A note on that finds no
+free id is skipped and counted, and its note off is dropped, since nothing
+sounds. A note off of a key the host holds no id for goes with note id -1.
+A reset of the plugin frees every id.
+
+MPE. The MPE configuration message (RPN 6 on channel 1 or 16) sets the
+lower or upper zone and its member channel count; the library's caller may
+set the zone itself (`omx_clap_host_set_mpe`). In a zone, a member
+channel's pitch bend, channel pressure and controller 74 become
+`CLAP_NOTE_EXPRESSION_TUNING`, `_PRESSURE` and `_BRIGHTNESS` for the newest
+note held on that channel, with its id, channel and key; the master
+channel's reach every note. The bend range is 48 semitones on the members
+and 2 on the master, MPE's defaults, until RPN 0 sets another.
 
 A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
 128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on
@@ -119,7 +143,7 @@ messages no dialect of the plugin carries, since the instance was added.
 Nothing is allocated or locked on the audio thread.
 
 A main port wider than stereo, a main pair of different widths, a second
-note input, a note input that reads neither the CLAP nor the MIDI dialect, or
+note input, a note input that reads none of the CLAP, MIDI and MIDI MPE dialects, or
 no audio input and no note input is refused at `add` with `resp -102` followed
 by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
 `hosting.clap.note-input`, `hosting.topology.no-audio-input`. An extra audio
