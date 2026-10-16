@@ -103,7 +103,9 @@ arrived on, in the dialect the note port prefers:
   `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Nothing
   else is passed: another controller, pitch bend or program change is dropped.
 - MIDI: every channel message of one to three bytes becomes a
-  `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
+  `CLAP_EVENT_MIDI`. A sysex of up to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a
+  `CLAP_EVENT_MIDI_SYSEX`, eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer
+  one is counted as unmappable. System real-time bytes are dropped.
 
 A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
 128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on
