@@ -147,6 +147,10 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   `omx_clap_raw_close` deinits and dlcloses. None of the hosted path's protections apply, on
   purpose: a program that judges a plugin sees what the plugin does alone. `make test-raw`
   runs it against the fake effect.
+- `omx_clap_midi.h`: the MIDI form of CLAP's note events, header only and safe on the audio
+  thread: `omx_clap_midi_size` is a message's length from its status byte, `omx_clap_note_midi`
+  the MIDI message of a CLAP note on, note off or choke. The host's note output and the LV2
+  adapter's MIDI input both convert with it.
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a

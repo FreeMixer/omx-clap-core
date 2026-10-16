@@ -87,6 +87,7 @@
 #include <clap/ext/note-ports.h>
 
 #include "lv2_core.h"
+#include "omx_clap_midi.h"
 #include "omx_clap_lv2.h"
 
 
@@ -518,49 +519,12 @@ static bool note_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_
 
 static const clap_plugin_note_ports_t g_note_ports = { note_ports_count, note_ports_get };
 
-/* the bytes a message of this status byte has: 0 for a byte no message starts with, and for a sysex, which comes as a
- * CLAP_EVENT_MIDI_SYSEX of its own. A program change and a channel pressure have two, every other channel message three. */
-static uint32_t midi_size(uint8_t status)
-{
-    if (status < 0x80)
-        return 0;
-    if (status < 0xf0)
-        return (status & 0xe0) == 0xc0 ? 2u : 3u;
-    switch (status)
-    {
-    case 0xf1: case 0xf3: return 2;
-    case 0xf2: return 3;
-    case 0xf6: case 0xf8: case 0xf9: case 0xfa: case 0xfb: case 0xfc: case 0xfd: case 0xfe: case 0xff: return 1;
-    default: return 0;
-    }
-}
-
 /* a frame of the block for an event's time: a time past the block is held at its last frame */
 static uint32_t frame_in(const struct shim *s, uint32_t time)
 {
     if (time < s->frames)
         return time;
     return s->frames ? s->frames - 1 : 0;
-}
-
-/* [audio] a CLAP note on, off or choke as its MIDI message: 3, or 0 for one that names no single key on one channel of the
- * port. The velocity is scaled to 0..127 and rounded, a note on never at 0 (a note off to MIDI), a choke at 0. */
-static uint32_t note_midi(const clap_event_header_t *h, uint8_t m[3])
-{
-    const clap_event_note_t *e = (const clap_event_note_t *)h;
-    double v = e->velocity < 0.0 ? 0.0 : e->velocity > 1.0 ? 1.0 : e->velocity;
-    long vel = lrint(v * 127.0);
-
-    if (e->key < 0 || e->key > 127 || e->channel < 0 || e->channel > 15 || (e->port_index != 0 && e->port_index != -1))
-        return 0;
-    if (h->type == CLAP_EVENT_NOTE_ON && vel < 1)
-        vel = 1;
-    if (h->type == CLAP_EVENT_NOTE_CHOKE)
-        vel = 0;
-    m[0] = (uint8_t)((h->type == CLAP_EVENT_NOTE_ON ? 0x90 : 0x80) | e->channel);
-    m[1] = (uint8_t)e->key;
-    m[2] = (uint8_t)vel;
-    return 3;
 }
 
 /* [audio] the MIDI of the events, in the order they came, into the MIDI input of the next run. A message the input cannot
@@ -579,7 +543,7 @@ static void midi_in_events(struct shim *s, const clap_input_events_t *events)
         if (h->type == CLAP_EVENT_MIDI)
         {
             const clap_event_midi_t *m = (const clap_event_midi_t *)h;
-            const uint32_t size = midi_size(m->data[0]);
+            const uint32_t size = omx_clap_midi_size(m->data[0]);
 
             if (size)
                 lv2_instance_midi_in_add(s->in, frame_in(s, h->time), m->data, size);
@@ -595,7 +559,7 @@ static void midi_in_events(struct shim *s, const clap_input_events_t *events)
         {
             uint8_t m[3];
 
-            if (note_midi(h, m))
+            if (omx_clap_note_midi(h, m))
                 lv2_instance_midi_in_add(s->in, frame_in(s, h->time), m, 3);
         }
     }
