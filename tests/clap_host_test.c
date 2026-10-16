@@ -633,7 +633,6 @@ static void synth_checks(const char *path)
 
     check_refused(path, SYNTH_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     check_refused(path, SYNTH_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
-    check_refused(path, SYNTH_MPE, CLAP_HOST_CODE_NOTE_INPUT);
     check_refused(path, SILENT, CLAP_HOST_CODE_NO_AUDIO_INPUT);
     CHECK(omx_clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
 
@@ -650,6 +649,8 @@ static void synth_checks(const char *path)
 
     synth_notes_checks(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     synth_notes_checks(path, SYNTH_MIDI, 1, CLAP_NOTE_DIALECT_MIDI);
+    // a port that prefers MIDI with MPE reads raw MIDI, the MPE dialect set: the synth plays from CLAP_EVENT_MIDI alone
+    synth_notes_checks(path, SYNTH_MPE, 2, CLAP_NOTE_DIALECT_MIDI_MPE);
     synth_ids_checks(path);
 
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
