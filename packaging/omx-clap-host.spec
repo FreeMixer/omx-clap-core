@@ -150,6 +150,10 @@ make test-lv2
   request on the audio thread is refused with a code.
 - A crash ends omx-clap-host at once, without writing a core dump;
   OMX_CLAP_HOST_CORE_DUMPS=1 keeps the dump for debugging a plugin.
+- A burst of notes can no longer swallow the note-off that ends them: the
+  last half of each block's note room is kept for note-offs and
+  all-notes-off, and omx-clap-host reports what it dropped with
+  note_drops <N>.
 
 * Thu Oct 15 2026 Pau Aliagas <linuxnow@gmail.com> - 0.8.0-1
 - A new header, omx_clap_raw.h, opens a CLAP plugin the raw way (dlopen,
