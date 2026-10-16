@@ -104,7 +104,9 @@ arrived on, in the dialect the note port prefers:
   bend and channel or poly pressure become `CLAP_NOTE_EXPRESSION_TUNING` and
   `_PRESSURE`, unless the port also reads MIDI, which then gets them raw.
 - MIDI: every channel message of one to three bytes becomes a
-  `CLAP_EVENT_MIDI`. System messages and sysex are dropped.
+  `CLAP_EVENT_MIDI`. A sysex of up to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a
+  `CLAP_EVENT_MIDI_SYSEX`, eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer
+  one is counted as unmappable. System real-time bytes are dropped.
 - MIDI with MPE: a port that prefers `CLAP_NOTE_DIALECT_MIDI_MPE` gets every
   channel message raw, as the MIDI dialect does, and reads the MPE zone
   itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`.
