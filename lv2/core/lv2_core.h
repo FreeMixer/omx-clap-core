@@ -76,6 +76,10 @@
 /* the side-chain legs a plugin may have, one per channel: at most this many channels, each side chain one or two of them */
 #define LV2_CORE_SIDE_LEGS              8
 
+/* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
+ * may have: each gets a sequence buffer of its own, emptied before every block; one more is refused */
+#define LV2_CORE_ATOM_IN_PORTS          4
+
 /* the atom outputs that are neither MIDI nor the patch output (a notify port for the plugin's GUI) a plugin may have: each
  * gets a buffer of its own, offered every block and discarded after it; one more is refused */
 #define LV2_CORE_NOTIFY_PORTS           4
@@ -97,6 +101,7 @@
 /* the refusals, the verdict's spelling */
 #define LV2_CODE_NO_REALISATION         "hosting.no-realisation"
 #define LV2_CODE_MIDI_IN                "hosting.features.midi-in-fed-empty"
+#define LV2_CODE_ATOM_IN                "hosting.features.atom-in-unfed"    // a non-MIDI atom input no buffer here can feed
 #define LV2_CODE_CV_PORTS               "hosting.features.cv-ports"
 #define LV2_CODE_FEATURES_MISSING       "hosting.features.missing"
 #define LV2_CODE_NO_AUDIO_INPUT         "hosting.topology.no-audio-input"
@@ -196,15 +201,19 @@ struct lv2_plugin
     int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
     int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
     int32_t midi_out_port;          // the one MIDI output atom port, -1: none
-    int32_t time_port;              // -1: none; the atom input that takes time:Position and nothing else (§6.6)
+    int32_t time_port;              // -1: none; the first atom input that takes time:Position, no MIDI and no patch:Message (§6.6)
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
+    int patch_time;                 // the patch input also supports time:Position: the transport is forged into it
     uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
     struct lv2_patch *patches;      // the numeric patch:writable properties, in their URIs' order
     uint32_t n_patches;
     struct lv2_patch_text *texts;   // the string and path patch:writable properties, in their URIs' order
     uint32_t n_texts;
+    uint32_t n_atom_in;             // the atom inputs that are neither MIDI, the patch input nor the time port: fed empty
+    uint32_t atom_in[LV2_CORE_ATOM_IN_PORTS];
+    uint32_t atom_in_min;           // the largest rsz:minimumSize of those inputs, 0: none
     uint32_t n_notify;              // the atom outputs that are neither MIDI nor the patch output, discarded
     uint32_t notify_out[LV2_CORE_NOTIFY_PORTS];
     uint32_t notify_min;            // the largest rsz:minimumSize of those outputs, 0: none

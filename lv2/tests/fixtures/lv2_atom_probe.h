@@ -33,6 +33,11 @@ struct lv2_atom_probe
     int64_t midi_frame[LV2_ATOM_PROBE_MIDI];
     uint32_t midi_size[LV2_ATOM_PROBE_MIDI];
     uint8_t midi[LV2_ATOM_PROBE_MIDI][4];
+    /* the UI plugins: what their atom control input held at each run */
+    uint32_t ui_blocks;             /* run() calls */
+    uint32_t ui_valid;              /* runs whose input was an atom:Sequence in frames, its size its body at least */
+    uint32_t ui_time;               /* time:Position objects read from it, every block's */
+    uint32_t ui_other;              /* any other event read from it */
 };
 
 #endif

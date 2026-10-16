@@ -443,7 +443,7 @@ static void t_entry(void)
 
     CHECK(a && a == b, "the entry of a bundle, the same entry for a second reference");
     CHECK(a && a->init(g_fixture) && clap_version_is_compatible(a->clap_version), "its init answers and its CLAP version is compatible");
-    CHECK(fa && fa->get_plugin_count(fa) == 10, "its factory lists the fixture bundle's 10 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
+    CHECK(fa && fa->get_plugin_count(fa) == 11, "its factory lists the fixture bundle's 11 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
     CHECK(fa && has_plugin(fa, FIXTURE_URI, &name) && name && strcmp(name, "openmixer host fixture") == 0,
           "descriptor id = the LV2 URI, name = doap:name (%s), features: audio-effect only", name ? name : "");
     CHECK(a && a->get_factory("clap.no-such-factory") == NULL, "no factory but the plugin factory");
@@ -458,7 +458,7 @@ static void t_entry(void)
     omx_clap_lv2_entry_release(w);
     a = omx_clap_lv2_entry(g_fixture, why);
     fa = a ? a->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
-    CHECK(fa && fa->get_plugin_count(fa) == 10, "after the last release the bundle is loaded afresh for the next entry");
+    CHECK(fa && fa->get_plugin_count(fa) == 11, "after the last release the bundle is loaded afresh for the next entry");
     omx_clap_lv2_entry_release(a);
 }
 
@@ -466,7 +466,7 @@ static void t_refusals(void)
 {
     static const struct { const char *uri, *code; } cases[] =
     {
-        { FIXTURE_URI "#atom", "hosting.features.midi-in-fed-empty" },
+        { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
         { FIXTURE_URI "#no-out", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
@@ -2089,6 +2089,64 @@ static void t_atom_midi_time(double rate)
     rig_down(&g);
 }
 
+/* LSP's UI ports and a sequence that takes time:Position, through the CLAP face: created, no note port (the input is no
+ * MIDI port), the input a valid sequence at every process(), the transport's object there once, and out = in x 0.5 */
+static void t_atom_ui(double rate)
+{
+    static const char *const frags[] = { "#ui-lsp", "#ui-seq-time", "#ui-none" };
+    static float in[BLOCK], out[BLOCK];
+    clap_event_transport_t tr;
+    size_t s;
+    uint32_t i, b;
+
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f * sinf(0.0613f * (float)i);
+    memset(&tr, 0, sizeof(tr));
+    tr.header.size = sizeof(tr);
+    tr.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    tr.header.type = CLAP_EVENT_TRANSPORT;
+    tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_IS_PLAYING;
+    tr.tempo = 120.0;
+    for (s = 0; s < sizeof(frags) / sizeof(frags[0]); s++)
+    {
+        char uri[128];
+        const clap_plugin_note_ports_t *np;
+        struct lv2_atom_probe *pr;
+        struct midi_in mi;
+        struct rig g;
+        int same = 1;
+
+        snprintf(uri, sizeof(uri), "%s%s", LV2_ATOM_FIXTURE_URI, frags[s]);
+        if (rig_up(&g, g_atom, uri, rate, BLOCK) != 0)
+            continue;
+        pr = atom_probe();
+        if (!pr)
+        {
+            CHECK(0, "atom ui %s %.0f: the probe of the atom fixture", frags[s], rate);
+            rig_down(&g);
+            continue;
+        }
+        memset(pr, 0, sizeof(*pr));
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(!np || (np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 0),
+              "atom ui %s %.0f: no note port: the atom input is not reported as MIDI", frags[s], rate);
+        for (b = 0; b < 4; b++)
+        {
+            midi_in_init(&mi);
+            mt_process(&g, in, out, &tr, &mi.list);
+            for (i = 0; i < BLOCK; i++)
+                same = same && out[i] == in[i] * 0.5f;
+        }
+        CHECK(pr->ui_blocks == 4 && pr->ui_valid == 4, "atom ui %s %.0f: the input is a valid sequence at every process() (%u of %u)",
+              frags[s], rate, pr->ui_valid, pr->ui_blocks);
+        CHECK(pr->ui_time == (strcmp(frags[s], "#ui-none") != 0 ? 1u : 0u) && pr->ui_other == 0,
+              "atom ui %s %.0f: the transport's object read there once when the port takes time:Position, nothing else (%u, %u)",
+              frags[s], rate, pr->ui_time, pr->ui_other);
+        CHECK(same, "atom ui %s %.0f: out = in x 0.5 on every frame of four blocks", frags[s], rate);
+        rig_down(&g);
+    }
+}
+
 /* ---- the CLAP body of libomx-clap-core around the adapter ---- */
 
 static struct omx_clap_instance *core_open_at(const clap_plugin_entry_t *entry, const char *uri, double rate, uint32_t max_block,
@@ -2671,6 +2729,7 @@ int main(int argc, char **argv)
         t_time(RATES[r]);
         t_atom_text(RATES[r]);
         t_atom_midi_time(RATES[r]);
+        t_atom_ui(RATES[r]);
         t_sidechain(RATES[r]);
         t_sidechain_core(RATES[r]);
         t_make_path(RATES[r]);
