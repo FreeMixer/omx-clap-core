@@ -535,51 +535,65 @@ static char *world_string(const LilvNode *subject, int predicate)
     return s;
 }
 
-/* An atom port is the patch port of its direction when it is a sequence that supports patch:Message and nothing else,
- * and the first one of its direction. A MIDI port and the time:Position input are read before this. Any other atom
- * output is a notify output, up to LV2_CORE_NOTIFY_PORTS, given a buffer and discarded; any other atom input, or one
- * output more, is refused with the MIDI refusal: CLAP has nothing to feed it. */
+/* the largest of `min` and the first rsz:minimumSize in `rsz` */
+static uint32_t rsz_max(const LilvNodes *rsz, uint32_t min)
+{
+    LilvIter *it = rsz ? L.lilv_nodes_begin(rsz) : NULL;
+
+    if (rsz && !L.lilv_nodes_is_end(rsz, it))
+    {
+        int ok = 0;
+        const float v = node_float(L.lilv_nodes_get(rsz, it), &ok);
+
+        if (ok && v > (float)min)
+            return (uint32_t)v;
+    }
+    return min;
+}
+
+/* An atom port that is neither MIDI nor the time port, read after both. An input is a sequence (atom:bufferType
+ * atom:Sequence, or none named): the first that supports patch:Message is the patch input, whatever else it lists (a
+ * time:Position it also takes is forged into it); any other, up to LV2_CORE_ATOM_IN_PORTS, is fed an empty sequence at
+ * every block, which the LV2 atom rules let a host do with a port it sends nothing to (LSP's in_ui, eq10q's, a GUI's
+ * control port). An input that is no sequence, or one more, is refused with LV2_CODE_ATOM_IN: never the MIDI refusal,
+ * since it takes no MIDI. An output is the patch output when it supports patch:Message and nothing else, and the first
+ * one; any other is a notify output, up to LV2_CORE_NOTIFY_PORTS, given a buffer and discarded; one more is refused with
+ * the MIDI refusal. */
 static const char *atom_port(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t index)
 {
     LilvNodes *sup = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
     LilvNodes *type = L.lilv_port_get_value(pl, port, g.node[N_BUFFER_TYPE]);
     LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
-    const int patch_only = sup && nodes_count(sup) == 1 && L.lilv_nodes_contains(sup, g.node[N_PATCH_MESSAGE]);
-    const int sequence = !type || L.lilv_nodes_contains(type, g.node[N_SEQUENCE]);
-    const int free_slot = (input ? p->patch_in : p->patch_out) < 0;
-    const char *refused = LV2_CODE_MIDI_IN;
-    LilvIter *it;
+    const int patch = sup && L.lilv_nodes_contains(sup, g.node[N_PATCH_MESSAGE]);
+    const int patch_only = patch && nodes_count(sup) == 1;
+    const int sequence = !type || nodes_count(type) == 0 || L.lilv_nodes_contains(type, g.node[N_SEQUENCE]);
+    const int one_size = !rsz || nodes_count(rsz) <= 1;
+    const char *refused = input ? LV2_CODE_ATOM_IN : LV2_CODE_MIDI_IN;
 
-    if (patch_only && sequence && free_slot && (!rsz || nodes_count(rsz) == 1))
+    if (input && sequence && one_size && patch && p->patch_in < 0)
     {
         refused = NULL;
-        if (input)
-            p->patch_in = (int32_t)index;
-        else
-            p->patch_out = (int32_t)index;
-        it = rsz ? L.lilv_nodes_begin(rsz) : NULL;
-        if (rsz && !L.lilv_nodes_is_end(rsz, it))
-        {
-            int ok = 0;
-            const float min = node_float(L.lilv_nodes_get(rsz, it), &ok);
-
-            if (ok && min > (float)p->atom_min)
-                p->atom_min = (uint32_t)min;
-        }
+        p->patch_in = (int32_t)index;
+        p->patch_time = L.lilv_nodes_contains(sup, g.node[N_TIME_POSITION]) ? 1 : 0;
+        p->atom_min = rsz_max(rsz, p->atom_min);
     }
-    else if (!input && p->n_notify < LV2_CORE_NOTIFY_PORTS && (!rsz || nodes_count(rsz) <= 1))
+    else if (input && sequence && one_size && p->n_atom_in < LV2_CORE_ATOM_IN_PORTS)
+    {
+        refused = NULL;
+        p->atom_in[p->n_atom_in++] = index;
+        p->atom_in_min = rsz_max(rsz, p->atom_in_min);
+    }
+    else if (!input && patch_only && sequence && p->patch_out < 0 && one_size)
+    {
+        refused = NULL;
+        p->patch_out = (int32_t)index;
+        p->atom_min = rsz_max(rsz, p->atom_min);
+    }
+    else if (!input && p->n_notify < LV2_CORE_NOTIFY_PORTS && one_size)
     {
         refused = NULL;
         p->notify_out[p->n_notify++] = index;
-        it = rsz ? L.lilv_nodes_begin(rsz) : NULL;
-        if (rsz && !L.lilv_nodes_is_end(rsz, it))
-        {
-            int ok = 0;
-            const float min = node_float(L.lilv_nodes_get(rsz, it), &ok);
-
-            if (ok && min > (float)p->notify_min)
-                p->notify_min = (uint32_t)min;
-        }
+        p->notify_min = rsz_max(rsz, p->notify_min);
     }
     L.lilv_nodes_free(sup);
     L.lilv_nodes_free(type);
@@ -762,19 +776,18 @@ static const char *read_patches(struct lv2_plugin *p, const LilvPlugin *pl)
     return NULL;
 }
 
-/* An atom port whose atom:supports names time:Position and nothing else */
+/* An atom input the transport is forged into: a sequence whose atom:supports names time:Position and not patch:Message */
 static int port_takes_time(const LilvPlugin *pl, const LilvPort *port)
 {
     LilvNodes *s = L.lilv_port_get_value(pl, port, g.node[N_SUPPORTS]);
-    LilvIter *it;
-    unsigned n = 0;
-    int only = 1;
+    LilvNodes *type = L.lilv_port_get_value(pl, port, g.node[N_BUFFER_TYPE]);
+    const int sequence = !type || nodes_count(type) == 0 || L.lilv_nodes_contains(type, g.node[N_SEQUENCE]);
+    const int takes = s && sequence && L.lilv_nodes_contains(s, g.node[N_TIME_POSITION])
+                      && !L.lilv_nodes_contains(s, g.node[N_PATCH_MESSAGE]);
 
-    for (it = s ? L.lilv_nodes_begin(s) : NULL; s && !L.lilv_nodes_is_end(s, it); it = L.lilv_nodes_next(s, it), n++)
-        only = only && L.lilv_node_equals(L.lilv_nodes_get(s, it), g.node[N_TIME_POSITION]);
-    if (s)
-        L.lilv_nodes_free(s);
-    return n > 0 && only;
+    L.lilv_nodes_free(s);
+    L.lilv_nodes_free(type);
+    return takes;
 }
 
 /* a node's string, duplicated, from the first of `nodes`; NULL when there is none. The nodes stay the caller's. */
@@ -1003,7 +1016,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         }
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && input && p->time_port < 0 && port_takes_time(pl, port))
         {
-            // the transport's port: an input that takes time:Position and nothing else (§6.6)
+            // the transport's port: a sequence input that takes time:Position and no patch:Message (§6.6); whatever else it
+            // lists (atom:Sequence, the plugin's own objects) it is sent nothing of
             p->time_port = (int32_t)i;
             continue;
         }
