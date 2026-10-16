@@ -76,6 +76,8 @@ if [ "${1:-}" = --self-test ]; then
   sab ops-in-mjs     tools/gen.mjs                   '// see openmixer-ops'
   sab dev-in-mjs     tools/gen.mjs                   '// omx-dsp-dev#32'
   sab spec-in-mjs    tools/gen.mjs                   "// openmixer's spec 2026-10-09-plugin-from-contract.md"
+  sab dated-filename tools/gen.mjs                   '// the layout in 2026-10-09-plugin-from-contract.md'
+  sab dated-citation tools/gen.mjs                   '// as laid out in spec 2026-10-09'
   sab ttl            src/x.ttl       'rdfs:comment "see FreeMixer/openmixer#12" ;'
   sab header         src/x.h         '/* packages/core/src/x.ts */'
   sab design-dir     docs/a.md                       'the notes in docs/design/specs'
