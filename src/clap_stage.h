@@ -443,8 +443,7 @@ static inline void omx_clap_note_ids_bind(struct omx_clap_note_ids *n, struct om
         n->mpe_master_bend = OMX_CLAP_MPE_MASTER_BEND_DEFAULT;
         n->mpe_member_bend = OMX_CLAP_MPE_MEMBER_BEND_DEFAULT;
     }
-    omx_clap_note_ids_reset(n);
-    atomic_store_explicit(&n->mpe_wanted, 0u, memory_order_relaxed);
+    omx_clap_note_ids_reset(n);     // mpe_wanted is kept: a zone asked for before or between activations is taken at the next message
     n->stage = s;
     n->hold_frames = hold_frames;
     n->out_events.ctx = n;

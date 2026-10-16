@@ -899,6 +899,20 @@ static void t_mpe(void) {
   CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 3 && ni_expr(1, CLAP_NOTE_EXPRESSION_BRIGHTNESS, NS.notes[0].note.note_id, 1, 60, 1.0),
         "the zone asked for is the input's from the next message: controller 74 is the note's BRIGHTNESS");
 
+  /* a zone asked for before the first bind, or while deactivated, lasts across the bind (the header's promise) */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
+  memset(&NI, 0, sizeof NI);
+  omx_clap_note_ids_want_mpe(&NI, OMX_CLAP_MPE_LOWER, 3);
+  omx_clap_note_ids_bind(&NI, &NS, 1000);
+  ni_in(0, ON2, 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 3, "a zone asked for before the first activate is the input's at its first message");
+  omx_clap_note_ids_want_mpe(&NI, OMX_CLAP_MPE_UPPER, 5);
+  omx_clap_note_ids_bind(&NI, &NS, 1000);
+  omx_clap_note_ids_reset(&NI);
+  ni_in(0, ON2, 3);
+  CHECK(NI.mpe == OMX_CLAP_MPE_UPPER && NI.mpe_members == 5,
+        "a zone asked for while deactivated lasts across the next activate and a reset (%u, %u members)", NI.mpe, NI.mpe_members);
+
   /* the stage with no note ids reads no zone: the same messages go as before, channel-wide, id -1 */
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
   for (i = 0; i < 3; i++) ns_in(0, MCM_LOWER[i], 3);
