@@ -52,6 +52,7 @@
 #include "effects.h"
 #include "clap_host.h"
 #include "clap_meters.h"
+#include "host_transport.h"
 #include "layout_pin.h"
 #include "lv2_locate.h"
 #include "omx_clap_lv2.h"
@@ -137,6 +138,9 @@ typedef struct EFFECT_T {
     lv2_param_t *lv2_params;
     uint32_t lv2_params_count;
     uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
+    double rate;                            // the graph's rate when the instance was added
+    struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
+    struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
 } effect_t;
 
 
@@ -156,6 +160,11 @@ static char g_add_reason[OMX_CLAP_LV2_WHY_MAX > OMX_CLAP_WHY_MAX ? OMX_CLAP_LV2_
 static int g_lv2_ready;
 /* the state root the LV2 adapter makes each instance's state:makePath directory in: -s, else the XDG default */
 static const char *g_state_root_given;
+/* the host's one transport: what set_bpm, set_bpb and transport asked for, the control thread's copy and the published
+ * one every audio thread reads; and -t, follow the JACK transport instead, set before the first add */
+static struct host_transport_intent g_intent = { 0, 0, 0.0, HOST_TRANSPORT_BPB_DEFAULT, 0, 0.0, 0.0 };
+static struct host_transport g_transport;
+static int g_follow_jack;
 
 
 /*
@@ -270,6 +279,31 @@ static void publish_gain_adjustment(effect_t *effect, uint32_t runs_before)
     atomic_store_explicit(&effect->gain_adjustment_bits, bits, memory_order_relaxed);
 }
 
+/* audio thread, ahead of the block: the transport the plugin reads in it, worked out of the host's transport at the
+ * block's first frame, or out of the JACK transport with -t, and published for the instance's run on this same thread */
+static void transport_block(effect_t *effect)
+{
+    struct omx_clap_transport rec;
+
+    host_transport_read(&g_transport, &effect->intent);
+    if (g_follow_jack)
+    {
+        jack_position_t pos;
+        const jack_transport_state_t state = jack_transport_query(effect->jack_client, &pos);
+        const struct host_jack_position at = {
+            state == JackTransportRolling, pos.frame, (pos.valid & JackPositionBBT) != 0, pos.bar, pos.beat, pos.tick,
+            pos.ticks_per_beat, pos.beats_per_minute, pos.beats_per_bar, pos.beat_type
+        };
+
+        host_transport_follow(&at, &effect->intent, pos.frame_rate ? (double)pos.frame_rate : effect->rate, &rec);
+    }
+    else
+    {
+        host_transport_own(&effect->intent, jack_last_frame_time(effect->jack_client), effect->rate, &rec);
+    }
+    omx_clap_transport_publish(&effect->transport_src, &rec);
+}
+
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
@@ -299,7 +333,8 @@ static int process(jack_nframes_t nframes, void *arg)
 
     if (effect->gain_adjustment)
         runs = atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed);
-    omx_clap_run_io(&effect->clap->stage, inputs, outputs, nframes);
+    transport_block(effect);
+    omx_clap_host_run_io(effect->clap, inputs, outputs, nframes);
     if (effect->gain_adjustment)
         publish_gain_adjustment(effect, runs);
     return 0;
@@ -1132,6 +1167,13 @@ int effects_init(void)
         fprintf(stderr, "can't get jack client\n");
         return ERR_JACK_CLIENT_CREATION;
     }
+    // active, with no port and no process callback, so its frame clock runs: a transport command is anchored on it at
+    // the frame the graph is at, the clock each instance's cycle reads
+    if (jack_activate(g_jack_global_client) != 0)
+    {
+        fprintf(stderr, "can't activate jack client\n");
+        return ERR_JACK_CLIENT_ACTIVATION;
+    }
     return SUCCESS;
 }
 
@@ -1264,6 +1306,9 @@ int effects_add(const char *uri, int instance, const char *client_name)
         error = ERR_LV2_INSTANTIATION;
         goto error;
     }
+    effect->rate = jack_get_sample_rate(effect->jack_client);
+    host_transport_read(&g_transport, &effect->intent);
+    omx_clap_host_set_transport(effect->clap, &effect->transport_src);
     omx_clap_host_arm(effect->clap);
 
     if (jack_activate(effect->jack_client) != 0)
@@ -1500,6 +1545,63 @@ int effects_note_drops(int effect_id, char *reply, size_t size)
              atomic_load_explicit(&stage->sysex_dropped, memory_order_relaxed),
              atomic_load_explicit(&stage->notes_unmappable, memory_order_relaxed));
     return SUCCESS;
+}
+
+/* the control thread: a change of the host's transport, anchored at the frame the graph is at now */
+static void transport_change(int rolling, double bpm, double bpb)
+{
+    const uint32_t now = g_jack_global_client ? jack_frame_time(g_jack_global_client) : 0u;
+    const double rate = g_jack_global_client ? (double)jack_get_sample_rate(g_jack_global_client) : 48000.0;
+
+    g_intent = host_transport_change(&g_intent, now, rate, rolling, bpm, bpb);
+    host_transport_publish(&g_transport, &g_intent);
+}
+
+static int bpm_valid(double bpm)
+{
+    return bpm >= HOST_TRANSPORT_BPM_MIN && bpm <= HOST_TRANSPORT_BPM_MAX;
+}
+
+static int bpb_valid(double bpb)
+{
+    return bpb >= HOST_TRANSPORT_BPB_MIN && bpb <= HOST_TRANSPORT_BPB_MAX;
+}
+
+int effects_set_bpm(double bpm)
+{
+    if (!bpm_valid(bpm))
+        return ERR_JACK_VALUE_OUT_OF_RANGE;
+    transport_change(g_intent.rolling, bpm, 0.0);
+    return SUCCESS;
+}
+
+int effects_set_bpb(double bpb)
+{
+    if (!bpb_valid(bpb))
+        return ERR_JACK_VALUE_OUT_OF_RANGE;
+    transport_change(g_intent.rolling, 0.0, bpb);
+    return SUCCESS;
+}
+
+int effects_transport(int rolling, double bpb, double bpm)
+{
+    if (!bpm_valid(bpm) || !bpb_valid(bpb))
+        return ERR_JACK_VALUE_OUT_OF_RANGE;
+    transport_change(rolling != 0, bpm, bpb);
+    return SUCCESS;
+}
+
+/* "none" is the host's own transport (or the JACK one with -t); Ableton Link and MIDI clock it has neither of */
+int effects_transport_sync(const char *mode)
+{
+    if (!mode || !strcmp(mode, "link") || !strcmp(mode, "midi"))
+        return ERR_INVALID_OPERATION;
+    return SUCCESS;
+}
+
+void effects_follow_jack_transport(int on)
+{
+    g_follow_jack = on != 0;
 }
 
 void effects_idle(void)
