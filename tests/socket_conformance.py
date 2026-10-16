@@ -27,7 +27,7 @@ import socket
 import sys
 import time
 
-CASES = ["sizes", "nul-late", "many-per-write", "every-offset", "n-way", "empty", "partial-disconnect",
+CASES = ["sizes", "nul-late", "many-per-write", "every-offset", "n-way", "empty", "close-unterminated", "partial-disconnect",
          "oversize", "sequential", "fuzz"]
 
 
@@ -201,6 +201,21 @@ def case_empty(args, r):
     got, more, _ = one_command(args, [b"\0\0" + padded(args.command, len(args.command) + 1)], want=want)
     ok = len(got) == want and got[:-1] == alone * 2 and re.search(args.answer, got[-1]) is not None and not more
     r.check("empty", ok, "two empty commands (alone: %r), then one, in one write: %r" % (alone, got))
+
+
+def case_close_unterminated(args, r):
+    # a client that sends no NUL and closes its sending side (echo cmd | nc -q1 ...): its last command still runs
+    one = args.command.encode()
+    for name, data, want in (("a command with no NUL", one, 1),
+                             ("two commands, the last with no NUL", padded(args.command, len(one) + 1) + one, 2)):
+        c = Conn(args)
+        c.send(data)
+        c.s.shutdown(socket.SHUT_WR)
+        got = c.answers(want)
+        more = c.extra(0.1) if len(got) == want and not c.closed else []
+        c.close()
+        r.check("close-unterminated", good(args, got, want) and not more,
+                "%s, then the client closes its end: %d answer(s) %r" % (name, len(got), got[:2]))
 
 
 def case_partial_disconnect(args, r):
