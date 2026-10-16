@@ -1367,10 +1367,10 @@ static inline void omx_clap_run(struct omx_clap_stage *s, float *l, float *r, ui
 
 /**
  * RT, a cycle as a client with separate input and output buffers has it (JACK): the lane is the output pair, an
- * effect's input is copied onto it and an instrument's lane starts silent, then omx_clap_run. `inputs` is not read when
- * the stage has no audio input and may then be NULL.
+ * effect's input is copied onto it and an instrument's lane starts silent. `inputs` is not read when the stage has no
+ * audio input and may then be NULL. omx_clap_run_io and omx_clap_host_run_io run the stage on the lane after it.
  */
-static inline void omx_clap_run_io(struct omx_clap_stage *s, const float *const *inputs, float *const *outputs, uint32_t n)
+static inline void omx_clap_io_lane(const struct omx_clap_stage *s, const float *const *inputs, float *const *outputs, uint32_t n)
 {
     uint32_t c;
 
@@ -1388,6 +1388,13 @@ static inline void omx_clap_run_io(struct omx_clap_stage *s, const float *const 
                 memcpy(outputs[c], in, n * sizeof(float));
         }
     }
+}
+
+/** RT, a cycle as a client with separate input and output buffers has it (JACK): omx_clap_io_lane, then omx_clap_run on
+ * the lane, with no transport. */
+static inline void omx_clap_run_io(struct omx_clap_stage *s, const float *const *inputs, float *const *outputs, uint32_t n)
+{
+    omx_clap_io_lane(s, inputs, outputs, n);
     omx_clap_run(s, outputs[0], s->h.n_out == 2 ? outputs[1] : NULL, n);
 }
 
