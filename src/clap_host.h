@@ -58,6 +58,7 @@
 
 #include "clap_host_extensions.h"
 #include "clap_stage.h"
+#include "omx_clap_ext.h"
 
 
 /*
@@ -136,6 +137,21 @@ struct omx_clap_param_row
     int stepped;                ///< CLAP_PARAM_IS_STEPPED: integer travel
     int enumerated;             ///< CLAP_PARAM_IS_ENUM
     void *cookie;               ///< what get_info returned; rides every event for this id
+};
+
+/** What a parameter's value means, from the plugin's org.openmixer.param-contract/1 (its symbol, unit, scale and step)
+ * and its clap.params info (its range, default and flags) as get_info gives them when asked. */
+struct omx_clap_param_meaning
+{
+    clap_id id;  ///< the CLAP parameter id
+    char symbol[OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE];  ///< the symbol the contract keeps across versions
+    uint32_t unit;  ///< an OMX_CLAP_PARAM_UNITS code: omx_clap_param_unit_name names it
+    uint32_t scale;  ///< an OMX_CLAP_PARAM_SCALES code: omx_clap_param_scale_name names it
+    double step;  ///< the plain-unit quantum the plugin resolves: 0 continuous, 1 stepped
+    double min,  ///< the minimum, in the unit
+           max,  ///< the maximum, in the unit
+           def;  ///< the default, in the unit
+    uint32_t flags;  ///< get_info's CLAP_PARAM_* flags
 };
 
 /** The read-back shadow of one parameter: what the host delivered and the cycle that consumed it, kept beside what the
@@ -275,6 +291,13 @@ struct omx_clap_instance
     const struct clap_plugin_meters *meters;  ///< the plugin's clap.meters/1 extension, NULL when it has none read whole
     uint32_t meter_count;  ///< the meters declared, 0 with no extension
     struct omx_clap_meter meter[OMX_CLAP_METER_COUNT_MAX];  ///< the declarations, meter_count of them
+
+    // the plugin's org.openmixer.param-contract/1 (ABI 0.10): read and checked once at open, fixed for the instance's
+    // life; read by the control thread only
+    omx_clap_param_contract_entry_t *contract;  ///< one entry per parameter by params index, NULL when uncontracted
+    uint32_t contract_count;  ///< the entries, 0 when uncontracted
+    uint32_t contract_version;  ///< the contract's version, 0 when uncontracted
+    char contract_why[128];  ///< "" when contracted; "absent" with no extension; else the rule it broke and how
 };
 
 
@@ -470,6 +493,26 @@ OMX_CLAP_EXPORT int omx_clap_host_meter_info(const struct omx_clap_instance *in,
  * activated. Calls the plugin's thread-safe get_values(), so any thread but the audio role reads it: a telemetry
  * thread, at its own rate. The caller keeps the instance open while it reads. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity);
+
+/** Whether the plugin's org.openmixer.param-contract/1 holds, as checked at open (rules R1, R2, R4 and R5 of openmixer's
+ * contract's rules, see omx_clap_ext.h): 1 with `*version`; 0 for an uncontracted plugin, `*why` "absent" when it
+ * offers no contract, else the rule it broke and how (a contract that breaks one rule is not trusted at all). Either
+ * pointer may be NULL. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_contract(struct omx_clap_instance *in, uint32_t *version, const char **why);
+
+/** What parameter `id` means: 0 with `*meaning` filled from the contract and from get_info; -1 for an uncontracted
+ * plugin or an id clap.params does not list. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_meaning(struct omx_clap_instance *in, clap_id id, struct omx_clap_param_meaning *meaning);
+
+/** The name of an OMX_CLAP_PARAM_UNITS code ("db", "hz", "semitone12TET"), NULL for a code the table does not hold. */
+OMX_CLAP_EXPORT const char *omx_clap_param_unit_name(uint32_t unit);
+
+/** The name of an OMX_CLAP_PARAM_SCALES code ("linear", "log", "stepped"), NULL for any other. */
+OMX_CLAP_EXPORT const char *omx_clap_param_scale_name(uint32_t scale);
+
+/** `value` as the shortest decimal that reads back to the same double, in ECMAScript's Number.prototype.toString form
+ * (-0 written 0): the length written, or -1 for a value that is not finite or does not fit in `size`. */
+OMX_CLAP_EXPORT int omx_clap_param_number(double value, char *out, size_t size);
 
 /** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency. Returns
  * nonzero when the plugin asked for a restart (the caller performs it). */

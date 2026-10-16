@@ -249,7 +249,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -262,7 +262,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-raw test-quiet-death test-lv2-locate
+test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-raw test-quiet-death test-lv2-locate test-param-contract
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
@@ -290,11 +290,18 @@ tests/clap_raw_test: tests/clap_raw_test.c src/omx_clap_raw.h tests/test_util.h
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
 
 # which bundles on an LV2 path the host opens for a URI: the manifest's spellings of it, the walk's order and stop
-test-lv2-locate: tests/lv2_locate_test
+test-lv2-locate: tests/lv2_locate_test tests/param_contract_test
 	./tests/lv2_locate_test
 
 tests/lv2_locate_test: tests/lv2_locate_test.c src/lv2_locate.c src/lv2_locate.h tests/test_util.h
 	$(CC) -Isrc $(CFLAGS) -Werror -o $@ tests/lv2_locate_test.c src/lv2_locate.c -lm
+
+# the parameter contract's SHA-256, canonical fingerprint and shortest decimals against answers computed elsewhere
+test-param-contract: tests/param_contract_test
+	./tests/param_contract_test
+
+tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -lm
 
 tests/msgring_test: tests/msgring_test.c src/omx_msgring.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
@@ -376,8 +383,8 @@ fixtures: $(FIXTURES)
 tests/fault-%.clap: tests/fault_clap.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -DOMX_FAULT_MODE=$* -o $@ $< -lm
 
-tests/fake.clap: tests/fake_plugin.c
-	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+tests/fake.clap: tests/fake_plugin.c src/omx_clap_ext.h
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
 
 tests/fake_synth.clap: tests/fake_synth.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm

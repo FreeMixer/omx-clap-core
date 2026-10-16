@@ -31,6 +31,11 @@
  * Every plugin reads back three read-only parameters: 1 the calls of activate and 2 the calls of process, which is how a
  * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension.
  * FAKE_LAYOUT_DEFAULT is the default parameter 0 declares (64 without it): the same binary with another layout.
+ * FAKE_CONTRACT makes every plugin offer org.openmixer.param-contract/1 over its four parameters (0 latency, frames,
+ * stepped; the read-only three, no unit, stepped), whole with "good", at version 2 with one rename step with "migrated",
+ * and with one rule broken otherwise: "fingerprint" (R4, the stated fingerprint is off by one digit), "missing" (R1,
+ * no entry for parameter 3), "duplicate" (R1, two entries named activations), "symbol" (R2, a symbol starting with a
+ * digit), "step" (R2, a stepped parameter whose step is 2), "noop" (R5, a migration step that changes nothing).
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
  * "<id> destroy" to, which outlives an instance the host destroyed.
  * passthrough also has clap.track-info, whose changed appends "<id> track_info <got> <flags> <a,r,g,b> <name>" with what
@@ -43,6 +48,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <clap/clap.h>
+
+#include "omx_clap_ext.h"
 
 #define ID_WIDE         "org.omx-clap-host.test.wide"
 #define ID_SIDECHAIN    "org.omx-clap-host.test.sidechain"
@@ -225,6 +232,75 @@ static const clap_plugin_params_t g_params = {
     params_count, params_get_info, params_get_value, params_value_to_text, params_text_to_value, params_flush
 };
 
+/* org.openmixer.param-contract/1 over the four parameters: its fingerprint is node's SHA-256 of the canonical
+ * serialisation (tests/param_contract_test.c names the lines), an oracle the host's own computation is held to */
+#define CONTRACT_FINGERPRINT "e89aa4a2d94c1b011532ca7f054c182a34b8b13004e017fed2c231b3167a0dc5"
+
+static const char *contract_arm(void)
+{
+    const char *arm = getenv("FAKE_CONTRACT");
+
+    return arm ? arm : "";
+}
+
+static uint32_t contract_version(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return !strcmp(contract_arm(), "migrated") || !strcmp(contract_arm(), "noop") ? 2 : 1;
+}
+
+static const char *contract_fingerprint(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return !strcmp(contract_arm(), "fingerprint") ? "f89aa4a2d94c1b011532ca7f054c182a34b8b13004e017fed2c231b3167a0dc5"
+                                                  : CONTRACT_FINGERPRINT;
+}
+
+static bool contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param_contract_entry_t *entry)
+{
+    static const char *const symbols[] = { "latency", "activations", "process_calls", "host_preset_load" };
+    const char *arm = contract_arm();
+
+    (void)plugin;
+    if (id > 3 || (id == 3 && !strcmp(arm, "missing")))
+        return false;
+    memset(entry, 0, sizeof(*entry));
+    entry->param_id = id;
+    snprintf(entry->symbol, sizeof(entry->symbol), "%s", symbols[id]);
+    if (id == 2 && !strcmp(arm, "duplicate"))
+        snprintf(entry->symbol, sizeof(entry->symbol), "activations");
+    if (id == 2 && !strcmp(arm, "symbol"))
+        snprintf(entry->symbol, sizeof(entry->symbol), "2process_calls");
+    entry->unit = id == 0 ? 6 : 0;  // frame, none
+    entry->scale = 2;  // stepped
+    entry->step = id == 1 && !strcmp(arm, "step") ? 2.0 : 1.0;
+    return true;
+}
+
+static uint32_t contract_migration_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return contract_version(plugin) == 2 ? 1 : 0;
+}
+
+static bool contract_get_migration(const clap_plugin_t *plugin, uint32_t index, omx_clap_param_contract_step_t *step)
+{
+    if (index >= contract_migration_count(plugin))
+        return false;
+    memset(step, 0, sizeof(*step));
+    step->from_version = 1;
+    snprintf(step->from_symbol, sizeof(step->from_symbol), !strcmp(contract_arm(), "noop") ? "latency" : "latency_frames");
+    snprintf(step->to_symbol, sizeof(step->to_symbol), "latency");
+    step->from_unit = 6;
+    step->to_unit = 6;
+    step->factor = 1.0;
+    return true;
+}
+
+static const omx_clap_plugin_param_contract_ext_t g_contract = {
+    contract_version, contract_fingerprint, contract_get, contract_migration_count, contract_get_migration
+};
+
 static uint32_t latency_get(const clap_plugin_t *plugin)
 {
     const fake_t *fake = plugin->plugin_data;
@@ -388,6 +464,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_params;
     if (!strcmp(id, CLAP_EXT_LATENCY))
         return &g_latency;
+    if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT) && *contract_arm())
+        return &g_contract;
     if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_TRACK_INFO))
         return &g_track_info;
     if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_REMOTE_CONTROLS))

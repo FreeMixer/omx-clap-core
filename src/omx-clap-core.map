@@ -73,3 +73,14 @@ OMX_CLAP_CORE_0.7
     omx_clap_host_meter_values;
     omx_clap_host_set_transport;
 } OMX_CLAP_CORE_0.3;
+
+/* added in 0.10.0 */
+OMX_CLAP_CORE_0.10
+{
+  global:
+    omx_clap_host_param_contract;
+    omx_clap_host_param_meaning;
+    omx_clap_param_number;
+    omx_clap_param_scale_name;
+    omx_clap_param_unit_name;
+} OMX_CLAP_CORE_0.7;
