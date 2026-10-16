@@ -69,11 +69,12 @@
 
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
- * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10).
+ * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
+ * instance's note ids, beside its stage).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               5u
+#define OMX_CLAP_CORE_ABI               6u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -354,6 +355,10 @@ struct omx_clap_instance
     uint32_t contract_count;  ///< the entries, 0 when uncontracted
     uint32_t contract_version;  ///< the contract's version, 0 when uncontracted
     char contract_why[128];  ///< "" when contracted; "absent" with no extension; else the rule it broke and how
+
+    // the note ids, the MPE zone and the note ends of the stage (ABI 6): bound to it at activate, freed by the plugin's
+    // NOTE_END or a hold of OMX_CLAP_NOTE_ID_HOLD_MS; the RT owns them, the control thread resets them holding the role
+    struct omx_clap_note_ids note_ids;  ///< fed by omx_clap_host_note_in
 };
 
 
@@ -696,6 +701,21 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         }
     }
     omx_clap_run_transport(&in->stage, l, r, n, &in->transport, &rec);
+}
+
+/** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
+ * carrying the instance's note ids and its MPE zone read (omx_clap_note_in_ids). */
+static inline void omx_clap_host_note_in(struct omx_clap_instance *in, uint32_t time, const uint8_t *data, size_t size)
+{
+    omx_clap_note_in_ids(&in->stage, &in->note_ids, time, data, size);
+}
+
+/** Any thread: read the instance's note input as MPE zone `zone` (enum omx_clap_mpe; OMX_CLAP_MPE_OFF for none) with
+ * `members` member channels, 1 to 15, from the next message on, as the MPE configuration message would. The zone lasts,
+ * across a deactivate and a reset too, until a configuration message or another call changes it. */
+static inline void omx_clap_host_set_mpe(struct omx_clap_instance *in, uint32_t zone, uint32_t members)
+{
+    omx_clap_note_ids_want_mpe(&in->note_ids, zone, members);
 }
 
 #endif
