@@ -150,8 +150,11 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   runs it without a call through the library. The layout of `struct omx_hosted_stage`,
   `struct omx_clap_stage` and `struct omx_clap_instance` is therefore part of the ABI.
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
-- `clap_host_limits.h`: every number and string the core reads, rendered from the
-  declared limits and committed here; never edited by hand.
+- `clap_host_limits.h`: every number and string the core reads, rendered from
+  `data/hosting.json` and committed here; never edited by hand.
+- `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
+  worker's two included, for a host that reads those names; rendered from the same
+  file and committed here, never edited by hand.
 - `omx_clap_ext.h`: the openmixer vendor extension a plugin serves through `get_extension`,
   `org.openmixer.declaration/1`, as an exact C structure. Header only: the library exports nothing
   for it. A plugin's meters are CLAP's own `clap.meters/1` ([docs/meters.md](docs/meters.md)).
@@ -231,6 +234,25 @@ plugin's (node's SHA-256 of the same lines), and the shortest decimals against
 node's `String(n)`. `make test-fake` includes it, and `tests/clap_host_test`
 opens the fake plugin with each `FAKE_CONTRACT` arm: whole, at version 2 with
 one rename step, and broken by R1, R2, R4 or R5, each named.
+
+The hosting limits and refusal codes are declared in `data/hosting.json`, in
+omx-contract's schema. `make install` puts them into omx-contract's contract
+directory, `$(pkg-config --variable=contractdir omx-contract)/2/omx-clap-core/`,
+with a `MANIFEST.json` naming this version, using the install script
+omx-contract-devel 2.15.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
+The two rendered headers install with the other core headers under
+`include/omx-clap-host/`, and the TypeScript module under
+`share/omx-clap-core/ts/`, which `pkg-config --variable=tsdir omx-clap-core`
+names: a TypeScript build copies `omx-clap-core-hosting.js` and its `.d.ts`
+from there, or points a path at them; no npm package is published.
+`make test-contract OMX_CONTRACT_DIR=<omx-contract checkout>` installs them into
+a directory of its own beside omx-contract's own files, reads them back through
+omx-contract's reader and renders the package's own files with
+`omx-contract render --package omx-clap-core`, framed by the `render` word of
+`data/hosting.json` (header, guard, project, banner, prefixes, the omitted
+fields, the level rule): `src/clap_host_limits.h`, `src/hosted_stage_limits.h`
+and the TypeScript module `ts/omx-clap-core-hosting.js` with its
+`omx-clap-core-hosting.d.ts` must be that render, byte for byte. It needs node and the checkout's `npm ci`.
 
 The LV2 adapter
 ---------------

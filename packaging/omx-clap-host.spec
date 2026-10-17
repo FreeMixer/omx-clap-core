@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.9.0
+Version:        0.10.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -14,6 +14,8 @@ BuildRequires: pkgconfig(mod-host-protocol)
 BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
+# make install puts data/ into omx-contract's contract directory with omx-contract's install script
+BuildRequires: omx-contract-devel >= 2.15.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -62,12 +64,15 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
+# the hosting limits and refusal codes, in omx-contract's contract directory, which that package owns
+Requires: omx-contract-devel >= 2.15.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
-headers, the pkg-config file, and the list of functions the library promises to
-keep, with the baseline each release is checked against.
+headers, the pkg-config file, the list of functions the library promises to
+keep, with the baseline each release is checked against, and the hosting
+limits and refusal codes as definitions in omx-contract's contract directory.
 
 %package -n omx-clap-lv2-devel
 Summary: Run LV2 plugins in a CLAP host, as a library to link
@@ -127,6 +132,7 @@ make test-lv2
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
 %{_datadir}/omx-clap-core/
+%{_datadir}/omx-contract/contract.d/2/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING
@@ -135,6 +141,28 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 17 2026 Pau Aliagas <linuxnow@gmail.com> - 0.10.0-1
+- A CLAP note input takes note ids, an MPE zone and note end; a note port that
+  prefers MIDI_MPE gets raw MIDI. The library ABI is 6.
+- A plugin's note output reaches effect_<N>:midi_out, through a lock-free ring
+  the audio role reads, and omx_clap_midi.h installs the MIDI form of a CLAP
+  note. The library ABI is 7.
+- omx-clap-host hands every plugin a transport: set_bpm, set_bpb, transport
+  and -t, the beat and bar worked out from the frames played, never by adding
+  increments.
+- A plugin's own parameter events, modulation, gestures, rescan and text reach
+  the host, and omx-clap-host answers param_info and reports param_set and
+  param_gesture on the feedback socket.
+- omx-clap-host takes a state root, so state:makePath is offered to plugins.
+- The LV2 adapter hosts an atom control input that takes no MIDI.
+- The LV2 worker's ring is the declared 16384 bytes, where the host handed it
+  4096.
+- The hosting limits and refusal codes are declared in data/hosting.json, and
+  the headers clap_host_limits.h and hosted_stage_limits.h and a TypeScript
+  module are rendered from it. They install into omx-contract's contract
+  directory.
+- The package requires omx-contract 2.15.0 or newer, which owns that
+  directory.
 * Fri Oct 16 2026 Pau Aliagas <linuxnow@gmail.com> - 0.9.0-1
 - omx-clap-host runs LV2 plugins: `add lv2:<uri>` finds the bundle on
   LV2_PATH and loads it through the LV2 adapter, and a refusal answers with

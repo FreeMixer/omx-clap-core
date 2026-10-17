@@ -2,6 +2,8 @@ prefix=@PREFIX@
 libdir=@LIBDIR@
 includedir=@INCLUDEDIR@
 datadir=@DATADIR@
+# the hosting items as a TypeScript module, omx-clap-core-hosting.js and its .d.ts
+tsdir=${datadir}/omx-clap-core/ts
 
 Name: omx-clap-core
 Description: The CLAP hosting core of omx-clap-host: a plugin's process() on the caller's RT thread and the control thread that owns the plugin

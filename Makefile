@@ -19,8 +19,10 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
 CORE_MAP = src/omx-clap-core.map
+# the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
+CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts
 
 PKG_CONFIG ?= pkg-config
 
@@ -189,7 +191,7 @@ TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_sour
 
 # the library, its headers, the pkg-config file and the export list: what a program that hosts CLAP plugins builds against
 install-lib: $(CORE_SO)
-	install -d $(DESTDIR)$(LIBDIR)/pkgconfig $(DESTDIR)$(INCLUDEDIR)/omx-clap-host $(DESTDIR)$(DATADIR)/$(CORE)
+	install -d $(DESTDIR)$(LIBDIR)/pkgconfig $(DESTDIR)$(INCLUDEDIR)/omx-clap-host $(DESTDIR)$(DATADIR)/$(CORE)/ts
 	install -m 755 $(CORE_FILE) $(DESTDIR)$(LIBDIR)/
 	ln -sf $(CORE_FILE) $(DESTDIR)$(LIBDIR)/$(CORE_SONAME)
 	ln -sf $(CORE_SONAME) $(DESTDIR)$(LIBDIR)/$(CORE_SO)
@@ -198,6 +200,7 @@ install-lib: $(CORE_SO)
 	    -e 's,@DATADIR@,$(DATADIR),' -e 's,@VERSION@,$(CORE_VERSION),' omx-clap-core.pc.in > $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-core.pc
 	chmod 644 $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-core.pc
 	install -m 644 $(CORE_MAP) $(DESTDIR)$(DATADIR)/$(CORE)/
+	install -m 644 $(CORE_TS) $(DESTDIR)$(DATADIR)/$(CORE)/ts/
 	if [ -f abi/$(CORE_SONAME).abi ]; then install -m 644 abi/$(CORE_SONAME).abi $(DESTDIR)$(DATADIR)/$(CORE)/; fi
 
 # the LV2 adapter: the archive, its one header and its pkg-config file, what a program that hosts LV2 plugins as CLAP
@@ -216,7 +219,27 @@ install-tests: $(TEST_FIXTURES)
 	install -d $(DESTDIR)$(TESTDIR)
 	install -m 755 $(TEST_FIXTURES) $(DESTDIR)$(TESTDIR)/
 
-install: install-lib install-lv2 install-tests install_man
+# the definitions this tree owns (data/: the hosting limits and refusal codes), installed as the package omx-clap-core
+# into omx-contract's contract directory, <contractdir>/<schema major>/omx-clap-core/, with a MANIFEST.json naming
+# this version and the tree they came from. contractdir and the install script are omx-contract-devel's (2.15.0 or
+# later); a checkout of omx-contract (OMX_CONTRACT_DIR) stands in for the script when it is not installed.
+CONTRACT_SCHEMA_MAJOR = 2
+CONTRACTDIR = $(or $(shell $(PKG_CONFIG) --variable=contractdir omx-contract 2>/dev/null),$(DATADIR)/omx-contract/contract.d)
+INSTALL_CONTRACT_DIR = $(firstword $(wildcard $(shell $(PKG_CONFIG) --variable=datadir omx-contract 2>/dev/null)/install-contract-dir.sh) $(wildcard $(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh))
+.PHONY: install-contract test-contract
+install-contract:
+	@test -n "$(INSTALL_CONTRACT_DIR)" || { echo "install-contract: no install-contract-dir.sh: install omx-contract-devel 2.15.0 or later, or set OMX_CONTRACT_DIR to a checkout" >&2; exit 1; }
+	sh $(INSTALL_CONTRACT_DIR) $(CORE) $(VERSION) $(CONTRACT_SCHEMA_MAJOR) data $(DESTDIR)$(CONTRACTDIR) data
+
+# data/ installed into a contract directory of its own, read back through omx-contract's reader beside omx-contract's
+# own package, and every file this tree commits as a render of it held to `render --package omx-clap-core`, byte for
+# byte (tests/contract-dir-check.sh); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+test-contract:
+	rm -rf build/contract
+	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh
+	sh tests/contract-dir-check.sh $(OMX_CONTRACT_DIR) build/contract/dir $(VERSION)
+
+install: install-lib install-lv2 install-tests install_man install-contract
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
 
@@ -311,7 +334,7 @@ test-param-contract: tests/param_contract_test
 tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -lm
 
-tests/msgring_test: tests/msgring_test.c src/omx_msgring.h
+tests/msgring_test: tests/msgring_test.c src/omx_msgring.h src/hosted_stage_limits.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
 
 # a host that crashes dies of the same signal and writes no core (checked where the machine writes cores at all)
