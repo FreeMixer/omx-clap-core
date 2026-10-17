@@ -3,6 +3,36 @@
   "requires": {
     "omx-contract-schema": ">= 2.15.0"
   },
+  "render": {
+    "c": [
+      {
+        "header": "clap_host_limits.h",
+        "guard": "CLAP_HOST_LIMITS_H",
+        "project": "omx-clap-host",
+        "banner": [
+          "Rendered from the FreeMixer console's declared stage limits and hosting refusal codes. The",
+          "rendered file is kept in this repository so the library builds on its own; the numbers and codes",
+          "are changed where they are declared and the file is re-rendered, never edited here."
+        ],
+        "brief": "The limits and refusal codes of the hosting code.",
+        "includes": [
+          "stddef.h"
+        ],
+        "numbers": {
+          "comment": "the stage and the host: every number the core reads",
+          "prefix": "CLAP_HOST_",
+          "omit": [
+            "worker*"
+          ],
+          "levels": "*Dbfs"
+        },
+        "codes": {
+          "comment": "the refusals the core returns, as the hosting codes the console's verdicts use",
+          "prefix": "CLAP_HOST_CODE_"
+        }
+      }
+    ]
+  },
   "HOSTED_STAGE_LIMITS": {
     "kind": "sheet",
     "since": "2.12.0",

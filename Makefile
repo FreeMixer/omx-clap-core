@@ -229,8 +229,8 @@ install-contract:
 	sh $(INSTALL_CONTRACT_DIR) $(CORE) $(VERSION) $(CONTRACT_SCHEMA_MAJOR) data $(DESTDIR)$(CONTRACTDIR) data
 
 # data/ installed into a contract directory of its own, read back through omx-contract's reader beside omx-contract's
-# own package, and src/clap_host_limits.h held to the c render of it (tests/contract-dir-check.sh); node and an
-# omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+# own package, and every file this tree commits as a render of it held to `render --package omx-clap-core`, byte for
+# byte (tests/contract-dir-check.sh); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
 test-contract:
 	rm -rf build/contract
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh

@@ -239,9 +239,11 @@ with a `MANIFEST.json` naming this version, using the install script
 omx-contract-devel 2.15.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
 `make test-contract OMX_CONTRACT_DIR=<omx-contract checkout>` installs them into
 a directory of its own beside omx-contract's own files, reads them back through
-omx-contract's reader and renders its `c` target: `src/clap_host_limits.h` must
-be that render, byte for byte outside its three-line banner. It needs node and
-the checkout's `npm ci`.
+omx-contract's reader and renders the package's own files with
+`omx-contract render --package omx-clap-core`, framed by the `render` word of
+`data/hosting.json` (header, guard, project, banner, prefixes, the omitted
+fields, the level rule): `src/clap_host_limits.h` must be that render, byte for
+byte. It needs node and the checkout's `npm ci`.
 
 The LV2 adapter
 ---------------
