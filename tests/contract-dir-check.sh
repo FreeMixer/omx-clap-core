@@ -30,6 +30,10 @@ sh "$oc/tools/install-contract-dir.sh" -x codes.json -x hosting.json omx-contrac
 
 $tool validate --contract-dir "$dir" --needs "omx-clap-core@>= $version"
 
+# every impl link of the package's items names code that reads the item (contract.source.unread names the code and the
+# link), found from this tree's root
+$tool links --check --root . --contract-dir "$dir" --package omx-clap-core
+
 # the renders this tree commits, as <target>:<committed path>; the output's name is the committed file's
 committed='c:src/clap_host_limits.h c:src/hosted_stage_limits.h ts:ts/omx-clap-core-hosting.js ts:ts/omx-clap-core-hosting.d.ts'
 
