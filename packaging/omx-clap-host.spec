@@ -14,6 +14,8 @@ BuildRequires: pkgconfig(mod-host-protocol)
 BuildRequires: pkgconfig(plugin-hostd) >= 0.1.2
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
+# make install puts data/ into omx-contract's contract directory with omx-contract's install script
+BuildRequires: omx-contract-devel >= 2.15.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -62,12 +64,15 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
+# the hosting limits and refusal codes, in omx-contract's contract directory, which that package owns
+Requires: omx-contract-devel >= 2.15.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
-headers, the pkg-config file, and the list of functions the library promises to
-keep, with the baseline each release is checked against.
+headers, the pkg-config file, the list of functions the library promises to
+keep, with the baseline each release is checked against, and the hosting
+limits and refusal codes as definitions in omx-contract's contract directory.
 
 %package -n omx-clap-lv2-devel
 Summary: Run LV2 plugins in a CLAP host, as a library to link
@@ -127,6 +132,7 @@ make test-lv2
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
 %{_datadir}/omx-clap-core/
+%{_datadir}/omx-contract/contract.d/2/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING

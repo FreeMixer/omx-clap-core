@@ -216,7 +216,27 @@ install-tests: $(TEST_FIXTURES)
 	install -d $(DESTDIR)$(TESTDIR)
 	install -m 755 $(TEST_FIXTURES) $(DESTDIR)$(TESTDIR)/
 
-install: install-lib install-lv2 install-tests install_man
+# the definitions this tree owns (data/: the hosting limits and refusal codes), installed as the package omx-clap-core
+# into omx-contract's contract directory, <contractdir>/<schema major>/omx-clap-core/, with a MANIFEST.json naming
+# this version and the tree they came from. contractdir and the install script are omx-contract-devel's (2.15.0 or
+# later); a checkout of omx-contract (OMX_CONTRACT_DIR) stands in for the script when it is not installed.
+CONTRACT_SCHEMA_MAJOR = 2
+CONTRACTDIR = $(or $(shell $(PKG_CONFIG) --variable=contractdir omx-contract 2>/dev/null),$(DATADIR)/omx-contract/contract.d)
+INSTALL_CONTRACT_DIR = $(firstword $(wildcard $(shell $(PKG_CONFIG) --variable=datadir omx-contract 2>/dev/null)/install-contract-dir.sh) $(wildcard $(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh))
+.PHONY: install-contract test-contract
+install-contract:
+	@test -n "$(INSTALL_CONTRACT_DIR)" || { echo "install-contract: no install-contract-dir.sh: install omx-contract-devel 2.15.0 or later, or set OMX_CONTRACT_DIR to a checkout" >&2; exit 1; }
+	sh $(INSTALL_CONTRACT_DIR) $(CORE) $(VERSION) $(CONTRACT_SCHEMA_MAJOR) data $(DESTDIR)$(CONTRACTDIR) data
+
+# data/ installed into a contract directory of its own, read back through omx-contract's reader beside omx-contract's
+# own package, and src/clap_host_limits.h held to the c render of it (tests/contract-dir-check.sh); node and an
+# omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+test-contract:
+	rm -rf build/contract
+	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh
+	sh tests/contract-dir-check.sh $(OMX_CONTRACT_DIR) build/contract/dir $(VERSION)
+
+install: install-lib install-lv2 install-tests install_man install-contract
 	install -d $(DESTDIR)$(BINDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
 

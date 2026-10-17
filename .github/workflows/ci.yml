@@ -15,6 +15,8 @@ permissions:
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.1.3
+  # omx-contract's reader and install script, which data/ is read back through, from this release tag
+  OMX_CONTRACT_REF: v2.15.0
 
 jobs:
   version:
@@ -37,6 +39,29 @@ jobs:
 
       - name: make private-refs
         run: make private-refs
+
+  contract:
+    name: data/ read back through omx-contract's reader, clap_host_limits.h its render
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch omx-contract at its release tag
+        run: |
+          set -eu
+          case $OMX_CONTRACT_REF in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "OMX_CONTRACT_REF is $OMX_CONTRACT_REF: pin a release tag" >&2; exit 1 ;; esac
+          git init -q /tmp/omx-contract
+          git -C /tmp/omx-contract fetch -q --depth 1 https://github.com/FreeMixer/omx-contract "refs/tags/$OMX_CONTRACT_REF"
+          git -C /tmp/omx-contract checkout -q FETCH_HEAD
+          npm ci --prefix /tmp/omx-contract --omit=dev
+
+      - name: make test-contract
+        run: make test-contract OMX_CONTRACT_DIR=/tmp/omx-contract
 
   docs:
     name: make docs (the public headers are fully documented)
@@ -290,7 +315,8 @@ jobs:
             printf '%s\n' '/usr/lib*/libomx-clap-core.so' '/usr/lib*/pkgconfig/omx-clap-core.pc' /usr/include/omx-clap-host/clap_host.h \
               /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
               /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h /usr/include/omx-clap-host/omx_clap_midi.h \
-              /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi | sort > expected.txt
+              /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi \
+              /usr/share/omx-contract/contract.d/2/omx-clap-core/MANIFEST.json /usr/share/omx-contract/contract.d/2/omx-clap-core/hosting.json | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done
           for rpm in rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm; do
@@ -467,7 +493,9 @@ jobs:
           grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
-          dpkg -L libomx-clap-core-dev
+          dpkg -L libomx-clap-core-dev | tee dev-files.txt
+          grep -qx /usr/share/omx-contract/contract.d/2/omx-clap-core/MANIFEST.json dev-files.txt
+          grep -qx /usr/share/omx-contract/contract.d/2/omx-clap-core/hosting.json dev-files.txt
 
       # the LV2 adapter: its files, then a program built against libomx-clap-lv2-dev runs the fixture with the system's lilv
       - name: A consumer builds against libomx-clap-lv2-dev and runs an LV2 plugin
