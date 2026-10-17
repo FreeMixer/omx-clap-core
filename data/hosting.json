@@ -1,0 +1,126 @@
+{
+  "$schema": "../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 2.15.0"
+  },
+  "HOSTED_STAGE_LIMITS": {
+    "kind": "sheet",
+    "since": "2.12.0",
+    "source": {
+      "impl": [
+        "src/hosted_stage.h#omx_hosted_prime",
+        "src/hosted_stage.h#omx_hosted_run_end",
+        "src/hosted_stage.h#omx_hosted_strike",
+        "src/hosted_stage.h#omx_hosted_clamp",
+        "src/clap_stage.h#omx_clap_stage_init",
+        "src/clap_stage.h#omx_clap_set_aux_in",
+        "src/clap_stage.h#omx_clap_event_sink",
+        "src/clap_stage.h#omx_clap_note_slot_for",
+        "src/clap_host.c#read_topology",
+        "src/clap_host.c#param_count_of",
+        "src/clap_host.c#param_out_push",
+        "src/clap_host.c#host_preset_on_error",
+        "src/clap_host.c#wait_stopped",
+        "src/clap_host.c#omx_clap_host_unpublish",
+        "src/effects.c#clap_state_save",
+        "src/effects.c#configure_lv2_with",
+        "lv2/core/lv2_features.c#lv2_core_configure"
+      ]
+    },
+    "doc": "The numbers a hosted plugin's stage limits itself to: the warm-up before it is published, the blocks of non-finite output that strike it, the level its output is clamped at, the parameter queue and the events one block delivers, the polls and timeouts of the hand-over between threads, the ports the core accepts and the caps on a plugin's state, log and parameter count. These are the stage's safety numbers, not an operator's travel.",
+    "value": {
+      "warmupBlocks": 64,
+      "warmupLevelDbfs": -6,
+      "nonFiniteStrikes": 3,
+      "clampDbfs": 24,
+      "paramQueueDepth": 256,
+      "eventsPerBlock": 64,
+      "unpublishPollUs": 100,
+      "unpublishTimeoutUs": 2000000,
+      "workerPollUs": 1000,
+      "workerRingBytes": 16384,
+      "notesPerBlock": 256,
+      "mainPortChannels": 2,
+      "auxOutputs": 8,
+      "auxInputs": 8,
+      "stateMaxBytes": 1048576,
+      "logBytes": 256,
+      "rolePollUs": 1000,
+      "roleTimeoutUs": 200000,
+      "paramCountMax": 2048,
+      "latencyHoldMs": 250
+    },
+    "docs": {
+      "warmupLevelDbfs": "the level of the warm-up signal, in dBFS",
+      "nonFiniteStrikes": "the blocks of non-finite output that strike a stage",
+      "clampDbfs": "the level the output is clamped at, in dBFS",
+      "paramQueueDepth": "the records the parameter queue holds",
+      "eventsPerBlock": "the parameter events delivered in one block",
+      "unpublishPollUs": "the poll interval while an unpublish waits for the audio thread, in microseconds",
+      "unpublishTimeoutUs": "the longest an unpublish waits for the audio thread, in microseconds",
+      "workerPollUs": "how often an LV2 instance's worker thread polls its request ring, in microseconds",
+      "workerRingBytes": "the bytes of each of an LV2 instance's two worker rings; a power of two, 16 or more",
+      "notesPerBlock": "the note events delivered in one block",
+      "mainPortChannels": "the channels the main port is limited to",
+      "auxOutputs": "the auxiliary output ports the core accepts",
+      "auxInputs": "the auxiliary input ports (side chains) the core accepts",
+      "stateMaxBytes": "the largest plugin state the core saves or loads, in bytes",
+      "logBytes": "the size of a plugin log message, in bytes",
+      "rolePollUs": "the poll interval while the audio role is taken, in microseconds",
+      "roleTimeoutUs": "the longest the audio role is waited for, in microseconds",
+      "paramCountMax": "the widest parameter count the core trusts",
+      "latencyHoldMs": "the hold before a hosted stage's new latency takes effect, in milliseconds"
+    }
+  },
+  "HOSTING_CODES": {
+    "kind": "codes",
+    "since": "2.12.0",
+    "source": {
+      "impl": [
+        "src/clap_host.c#open_from",
+        "src/clap_host.c#read_topology",
+        "src/clap_host.c#read_note_input",
+        "src/clap_host.c#omx_clap_host_open_timed",
+        "src/clap_host.c#omx_clap_host_activate"
+      ]
+    },
+    "doc": "The refusals the CLAP core returns, by the hosting code a verdict names them by. A code is never reworded.",
+    "codes": {
+      "headlessFailed": {
+        "code": "hosting.clap.headless-failed"
+      },
+      "notAudioEffect": {
+        "code": "hosting.clap.not-audio-effect",
+        "doc": "the plugin is not an audio effect"
+      },
+      "noteInput": {
+        "code": "hosting.clap.note-input",
+        "doc": "the plugin declares a note input the configuration refuses"
+      },
+      "noAudioInput": {
+        "code": "hosting.topology.no-audio-input",
+        "doc": "the plugin has no audio input"
+      },
+      "noAudioOutput": {
+        "code": "hosting.topology.no-audio-output",
+        "doc": "the plugin has no audio output"
+      },
+      "widerThanStrip": {
+        "code": "hosting.topology.wider-than-strip",
+        "doc": "the plugin is wider than the strip"
+      },
+      "extraInputs": {
+        "code": "hosting.topology.extra-inputs-fed-silence",
+        "doc": "the plugin has extra inputs, fed silence"
+      },
+      "crashedLive": {
+        "code": "hosting.stability.crashed-live-on-this-rig",
+        "doc": "the plugin crashed live on this rig"
+      },
+      "outputNonFinite": {
+        "code": "hosting.output.non-finite",
+        "doc": "the plugin produced non-finite output"
+      }
+    }
+  }
+}
