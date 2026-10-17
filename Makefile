@@ -21,6 +21,8 @@ CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
 CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
 CORE_MAP = src/omx-clap-core.map
+# the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
+CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts
 
 PKG_CONFIG ?= pkg-config
 
@@ -189,7 +191,7 @@ TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_sour
 
 # the library, its headers, the pkg-config file and the export list: what a program that hosts CLAP plugins builds against
 install-lib: $(CORE_SO)
-	install -d $(DESTDIR)$(LIBDIR)/pkgconfig $(DESTDIR)$(INCLUDEDIR)/omx-clap-host $(DESTDIR)$(DATADIR)/$(CORE)
+	install -d $(DESTDIR)$(LIBDIR)/pkgconfig $(DESTDIR)$(INCLUDEDIR)/omx-clap-host $(DESTDIR)$(DATADIR)/$(CORE)/ts
 	install -m 755 $(CORE_FILE) $(DESTDIR)$(LIBDIR)/
 	ln -sf $(CORE_FILE) $(DESTDIR)$(LIBDIR)/$(CORE_SONAME)
 	ln -sf $(CORE_SONAME) $(DESTDIR)$(LIBDIR)/$(CORE_SO)
@@ -198,6 +200,7 @@ install-lib: $(CORE_SO)
 	    -e 's,@DATADIR@,$(DATADIR),' -e 's,@VERSION@,$(CORE_VERSION),' omx-clap-core.pc.in > $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-core.pc
 	chmod 644 $(DESTDIR)$(LIBDIR)/pkgconfig/omx-clap-core.pc
 	install -m 644 $(CORE_MAP) $(DESTDIR)$(DATADIR)/$(CORE)/
+	install -m 644 $(CORE_TS) $(DESTDIR)$(DATADIR)/$(CORE)/ts/
 	if [ -f abi/$(CORE_SONAME).abi ]; then install -m 644 abi/$(CORE_SONAME).abi $(DESTDIR)$(DATADIR)/$(CORE)/; fi
 
 # the LV2 adapter: the archive, its one header and its pkg-config file, what a program that hosts LV2 plugins as CLAP
