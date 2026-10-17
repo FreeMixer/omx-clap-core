@@ -65,6 +65,28 @@
 
 #include "../src/clap_host.h"
 #include "../src/clap_meters.h"
+#include "../src/hosted_stage_limits.h"
+
+/* hosted_stage_limits.h and clap_host_limits.h are two renders of HOSTED_STAGE_LIMITS (data/hosting.json): every
+ * number the core reads has one value under both names, so a host reading OMX_HOSTED_STAGE_* reads the core's own */
+_Static_assert(OMX_HOSTED_STAGE_WARMUP_BLOCKS == CLAP_HOST_WARMUP_BLOCKS, "warm-up blocks");
+_Static_assert(OMX_HOSTED_STAGE_WARMUP_LEVEL_DBFS == CLAP_HOST_WARMUP_LEVEL_DBFS, "warm-up level");
+_Static_assert(OMX_HOSTED_STAGE_NON_FINITE_STRIKES == CLAP_HOST_NON_FINITE_STRIKES, "strikes");
+_Static_assert(OMX_HOSTED_STAGE_CLAMP_DBFS == CLAP_HOST_CLAMP_DBFS, "clamp");
+_Static_assert(OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH == CLAP_HOST_PARAM_QUEUE_DEPTH, "queue depth");
+_Static_assert(OMX_HOSTED_STAGE_EVENTS_PER_BLOCK == CLAP_HOST_EVENTS_PER_BLOCK, "events per block");
+_Static_assert(OMX_HOSTED_STAGE_UNPUBLISH_POLL_US == CLAP_HOST_UNPUBLISH_POLL_US, "unpublish poll");
+_Static_assert(OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US == CLAP_HOST_UNPUBLISH_TIMEOUT_US, "unpublish timeout");
+_Static_assert(OMX_HOSTED_STAGE_NOTES_PER_BLOCK == CLAP_HOST_NOTES_PER_BLOCK, "notes per block");
+_Static_assert(OMX_HOSTED_STAGE_MAIN_PORT_CHANNELS == CLAP_HOST_MAIN_PORT_CHANNELS, "main port width");
+_Static_assert(OMX_HOSTED_STAGE_AUX_OUTPUTS == CLAP_HOST_AUX_OUTPUTS, "auxiliary outputs");
+_Static_assert(OMX_HOSTED_STAGE_AUX_INPUTS == CLAP_HOST_AUX_INPUTS, "auxiliary inputs");
+_Static_assert(OMX_HOSTED_STAGE_STATE_MAX_BYTES == CLAP_HOST_STATE_MAX_BYTES, "state bytes");
+_Static_assert(OMX_HOSTED_STAGE_LOG_BYTES == CLAP_HOST_LOG_BYTES, "log bytes");
+_Static_assert(OMX_HOSTED_STAGE_ROLE_POLL_US == CLAP_HOST_ROLE_POLL_US, "role poll");
+_Static_assert(OMX_HOSTED_STAGE_ROLE_TIMEOUT_US == CLAP_HOST_ROLE_TIMEOUT_US, "role timeout");
+_Static_assert(OMX_HOSTED_STAGE_PARAM_COUNT_MAX == CLAP_HOST_PARAM_COUNT_MAX, "parameter count cap");
+_Static_assert(OMX_HOSTED_STAGE_LATENCY_HOLD_MS == CLAP_HOST_LATENCY_HOLD_MS, "latency hold");
 
 static int failures = 0;
 #define CHECK(cond, ...)                                   \

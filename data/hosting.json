@@ -30,6 +30,21 @@
           "comment": "the refusals the core returns, as the hosting codes the console's verdicts use",
           "prefix": "CLAP_HOST_CODE_"
         }
+      },
+      {
+        "header": "hosted_stage_limits.h",
+        "guard": "HOSTED_STAGE_LIMITS_H",
+        "project": "omx-clap-host",
+        "banner": [
+          "Rendered from HOSTED_STAGE_LIMITS of data/hosting.json, every number spelled OMX_HOSTED_STAGE_<FIELD> as",
+          "omx-contract's omx_contract_limits.h spelled it, the worker fields included, for a host that reads those",
+          "names. The rendered file is kept in this repository so the library builds on its own; the numbers are",
+          "changed where they are declared and the file is re-rendered, never edited here."
+        ],
+        "brief": "The hosted stage's numbers, as the OMX_HOSTED_STAGE_ names a host reads.",
+        "scalars": {
+          "comment": "every number of the stage, sorted by name: an integer literal, any other a float literal and its _DOUBLE spelling"
+        }
       }
     ]
   },
