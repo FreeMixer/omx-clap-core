@@ -15,9 +15,8 @@ permissions:
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.1.3
-  # omx-contract's reader, render and install script, which data/ is read back through: the contract split's wave
-  # branch until omx-contract 2.15.0 is tagged (the release commit pins that tag)
-  OMX_CONTRACT_REF: wave/contract-split
+  # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
+  OMX_CONTRACT_REF: v2.15.0
 
 jobs:
   version:
@@ -57,7 +56,6 @@ jobs:
           set -eu
           case $OMX_CONTRACT_REF in
             v[0-9]*.[0-9]*.[0-9]*) ref=refs/tags/$OMX_CONTRACT_REF ;;
-            wave/contract-split) ref=refs/heads/$OMX_CONTRACT_REF ;;
             *) echo "OMX_CONTRACT_REF is $OMX_CONTRACT_REF: pin a release tag" >&2; exit 1 ;;
           esac
           git init -q /tmp/omx-contract
