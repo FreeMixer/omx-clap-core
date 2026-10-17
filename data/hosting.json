@@ -60,22 +60,18 @@
     "source": {
       "impl": [
         "src/hosted_stage.h#omx_hosted_prime",
-        "src/hosted_stage.h#omx_hosted_run_end",
         "src/hosted_stage.h#omx_hosted_strike",
         "src/hosted_stage.h#omx_hosted_clamp",
-        "src/clap_stage.h#omx_clap_stage_init",
-        "src/clap_stage.h#omx_clap_set_aux_in",
-        "src/clap_stage.h#omx_clap_event_sink",
+        "src/clap_stage.h#omx_clap_bind_aux",
+        "src/clap_stage.h#omx_clap_bind_aux_in",
+        "src/clap_stage.h#omx_clap_drain",
         "src/clap_stage.h#omx_clap_note_slot_for",
         "src/clap_host.c#read_topology",
         "src/clap_host.c#param_count_of",
-        "src/clap_host.c#param_out_push",
         "src/clap_host.c#host_preset_on_error",
         "src/clap_host.c#wait_stopped",
-        "src/clap_host.c#omx_clap_host_unpublish",
         "src/effects.c#clap_state_save",
-        "src/effects.c#configure_lv2_with",
-        "lv2/core/lv2_features.c#lv2_core_configure"
+        "src/effects.c#configure_lv2_with"
       ]
     },
     "doc": "The numbers a hosted plugin's stage limits itself to: the warm-up before it is published, the blocks of non-finite output that strike it, the level its output is clamped at, the parameter queue and the events one block delivers, the polls and timeouts of the hand-over between threads, the ports the core accepts and the caps on a plugin's state, log and parameter count. These are the stage's safety numbers, not an operator's travel.",
