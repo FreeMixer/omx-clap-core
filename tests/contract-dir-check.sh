@@ -30,7 +30,7 @@ sh "$oc/tools/install-contract-dir.sh" -x codes.json -x hosting.json omx-contrac
 $tool validate --contract-dir "$dir" --needs "omx-clap-core@>= $version"
 
 # the renders this tree commits, as <target>:<committed path>; the output's name is the committed file's
-committed='c:src/clap_host_limits.h'
+committed='c:src/clap_host_limits.h c:src/hosted_stage_limits.h'
 
 bad=0
 for target in c; do

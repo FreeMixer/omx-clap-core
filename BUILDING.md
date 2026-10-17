@@ -152,6 +152,9 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number and string the core reads, rendered from
   `data/hosting.json` and committed here; never edited by hand.
+- `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
+  worker's two included, for a host that reads those names; rendered from the same
+  file and committed here, never edited by hand.
 - `omx_clap_ext.h`: the openmixer vendor extension a plugin serves through `get_extension`,
   `org.openmixer.declaration/1`, as an exact C structure. Header only: the library exports nothing
   for it. A plugin's meters are CLAP's own `clap.meters/1` ([docs/meters.md](docs/meters.md)).
@@ -242,8 +245,8 @@ a directory of its own beside omx-contract's own files, reads them back through
 omx-contract's reader and renders the package's own files with
 `omx-contract render --package omx-clap-core`, framed by the `render` word of
 `data/hosting.json` (header, guard, project, banner, prefixes, the omitted
-fields, the level rule): `src/clap_host_limits.h` must be that render, byte for
-byte. It needs node and the checkout's `npm ci`.
+fields, the level rule): `src/clap_host_limits.h` and `src/hosted_stage_limits.h`
+must be that render, byte for byte. It needs node and the checkout's `npm ci`.
 
 The LV2 adapter
 ---------------
