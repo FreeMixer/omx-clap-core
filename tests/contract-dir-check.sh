@@ -55,6 +55,13 @@ for c in $committed; do
   [ -f "$work/${c%%:*}/$(basename "${c#*:}")" ] || { echo "contract-dir-check: the ${c%%:*} render has no $(basename "${c#*:}") (data/hosting.json render)" >&2; bad=1; }
 done
 [ "$bad" -eq 0 ] || exit 1
+# the program hands the LV2 adapter the declared worker numbers, by name: every assignment of them in src/ reads
+# hosted_stage_limits.h's define, which the render above holds to data/hosting.json
+for f in worker_poll_us:WORKER_POLL_US worker_ring_bytes:WORKER_RING_BYTES; do
+  set -- $(grep -rhE "\.${f%%:*} = " src/*.c | sed 's/^ *//' | sort -u)
+  [ "$*" = "config.${f%%:*} = OMX_HOSTED_STAGE_${f#*:};" ] || {
+    echo "contract-dir-check: src/ sets ${f%%:*} from \"$*\", not from the declared OMX_HOSTED_STAGE_${f#*:}" >&2; exit 1; }
+done
 # the module loads as an ES module and exports the file's items, nothing else
 node --input-type=module -e "import('$(pwd)/ts/omx-clap-core-hosting.js').then((m) => { const k = Object.keys(m).sort().join(' '); if (k !== 'HOSTED_STAGE_LIMITS HOSTING_CODES') { console.error('contract-dir-check: ts/omx-clap-core-hosting.js exports ' + k); process.exit(1); } })"
 echo "contract-dir-check: omx-clap-core $version read back; $(echo "$committed" | sed 's/[a-z]*://g') the render of data/, byte for byte"

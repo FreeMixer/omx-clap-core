@@ -334,7 +334,7 @@ test-param-contract: tests/param_contract_test
 tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -lm
 
-tests/msgring_test: tests/msgring_test.c src/omx_msgring.h
+tests/msgring_test: tests/msgring_test.c src/omx_msgring.h src/hosted_stage_limits.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
 
 # a host that crashes dies of the same signal and writes no core (checked where the machine writes cores at all)
