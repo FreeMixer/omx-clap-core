@@ -40,7 +40,9 @@
           "Rendered from HOSTED_STAGE_LIMITS of data/hosting.json, every number spelled OMX_HOSTED_STAGE_<FIELD> as",
           "omx-contract's omx_contract_limits.h spelled it, the worker fields included, for a host that reads those",
           "names. The rendered file is kept in this repository so the library builds on its own; the numbers are",
-          "changed where they are declared and the file is re-rendered, never edited here."
+          "changed where they are declared and the file is re-rendered, never edited here. This render spells no",
+          "description beside a number (the descriptions are the docs of HOSTED_STAGE_LIMITS, and warmupBlocks has",
+          "none yet), so the file is not in the Doxyfile's INPUT: Doxygen would warn on every undocumented define."
         ],
         "brief": "The hosted stage's numbers, as the OMX_HOSTED_STAGE_ names a host reads.",
         "scalars": {
