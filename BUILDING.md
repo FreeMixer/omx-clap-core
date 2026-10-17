@@ -245,8 +245,9 @@ a directory of its own beside omx-contract's own files, reads them back through
 omx-contract's reader and renders the package's own files with
 `omx-contract render --package omx-clap-core`, framed by the `render` word of
 `data/hosting.json` (header, guard, project, banner, prefixes, the omitted
-fields, the level rule): `src/clap_host_limits.h` and `src/hosted_stage_limits.h`
-must be that render, byte for byte. It needs node and the checkout's `npm ci`.
+fields, the level rule): `src/clap_host_limits.h`, `src/hosted_stage_limits.h`
+and the TypeScript module `ts/omx-clap-core-hosting.js` with its
+`omx-clap-core-hosting.d.ts` must be that render, byte for byte. It needs node and the checkout's `npm ci`.
 
 The LV2 adapter
 ---------------
