@@ -46,7 +46,10 @@
           "comment": "every number of the stage, sorted by name: an integer literal, any other a float literal and its _DOUBLE spelling"
         }
       }
-    ]
+    ],
+    "ts": {
+      "module": "omx-clap-core-hosting"
+    }
   },
   "HOSTED_STAGE_LIMITS": {
     "kind": "sheet",

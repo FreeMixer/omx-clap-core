@@ -10,7 +10,8 @@
 # <contract dir> holds omx-clap-core's package as `make install-contract` wrote it. omx-contract's own data/ is
 # installed beside it from the checkout (its npm ci done), the directory is validated with omx-clap-core required at
 # <version>, and the package's own renders (`render --package omx-clap-core`, framed by the `render` word of
-# data/hosting.json) are compared with the files this tree commits, byte for byte: a header with src/<header>. A
+# data/hosting.json) are compared with the files this tree commits, byte for byte: a header with src/<header>, the
+# TypeScript module with ts/<module>.js and .d.ts. A
 # committed render the output lacks, or an output this tree does not commit, is a failure too.
 # Exit 0 equal; 1 a refusal or a difference; 2 usage.
 set -eu
@@ -30,10 +31,10 @@ sh "$oc/tools/install-contract-dir.sh" -x codes.json -x hosting.json omx-contrac
 $tool validate --contract-dir "$dir" --needs "omx-clap-core@>= $version"
 
 # the renders this tree commits, as <target>:<committed path>; the output's name is the committed file's
-committed='c:src/clap_host_limits.h c:src/hosted_stage_limits.h'
+committed='c:src/clap_host_limits.h c:src/hosted_stage_limits.h ts:ts/omx-clap-core-hosting.js ts:ts/omx-clap-core-hosting.d.ts'
 
 bad=0
-for target in c; do
+for target in c ts; do
   rm -rf "$work/$target"
   $tool render --target "$target" --package omx-clap-core --out "$work/$target" --contract-dir "$dir"
   for out in "$work/$target"/*; do
@@ -54,4 +55,6 @@ for c in $committed; do
   [ -f "$work/${c%%:*}/$(basename "${c#*:}")" ] || { echo "contract-dir-check: the ${c%%:*} render has no $(basename "${c#*:}") (data/hosting.json render)" >&2; bad=1; }
 done
 [ "$bad" -eq 0 ] || exit 1
+# the module loads as an ES module and exports the file's items, nothing else
+node --input-type=module -e "import('$(pwd)/ts/omx-clap-core-hosting.js').then((m) => { const k = Object.keys(m).sort().join(' '); if (k !== 'HOSTED_STAGE_LIMITS HOSTING_CODES') { console.error('contract-dir-check: ts/omx-clap-core-hosting.js exports ' + k); process.exit(1); } })"
 echo "contract-dir-check: omx-clap-core $version read back; $(echo "$committed" | sed 's/[a-z]*://g') the render of data/, byte for byte"
