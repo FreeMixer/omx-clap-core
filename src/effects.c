@@ -52,6 +52,7 @@
 #include "effects.h"
 #include "clap_host.h"
 #include "clap_meters.h"
+#include "hosted_stage_limits.h"
 #include "host_transport.h"
 #include "layout_pin.h"
 #include "lv2_locate.h"
@@ -86,9 +87,8 @@
 #define METER_CHANNELS_MAX      64
 #define OUTPUT_SYMBOL_SIZE      (CLAP_NAME_SIZE + 16)
 
-// the LV2 adapter's numbers: its worker's poll and ring, the smallest atom buffer (0: the adapter's own), the latency hold
-#define LV2_WORKER_POLL_US      1000u
-#define LV2_WORKER_RING_BYTES   4096u
+// the LV2 adapter's numbers: its worker's poll and ring are the hosted stage's declared ones (data/hosting.json), the
+// same the console's in-process adapter is handed; the smallest atom buffer (0: the adapter's own); the latency hold
 #define LV2_ATOM_BUFFER_BYTES   0u
 // the adapter's code for a plugin it has no way to run, lv2/core's LV2_CODE_NO_REALISATION
 #define HOSTING_NO_REALISATION  "hosting.no-realisation"
@@ -1155,8 +1155,8 @@ static int configure_lv2_with(const char *root, char why[OMX_CLAP_LV2_WHY_MAX])
 
     memset(&config, 0, sizeof(config));
     config.features = omx_clap_lv2_provided;
-    config.worker_poll_us = LV2_WORKER_POLL_US;
-    config.worker_ring_bytes = LV2_WORKER_RING_BYTES;
+    config.worker_poll_us = OMX_HOSTED_STAGE_WORKER_POLL_US;
+    config.worker_ring_bytes = OMX_HOSTED_STAGE_WORKER_RING_BYTES;
     config.atom_buffer_bytes = LV2_ATOM_BUFFER_BYTES;
     config.latency_hold_ms = CLAP_HOST_LATENCY_HOLD_MS;
     config.lilv_soname = NULL;

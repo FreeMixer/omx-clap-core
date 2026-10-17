@@ -30,8 +30,15 @@
  * 3. FIFO across many wraps, single thread, sizes 0..37 — every payload byte checked.
  * 4. Two threads, 1,000,000 records of varying length through a 256-byte ring: every record
  *    arrives, in order, with its bytes intact; a refused push is retried, never lost.
+ * 5. THE DECLARED WORKER RING (HOSTED_STAGE_LIMITS.workerRingBytes, hosted_stage_limits.h) holds one LV2 worker
+ *    request that carries a path, PATH_MAX bytes and an atom's framing, from every position the ring can be at when
+ *    it is empty. A record is contiguous, so an empty ring is only sure to take cap/2 bytes; a 4096-byte ring cannot
+ *    take that request from any position.
  */
 #include "../src/omx_msgring.h"
+#include "../src/hosted_stage_limits.h"
+
+#include <limits.h>
 
 #include <pthread.h>
 #include <stdio.h>
@@ -174,11 +181,46 @@ static void test_threaded(void) {
   printf("threaded: %u records through a 256-byte ring, %u bad\n", THREADED_N, bad);
 }
 
+/* a worker request that hands a path to the worker: the path's PATH_MAX bytes and the framing of the atom around it
+ * (an object header, a property header and the path atom's own, 48 bytes; 64 is allowed) */
+#define PATH_REQUEST_BYTES ((uint32_t)PATH_MAX + 64u)
+
+/* from every 4-aligned position of an empty ring of `cap` bytes, whether one path request is taken */
+static int path_request_fits_everywhere(uint32_t cap, uint32_t *first_refused) {
+  uint8_t *buf = malloc(cap);
+  uint8_t *req = calloc(1, PATH_REQUEST_BYTES);
+  struct omx_msgring r;
+  int ok = buf && req && omx_msgring_init(&r, buf, cap) == 0;
+  for (uint32_t off = 0; ok && off < cap; off += 4u) {
+    /* an empty ring at `off`: both ends moved there, as they are after records pushed and popped */
+    atomic_store_explicit(&r.head, off, memory_order_relaxed);
+    atomic_store_explicit(&r.tail, off, memory_order_relaxed);
+    if (omx_msgring_push(&r, req, PATH_REQUEST_BYTES) != 0) {
+      *first_refused = off;
+      ok = 0;
+    }
+  }
+  free(buf);
+  free(req);
+  return ok;
+}
+
+static void test_declared_worker_ring(void) {
+  uint32_t at = 0;
+  CHECK(path_request_fits_everywhere(OMX_HOSTED_STAGE_WORKER_RING_BYTES, &at),
+        "declared ring: a %u-byte path request is refused at offset %u of %u bytes", PATH_REQUEST_BYTES, at,
+        (unsigned)OMX_HOSTED_STAGE_WORKER_RING_BYTES);
+  CHECK(!path_request_fits_everywhere(4096u, &at), "a 4096-byte ring takes a %u-byte path request", PATH_REQUEST_BYTES);
+  printf("declared worker ring: %u bytes take a %u-byte path request from every position; 4096 bytes refuse it\n",
+         (unsigned)OMX_HOSTED_STAGE_WORKER_RING_BYTES, PATH_REQUEST_BYTES);
+}
+
 int main(void) {
   test_accounting();
   test_refusals();
   test_fifo_wraps();
   test_threaded();
+  test_declared_worker_ring();
   if (failures) {
     fprintf(stderr, "msgring: %d failure(s)\n", failures);
     return 1;
