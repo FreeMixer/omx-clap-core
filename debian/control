@@ -10,7 +10,7 @@ Build-Depends: debhelper-compat (= 13),
                libmod-host-protocol-dev,
                libomxdsp-dev (>= 0.18.0),
                libomx-contract-dev (>= 2.15.0),
-               plugin-hostd-dev (>= 0.1.2~),
+               plugin-hostd-dev (>= 0.4.0~),
                pkgconf
 Standards-Version: 4.6.2
 Homepage: https://github.com/FreeMixer/omx-clap-core

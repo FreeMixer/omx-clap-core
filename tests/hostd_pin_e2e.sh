@@ -27,7 +27,7 @@ layout_pin=$here/clap_layout_pin
 id=org.omx-clap-host.test.passthrough
 
 : "${PHD_ERR_PIN_ABSENT:?}" "${PHD_ERR_PIN_BINARY_MISMATCH:?}" "${PHD_ERR_PIN_LAYOUT_MISMATCH:?}" "${PHD_VERB_PIN_SET:?}" \
-  "${PHD_VERB_PIN_CLEAR:?}" "${PHD_READY_LINE:?}"
+  "${PHD_VERB_PIN_CLEAR:?}" "${PHD_READY_LINE:?}" "${PHD_PIN_MODE_STRICT:?}"
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     for f in "$daemon" "$host" "$here/fake.clap" "$layout_pin"; do
@@ -89,6 +89,7 @@ mod_host $OMX_CLAP_HOST
 clap_host $OMX_CLAP_HOST
 state_root $runtime
 require_pins 1
+pin_mode $PHD_PIN_MODE_STRICT
 EOF
 
 send() {
