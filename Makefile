@@ -659,7 +659,7 @@ test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-f
 # an LV2 plugin through the host over jack in the same kind of namespace: the fixture bundles on LV2_PATH, lv2:<uri> and the
 # bare URI, the adapter's refusals with their codes in the reply, the control ports by symbol, lv2:enabled as the bypass,
 # state, presets by URI and remove; the host links the adapter and not lilv
-test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source
+test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
 	@! readelf -d $(PROG) | grep -q 'liblilv' && echo "ok   $(PROG) does not link lilv: the adapter dlopens it"
 	./tests/jack_lv2_e2e.sh
 
