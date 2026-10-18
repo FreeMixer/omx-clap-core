@@ -407,6 +407,21 @@ asks for a restart that re-activates it, the new figure is republished
 with `jack_recompute_total_latencies`. A graph reads the latency from
 the ports, not from this socket.
 
+Voices
+------
+
+An instrument's `clap.voice-info` is read after every activate, which the
+extension requires: the voices its patch uses (`voice_count`), the voices
+it has allocated (`voice_capacity`, the ceiling a host prices it at), and
+its flags (`CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES`: two notes on one
+key at once, told apart by note id). A program that hosts the plugin
+through the library reads them with `omx_clap_host_voice_info`, which
+answers 1 with the three figures, or 0 when the plugin declares none: no
+extension, a `get` that fails, an answer outside
+`1 <= voice_count <= voice_capacity`, or an instance not yet activated.
+With no declaration every figure reads 0, which is never a voice count.
+The last activate's answer is kept across a deactivate.
+
 Scanning
 --------
 
