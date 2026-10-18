@@ -289,11 +289,20 @@ jobs:
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
 
+      # plugin-hostd's spec gates its check BuildRequires (omx-clap-host-tests) behind `%bcond_without check`; the
+      # user macro turns the check off for builddep and rpmbuild alike, so the channel's libomx-clap-core 0.10.0
+      # is never installed under the packages this job builds
+      - name: Build the plugin-hostd RPMs without its check stage
+        run: echo '%_without_check 1' >> ~/.rpmmacros
+
       - name: Build the plugin-hostd RPMs
         uses: FreeMixer/.github/.github/actions/build-rpm@v1
         with:
           tree: /tmp/plugin-hostd
           out: plugin-hostd-rpms
+
+      - name: Run this repository's RPM build with its checks
+        run: rm -f ~/.rpmmacros
 
       - name: Install plugin-hostd-devel
         run: |
