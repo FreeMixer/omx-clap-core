@@ -31,6 +31,10 @@
  * FAKE_MOVER_FLOOD=<n> makes the same process() push n values of trim after them (0.001 apart, the last n / 1000);
  * with FAKE_MOVER_HELD=1 it pushes them while level is held, between 0.75 and the gesture's end, so that a flood larger
  * than the host's ring leaves no room for the end.
+ * FAKE_MOVER_CONTRACT offers org.openmixer.param-contract/1 over the four parameters (level, modulation, gestures, trim;
+ * no unit, linear): with "keep" the rename of "info" changes only level's name, display text, and the contract stays
+ * the same; with "follow" level's symbol follows it to "gain", with the fingerprint of the new lines, so the contract
+ * the rescan finds is another one (R3).
  * Every environment variable is read at create, never on the audio thread. FAKE_LOG names a file each instance appends
  * "<id> host gesture begin|end <param>" to as the host's gestures arrive, and "<id> mod <param> <amount>". */
 
@@ -38,6 +42,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <clap/clap.h>
+
+#include "omx_clap_ext.h"
 
 #define ID_MOVER        "org.omx-clap-host.test.mover"
 #define MOVE_AT         8u
@@ -56,6 +62,7 @@ typedef struct MOVER_T {
     int held;
     int renamed;
     char action[16];
+    char contract[16];
     char log_path[512];
     // what the audio thread saw, written to the log on the main thread: never a file from process()
     char lines[LOG_LINES][64];
@@ -250,6 +257,62 @@ static const clap_plugin_params_t g_params = {
     params_count, params_get_info, params_get_value, params_value_to_text, params_text_to_value, params_flush
 };
 
+/* org.openmixer.param-contract/1 over the four parameters, before and after a "follow" rename: SHA-256 of the canonical
+ * lines (LF after each, fields TAB-separated)
+ *   org.openmixer.param-contract/1
+ *   0 level none linear 0 1 0.5 0 0           ("gain" after the rename)
+ *   1 modulation none linear -1 1 0 0 8
+ *   2 gestures none linear 0 1000000000 0 0 8
+ *   3 trim none linear 0 1 0 0 0 */
+#define CONTRACT_FINGERPRINT_LEVEL "0d32be21f83ac4836f861f4df96ce18ca9729fa371fad7e536f08b182c5d42a8"
+#define CONTRACT_FINGERPRINT_GAIN  "f5ecc535ab33ec4811885b5e31e40b858df175f21ffb06266ddf6304f5d6234d"
+
+static int contract_follows(const mover_t *m)
+{
+    return m->renamed && !strcmp(m->contract, "follow");
+}
+
+static uint32_t contract_version(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 1;
+}
+
+static const char *contract_fingerprint(const clap_plugin_t *plugin)
+{
+    return contract_follows(plugin->plugin_data) ? CONTRACT_FINGERPRINT_GAIN : CONTRACT_FINGERPRINT_LEVEL;
+}
+
+static bool contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param_contract_entry_t *entry)
+{
+    static const char *const symbols[] = { "level", "modulation", "gestures", "trim" };
+
+    if (id > 3)
+        return false;
+    memset(entry, 0, sizeof(*entry));
+    entry->param_id = id;
+    snprintf(entry->symbol, sizeof(entry->symbol), "%s", id == 0 && contract_follows(plugin->plugin_data) ? "gain" : symbols[id]);
+    return true;
+}
+
+static uint32_t contract_migration_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 0;
+}
+
+static bool contract_get_migration(const clap_plugin_t *plugin, uint32_t index, omx_clap_param_contract_step_t *step)
+{
+    (void)plugin;
+    (void)index;
+    (void)step;
+    return false;
+}
+
+static const omx_clap_plugin_param_contract_ext_t g_contract = {
+    contract_version, contract_fingerprint, contract_get, contract_migration_count, contract_get_migration
+};
+
 static bool plugin_init(const clap_plugin_t *plugin)
 {
     mover_t *m = plugin->plugin_data;
@@ -322,11 +385,14 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
-    (void)plugin;
+    const mover_t *m = plugin->plugin_data;
+
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS))
         return &g_audio_ports;
     if (!strcmp(id, CLAP_EXT_PARAMS))
         return &g_params;
+    if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT) && m->contract[0])
+        return &g_contract;
     return NULL;
 }
 
@@ -362,7 +428,7 @@ static const clap_plugin_descriptor_t *factory_get_plugin_descriptor(const clap_
 static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *factory, const clap_host_t *host, const char *plugin_id)
 {
     const char *at = getenv("FAKE_MOVER_AT"), *action = getenv("FAKE_MOVER"), *flood = getenv("FAKE_MOVER_FLOOD");
-    const char *held = getenv("FAKE_MOVER_HELD");
+    const char *held = getenv("FAKE_MOVER_HELD"), *contract = getenv("FAKE_MOVER_CONTRACT");
     const char *log = getenv("FAKE_LOG");
     mover_t *m;
 
@@ -374,6 +440,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     m->move_at = at && *at ? (uint32_t)atoi(at) : MOVE_AT;
     m->flood = flood && *flood ? (uint32_t)atoi(flood) : 0;
     m->held = held && !strcmp(held, "1");
+    snprintf(m->contract, sizeof(m->contract), "%s", contract ? contract : "");
     snprintf(m->action, sizeof(m->action), "%s", action ? action : "");
     snprintf(m->log_path, sizeof(m->log_path), "%s", log ? log : "");
     m->plugin.desc = &g_descriptor;
