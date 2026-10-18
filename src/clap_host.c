@@ -738,6 +738,42 @@ static void contract_read(struct omx_clap_instance *in, uint32_t rows, uint32_t 
     }
 }
 
+/* R3, on the control thread after the plugin's params.rescan: the contract read again must be the one the open trusted;
+ * else the instance is uncontracted from then on, as an open that broke a rule is, and the log says why. A rescan that
+ * keeps it takes the fresh entries, whose display text may have changed. An instance that was not contracted stays so. */
+static void contract_recheck(struct omx_clap_instance *in)
+{
+    struct pc_contract c;
+    uint32_t rows, reported;
+    char text[CLAP_HOST_LOG_BYTES];
+
+    if (!in->contract)
+        return;
+    memset(&c, 0, sizeof(c));
+    rows = param_count_of(in, &reported);
+    if (reported > rows)
+        snprintf(c.why, sizeof(c.why), "more parameters than the host serves");
+    else
+        pc_read(&c, in->plugin, in->params, rows);
+    if (pc_same(&c, in->contract, in->contract_count, in->contract_version))
+    {
+        free(in->contract);
+        in->contract = c.entry;
+        return;
+    }
+    if (c.entry)
+        snprintf(in->contract_why, sizeof(in->contract_why), "R3 params.rescan changed the contract");
+    else
+        snprintf(in->contract_why, sizeof(in->contract_why), "R3 after params.rescan: %.100s", c.why);
+    free(c.entry);
+    free(in->contract);
+    in->contract = NULL;
+    in->contract_count = 0;
+    in->contract_version = 0;
+    snprintf(text, sizeof(text), "the parameter contract is not trusted: %s", in->contract_why);
+    log_to_ring(in, text);
+}
+
 /* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
  * reference on `bin`. */
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
@@ -2047,6 +2083,7 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     // a rescan of everything is only the plugin's to make while inactive: made while active, it is a restart
     if (rescan)
     {
+        contract_recheck(in);
         atomic_fetch_or_explicit(&in->params_rescanned, rescan, memory_order_relaxed);
         if ((rescan & CLAP_PARAM_RESCAN_ALL) && in->active)
             atomic_store_explicit(&in->restart_requested, 1u, memory_order_relaxed);

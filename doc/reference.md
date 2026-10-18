@@ -72,7 +72,9 @@ pushes into a ring of `OMX_CLAP_PARAM_OUT_DEPTH` (256) events between two
 ticks, on the audio thread with no allocation, lock or call out; past it an
 event is dropped and counted, and the next tick sends every parameter's
 value as the plugin reads it then, so the controller still ends on what the
-plugin holds. A value the controller sets is not echoed back.
+plugin holds, and an `end` for every gesture still open, so it is never left
+holding one whose end was dropped. Begin and end go out in pairs: an end with
+no open begin is not sent. A value the controller sets is not echoed back.
 
 A program that hosts plugins through the library reads the same events with
 `omx_clap_host_param_events_take` (and `omx_clap_host_param_events_dropped`),
