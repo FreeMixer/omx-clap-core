@@ -96,7 +96,7 @@ int effects_note_out_drops(int effect_id, char *reply, size_t size);
 /* note_input: "resp 0 midi_in" or "resp 0 -", whether the instance takes notes */
 int effects_note_input(int effect_id, char *reply, size_t size);
 /* note_on, note_off, all_notes_off: `count` 3-byte MIDI messages queued whole for the start of the next cycle; -513 for
- * an instance that takes no notes, ERR_MEMORY_ALLOCATION when the queue has no room for them all */
+ * an instance that takes no notes, PHD_ERR_NOTE_QUEUE_FULL (-517) when the queue has no room for them all */
 int effects_note(int effect_id, const uint8_t (*messages)[3], uint32_t count);
 void effects_idle(void);
 

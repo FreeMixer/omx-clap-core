@@ -68,6 +68,7 @@ ip link set lo up
 
 pipewire >"$runtime/pw.log" 2>&1 &
 pids+=($!)
+pw_pid=$!
 for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
@@ -172,6 +173,7 @@ w=$(window); near "${w%% *}" 0 0.000001; step $? "all_notes_off silences the cho
 exec {listen[1]}>&-
 wait "$listen_PID" 2>/dev/null
 
+
 expect "add clap:$synth#org.omx-clap-host.test.synth-aux 2" "resp 2"
 expect "remove 2" "resp 0"
 expect "add clap:$synth#org.omx-clap-host.test.synth-wide 2" "resp -102 hosting.topology.wider-than-strip"
@@ -186,6 +188,24 @@ grep -q "hosting.topology.no-audio-input" "$runtime/host.log"; step $? "an effec
 expect "note_drops 0" "resp 0 0 0 0 0"
 expect "note_drops 1" "resp 0 0 0 0 0"
 expect "note_drops 7" "resp -3"
+
+# a graph that runs no cycle drains no note: the queue fills, and a verb with no room answers -517 and queues nothing
+kill -STOP "$pw_pid"
+full=0 queued=0
+for _ in $(seq 600); do
+    case $(send "note_on 0 0 60 100") in
+        "resp 0") queued=$((queued + 1)) ;;
+        "resp -517") full=$((full + 1)) ;;
+    esac
+done
+[ "$full" -gt 0 ] && [ "$queued" -gt 0 ] && [ $((queued + full)) -eq 600 ]
+step $? "with the graph stopped, $queued note_on are queued and the other $full answer -517 (the note queue is full)"
+expect "all_notes_off 0" "resp -517"
+kill -CONT "$pw_pid"
+sleep 0.5
+expect "all_notes_off 0" "resp 0"
+# the 511 reach one cycle, which holds 256 note events and keeps half for releases: the rest are dropped and counted
+[ "$(send "note_drops 0" | awk '{ print $3 }')" -gt 0 ]; step $? "the cycle that took them counts the note ons it had no room for"
 expect "bypass 0 1" "resp 0"
 expect "param_get 0 :bypass" "resp 0 1.0000"
 expect "remove 0" "resp 0"
