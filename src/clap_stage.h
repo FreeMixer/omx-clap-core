@@ -278,7 +278,7 @@ struct omx_clap_mpe_zone
 /**
  * The MPE zones of one input (ABI 8): a lower and an upper zone held together. struct omx_clap_note_ids grew past its
  * place in the instance for ABI 6 and 7, so the zones live in their own structure, appended to the instance. Zeroed
- * with its owner; omx_clap_mpe_zones_init sets the defaults.
+ * with its owner; a zone takes its bend defaults when omx_clap_mpe_take sets it.
  */
 struct omx_clap_mpe_zones
 {
