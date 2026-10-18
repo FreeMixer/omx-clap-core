@@ -91,3 +91,10 @@ OMX_CLAP_CORE_0.10
     omx_clap_param_scale_name;
     omx_clap_param_unit_name;
 } OMX_CLAP_CORE_0.7;
+
+/* added in 0.11.0 */
+OMX_CLAP_CORE_0.11
+{
+  global:
+    omx_clap_host_voice_info;
+} OMX_CLAP_CORE_0.10;

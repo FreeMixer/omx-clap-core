@@ -70,11 +70,11 @@
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
- * instance's note ids, beside its stage; 7: the instance's note output).
+ * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               7u
+#define OMX_CLAP_CORE_ABI               8u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -364,6 +364,13 @@ struct omx_clap_instance
     // one reader (omx_clap_host_notes_out); the warm-up and params.flush on the control thread put nothing in it
     uint32_t note_outputs;  ///< the plugin's note output ports, read at open
     struct omx_clap_note_out note_out;  ///< filled by the instance's output event list inside a processing block
+
+    // the plugin's clap.voice-info (ABI 8): asked at every activate, which the extension requires, and kept until the
+    // next one; read by the control thread only
+    uint32_t voice_info_read;  ///< 1 while the last activate read a declaration, 0 when the plugin made none
+    uint32_t voice_count;  ///< the voices the plugin's patch uses, 1 to voice_capacity; 0 with no declaration
+    uint32_t voice_capacity;  ///< the voices the plugin has allocated; 0 with no declaration
+    uint64_t voice_flags;  ///< the declaration's CLAP_VOICE_INFO_* flags; 0 with no declaration
 };
 
 
@@ -559,6 +566,14 @@ OMX_CLAP_EXPORT int omx_clap_host_meter_info(const struct omx_clap_instance *in,
  * activated. Calls the plugin's thread-safe get_values(), so any thread but the audio role reads it: a telemetry
  * thread, at its own rate. The caller keeps the instance open while it reads. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity);
+
+/** The plugin's clap.voice-info, as it answered at the last omx_clap_host_activate: 1 with `*count` the voices its patch
+ * uses, `*capacity` the voices it has allocated (1 <= count <= capacity, the ceiling a host prices it at) and `*flags`
+ * its CLAP_VOICE_INFO_* flags (CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES: two notes on the same key at once, told
+ * apart by note id). 0 when it declares none: no extension, a get that fails, an answer outside 1 <= count <= capacity,
+ * or an instance never activated; each output then reads 0, which is never a voice count. Any pointer may be NULL.
+ * Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count, uint32_t *capacity, uint64_t *flags);
 
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest

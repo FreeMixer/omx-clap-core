@@ -621,6 +621,47 @@ static void synth_ids_checks(const char *path)
 }
 
 /*
+ * clap.voice-info through the core: synth-poly declares 4 of 8 voices with overlapping notes, and answers only while
+ * active, so the declaration is read at activate and nothing is read before it; it is kept across a deactivate. synth
+ * offers no voice-info and reads as no declaration, every output 0, never a count of 0 voices.
+ */
+#define POLY_VOICE_COUNT     4u     /* the fake's FAKE_SYNTH_VOICE_COUNT */
+#define POLY_VOICE_CAPACITY  8u     /* the fake's FAKE_SYNTH_VOICE_CAPACITY */
+static void synth_voice_checks(const char *path)
+{
+    struct omx_clap_instance *synth = NULL;
+    uint32_t count = 99, capacity = 99;
+    uint64_t flags = 99;
+
+    CHECK(open_ok(path, SYNTH_POLY, &synth), "open %s", SYNTH_POLY);
+    if (!synth)
+        return;
+    CHECK(omx_clap_host_voice_info(synth, &count, &capacity, &flags) == 0 && count == 0 && capacity == 0 && flags == 0,
+          "%s before activate: no voice info, all 0 (%u, %u, %llu)", SYNTH_POLY, count, capacity, (unsigned long long)flags);
+    CHECK(activate(synth), "activate %s", SYNTH_POLY);
+    CHECK(omx_clap_host_voice_info(synth, &count, &capacity, &flags) == 1 && count == POLY_VOICE_COUNT &&
+              capacity == POLY_VOICE_CAPACITY && flags == CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES,
+          "%s after activate: %u of %u voices, overlapping notes (%u, %u, %llu)", SYNTH_POLY, POLY_VOICE_COUNT,
+          POLY_VOICE_CAPACITY, count, capacity, (unsigned long long)flags);
+    CHECK(omx_clap_host_voice_info(synth, NULL, &capacity, NULL) == 1 && capacity == POLY_VOICE_CAPACITY,
+          "the capacity alone, the other pointers NULL (%u)", capacity);
+    omx_clap_host_deactivate(synth);
+    CHECK(omx_clap_host_voice_info(synth, &count, &capacity, NULL) == 1 && count == POLY_VOICE_COUNT && capacity == POLY_VOICE_CAPACITY,
+          "the last activate's declaration is kept across a deactivate (%u, %u)", count, capacity);
+    omx_clap_host_close(synth);
+
+    synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
+    if (!synth)
+        return;
+    count = capacity = 99;
+    flags = 99;
+    CHECK(omx_clap_host_voice_info(synth, &count, &capacity, &flags) == 0 && count == 0 && capacity == 0 && flags == 0,
+          "%s offers no voice-info: absent, all 0 (%u, %u, %llu)", SYNTH, count, capacity, (unsigned long long)flags);
+    omx_clap_host_close(synth);
+    CHECK(omx_clap_host_voice_info(NULL, &count, NULL, NULL) == 0 && count == 0, "no instance: no voice info");
+}
+
+/*
  * Note output through the core, against synth-arp: a note on of key 60 on channel 2 at frame 100 sends 60, 64 and 67, a
  * step of FAKE_ARP_STEP_MS apart, each at its own frame across the blocks it falls in; the note off sends their three
  * note offs at its own frame, and the NOTE_END the arpeggiator pushes for the input note is not note output. Read after
@@ -736,6 +777,7 @@ static void synth_checks(const char *path)
     // a port that prefers MIDI with MPE reads raw MIDI, the MPE dialect set: the synth plays from CLAP_EVENT_MIDI alone
     synth_notes_checks(path, SYNTH_MPE, 2, CLAP_NOTE_DIALECT_MIDI_MPE);
     synth_ids_checks(path);
+    synth_voice_checks(path);
 
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     if (!synth)
