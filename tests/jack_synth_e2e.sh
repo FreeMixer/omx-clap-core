@@ -20,10 +20,11 @@ root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5561}
 synth=$here/fake_synth.clap
+fake=$here/fake.clap
 probe=$here/jack_synth_probe
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
-    for f in "$host" "$synth" "$probe"; do
+    for f in "$host" "$synth" "$fake" "$probe"; do
         [ -e "$f" ] || { echo "missing $f" >&2; exit 2; }
     done
     JACK_E2E_INSIDE=1 OMX_CLAP_HOST=$host JACK_E2E_PORT=$port \
@@ -67,6 +68,7 @@ ip link set lo up
 
 pipewire >"$runtime/pw.log" 2>&1 &
 pids+=($!)
+pw_pid=$!
 for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
@@ -136,6 +138,42 @@ instrument() {
 instrument 0 synth 2 "the CLAP dialect"
 instrument 1 synth-midi 1 "the MIDI dialect"
 
+# ---- plugin-hostd's note verbs on the command socket (#122): the same notes, played without a jack MIDI client ----
+expect "note_input 0" "resp 0 midi_in"
+expect "add clap:$fake#org.omx-clap-host.test.passthrough 3" "resp 3"
+expect "note_input 3" "resp 0 -"
+expect "note_on 3 0 60 100" "resp -513"
+expect "note_off 3 0 60 0" "resp -513"
+expect "all_notes_off 3" "resp -513"
+expect "remove 3" "resp 0"
+expect "note_input 3" "resp -3"
+expect "note_on 0 16 60 100" "resp -902"
+expect "note_on 0 0 128 100" "resp -902"
+expect "note_on 0 0 60 0" "resp -902"
+expect "note_off 0 0 60 128" "resp -902"
+coproc listen { timeout 20 "$probe" - effect_0:out_1 effect_0:out_2 2>"$runtime/listen.log"; }
+window() { echo >&"${listen[1]}"; IFS= read -r -t 5 w <&"${listen[0]}"; echo "$w"; }
+sleep 0.6
+w=$(window); near "${w%% *}" 0 0.000001; step $? "socket notes: silence before a note ($w)"
+expect "note_on 0 0 69 100" "resp 0"
+sleep 0.1
+w=$(window); near "${w%% *}" 0.5567 0.02; step $? "note_on 0 0 69 100 on the socket sounds at 0.5567 RMS, as through midi_in ($w)"
+near "${w##* }" 0.7874 0.01; step $? "its peak is 100/127 (${w##* })"
+expect "note_off 0 0 69 0" "resp 0"
+sleep 0.1
+w=$(window); near "${w%% *}" 0 0.000001; step $? "note_off silences it ($w)"
+expect "note_on 0 0 60 100" "resp 0"
+expect "note_on 0 0 64 100" "resp 0"
+expect "note_on 0 0 67 100" "resp 0"
+sleep 0.1
+w=$(window); above "${w%% *}" 0.1; step $? "a chord on the socket sounds ($w)"
+expect "all_notes_off 0" "resp 0"
+sleep 0.1
+w=$(window); near "${w%% *}" 0 0.000001; step $? "all_notes_off silences the chord ($w)"
+exec {listen[1]}>&-
+wait "$listen_PID" 2>/dev/null
+
+
 expect "add clap:$synth#org.omx-clap-host.test.synth-aux 2" "resp 2"
 expect "remove 2" "resp 0"
 expect "add clap:$synth#org.omx-clap-host.test.synth-wide 2" "resp -102 hosting.topology.wider-than-strip"
@@ -150,6 +188,24 @@ grep -q "hosting.topology.no-audio-input" "$runtime/host.log"; step $? "an effec
 expect "note_drops 0" "resp 0 0 0 0 0"
 expect "note_drops 1" "resp 0 0 0 0 0"
 expect "note_drops 7" "resp -3"
+
+# a graph that runs no cycle drains no note: the queue fills, and a verb with no room answers -517 and queues nothing
+kill -STOP "$pw_pid"
+full=0 queued=0
+for _ in $(seq 600); do
+    case $(send "note_on 0 0 60 100") in
+        "resp 0") queued=$((queued + 1)) ;;
+        "resp -517") full=$((full + 1)) ;;
+    esac
+done
+[ "$full" -gt 0 ] && [ "$queued" -gt 0 ] && [ $((queued + full)) -eq 600 ]
+step $? "with the graph stopped, $queued note_on are queued and the other $full answer -517 (the note queue is full)"
+expect "all_notes_off 0" "resp -517"
+kill -CONT "$pw_pid"
+sleep 0.5
+expect "all_notes_off 0" "resp 0"
+# the 511 reach one cycle, which holds 256 note events and keeps half for releases: the rest are dropped and counted
+[ "$(send "note_drops 0" | awk '{ print $3 }')" -gt 0 ]; step $? "the cycle that took them counts the note ons it had no room for"
 expect "bypass 0 1" "resp 0"
 expect "param_get 0 :bypass" "resp 0 1.0000"
 expect "remove 0" "resp 0"
