@@ -26,7 +26,9 @@
  * a second at a time: before any note, with a note on at velocity 100, with
  * one on at velocity 50, and after the note off. One line, the RMS of each
  * window over all the ports, then the peak of the first note's:
- *   <before> <on_100> <on_50> <after> <peak_100> */
+ *   <before> <on_100> <on_50> <after> <peak_100>
+ * With "-" for the midi port it plays nothing itself: it reads stdin, and for each line measures one window and prints
+ * "<rms> <peak>", so a script can play the instrument another way (the host's note verbs) between two lines. */
 
 #include <math.h>
 #include <stdatomic.h>
@@ -111,7 +113,7 @@ int main(int argc, char **argv)
 {
     double before, on100, on50, after, peak, ignored;
     char name[64];
-    int i;
+    int i, listen_only;
 
     if (argc < 3 || argc - 2 > MAX_AUDIO_PORTS)
     {
@@ -124,6 +126,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "can't get jack client\n");
         return 2;
     }
+    listen_only = strcmp(argv[1], "-") == 0;
     g_midi_out = jack_port_register(g_client, "midi_out", JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
     for (i = 0; i < argc - 2; i++)
     {
@@ -137,7 +140,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "can't activate\n");
         return 2;
     }
-    if (jack_connect(g_client, "jack_synth_probe:midi_out", argv[1]) != 0)
+    if (!listen_only && jack_connect(g_client, "jack_synth_probe:midi_out", argv[1]) != 0)
     {
         fprintf(stderr, "can't connect to %s\n", argv[1]);
         return 1;
@@ -153,6 +156,19 @@ int main(int argc, char **argv)
     }
 
     usleep(500000);
+    if (listen_only)
+    {
+        char line[64];
+
+        while (fgets(line, sizeof(line), stdin))
+        {
+            window(&before, &peak);
+            printf("%.6f %.6f\n", before, peak);
+            fflush(stdout);
+        }
+        jack_client_close(g_client);
+        return 0;
+    }
     window(&before, &ignored);
     send(0x90, 100);
     window(&on100, &peak);

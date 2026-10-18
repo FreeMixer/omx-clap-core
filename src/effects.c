@@ -56,6 +56,7 @@
 #include "host_transport.h"
 #include "layout_pin.h"
 #include "lv2_locate.h"
+#include "omx_msgring.h"
 #include "omx_clap_lv2.h"
 #include "host-dispatch.h"
 #include "socket.h"
@@ -72,6 +73,8 @@
 #define LV2_URI_SCHEME          "lv2:"
 #define BYPASS_PORT_SYMBOL      ":bypass"
 #define MIDI_PORT_NAME          "midi_in"
+/* the bytes of the ring the note verbs fill for the audio thread: 512 messages of up to three bytes, a header each */
+#define NOTE_RING_BYTES         4096u
 #define MIDI_OUT_PORT_NAME      "midi_out"
 // the note output events one take reads off the library's ring on the audio thread
 #define NOTES_OUT_CHUNK         64u
@@ -130,6 +133,8 @@ typedef struct EFFECT_T {
     jack_port_t *input_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
     jack_port_t *midi_port;
+    struct omx_msgring note_ring;           // control thread -> audio thread: the note verbs' MIDI messages
+    void *note_ring_buf;                    // its NOTE_RING_BYTES, NULL for a plugin that takes no notes
     jack_port_t *midi_out_port;             // the plugin's note output, when it has one
     _Atomic uint32_t midi_out_full;         // messages midi_out had no room for
     struct omx_clap_instance *clap;
@@ -347,6 +352,18 @@ static int process(jack_nframes_t nframes, void *arg)
     if (!effect || !effect->clap)
         return 0;
 
+    if (effect->note_ring_buf)
+    {
+        // the note verbs first, at the cycle's first frame, ahead of what midi_in carries in it
+        const void *m;
+        uint32_t size;
+
+        while ((m = omx_msgring_peek(&effect->note_ring, &size)) != NULL)
+        {
+            omx_clap_host_note_in(effect->clap, 0, m, size);
+            omx_msgring_pop(&effect->note_ring);
+        }
+    }
     if (effect->midi_port)
     {
         void *midi = jack_port_get_buffer(effect->midi_port, nframes);
@@ -459,6 +476,7 @@ static void instance_free(effect_t *effect)
     free(effect->outputs);
     free(effect->lv2_params);
     free(effect->gestures_open);
+    free(effect->note_ring_buf);
     memset(effect, 0, sizeof(effect_t));
 }
 
@@ -1367,6 +1385,12 @@ int effects_add(const char *uri, int instance, const char *client_name)
             error = ERR_JACK_PORT_REGISTER;
             goto error;
         }
+        effect->note_ring_buf = malloc(NOTE_RING_BYTES);
+        if (!effect->note_ring_buf || omx_msgring_init(&effect->note_ring, effect->note_ring_buf, NOTE_RING_BYTES) != 0)
+        {
+            error = ERR_MEMORY_ALLOCATION;
+            goto error;
+        }
     }
 
     if (effect->clap->note_outputs)
@@ -1631,6 +1655,34 @@ int effects_note_drops(int effect_id, char *reply, size_t size)
              atomic_load_explicit(&stage->releases_dropped, memory_order_relaxed),
              atomic_load_explicit(&stage->sysex_dropped, memory_order_relaxed),
              atomic_load_explicit(&stage->notes_unmappable, memory_order_relaxed));
+    return SUCCESS;
+}
+
+/* note_input: "resp 0 midi_in" for an instance that takes notes, "resp 0 -" for one that takes none */
+int effects_note_input(int effect_id, char *reply, size_t size)
+{
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    snprintf(reply, size, "resp 0 %s", g_effects[effect_id].note_ring_buf ? MIDI_PORT_NAME : PHD_NO_NOTE_INPUT);
+    return SUCCESS;
+}
+
+/* the note verbs, on the control thread: `count` MIDI messages of `size` bytes each, handed to the audio thread whole
+ * or not at all, which plays them at the start of its next cycle through the same omx_clap_host_note_in midi_in feeds */
+int effects_note(int effect_id, const uint8_t (*messages)[3], uint32_t count)
+{
+    effect_t *effect;
+    uint32_t i;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    if (!effect->note_ring_buf)
+        return PHD_ERR_NO_NOTE_INPUT;
+    if (NOTE_RING_BYTES - omx_msgring_used(&effect->note_ring) < count * omx_msgring_record_bytes(3) + omx_msgring_record_bytes(3))
+        return ERR_MEMORY_ALLOCATION;   // the audio thread has not drained the ring: no room, nothing queued
+    for (i = 0; i < count; i++)
+        omx_msgring_push(&effect->note_ring, messages[i], 3);
     return SUCCESS;
 }
 

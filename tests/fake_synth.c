@@ -22,7 +22,8 @@
 /* A synth built for the tests, deterministic to the sample. A note on starts
  * a sine at the key's frequency from phase 0 on the frame it arrives on, at
  * the velocity as its amplitude; a note off is silence from its frame on. One
- * voice, the last note on wins, a note off for another key is ignored. Every
+ * voice, the last note on wins, a note off for another key is ignored; all notes off or all sound off (controller
+ * 123 to 127, or 120) as raw MIDI silences it. Every
  * plugin of the file is the same synth behind a different port layout:
  *   org.omx-clap-host.test.synth          stereo out, CLAP note dialect
  *   org.omx-clap-host.test.synth-midi     mono out, MIDI note dialect
@@ -396,6 +397,8 @@ static void take_event(synth_t *synth, const clap_event_header_t *header)
         if (type == 0x90 && e->data[2] > 0)
             note_on(synth, e->data[1], e->data[2] / 127.0);
         else if ((type == 0x80 || type == 0x90) && synth->sounding && e->data[1] == synth->key)
+            synth->sounding = 0;
+        else if (type == 0xb0 && (e->data[1] == 120 || e->data[1] >= 123))  // all sound off, all notes off
             synth->sounding = 0;
     }
 }
