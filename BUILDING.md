@@ -26,6 +26,15 @@ and runs it with the defaults, and runs the lifecycle test against a plugin with
 layouts the host refuses and a passthrough with a latency, and against
 `tests/fake_synth.clap`, a synth whose notes are exact to the sample.
 
+    make test-socket
+
+runs `tests/socket_e2e.sh`: the host in a private namespace and PipeWire, its
+command socket against `tests/socket_conformance.py` (a command of exactly
+the 1024-byte receive buffer, several commands in one write, one command over
+many writes, clients that leave mid-command, the size limit and a random
+chunking fuzz). What it checks is the protocol library the host links, which
+must carry mod-audio/mod-host#113 (the FreeMixer build of it does); CI runs it.
+
     make install-tests DESTDIR=<root> PREFIX=/usr
 
 puts the fixtures a program that drives the worker tests itself against
