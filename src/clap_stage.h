@@ -419,13 +419,21 @@ static inline void omx_clap_note_id_release(struct omx_clap_note_ids *n, int32_t
     n->ids[id].released_at = now;
 }
 
-/** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed; with no id (-1), every id of its channel
- * and key is (-1 in either: every channel or every key). An id the host never gave is ignored. */
+/** RT: whether `id`, in use, names the note of channel `channel` and key `key` (-1 in either: any) */
+static inline int omx_clap_note_id_names(const struct omx_clap_note_id *id, int16_t channel, int16_t key)
+{
+    return id->state != 0 && (channel < 0 || id->channel == channel) && (key < 0 || id->key == key);
+}
+
+/** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed when the id still names the note the event
+ * names (its channel and key, -1 in either matching any): an id whose hold ran out may already name a new note, and a
+ * late NOTE_END for the old voice must not take the id from the one that sounds. With no id (-1), every id of its
+ * channel and key is freed (-1 in either: every channel or every key). An id the host never gave is ignored. */
 static inline void omx_clap_note_end(struct omx_clap_note_ids *n, const clap_event_note_t *e)
 {
     if (e->note_id >= 0)
     {
-        if ((uint32_t)e->note_id < OMX_CLAP_NOTE_IDS && n->ids[e->note_id].state != 0)
+        if ((uint32_t)e->note_id < OMX_CLAP_NOTE_IDS && omx_clap_note_id_names(&n->ids[e->note_id], e->channel, e->key))
         {
             omx_clap_note_id_free(n, e->note_id);
             omx_hosted_count(&n->notes_ended, 1);
@@ -434,9 +442,7 @@ static inline void omx_clap_note_end(struct omx_clap_note_ids *n, const clap_eve
     }
     for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
     {
-        const struct omx_clap_note_id *id = &n->ids[i];
-
-        if (id->state == 0 || (e->channel >= 0 && id->channel != e->channel) || (e->key >= 0 && id->key != e->key))
+        if (!omx_clap_note_id_names(&n->ids[i], e->channel, e->key))
             continue;
         omx_clap_note_id_free(n, (int32_t)i);
         omx_hosted_count(&n->notes_ended, 1);
