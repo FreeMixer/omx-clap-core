@@ -1,4 +1,4 @@
-version 0.10.0
+version 0.11.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -107,7 +107,12 @@ member struct omx_clap_instance contract_why 35560 128 char contract_why[128]
 member struct omx_clap_instance note_ids 35688 12968 struct omx_clap_note_ids note_ids
 member struct omx_clap_instance note_outputs 48656 4 uint32_t note_outputs
 member struct omx_clap_instance note_out 48664 4112 struct omx_clap_note_out note_out
-size struct omx_clap_instance 52776
+member struct omx_clap_instance voice_info_read 52776 4 uint32_t voice_info_read
+member struct omx_clap_instance voice_count 52780 4 uint32_t voice_count
+member struct omx_clap_instance voice_capacity 52784 4 uint32_t voice_capacity
+member struct omx_clap_instance voice_flags 52792 8 uint64_t voice_flags
+member struct omx_clap_instance mpe_zones 52800 104 struct omx_clap_mpe_zones mpe_zones
+size struct omx_clap_instance 52904
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
@@ -116,6 +121,17 @@ member struct omx_clap_meter channel_count 268 4 uint32_t channel_count
 member struct omx_clap_meter min_value 272 8 double min_value
 member struct omx_clap_meter max_value 280 8 double max_value
 size struct omx_clap_meter 288
+member struct omx_clap_mpe_zone members 0 4 uint32_t members
+member struct omx_clap_mpe_zone master_have 4 4 uint32_t master_have
+member struct omx_clap_mpe_zone master_bend 8 8 double master_bend
+member struct omx_clap_mpe_zone member_bend 16 8 double member_bend
+member struct omx_clap_mpe_zone master_tuning 24 8 double master_tuning
+member struct omx_clap_mpe_zone master_pressure 32 8 double master_pressure
+member struct omx_clap_mpe_zone master_brightness 40 8 double master_brightness
+size struct omx_clap_mpe_zone 48
+member struct omx_clap_mpe_zones wanted 0 8 _Atomic uint32_t wanted[2]
+member struct omx_clap_mpe_zones zone 8 96 struct omx_clap_mpe_zone zone[2]
+size struct omx_clap_mpe_zones 104
 member struct omx_clap_note_id state 0 1 uint8_t state
 member struct omx_clap_note_id channel 1 1 uint8_t channel
 member struct omx_clap_note_id key 2 1 uint8_t key
