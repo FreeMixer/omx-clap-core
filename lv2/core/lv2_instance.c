@@ -1186,7 +1186,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
 
         for (leg = 0; leg < p->legs && !at; leg++)
         {
-            if (p->in_ports[leg] == i)
+            if (leg < p->in_legs && p->in_ports[leg] == i)
                 at = in->audio + leg * (size_t)max_frames;
             else if (p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;

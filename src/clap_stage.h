@@ -419,13 +419,21 @@ static inline void omx_clap_note_id_release(struct omx_clap_note_ids *n, int32_t
     n->ids[id].released_at = now;
 }
 
-/** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed; with no id (-1), every id of its channel
- * and key is (-1 in either: every channel or every key). An id the host never gave is ignored. */
+/** RT: whether `id`, in use, names the note of channel `channel` and key `key` (-1 in either: any) */
+static inline int omx_clap_note_id_names(const struct omx_clap_note_id *id, int16_t channel, int16_t key)
+{
+    return id->state != 0 && (channel < 0 || id->channel == channel) && (key < 0 || id->key == key);
+}
+
+/** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed when the id still names the note the event
+ * names (its channel and key, -1 in either matching any): an id whose hold ran out may already name a new note, and a
+ * late NOTE_END for the old voice must not take the id from the one that sounds. With no id (-1), every id of its
+ * channel and key is freed (-1 in either: every channel or every key). An id the host never gave is ignored. */
 static inline void omx_clap_note_end(struct omx_clap_note_ids *n, const clap_event_note_t *e)
 {
     if (e->note_id >= 0)
     {
-        if ((uint32_t)e->note_id < OMX_CLAP_NOTE_IDS && n->ids[e->note_id].state != 0)
+        if ((uint32_t)e->note_id < OMX_CLAP_NOTE_IDS && omx_clap_note_id_names(&n->ids[e->note_id], e->channel, e->key))
         {
             omx_clap_note_id_free(n, e->note_id);
             omx_hosted_count(&n->notes_ended, 1);
@@ -434,9 +442,7 @@ static inline void omx_clap_note_end(struct omx_clap_note_ids *n, const clap_eve
     }
     for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
     {
-        const struct omx_clap_note_id *id = &n->ids[i];
-
-        if (id->state == 0 || (e->channel >= 0 && id->channel != e->channel) || (e->key >= 0 && id->key != e->key))
+        if (!omx_clap_note_id_names(&n->ids[i], e->channel, e->key))
             continue;
         omx_clap_note_id_free(n, (int32_t)i);
         omx_hosted_count(&n->notes_ended, 1);
@@ -1292,9 +1298,17 @@ struct omx_clap_transport
 
 /**
  * A host's published transport: the fields as atomic words, guarded by a sequence (odd while a publish is under way).
- * The control thread writes it whole with omx_clap_transport_publish; the audio role reads it whole with
- * omx_clap_transport_read, so one block never pairs the fields of two publishes. Its storage is the caller's and must
- * outlive the instance's publication.
+ * It has one writer, which publishes it whole with omx_clap_transport_publish: the control thread, or an audio thread
+ * that publishes once per cycle (a console counting its song position in frames), never both. Any number of audio
+ * threads read it whole with omx_clap_transport_read, in the same cycle as the writer or not, so one block never pairs
+ * the fields of two publishes. Neither side allocates, locks or calls out. Its storage is the caller's and must outlive
+ * the instance's publication.
+ *
+ * The ordering, with no standalone fence (which ThreadSanitizer cannot see): the writer makes the sequence odd, stores
+ * each field with release, and makes the sequence even with release; a reader loads the sequence and each field with
+ * acquire, then the sequence again. A field the reader took from a publish that had begun synchronises with that
+ * publish's odd store, so the second load of the sequence cannot read the even value of the first, and the read is
+ * tried again.
  */
 struct omx_clap_transport_src
 {
@@ -1309,7 +1323,8 @@ struct omx_clap_transport_src
     _Atomic uint16_t tsig_denom;  ///< time signature denominator
 };
 
-/** Control thread: publish `t` whole. Seen by the next block that reads it; the sequence is odd while it is written. */
+/** The one writer, the control thread or an audio thread (RT-safe: no allocation, lock or call out): publish `t`
+ * whole. Seen by the next read; the sequence is odd while it is written. */
 static inline void omx_clap_transport_publish(struct omx_clap_transport_src *src, const struct omx_clap_transport *t)
 {
     uint64_t bpm_bits = 0;
@@ -1317,15 +1332,14 @@ static inline void omx_clap_transport_publish(struct omx_clap_transport_src *src
 
     memcpy(&bpm_bits, &t->tempo, sizeof bpm_bits);
     atomic_store_explicit(&src->seq, seq + 1u, memory_order_relaxed);
-    atomic_thread_fence(memory_order_release);
-    atomic_store_explicit(&src->flags, t->flags, memory_order_relaxed);
-    atomic_store_explicit(&src->tempo_bits, bpm_bits, memory_order_relaxed);
-    atomic_store_explicit(&src->song_pos_beats, t->song_pos_beats, memory_order_relaxed);
-    atomic_store_explicit(&src->song_pos_seconds, t->song_pos_seconds, memory_order_relaxed);
-    atomic_store_explicit(&src->bar_start, t->bar_start, memory_order_relaxed);
-    atomic_store_explicit(&src->bar_number, t->bar_number, memory_order_relaxed);
-    atomic_store_explicit(&src->tsig_num, t->tsig_num, memory_order_relaxed);
-    atomic_store_explicit(&src->tsig_denom, t->tsig_denom, memory_order_relaxed);
+    atomic_store_explicit(&src->flags, t->flags, memory_order_release);
+    atomic_store_explicit(&src->tempo_bits, bpm_bits, memory_order_release);
+    atomic_store_explicit(&src->song_pos_beats, t->song_pos_beats, memory_order_release);
+    atomic_store_explicit(&src->song_pos_seconds, t->song_pos_seconds, memory_order_release);
+    atomic_store_explicit(&src->bar_start, t->bar_start, memory_order_release);
+    atomic_store_explicit(&src->bar_number, t->bar_number, memory_order_release);
+    atomic_store_explicit(&src->tsig_num, t->tsig_num, memory_order_release);
+    atomic_store_explicit(&src->tsig_denom, t->tsig_denom, memory_order_release);
     atomic_store_explicit(&src->seq, seq + 2u, memory_order_release);
 }
 
@@ -1343,15 +1357,14 @@ static inline int omx_clap_transport_read(const struct omx_clap_transport_src *s
 
         if (s1 & 1u)
             continue;
-        t.flags = atomic_load_explicit(&src->flags, memory_order_relaxed);
-        bpm_bits = atomic_load_explicit(&src->tempo_bits, memory_order_relaxed);
-        t.song_pos_beats = atomic_load_explicit(&src->song_pos_beats, memory_order_relaxed);
-        t.song_pos_seconds = atomic_load_explicit(&src->song_pos_seconds, memory_order_relaxed);
-        t.bar_start = atomic_load_explicit(&src->bar_start, memory_order_relaxed);
-        t.bar_number = atomic_load_explicit(&src->bar_number, memory_order_relaxed);
-        t.tsig_num = atomic_load_explicit(&src->tsig_num, memory_order_relaxed);
-        t.tsig_denom = atomic_load_explicit(&src->tsig_denom, memory_order_relaxed);
-        atomic_thread_fence(memory_order_acquire);
+        t.flags = atomic_load_explicit(&src->flags, memory_order_acquire);
+        bpm_bits = atomic_load_explicit(&src->tempo_bits, memory_order_acquire);
+        t.song_pos_beats = atomic_load_explicit(&src->song_pos_beats, memory_order_acquire);
+        t.song_pos_seconds = atomic_load_explicit(&src->song_pos_seconds, memory_order_acquire);
+        t.bar_start = atomic_load_explicit(&src->bar_start, memory_order_acquire);
+        t.bar_number = atomic_load_explicit(&src->bar_number, memory_order_acquire);
+        t.tsig_num = atomic_load_explicit(&src->tsig_num, memory_order_acquire);
+        t.tsig_denom = atomic_load_explicit(&src->tsig_denom, memory_order_acquire);
         if (atomic_load_explicit(&src->seq, memory_order_relaxed) != s1)
             continue;
         memcpy(&t.tempo, &bpm_bits, sizeof t.tempo);
