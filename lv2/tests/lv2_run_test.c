@@ -38,6 +38,8 @@
  *   lv2_run_test <omx-lv2-fakes.lv2 directory>
  */
 #include <pthread.h>
+#include <sched.h>
+#include <time.h>
 #include <stdint.h>
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
@@ -206,6 +208,24 @@ static void trace_clear(void)
         fn();
 }
 
+/* the worker fake's gate: held, it blocks work() before work() traces; and the work() calls it has entered */
+static void worker_hold(int on)
+{
+    lv2_fakes_worker_hold_fn fn;
+
+    *(void **)&fn = loaded_symbol(g_so, "lv2_fakes_worker_hold");
+    if (fn)
+        fn(on);
+}
+
+static unsigned worker_entered(void)
+{
+    lv2_fakes_worker_entered_fn fn;
+
+    *(void **)&fn = loaded_symbol(g_so, "lv2_fakes_worker_entered");
+    return fn ? fn() : 0;
+}
+
 static void test_worker(void)
 {
     struct lv2_counters c;
@@ -216,23 +236,33 @@ static void test_worker(void)
         return;
     trace_clear();
     CHECK(lv2_instance_has_worker(g.in), "the worker fake runs a worker thread");
+    // the worker is held out of work() while a block runs, so the trace of a block holds the RT's events only
+    worker_hold(1);
     run_rt(&g, l, NULL, 32);
     CHECK(strncmp(trace(), "run0,end0", 9) == 0, "block 0: run then end_run, no work on the RT (%s)", trace());
+    worker_hold(0);
     lv2_instance_worker_quiesce(g.in);
+    worker_hold(1);
     run_rt(&g, l, NULL, 32);
     CHECK(!strcmp(trace(), "run0,end0,work0,resp0,run1,end1"), "response drained BEFORE the next run: %s", trace());
+    worker_hold(0);
 
     lv2_instance_worker_quiesce(g.in);
     CHECK(g.f->respond && g.f->respond(g.f->respond_handle, 4, "abcd") == LV2_WORKER_ERR_UNKNOWN, "respond outside work() is refused");
     lv2_instance_counters(g.in, &c);
     CHECK(c.respond_strikes == 1, "and counted a strike (%u)", c.respond_strikes);
     trace_clear();
+    worker_hold(1);
     run_rt(&g, l, NULL, 32);
     CHECK(!strcmp(trace(), "resp1,run2,end2"), "and never reaches the response ring: %s", trace());
+    worker_hold(0);
     rig_down(&g);
 }
 
-/* a 16-byte request ring holds two 4-byte records; the third schedule is NO_SPACE */
+/* a 16-byte request ring holds two 4-byte records; the third schedule is NO_SPACE. A request leaves the ring only after
+ * its work() returned, so a worker held inside work() keeps its record in the ring: the test schedules the first, waits
+ * for the worker to be inside work() on it (a condition, never elapsed time), then schedules two more, and the third
+ * overall is refused whenever the worker's poll fell */
 static void worker_full_ring(void)
 {
     static const struct lv2_core_config config = { lv2_core_provided, 1000000u, 16u, 0u, NULL, NULL };
@@ -247,10 +277,16 @@ static void worker_full_ring(void)
     if (rig_up(&g, FAKE_WORKER, MAXB) != 0)
         return;
     trace_clear();
-    for (blk = 0; blk < 3; blk++)
+    worker_hold(1);
+    run_rt(&g, l, NULL, 32);
+    for (blk = 0; blk < 20000 && worker_entered() == 0; blk++)    // the bound only ends a hang; the wait is the condition
+        nanosleep(&(const struct timespec){ 0, 1000000L }, NULL);
+    CHECK(worker_entered() == 1, "the worker is inside work() on the first request, held there (%u)", worker_entered());
+    for (blk = 1; blk < 3; blk++)
         run_rt(&g, l, NULL, 32);
     lv2_instance_counters(g.in, &c);
     CHECK(c.schedule_refused == 1, "full request ring answered NO_SPACE once (%u)", c.schedule_refused);
+    worker_hold(0);
     lv2_instance_worker_quiesce(g.in);
     CHECK(strstr(trace(), "work0") && strstr(trace(), "work1") && !strstr(trace(), "work2"),
           "the two that fit are still serviced (%s)", trace());
