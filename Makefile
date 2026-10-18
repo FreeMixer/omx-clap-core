@@ -296,6 +296,7 @@ test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake
 # the stage against fake plugins at six rates, and the core over the fault fixtures and fakes: the witness, the guard
 # page, the audio role on a split, the whole roster and the tempo
 test-stage: tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test fixtures
+	bash tests/dialect_doc_check.sh
 	./tests/clap_stage_test
 	./tests/clap_core_test $(abspath tests)
 	./tests/clap_untrusted_test
