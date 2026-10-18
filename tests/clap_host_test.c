@@ -933,6 +933,46 @@ static void mover_checks(const char *path)
         omx_clap_host_close(instance);
     }
 
+    // R3: the contract a rescan finds is the one the open trusted, or the instance is uncontracted from then on
+    setenv("FAKE_MOVER_CONTRACT", "keep", 1);
+    instance = mover_run(path, "info", NULL, 8);
+    if (instance)
+    {
+        uint32_t version = 0;
+        const char *why = NULL;
+        struct omx_clap_param_meaning m;
+
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 1 && version == 1, "keep: the mover is contracted at open");
+        idle(instance);     // on_main_thread: the rename and the rescan
+        omx_clap_host_tick(instance);
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 1 && version == 1,
+              "keep: a rescan that renames only the display name keeps the contract (%s)", why ? why : "NULL");
+        CHECK(omx_clap_host_param_meaning(instance, MOVER_LEVEL, &m) == 0 && strcmp(m.symbol, "level") == 0,
+              "keep: level's meaning is still level (%s)", m.symbol);
+        omx_clap_host_close(instance);
+    }
+    setenv("FAKE_MOVER_CONTRACT", "follow", 1);
+    instance = mover_run(path, "info", NULL, 8);
+    if (instance)
+    {
+        uint32_t version = 0;
+        const char *why = NULL, *said;
+        struct omx_clap_param_meaning m;
+
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 1 && version == 1, "follow: the mover is contracted at open");
+        idle(instance);     // on_main_thread: the rename, the symbol with it, and the rescan
+        omx_clap_host_tick(instance);
+        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 0 && version == 0 && why && strncmp(why, "R3", 2) == 0,
+              "follow: a rescan that changes a parameter's identity is refused, R3 (%s)", why ? why : "NULL");
+        CHECK(omx_clap_host_param_meaning(instance, MOVER_LEVEL, &m) == -1, "follow: no meaning for level any more, old or new");
+        omx_clap_host_tick(instance);
+        said = omx_clap_host_log_take(instance);
+        CHECK(said && strstr(said, "parameter contract is not trusted") && strstr(said, "R3"), "follow: said in the log (%s)",
+              said ? said : "NULL");
+        omx_clap_host_close(instance);
+    }
+    unsetenv("FAKE_MOVER_CONTRACT");
+
     // a rescan of everything while active: a restart
     instance = mover_run(path, "all", NULL, 8);
     if (instance)

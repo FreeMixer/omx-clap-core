@@ -417,8 +417,8 @@ tests/fault-%.clap: tests/fault_clap.c
 tests/fake.clap: tests/fake_plugin.c src/omx_clap_ext.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
 
-tests/fake_mover.clap: tests/fake_mover.c
-	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
+tests/fake_mover.clap: tests/fake_mover.c src/omx_clap_ext.h
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
 
 tests/fake_synth.clap: tests/fake_synth.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
