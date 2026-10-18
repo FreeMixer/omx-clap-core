@@ -164,7 +164,11 @@ sets the tempo and the beats per bar only: the host never starts, stops or
 moves the JACK transport.
 
 A program that hosts plugins through the library hands them a transport of its
-own with `omx_clap_host_set_transport` and `omx_clap_transport_publish`.
+own with `omx_clap_host_set_transport` and `omx_clap_transport_publish`. The
+record has one writer, the control thread or an audio thread that publishes
+it once per cycle (a console counting its song position in frames), never
+both; any number of audio threads read it whole in the same cycle. Neither
+side allocates or locks.
 
 Replies are mod-host's: `resp <code>`, with mod-host's error codes. A refused
 `add` that has a `hosting.*` code says it after the error code, `resp -102
