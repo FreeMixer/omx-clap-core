@@ -93,7 +93,9 @@ it to 0.75 and lets it go, and the feedback socket carries `param_gesture
 begin`, `param_set 0.75` and `param_gesture end` in that order, once; a value
 the controller sets is not echoed. With `FAKE_MOVER_FLOOD=300`, more values
 than the ring holds between two ticks, the last line of each parameter is
-what the plugin holds. `make test-fake` drives the same plugin through the
+what the plugin holds; with `FAKE_MOVER_HELD=1` as well the flood comes while
+level is held, the ring has no room for the gesture's end, and the feedback
+still closes the gesture, once. `make test-fake` drives the same plugin through the
 library: the events in order, a modulation the plugin hears with its set
 value unchanged, the host's gestures around a write, the plugin's text,
 `params.rescan` of the info and of everything, `params.clear`, and the ring's
@@ -233,7 +235,9 @@ canonical fingerprint against the contract's worked vector and the fake
 plugin's (node's SHA-256 of the same lines), and the shortest decimals against
 node's `String(n)`. `make test-fake` includes it, and `tests/clap_host_test`
 opens the fake plugin with each `FAKE_CONTRACT` arm: whole, at version 2 with
-one rename step, and broken by R1, R2, R4 or R5, each named.
+one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
+`FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
+changes a symbol (`follow`, refused under R3).
 
 The hosting limits and refusal codes are declared in `data/hosting.json`, in
 omx-contract's schema. `make install` puts them into omx-contract's contract
