@@ -21,8 +21,8 @@ CLAP plugin gets. [Through omx-clap-host](#through-omx-clap-host) says what that
 test behind each row.
 
 plugin-hostd runs every LV2 and CLAP plugin in a native host of its own format, with no
-translation. A CLAP plugin can show its own window, or a panel the console draws from its CLAP
-extensions. An LV2 plugin's modgui is planned in the console (until then it gets the generated panel); native LV2 desktop UIs are not hosted
+translation. A CLAP plugin has no window of its own: no code in omx-clap-core, plugin-hostd or the engine asks
+a plugin for `clap.gui`, and the console draws a panel from the plugin's parameters. An LV2 plugin's modgui is planned in the console (until then it gets the generated panel); native LV2 desktop UIs are not hosted
 yet. A plugin with no GUI gets the console's panel generated from its parameters.
 
 How to read the matrix

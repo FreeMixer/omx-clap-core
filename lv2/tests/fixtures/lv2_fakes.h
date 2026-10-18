@@ -80,6 +80,9 @@ struct fake
 typedef struct fake *(*lv2_fakes_last_fn)(void);
 typedef const char *(*lv2_fakes_trace_fn)(void);
 typedef void (*lv2_fakes_trace_clear_fn)(void);
+/* hold the worker fake inside work(), and how many work() calls it has entered */
+typedef void (*lv2_fakes_worker_hold_fn)(int on);
+typedef unsigned (*lv2_fakes_worker_entered_fn)(void);
 
 static inline uint32_t pad_latency_frames(double rate)
 {

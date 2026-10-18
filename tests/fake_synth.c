@@ -34,7 +34,10 @@
  *   org.omx-clap-host.test.synth-poly     stereo out, CLAP note dialect, a voice per note id: a note off starts a
  *                                         release of FAKE_SYNTH_RELEASE frames, after which the synth pushes
  *                                         CLAP_EVENT_NOTE_END with the voice's id, channel and key. A note on whose
- *                                         id a voice still sounds under is counted (fake_synth_poly_stats)
+ *                                         id a voice still sounds under is counted (fake_synth_poly_stats). It
+ *                                         declares clap.voice-info, answered only while active: FAKE_SYNTH_VOICE_COUNT
+ *                                         of FAKE_SYNTH_VOICE_CAPACITY voices, overlapping notes supported. No other
+ *                                         layout offers voice-info
  *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused
  *   org.omx-clap-host.test.synth-arp      silent stereo out, a CLAP note input and a CLAP note output: an arpeggiator.
  *                                         A note on of key k at frame f sends note ons of k, k + 4 and k + 7 at f,
@@ -64,6 +67,11 @@
 #define FAKE_SYNTH_RELEASE  1024u
 /** the voices synth-poly holds, more than any id pool a host has */
 #define FAKE_SYNTH_VOICES   1024u
+/** what synth-poly declares through clap.voice-info: the voices its patch uses of the voices it has allocated, two
+ * different figures so a host that reads one for the other is seen; its own pool is FAKE_SYNTH_VOICES, larger than both,
+ * so the host's note id pool runs out before it does */
+#define FAKE_SYNTH_VOICE_COUNT      4u
+#define FAKE_SYNTH_VOICE_CAPACITY   8u
 /** the arpeggiator's step, a duration: frames at the activated rate, rounded */
 #define FAKE_ARP_STEP_MS    2.0
 /** the arpeggiator's intervals above the key it is played, in semitones */
@@ -149,6 +157,7 @@ typedef struct SYNTH_T {
     arp_event_t arp[ARP_PENDING];       ///< the arpeggiator's events ahead of their frame, in frame order
     uint32_t n_arp;
     int64_t now;                        ///< the frame process() is at, in steady time
+    int active;                         ///< between activate and deactivate
 } synth_t;
 
 static const char *const g_synth_features[] = { CLAP_PLUGIN_FEATURE_INSTRUMENT, CLAP_PLUGIN_FEATURE_SYNTHESIZER, NULL };
@@ -427,13 +436,30 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
     (void)min_frames;
     (void)max_frames;
     synth->sample_rate = sample_rate;
+    synth->active = 1;
     return true;
 }
 
 static void plugin_deactivate(const clap_plugin_t *plugin)
 {
-    (void)plugin;
+    synth_t *synth = plugin->plugin_data;
+    synth->active = 0;
 }
+
+/* clap.voice-info is [main-thread & active]: an inactive synth answers nothing */
+static bool voice_info_get(const clap_plugin_t *plugin, clap_voice_info_t *info)
+{
+    const synth_t *synth = plugin->plugin_data;
+
+    if (!synth->active)
+        return false;
+    info->voice_count = FAKE_SYNTH_VOICE_COUNT;
+    info->voice_capacity = FAKE_SYNTH_VOICE_CAPACITY;
+    info->flags = CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES;
+    return true;
+}
+
+static const clap_plugin_voice_info_t g_voice_info = { voice_info_get };
 
 static bool plugin_start_processing(const clap_plugin_t *plugin)
 {
@@ -500,6 +526,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_audio_ports;
     if (!strcmp(id, CLAP_EXT_NOTE_PORTS) && (synth->layout->note_inputs || synth->layout->note_outputs))
         return &g_note_ports;
+    if (!strcmp(id, CLAP_EXT_VOICE_INFO) && synth->layout->poly)
+        return &g_voice_info;
     return NULL;
 }
 

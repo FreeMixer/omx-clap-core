@@ -852,14 +852,16 @@ static void t_channel_messages(void) {
 
 /* ---- 9b. NOTE IDS AND MPE: a CLAP-dialect input fed with the stage's note ids ---- */
 static struct omx_clap_note_ids NI;
+static struct omx_clap_mpe_zones MZ;
 
 /* a CLAP-only input with note ids, held `hold` frames after a note off; the block's notes emptied */
 static void ni_up(uint32_t hold) {
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
   memset(&NI, 0, sizeof NI);
+  memset(&MZ, 0, sizeof MZ);
   omx_clap_note_ids_bind(&NI, &NS, hold);
 }
-static void ni_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in_ids(&NS, &NI, time, m, n); }
+static void ni_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in_ids(&NS, &NI, &MZ, time, m, n); }
 static void ni_block(void) { NS.n_notes = 0; NS.n_sysex = 0; }
 /* the plugin's NOTE_END for `note_id` (-1: by channel and key), through the sink process() is handed */
 static void ni_end(int32_t note_id, int16_t channel, int16_t key) {
@@ -879,7 +881,7 @@ static int ni_expr(uint32_t i, int32_t expr, int32_t id, int16_t channel, int16_
 static void t_note_ids(void) {
   static const uint8_t ON60[] = {0x90, 60, 100}, ON62[] = {0x90, 62, 90}, OFF60[] = {0x80, 60, 0}, OFF62[] = {0x90, 62, 0};
   static const uint8_t POLY62[] = {0xa0, 62, 64}, OFF70[] = {0x80, 70, 0}, ALL_OFF[] = {0xb0, 123, 0};
-  static const int RATES_C[] = OMX_RME_RATES_INIT;
+  static const int RATES_C[] = OMX_ORACLE_FULL_RATES_INIT;
   int32_t a, b;
   uint32_t i, ri;
 
@@ -996,7 +998,7 @@ static void t_mpe(void) {
 
   ni_up(1000);
   for (i = 0; i < 3; i++) ni_in(0, MCM_LOWER[i], 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 15, "the MPE configuration message on channel 1 sets the lower zone, 15 members");
+  CHECK(MZ.zone[0].members == 15 && MZ.zone[1].members == 0, "the MPE configuration message on channel 1 sets the lower zone, 15 members");
   ni_block();
   ni_in(0, ON2, 3);
   ni_in(1, ON3, 3);
@@ -1009,15 +1011,16 @@ static void t_mpe(void) {
         "a member's bend is TUNING of the note on it (id %d, channel 2, key 60), 48 semitones full scale (%g)", a, NS.notes[2].expr.value);
   CHECK(ni_expr(3, CLAP_NOTE_EXPRESSION_PRESSURE, b, 2, 64, 64.0 / 127.0), "a member's channel pressure is PRESSURE of its note (id %d)", b);
   CHECK(ni_expr(4, CLAP_NOTE_EXPRESSION_BRIGHTNESS, a, 1, 60, 1.0), "a member's controller 74 is BRIGHTNESS of its note (id %d)", a);
-  CHECK(ni_expr(5, CLAP_NOTE_EXPRESSION_TUNING, -1, -1, -1, -2.0), "the master's bend reaches every note, 2 semitones full scale (%g)",
-        NS.notes[5].expr.value);
-  CHECK(NS.n_notes == 6 && atomic_load(&NS.notes_unmappable) == 0, "nothing of the zone is counted unmappable (%u)", atomic_load(&NS.notes_unmappable));
+  CHECK(ni_expr(5, CLAP_NOTE_EXPRESSION_TUNING, a, 1, 60, -2.0) && ni_expr(6, CLAP_NOTE_EXPRESSION_TUNING, b, 2, 64, -2.0),
+        "the master's bend reaches each note of its zone, with its id, 2 semitones full scale (%g, %g)", NS.notes[5].expr.value,
+        NS.notes[6].expr.value);
+  CHECK(NS.n_notes == 7 && atomic_load(&NS.notes_unmappable) == 0, "nothing of the zone is counted unmappable (%u)", atomic_load(&NS.notes_unmappable));
 
   /* RPN 0 on a member sets the members' bend range */
   ni_block();
   for (i = 0; i < 3; i++) ni_in(0, RPN0_MEMBER[i], 3);
   ni_in(1, BEND3_MIN, 3);
-  CHECK(NI.mpe_member_bend == 24.0 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, b, 2, 64, -24.0),
+  CHECK(MZ.zone[0].member_bend == 24.0 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, b, 2, 64, -24.0),
         "RPN 0 on a member sets 24 semitones: the bottom of the bend is -24 (%g)", NS.notes[0].expr.value);
   /* a member with no note sounding: its expressions reach the whole channel */
   ni_block();
@@ -1032,35 +1035,37 @@ static void t_mpe(void) {
   ni_block();
   ni_in(0, BEND14, 3);
   ni_in(1, BEND13, 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_UPPER && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, -1, 13, -1, -48.0) &&
+  CHECK(MZ.zone[1].members == 2 && MZ.zone[0].members == 0 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, -1, 13, -1, -48.0) &&
         ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, -1, 12, -1, -2.0),
         "the upper zone of 2: channel 14 is a member (-48), channel 13 a plain channel (-2) (%g, %g)", NS.notes[0].expr.value,
         NS.notes[1].expr.value);
   ni_in(2, (const uint8_t[]){0xbf, 6, 0}, 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_OFF, "a configuration message of 0 members ends the zone");
+  CHECK(MZ.zone[1].members == 0, "a configuration message of 0 members ends the zone");
 
   /* a zone the control thread asks for is taken ahead of the next message */
   ni_up(1000);
-  omx_clap_note_ids_want_mpe(&NI, OMX_CLAP_MPE_LOWER, 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_OFF, "a zone asked for waits for the RT");
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_LOWER, 3);
+  CHECK(MZ.zone[0].members == 0, "a zone asked for waits for the RT");
   ni_in(0, ON2, 3);
   ni_in(1, BRIGHT2, 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 3 && ni_expr(1, CLAP_NOTE_EXPRESSION_BRIGHTNESS, NS.notes[0].note.note_id, 1, 60, 1.0),
+  CHECK(MZ.zone[0].members == 3 && ni_expr(1, CLAP_NOTE_EXPRESSION_BRIGHTNESS, NS.notes[0].note.note_id, 1, 60, 1.0),
         "the zone asked for is the input's from the next message: controller 74 is the note's BRIGHTNESS");
 
   /* a zone asked for before the first bind, or while deactivated, lasts across the bind (the header's promise) */
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
   memset(&NI, 0, sizeof NI);
-  omx_clap_note_ids_want_mpe(&NI, OMX_CLAP_MPE_LOWER, 3);
+  memset(&MZ, 0, sizeof MZ);
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_LOWER, 3);
   omx_clap_note_ids_bind(&NI, &NS, 1000);
   ni_in(0, ON2, 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_LOWER && NI.mpe_members == 3, "a zone asked for before the first activate is the input's at its first message");
-  omx_clap_note_ids_want_mpe(&NI, OMX_CLAP_MPE_UPPER, 5);
+  CHECK(MZ.zone[0].members == 3, "a zone asked for before the first activate is the input's at its first message");
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_UPPER, 5);
   omx_clap_note_ids_bind(&NI, &NS, 1000);
   omx_clap_note_ids_reset(&NI);
   ni_in(0, ON2, 3);
-  CHECK(NI.mpe == OMX_CLAP_MPE_UPPER && NI.mpe_members == 5,
-        "a zone asked for while deactivated lasts across the next activate and a reset (%u, %u members)", NI.mpe, NI.mpe_members);
+  CHECK(MZ.zone[1].members == 5 && MZ.zone[0].members == 3,
+        "a zone asked for while deactivated lasts across the next activate and a reset, beside the lower (%u, %u members)",
+        MZ.zone[1].members, MZ.zone[0].members);
 
   /* the stage with no note ids reads no zone: the same messages go as before, channel-wide, id -1 */
   ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP);
@@ -1076,6 +1081,201 @@ static void t_mpe(void) {
   ns_in(1, BEND2_MAX, 3);
   CHECK(NS.n_notes == 2 && NS.notes[0].header.type == CLAP_EVENT_MIDI && NS.notes[0].midi.data[0] == 0x91 &&
         NS.notes[1].header.type == CLAP_EVENT_MIDI && NS.notes[1].midi.data[0] == 0xe1, "MIDI_MPE: note on and bend reach the plugin raw");
+}
+
+/* ---- 9c. TWO MPE ZONES HELD TOGETHER (#139) ---- */
+/* the MPE configuration message: RPN 6 on the zone's master channel (0 lower, 15 upper) with `members` */
+static void ni_mcm(uint8_t master, uint8_t members) {
+  const uint8_t m[3][3] = {{(uint8_t)(0xb0 | master), 101, 0}, {(uint8_t)(0xb0 | master), 100, 6}, {(uint8_t)(0xb0 | master), 6, members}};
+  for (int i = 0; i < 3; i++) ni_in(0, m[i], 3);
+}
+/* RPN 0 (bend range) on channel `ch`, `semitones` */
+static void ni_rpn0(uint8_t ch, uint8_t semitones) {
+  const uint8_t m[3][3] = {{(uint8_t)(0xb0 | ch), 101, 0}, {(uint8_t)(0xb0 | ch), 100, 0}, {(uint8_t)(0xb0 | ch), 6, semitones}};
+  for (int i = 0; i < 3; i++) ni_in(0, m[i], 3);
+}
+static void ni_on(uint8_t ch, uint8_t key) { const uint8_t m[3] = {(uint8_t)(0x90 | ch), key, 100}; ni_in(0, m, 3); }
+static void ni_bend(uint8_t ch, uint8_t lsb, uint8_t msb) { const uint8_t m[3] = {(uint8_t)(0xe0 | ch), lsb, msb}; ni_in(0, m, 3); }
+static void ni_press(uint8_t ch, uint8_t v) { const uint8_t m[2] = {(uint8_t)(0xd0 | ch), v}; ni_in(0, m, 2); }
+static void ni_cc74(uint8_t ch, uint8_t v) { const uint8_t m[3] = {(uint8_t)(0xb0 | ch), 74, v}; ni_in(0, m, 3); }
+/* the id of the note just started: the NOTE_ON event at index `i` */
+static int32_t ni_id_at(uint32_t i) { return NS.notes[i].header.type == CLAP_EVENT_NOTE_ON ? NS.notes[i].note.note_id : -2; }
+/* the number of expression events of block with `id` */
+static uint32_t ni_expr_count(int32_t id) {
+  uint32_t c = 0;
+  for (uint32_t i = 0; i < NS.n_notes; i++)
+    if (NS.notes[i].header.type == CLAP_EVENT_NOTE_EXPRESSION && NS.notes[i].expr.note_id == id) c++;
+  return c;
+}
+
+static void t_mpe_two_zones(void) {
+  const double FULL = 8191.0 / 8192.0;
+  int32_t lo1, lo2, up1, up2;
+
+  /* lower: master 1, members 2..5 (4); upper: master 16, members 15, 14, 13 (3); a note in each of two members of both */
+  ni_up(1000);
+  ni_mcm(0, 4);
+  ni_mcm(15, 3);
+  CHECK(MZ.zone[0].members == 4 && MZ.zone[1].members == 3, "both zones live at once: lower 4 members, upper 3 (%u, %u)",
+        MZ.zone[0].members, MZ.zone[1].members);
+  ni_block();
+  ni_on(1, 60); ni_on(2, 62); ni_on(14, 72); ni_on(13, 74);
+  lo1 = ni_id_at(0), lo2 = ni_id_at(1), up1 = ni_id_at(2), up2 = ni_id_at(3);
+  CHECK(lo1 >= 0 && lo2 >= 0 && up1 >= 0 && up2 >= 0 && NS.n_notes == 4, "a note in each of four members takes four ids (%d %d %d %d)", lo1, lo2, up1, up2);
+
+  /* the lower master's bend, pressure and controller 74 reach the lower zone's two notes and no note of the upper zone */
+  ni_block();
+  ni_bend(0, 0x7f, 0x7f);
+  CHECK(NS.n_notes == 2 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, lo1, 1, 60, FULL * 2.0) &&
+        ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, lo2, 2, 62, FULL * 2.0),
+        "the lower master's bend is TUNING of the two lower notes only, 2 semitones (%u events, %g)", NS.n_notes, NS.notes[0].expr.value);
+  ni_block();
+  ni_press(0, 127);
+  CHECK(NS.n_notes == 2 && ni_expr(0, CLAP_NOTE_EXPRESSION_PRESSURE, lo1, 1, 60, 1.0) && ni_expr(1, CLAP_NOTE_EXPRESSION_PRESSURE, lo2, 2, 62, 1.0) &&
+        ni_expr_count(up1) == 0 && ni_expr_count(up2) == 0, "the lower master's pressure reaches the lower notes only");
+  ni_block();
+  ni_cc74(0, 127);
+  CHECK(NS.n_notes == 2 && ni_expr(0, CLAP_NOTE_EXPRESSION_BRIGHTNESS, lo1, 1, 60, 1.0) && ni_expr_count(up1) + ni_expr_count(up2) == 0,
+        "the lower master's controller 74 reaches the lower notes only");
+
+  /* and the upper master's reach the upper zone's notes only */
+  ni_block();
+  ni_bend(15, 0, 0);
+  CHECK(NS.n_notes == 2 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, up1, 14, 72, -2.0) && ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, up2, 13, 74, -2.0) &&
+        ni_expr_count(lo1) + ni_expr_count(lo2) == 0, "the upper master's bend is TUNING of the two upper notes only (%u events, %g)", NS.n_notes,
+        NS.notes[0].expr.value);
+  ni_block();
+  ni_press(15, 64);
+  CHECK(NS.n_notes == 2 && ni_expr(0, CLAP_NOTE_EXPRESSION_PRESSURE, up1, 14, 72, 64.0 / 127.0) && ni_expr_count(lo1) + ni_expr_count(lo2) == 0,
+        "the upper master's pressure reaches the upper notes only");
+
+  /* a member's own expression stays on its own note, 48 semitones, whichever zone */
+  ni_block();
+  ni_bend(14, 0x7f, 0x7f);
+  ni_bend(2, 0, 0);
+  CHECK(NS.n_notes == 2 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, up1, 14, 72, FULL * 48.0) && ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, lo2, 2, 62, -48.0),
+        "a member's bend is its own note's, 48 semitones, in either zone");
+
+  /* a master of a zone with no note held makes no event */
+  ni_up(1000);
+  ni_mcm(0, 2);
+  ni_mcm(15, 2);
+  ni_block();
+  ni_bend(0, 0x7f, 0x7f);
+  ni_press(15, 100);
+  CHECK(NS.n_notes == 0, "a master of a zone with no note held sends nothing (%u)", NS.n_notes);
+
+  /* the configuration messages set each zone alone: lower to 1 member leaves the upper as it is, and a held note of
+     the channel that left the zone keeps its id and sounds, its channel no longer per note */
+  ni_up(1000);
+  ni_mcm(0, 4);
+  ni_mcm(15, 3);
+  ni_block();
+  ni_on(1, 60); ni_on(2, 62); ni_on(14, 72);
+  lo1 = ni_id_at(0), lo2 = ni_id_at(1), up1 = ni_id_at(2);
+  ni_mcm(0, 1);
+  CHECK(MZ.zone[0].members == 1 && MZ.zone[1].members == 3, "a lower configuration message of 1 leaves the upper zone's 3 (%u, %u)", MZ.zone[0].members,
+        MZ.zone[1].members);
+  CHECK(NI.ids[lo2].state == 1 && NI.key_id[2][62] == lo2, "the note on the channel that left the zone keeps its id %d", lo2);
+  ni_block();
+  ni_bend(0, 0x7f, 0x7f);
+  CHECK(NS.n_notes == 1 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, lo1, 1, 60, FULL * 2.0),
+        "the lower master now reaches the one lower note, not the note of the channel that left (%u events)", NS.n_notes);
+  ni_block();
+  ni_press(2, 50);
+  CHECK(NS.n_notes == 1 && ni_expr(0, CLAP_NOTE_EXPRESSION_PRESSURE, -1, 2, -1, 50.0 / 127.0),
+        "the channel that left the zone is a plain channel: pressure is channel-wide, id -1");
+  ni_block();
+  ni_bend(15, 0, 0);
+  CHECK(NS.n_notes == 1 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, up1, 14, 72, -2.0), "the upper zone is untouched by the lower message");
+  ni_block();
+  { const uint8_t off[3] = {0x82, 62, 0}; ni_in(0, off, 3); }
+  CHECK(NS.n_notes == 1 && NS.notes[0].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[0].note.note_id == lo2, "its note off still carries id %d", lo2);
+
+  /* a configuration message of 0 ends one zone alone */
+  ni_mcm(15, 0);
+  CHECK(MZ.zone[1].members == 0 && MZ.zone[0].members == 1, "the upper message of 0 ends the upper zone alone (%u, %u)", MZ.zone[1].members, MZ.zone[0].members);
+
+  /* overlap: the zone just configured wins, the other keeps what is left */
+  ni_up(1000);
+  ni_mcm(0, 10);
+  ni_mcm(15, 6);
+  CHECK(MZ.zone[1].members == 6 && MZ.zone[0].members == 8, "upper 6 configured last wins: lower 10 is cut to 14 - 6 = 8 (%u, %u)", MZ.zone[1].members,
+        MZ.zone[0].members);
+  ni_mcm(0, 12);
+  CHECK(MZ.zone[0].members == 12 && MZ.zone[1].members == 2, "lower 12 configured last wins: upper 6 is cut to 2 (%u, %u)", MZ.zone[0].members, MZ.zone[1].members);
+  ni_mcm(0, 3);
+  CHECK(MZ.zone[0].members == 3 && MZ.zone[1].members == 2, "a smaller lower zone gives nothing back to the upper (%u, %u)", MZ.zone[0].members, MZ.zone[1].members);
+  ni_mcm(0, 15);
+  CHECK(MZ.zone[0].members == 15 && MZ.zone[1].members == 0, "lower 15 reaches channel 16, the upper master: the upper zone ends (%u, %u)", MZ.zone[0].members,
+        MZ.zone[1].members);
+  ni_mcm(15, 4);
+  CHECK(MZ.zone[1].members == 4 && MZ.zone[0].members == 10, "upper 4 after lower 15: lower is cut to 10 (%u, %u)", MZ.zone[1].members, MZ.zone[0].members);
+  ni_mcm(15, 15);
+  CHECK(MZ.zone[1].members == 15 && MZ.zone[0].members == 0, "upper 15 ends the lower zone (%u, %u)", MZ.zone[1].members, MZ.zone[0].members);
+
+  /* a note that starts later begins with its zone's master values; the other zone's notes begin with none */
+  ni_up(1000);
+  ni_mcm(0, 4);
+  ni_mcm(15, 3);
+  ni_block();
+  ni_bend(0, 0x7f, 0x7f);
+  ni_press(0, 127);
+  ni_on(3, 55);
+  lo1 = ni_id_at(0);
+  CHECK(NS.n_notes == 3 && lo1 >= 0 && ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, lo1, 3, 55, FULL * 2.0) && ni_expr(2, CLAP_NOTE_EXPRESSION_PRESSURE, lo1, 3, 55, 1.0),
+        "a lower note started after the master's bend and pressure begins with them, and not with controller 74 (%u events)", NS.n_notes);
+  ni_block();
+  ni_on(13, 70);
+  CHECK(NS.n_notes == 1 && ni_id_at(0) >= 0, "an upper note starts with none of the lower master's values (%u events)", NS.n_notes);
+  ni_block();
+  ni_mcm(0, 4);
+  ni_on(2, 57);
+  CHECK(NS.n_notes == 1, "the lower zone's configuration message clears its kept values (%u events)", NS.n_notes);
+  ni_block();
+  ni_bend(15, 0x7f, 0x7f);
+  ni_on(12, 68);
+  CHECK(NS.n_notes == 3 && ni_expr(2, CLAP_NOTE_EXPRESSION_TUNING, ni_id_at(1), 12, 68, FULL * 2.0),
+        "an upper note started after the upper master's bend begins with it (%u events)", NS.n_notes);
+
+  /* the bend range is per zone; a zone's configuration message returns only its own to the default */
+  ni_up(1000);
+  ni_mcm(0, 4);
+  ni_mcm(15, 3);
+  ni_rpn0(0, 12);
+  ni_rpn0(14, 24);
+  CHECK(MZ.zone[0].master_bend == 12.0 && MZ.zone[1].master_bend == 2.0 && MZ.zone[1].member_bend == 24.0 && MZ.zone[0].member_bend == 48.0,
+        "RPN 0 on the lower master and on an upper member set those ranges only (%g %g %g %g)", MZ.zone[0].master_bend, MZ.zone[1].master_bend,
+        MZ.zone[1].member_bend, MZ.zone[0].member_bend);
+  ni_block();
+  ni_on(1, 60); ni_on(14, 72);
+  lo1 = ni_id_at(0), up1 = ni_id_at(1);
+  ni_block();
+  ni_bend(0, 0, 0);
+  ni_bend(15, 0, 0);
+  ni_bend(14, 0, 0);
+  CHECK(NS.n_notes == 3 && ni_expr(0, CLAP_NOTE_EXPRESSION_TUNING, lo1, 1, 60, -12.0) && ni_expr(1, CLAP_NOTE_EXPRESSION_TUNING, up1, 14, 72, -2.0) &&
+        ni_expr(2, CLAP_NOTE_EXPRESSION_TUNING, up1, 14, 72, -24.0), "each master and member bends over its own zone's range (%g %g %g)",
+        NS.notes[0].expr.value, NS.notes[1].expr.value, NS.notes[2].expr.value);
+  ni_mcm(0, 4);
+  CHECK(MZ.zone[0].master_bend == 2.0 && MZ.zone[0].member_bend == 48.0 && MZ.zone[1].member_bend == 24.0,
+        "the lower message returns the lower ranges to the defaults and leaves the upper's 24 (%g %g)", MZ.zone[0].master_bend, MZ.zone[1].member_bend);
+
+  /* the control thread asks for one zone at a time: LOWER or UPPER with 0 ends that zone, OFF ends both */
+  ni_up(1000);
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_LOWER, 4);
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_UPPER, 3);
+  ni_block();
+  ni_on(1, 60);
+  CHECK(MZ.zone[0].members == 4 && MZ.zone[1].members == 3, "the host asks for both zones: the next message takes them (%u, %u)", MZ.zone[0].members,
+        MZ.zone[1].members);
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_LOWER, 0);
+  ni_on(2, 61);
+  CHECK(MZ.zone[0].members == 0 && MZ.zone[1].members == 3, "LOWER with 0 members ends the lower zone alone (%u, %u)", MZ.zone[0].members, MZ.zone[1].members);
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_LOWER, 5);
+  omx_clap_mpe_zones_want(&MZ, OMX_CLAP_MPE_OFF, 0);
+  ni_on(3, 62);
+  CHECK(MZ.zone[0].members == 0 && MZ.zone[1].members == 0, "OFF ends both zones");
 }
 
 /* The survivors of a flood are the messages fed at times 0..n-1 in order: every survivor's time names the message it
@@ -1309,6 +1509,7 @@ int main(void) {
     t_channel_messages();
     t_note_ids();
     t_mpe();
+    t_mpe_two_zones();
     t_note_priority();
     t_stale_events();
     t_sysex_pool_resets();

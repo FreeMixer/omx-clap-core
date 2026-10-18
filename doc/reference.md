@@ -194,18 +194,45 @@ arrived on, in the dialect the note port prefers:
 - CLAP: a note on (`0x9n`, velocity above 0) and a note off (`0x8n`, or a
   note on with velocity 0) become `CLAP_EVENT_NOTE_ON` and
   `CLAP_EVENT_NOTE_OFF` with the key, the channel, the velocity as
-  `v / 127` and a note id (below). All notes off (controller 123, and 124 to
-  127, which imply it) becomes a `CLAP_EVENT_NOTE_OFF` and all sound off (120)
-  a `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Pitch
-  bend and channel or poly pressure become `CLAP_NOTE_EXPRESSION_TUNING` and
-  `_PRESSURE`, unless the port also reads MIDI, which then gets them raw.
-- MIDI: every channel message of one to three bytes becomes a
-  `CLAP_EVENT_MIDI`. A sysex of up to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a
-  `CLAP_EVENT_MIDI_SYSEX`, eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer
-  one is counted as unmappable. System real-time bytes are dropped.
+  `v / 127` and a note id (below). What else a CLAP-dialect input receives
+  depends on whether the port also declares the MIDI dialect. Declaring only
+  CLAP: all sound off (controller 120) becomes `CLAP_EVENT_NOTE_CHOKE` and all
+  notes off (123, and 124 to 127, which imply it) `CLAP_EVENT_NOTE_OFF`, both
+  on every key of the channel (key -1); pitch bend becomes
+  `CLAP_NOTE_EXPRESSION_TUNING` on the whole channel, full scale 2 semitones
+  either way (`bend_semitones`); channel pressure becomes
+  `CLAP_NOTE_EXPRESSION_PRESSURE` on the whole channel and poly pressure the
+  same on its key, under the id of the note held there; any other controller,
+  a program change and a sysex are counted as unmappable and not delivered
+  (`t_channel_messages` in `tests/clap_stage_test.c`, "CLAP: ..." and
+  "CLAP only: ..." checks). Also declaring MIDI: every channel message but a
+  note on and a note off, pitch bend and pressure included, arrives raw as
+  `CLAP_EVENT_MIDI`, all sound off and all notes off too (they still end the
+  notes the host holds ids for), and a sysex as `CLAP_EVENT_MIDI_SYSEX`
+  (`t_channel_messages`, "CLAP+MIDI: ..." checks).
+- MIDI: every channel message of one to three bytes, notes included, becomes a
+  `CLAP_EVENT_MIDI` (`t_channel_messages`, "MIDI: ..." checks). A sysex of up
+  to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a `CLAP_EVENT_MIDI_SYSEX`,
+  eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer one is counted as
+  unmappable and the ninth in a cycle as a dropped sysex
+  (`t_channel_messages`; `t_sysex_pool_resets` shows the eight slots free
+  again every cycle). A channel message longer than three bytes is counted as
+  unmappable in every dialect. Every other status byte from `0xf0` up, the
+  system real-time and system common messages, is dropped and not counted.
 - MIDI with MPE: a port that prefers `CLAP_NOTE_DIALECT_MIDI_MPE` gets every
   channel message raw, as the MIDI dialect does, and reads the MPE zone
-  itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`.
+  itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`. A
+  sysex goes the way it does for a CLAP input: delivered when the port also
+  declares MIDI, counted as unmappable when it does not.
+
+The message types each dialect passes, as `src/clap_stage.h` documents them
+(`tests/dialect_doc_check.sh` fails when the two lists differ):
+
+Passes, CLAP only: note on, note off, all sound off, all notes off, pitch bend, channel pressure, poly pressure.
+Counts, CLAP only: other controller, program change, sysex.
+Passes, CLAP and MIDI: note on, note off, every other channel message, sysex.
+Passes, MIDI: every channel message, sysex.
+Passes, MIDI MPE: every channel message, sysex only when the port also declares MIDI.
 
 Note ids. Every CLAP note on takes a fresh id from a pool of 256 per
 instance (`OMX_CLAP_NOTE_IDS`), and its note off and every per-note
@@ -221,14 +248,34 @@ free id is skipped and counted, and its note off is dropped, since nothing
 sounds. A note off of a key the host holds no id for goes with note id -1.
 A reset of the plugin frees every id.
 
-MPE. The MPE configuration message (RPN 6 on channel 1 or 16) sets the
-lower or upper zone and its member channel count; the library's caller may
-set the zone itself (`omx_clap_host_set_mpe`). In a zone, a member
-channel's pitch bend, channel pressure and controller 74 become
-`CLAP_NOTE_EXPRESSION_TUNING`, `_PRESSURE` and `_BRIGHTNESS` for the newest
-note held on that channel, with its id, channel and key; the master
-channel's reach every note. The bend range is 48 semitones on the members
-and 2 on the master, MPE's defaults, until RPN 0 sets another.
+MPE. A lower zone (master channel 1, members from channel 2 up) and an
+upper zone (master channel 16, members from channel 15 down) are held
+together. The MPE configuration message (RPN 6 on channel 1 or 16) sets the
+lower or the upper zone and its member channel count, and touches only that
+zone; a count of 0 ends it. The library's caller may set a zone itself
+(`omx_clap_host_set_mpe(in, zone, members)`: `OMX_CLAP_MPE_LOWER` or
+`OMX_CLAP_MPE_UPPER` with `members` 0 ends that zone only;
+`OMX_CLAP_MPE_OFF` ends both).
+
+With both zones live the members share channels 2 to 15, so the zone just
+configured wins: the other zone keeps the channels left (14 minus the new
+zone's members, none when the new zone has 15) and ends when none are left.
+A zone cut or ended this way keeps its bend ranges only while it exists. Notes
+held on a channel that leaves a zone keep their ids and sound until their note
+off; the channel's expressions are no longer per note.
+
+In a zone, a member channel's pitch bend, channel pressure and controller 74
+become `CLAP_NOTE_EXPRESSION_TUNING`, `_PRESSURE` and `_BRIGHTNESS` for the
+newest note held on that channel, with its id, channel and key. A master
+channel's reach the notes held on the member channels of its own zone only,
+one expression per held note with that note's id, channel and key; the other
+zone's notes are not touched. The master's last bend, pressure and
+controller 74 are kept per zone, and a note that starts in the zone later
+begins with them (as expressions at its note on) until the zone's
+configuration message clears them. The bend range of each zone is 48
+semitones on the members and 2 on the master, MPE's defaults, until RPN 0 on
+that zone's master or one of its members sets another; the zone's own
+configuration message returns them to the defaults, and the other zone's stay.
 
 A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
 128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on
@@ -406,6 +453,21 @@ is read after every activate; when the plugin reports it changed, or
 asks for a restart that re-activates it, the new figure is republished
 with `jack_recompute_total_latencies`. A graph reads the latency from
 the ports, not from this socket.
+
+Voices
+------
+
+An instrument's `clap.voice-info` is read after every activate, which the
+extension requires: the voices its patch uses (`voice_count`), the voices
+it has allocated (`voice_capacity`, the ceiling a host prices it at), and
+its flags (`CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES`: two notes on one
+key at once, told apart by note id). A program that hosts the plugin
+through the library reads them with `omx_clap_host_voice_info`, which
+answers 1 with the three figures, or 0 when the plugin declares none: no
+extension, a `get` that fails, an answer outside
+`1 <= voice_count <= voice_capacity`, or an instance not yet activated.
+With no declaration every figure reads 0, which is never a voice count.
+The last activate's answer is kept across a deactivate.
 
 Scanning
 --------

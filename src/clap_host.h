@@ -70,11 +70,12 @@
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
- * instance's note ids, beside its stage; 7: the instance's note output).
+ * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
+ * instance's MPE zones, a lower and an upper, 0.11).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               7u
+#define OMX_CLAP_CORE_ABI               9u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -364,6 +365,17 @@ struct omx_clap_instance
     // one reader (omx_clap_host_notes_out); the warm-up and params.flush on the control thread put nothing in it
     uint32_t note_outputs;  ///< the plugin's note output ports, read at open
     struct omx_clap_note_out note_out;  ///< filled by the instance's output event list inside a processing block
+
+    // the plugin's clap.voice-info (ABI 8): asked at every activate, which the extension requires, and kept until the
+    // next one; read by the control thread only
+    uint32_t voice_info_read;  ///< 1 while the last activate read a declaration, 0 when the plugin made none
+    uint32_t voice_count;  ///< the voices the plugin's patch uses, 1 to voice_capacity; 0 with no declaration
+    uint32_t voice_capacity;  ///< the voices the plugin has allocated; 0 with no declaration
+    uint64_t voice_flags;  ///< the declaration's CLAP_VOICE_INFO_* flags; 0 with no declaration
+
+    // the MPE zones of the note input (ABI 9): a lower and an upper zone held together, read and written by the RT; the
+    // control thread asks for a zone through omx_clap_host_set_mpe
+    struct omx_clap_mpe_zones mpe_zones;  ///< fed by omx_clap_host_note_in
 };
 
 
@@ -560,6 +572,14 @@ OMX_CLAP_EXPORT int omx_clap_host_meter_info(const struct omx_clap_instance *in,
  * thread, at its own rate. The caller keeps the instance open while it reads. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity);
 
+/** The plugin's clap.voice-info, as it answered at the last omx_clap_host_activate: 1 with `*count` the voices its patch
+ * uses, `*capacity` the voices it has allocated (1 <= count <= capacity, the ceiling a host prices it at) and `*flags`
+ * its CLAP_VOICE_INFO_* flags (CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES: two notes on the same key at once, told
+ * apart by note id). 0 when it declares none: no extension, a get that fails, an answer outside 1 <= count <= capacity,
+ * or an instance never activated; each output then reads 0, which is never a voice count. Any pointer may be NULL.
+ * Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count, uint32_t *capacity, uint64_t *flags);
+
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
  * waits for the next take. Control thread. */
@@ -722,7 +742,7 @@ static inline void omx_clap_host_run_io(struct omx_clap_instance *in, const floa
  * carrying the instance's note ids and its MPE zone read (omx_clap_note_in_ids). */
 static inline void omx_clap_host_note_in(struct omx_clap_instance *in, uint32_t time, const uint8_t *data, size_t size)
 {
-    omx_clap_note_in_ids(&in->stage, &in->note_ids, time, data, size);
+    omx_clap_note_in_ids(&in->stage, &in->note_ids, &in->mpe_zones, time, data, size);
 }
 
 /** RT right after omx_clap_host_run, in the same cycle, or one other thread that is the ring's only reader: take up to
@@ -735,12 +755,13 @@ static inline uint32_t omx_clap_host_notes_out(struct omx_clap_instance *in, str
     return omx_clap_note_out_take(&in->note_out, events, capacity);
 }
 
-/** Any thread: read the instance's note input as MPE zone `zone` (enum omx_clap_mpe; OMX_CLAP_MPE_OFF for none) with
- * `members` member channels, 1 to 15, from the next message on, as the MPE configuration message would. The zone lasts,
- * across a deactivate and a reset too, until a configuration message or another call changes it. */
+/** Any thread: read the instance's note input as MPE zone `zone` (OMX_CLAP_MPE_LOWER or OMX_CLAP_MPE_UPPER) with
+ * `members` member channels, 1 to 15, from the next message on, as the MPE configuration message would; the other zone
+ * stays, but yields the channels this one takes. `members` 0 ends that zone alone; OMX_CLAP_MPE_OFF ends both. The zones
+ * last, across a deactivate and a reset too, until a configuration message or another call changes them. */
 static inline void omx_clap_host_set_mpe(struct omx_clap_instance *in, uint32_t zone, uint32_t members)
 {
-    omx_clap_note_ids_want_mpe(&in->note_ids, zone, members);
+    omx_clap_mpe_zones_want(&in->mpe_zones, zone, members);
 }
 
 #endif

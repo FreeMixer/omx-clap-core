@@ -1220,6 +1220,42 @@ int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index,
     return 0;
 }
 
+/* At activate, on the control thread: the plugin's clap.voice-info, which it answers only while active. A declaration
+ * outside 1 <= count <= capacity is no declaration: a host prices an instrument at its capacity, and an answer that
+ * breaks the extension's own rule names no ceiling. */
+static void voice_info_ask(struct omx_clap_instance *in)
+{
+    const clap_plugin_voice_info_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_VOICE_INFO);
+    clap_voice_info_t info;
+
+    in->voice_info_read = 0;
+    in->voice_count = 0;
+    in->voice_capacity = 0;
+    in->voice_flags = 0;
+    if (!ext || !ext->get)
+        return;
+    memset(&info, 0, sizeof(info));
+    if (!ext->get(in->plugin, &info) || info.voice_count < 1 || info.voice_count > info.voice_capacity)
+        return;
+    in->voice_count = info.voice_count;
+    in->voice_capacity = info.voice_capacity;
+    in->voice_flags = info.flags;
+    in->voice_info_read = 1;
+}
+
+int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count, uint32_t *capacity, uint64_t *flags)
+{
+    const int read = in && in->voice_info_read;
+
+    if (count)
+        *count = read ? in->voice_count : 0;
+    if (capacity)
+        *capacity = read ? in->voice_capacity : 0;
+    if (flags)
+        *flags = read ? in->voice_flags : 0;
+    return read;
+}
+
 int omx_clap_host_param_contract(struct omx_clap_instance *in, uint32_t *version, const char **why)
 {
     if (version)
@@ -1542,6 +1578,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         }
         atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
     }
+    voice_info_ask(in);
     publish_latency(in);
     if (why)
         why[0] = '\0';
