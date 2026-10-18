@@ -141,12 +141,25 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
-* Sun Oct 18 2026 Pau Aliagas <linuxnow@gmail.com> - 0.11.0-1
-- The library reads an instrument's clap.voice-info at activate and answers it
-  through omx_clap_host_voice_info, in the version node OMX_CLAP_CORE_0.11.
-  The library ABI is 8.
+* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.11.0-1
+- An instrument's clap.voice-info is read at activate and answered through
+  omx_clap_host_voice_info, in the version node OMX_CLAP_CORE_0.11. The
+  library ABI is 8.
 - A note input holds a lower and an upper MPE zone together; a master
-  channel's expressions reach only its own zone's notes. The library ABI is 9.
+  channel's expressions reach only the notes of its own zone, and a note that
+  starts later begins with its master's last values. omx_clap_host_set_mpe
+  sets one zone (members 0 ends it; OFF ends both). The library ABI is 9.
+- The LV2 adapter frees the side-chain names of a plugin it refuses to open.
+- The reference says what the code does: the message types each note dialect
+  passes, and that there is no plugin window. A test compares those lines with
+  clap_stage.h.
+- The hosting headers are tested value by value against what omx-contract
+  reads, and OMX_CLAP_PARAM_SCALES against omx-contract's PARAM_SCALES.
+- The oracle tests take their rates from OMX_ORACLE_FULL_RATES_*, so the
+  package requires omx-contract 2.16.0 or newer.
+- Steadier tests: the transport over jack reads beats and seconds in one
+  process(), and the LV2 worker test holds the worker inside work(). The stage
+  bench builds and runs in CI.
 * Sat Oct 17 2026 Pau Aliagas <linuxnow@gmail.com> - 0.10.0-1
 - A CLAP note input takes note ids, an MPE zone and note end; a note port that
   prefers MIDI_MPE gets raw MIDI. The library ABI is 6.
