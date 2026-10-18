@@ -194,18 +194,45 @@ arrived on, in the dialect the note port prefers:
 - CLAP: a note on (`0x9n`, velocity above 0) and a note off (`0x8n`, or a
   note on with velocity 0) become `CLAP_EVENT_NOTE_ON` and
   `CLAP_EVENT_NOTE_OFF` with the key, the channel, the velocity as
-  `v / 127` and a note id (below). All notes off (controller 123, and 124 to
-  127, which imply it) becomes a `CLAP_EVENT_NOTE_OFF` and all sound off (120)
-  a `CLAP_EVENT_NOTE_CHOKE`, both on every key of the channel (key -1). Pitch
-  bend and channel or poly pressure become `CLAP_NOTE_EXPRESSION_TUNING` and
-  `_PRESSURE`, unless the port also reads MIDI, which then gets them raw.
-- MIDI: every channel message of one to three bytes becomes a
-  `CLAP_EVENT_MIDI`. A sysex of up to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a
-  `CLAP_EVENT_MIDI_SYSEX`, eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer
-  one is counted as unmappable. System real-time bytes are dropped.
+  `v / 127` and a note id (below). What else a CLAP-dialect input receives
+  depends on whether the port also declares the MIDI dialect. Declaring only
+  CLAP: all sound off (controller 120) becomes `CLAP_EVENT_NOTE_CHOKE` and all
+  notes off (123, and 124 to 127, which imply it) `CLAP_EVENT_NOTE_OFF`, both
+  on every key of the channel (key -1); pitch bend becomes
+  `CLAP_NOTE_EXPRESSION_TUNING` on the whole channel, full scale 2 semitones
+  either way (`bend_semitones`); channel pressure becomes
+  `CLAP_NOTE_EXPRESSION_PRESSURE` on the whole channel and poly pressure the
+  same on its key, under the id of the note held there; any other controller,
+  a program change and a sysex are counted as unmappable and not delivered
+  (`t_channel_messages` in `tests/clap_stage_test.c`, "CLAP: ..." and
+  "CLAP only: ..." checks). Also declaring MIDI: every channel message but a
+  note on and a note off, pitch bend and pressure included, arrives raw as
+  `CLAP_EVENT_MIDI`, all sound off and all notes off too (they still end the
+  notes the host holds ids for), and a sysex as `CLAP_EVENT_MIDI_SYSEX`
+  (`t_channel_messages`, "CLAP+MIDI: ..." checks).
+- MIDI: every channel message of one to three bytes, notes included, becomes a
+  `CLAP_EVENT_MIDI` (`t_channel_messages`, "MIDI: ..." checks). A sysex of up
+  to 256 bytes (`OMX_CLAP_SYSEX_MAX_BYTES`) becomes a `CLAP_EVENT_MIDI_SYSEX`,
+  eight to a cycle (`OMX_CLAP_SYSEX_PER_BLOCK`); a longer one is counted as
+  unmappable and the ninth in a cycle as a dropped sysex
+  (`t_channel_messages`; `t_sysex_pool_resets` shows the eight slots free
+  again every cycle). A channel message longer than three bytes is counted as
+  unmappable in every dialect. Every other status byte from `0xf0` up, the
+  system real-time and system common messages, is dropped and not counted.
 - MIDI with MPE: a port that prefers `CLAP_NOTE_DIALECT_MIDI_MPE` gets every
   channel message raw, as the MIDI dialect does, and reads the MPE zone
-  itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`.
+  itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`. A
+  sysex goes the way it does for a CLAP input: delivered when the port also
+  declares MIDI, counted as unmappable when it does not.
+
+The message types each dialect passes, as `src/clap_stage.h` documents them
+(`tests/dialect_doc_check.sh` fails when the two lists differ):
+
+Passes, CLAP only: note on, note off, all sound off, all notes off, pitch bend, channel pressure, poly pressure.
+Counts, CLAP only: other controller, program change, sysex.
+Passes, CLAP and MIDI: note on, note off, every other channel message, sysex.
+Passes, MIDI: every channel message, sysex.
+Passes, MIDI MPE: every channel message, sysex only when the port also declares MIDI.
 
 Note ids. Every CLAP note on takes a fresh id from a pool of 256 per
 instance (`OMX_CLAP_NOTE_IDS`), and its note off and every per-note
