@@ -18,7 +18,7 @@ jobs:
       image: fedora:44
     steps:
       - name: Install the build tools
-        run: dnf install -y --setopt=install_weak_deps=False git gcc make diffutils pkgconf-pkg-config clap-devel libabigail dnf5-plugins
+        run: dnf install -y --setopt=install_weak_deps=False git gcc make diffutils pkgconf-pkg-config clap-devel libabigail dwarves dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h includes, and omx-contract under them, from the FreeMixer channel
       - name: Install omx-dsp-devel from the FreeMixer channel
