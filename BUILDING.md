@@ -277,7 +277,10 @@ omx-contract's reader and renders the package's own files with
 `data/hosting.json` (header, guard, project, banner, prefixes, the omitted
 fields, the level rule): `src/clap_host_limits.h`, `src/hosted_stage_limits.h`
 and the TypeScript module `ts/omx-clap-core-hosting.js` with its
-`omx-clap-core-hosting.d.ts` must be that render, byte for byte. It needs node and the checkout's `npm ci`.
+`omx-clap-core-hosting.d.ts` must be that render, byte for byte. Beside that, `tests/hosting-values-check.mjs` takes the
+values of `HOSTED_STAGE_LIMITS` and `HOSTING_CODES` as the reader parsed them (`render --target json`) and holds every
+define of the two headers to its value, and its `--self-test` changes, drops and adds a define for every value and
+requires each to fail. It needs node and the checkout's `npm ci`.
 
 The LV2 adapter
 ---------------
