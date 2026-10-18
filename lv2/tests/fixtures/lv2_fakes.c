@@ -22,6 +22,8 @@
  * lv2_fakes.c — the fakes of lv2_fakes.h as the bundle omx-lv2-fakes.lv2. A test fixture, never a shipped plugin.
  */
 #include <math.h>
+#include <sched.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +58,20 @@ EXPORT const char *lv2_fakes_trace(void)
 EXPORT void lv2_fakes_trace_clear(void)
 {
     g_trace[0] = '\0';
+}
+
+/* the worker gate: while held, work() blocks before it traces; g_in_work counts the work() calls entered */
+static atomic_int g_hold_work;
+static atomic_uint g_in_work;
+
+EXPORT void lv2_fakes_worker_hold(int on)
+{
+    atomic_store(&g_hold_work, on);
+}
+
+EXPORT unsigned lv2_fakes_worker_entered(void)
+{
+    return atomic_load(&g_in_work);
 }
 
 static LV2_Handle f_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features)
@@ -189,6 +205,9 @@ static LV2_Worker_Status w_work(LV2_Handle h, LV2_Worker_Respond_Function respon
 
     memcpy(&seq, data, sizeof(seq));
     snprintf(ev, sizeof(ev), "work%u", seq);
+    atomic_fetch_add(&g_in_work, 1u);
+    while (atomic_load(&g_hold_work))
+        sched_yield();
     tr(ev);
     f->respond = respond;
     f->respond_handle = rh;
