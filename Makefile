@@ -233,11 +233,15 @@ install-contract:
 
 # data/ installed into a contract directory of its own, read back through omx-contract's reader beside omx-contract's
 # own package, and every file this tree commits as a render of it held to `render --package omx-clap-core`, byte for
-# byte (tests/contract-dir-check.sh); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+# byte (tests/contract-dir-check.sh), and every limit and refusal code of the two hosting headers held, value by value, to
+# what the reader reads (tests/hosting-values-check.mjs, with its sabotage arms); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
 test-contract:
 	rm -rf build/contract
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh
 	sh tests/contract-dir-check.sh $(OMX_CONTRACT_DIR) build/contract/dir $(VERSION)
+	node $(OMX_CONTRACT_DIR)/bin/omx-contract.mjs render --target json --contract-dir build/contract/dir --out build/contract/json
+	node tests/hosting-values-check.mjs build/contract/json/omx-contract.json src
+	node tests/hosting-values-check.mjs --self-test build/contract/json/omx-contract.json src
 
 install: install-lib install-lv2 install-tests install_man install-contract
 	install -d $(DESTDIR)$(BINDIR)
