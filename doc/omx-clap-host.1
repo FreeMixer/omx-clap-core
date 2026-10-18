@@ -129,6 +129,7 @@ using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
 .BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", " note_out_drops ", "
+.BR note_input ", " note_on ", " note_off ", " all_notes_off ", "
 .BR set_bpm ", " set_bpb ", " transport ", " transport_sync ", " help ", " quit .
 A plugin is named
 .BI clap: path # plugin\-id
@@ -167,6 +168,24 @@ notes off, all sound off, a pedal let go), the sysex messages past a cycle's
 eight, and the messages no dialect of the plugin carries. A cycle keeps the
 last 128 of its 256 note slots for releases, so a flood of note ons never
 crowds out the note off that ends one.
+.BI "note_input " N
+answers
+.B "resp 0 midi_in"
+for an instance that takes notes and
+.B "resp 0 \-"
+for one that takes none.
+.BI "note_on " "N channel key velocity" ,
+.BI "note_off " "N channel key velocity"
+and
+.BI "all_notes_off " N
+play the instance as a MIDI note on, a note off, or all notes off on every
+channel, at the start of its next cycle and ahead of what
+.B midi_in
+carries in it: channel 0 to 15, key 0 to 127, a note on's velocity 1 to 127
+and a note off's 0 to 127, else
+.BR "resp \-902" ;
+.B "resp \-513"
+for an instance that takes no notes.
 .BI "note_out_drops " N
 answers
 .BI "resp 0 " "dropped unmapped port_full" :
