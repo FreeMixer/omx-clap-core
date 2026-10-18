@@ -216,8 +216,12 @@ added, and that is a new minor (`0.1.0` to `0.2.0`, the soname unchanged); a fie
 function removed, moved or changed is a new soname major (`libomx-clap-core.so.1`, a new
 package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.0.abi`,
 the baseline of the last release, with libabigail's `abidiff`, and CI runs it on every
-push and before every release. A release commit records its own baseline with `make
-abi-baseline` and commits `abi/`.
+push and before every release. `abidw` leaves `_Atomic` members out of its dump, so
+`make abi-check` also runs `tests/abi-layout.sh`: it reads every public structure,
+member by member (offset, size and type, atomics included), with `pahole` (the
+dwarves package) from an object built from the installed headers, and holds them to
+`abi/libomx-clap-core.so.0.layout` under the same rule. A release commit records both
+baselines with `make abi-baseline` and commits `abi/`.
 
 The message ring
 ----------------
