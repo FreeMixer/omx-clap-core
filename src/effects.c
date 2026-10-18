@@ -143,6 +143,8 @@ typedef struct EFFECT_T {
     lv2_param_t *lv2_params;
     uint32_t lv2_params_count;
     uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
+    clap_id *gestures_open;                 // the parameters whose gesture begin went out on the feedback port, no end yet
+    uint32_t gestures_open_count, gestures_open_cap;
     double rate;                            // the graph's rate when the instance was added
     struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
     struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
@@ -456,6 +458,7 @@ static void instance_free(effect_t *effect)
         omx_clap_lv2_entry_release(effect->lv2_entry);
     free(effect->outputs);
     free(effect->lv2_params);
+    free(effect->gestures_open);
     memset(effect, 0, sizeof(effect_t));
 }
 
@@ -948,10 +951,56 @@ static void param_set_feedback(const effect_t *effect, clap_id id, double value)
     socket_send_feedback(line);
 }
 
+static void param_gesture_feedback(const effect_t *effect, clap_id id, int begin)
+{
+    char line[128], name[16];
+
+    snprintf(line, sizeof(line), PARAM_GESTURE_FEEDBACK, effect->instance, param_name(effect, id, name, sizeof(name)),
+             begin ? "begin" : "end");
+    socket_send_feedback(line);
+}
+
+/* a gesture of the plugin as the feedback port carries it: a begin and its end, always in pairs. A begin opens the
+ * parameter's gesture (a second begin on one already open says nothing more), an end closes it; an end with no open
+ * gesture says nothing, since the begin it answers never went out or its end did already. A begin that cannot be
+ * kept for want of memory is not sent, so its end is not either. */
+static void param_gesture_notify(effect_t *effect, clap_id id, int begin)
+{
+    uint32_t j;
+
+    for (j = 0; j < effect->gestures_open_count && effect->gestures_open[j] != id; j++)
+        ;
+    if (begin)
+    {
+        if (j < effect->gestures_open_count)
+            return;
+        if (effect->gestures_open_count == effect->gestures_open_cap)
+        {
+            const uint32_t cap = effect->gestures_open_cap ? 2u * effect->gestures_open_cap : 8u;
+            clap_id *grown = realloc(effect->gestures_open, cap * sizeof(*grown));
+
+            if (!grown)
+                return;
+            effect->gestures_open = grown;
+            effect->gestures_open_cap = cap;
+        }
+        effect->gestures_open[effect->gestures_open_count++] = id;
+    }
+    else
+    {
+        if (j == effect->gestures_open_count)
+            return;
+        effect->gestures_open[j] = effect->gestures_open[--effect->gestures_open_count];
+    }
+    param_gesture_feedback(effect, id, begin);
+}
+
 /* control thread, at the idle rate: the values the plugin moved by itself, the last of each parameter per batch, and its
  * gestures, in order (a value held back goes out before a gesture on the same parameter). Only a row is reported: a
  * read-only parameter is an output, monitor_output's. When the library dropped events for want of room, every row's
- * value goes out as the plugin reads it now, so the controller misses no final value. */
+ * value goes out as the plugin reads it now, so the controller misses no final value, and every gesture still open is
+ * ended, so the controller is not left holding one whose end was among the dropped (a gesture the plugin still holds
+ * reads as let go; the plugin's next begin opens it again). */
 static void param_events_notify(effect_t *effect)
 {
     struct omx_clap_param_event ev[PARAM_EVENTS_BATCH];
@@ -982,14 +1031,7 @@ static void param_events_notify(effect_t *effect)
                 param_set_feedback(effect, held[j].id, held[j].value);
                 held[j] = held[--k];
             }
-            {
-                char line[128], name[16];
-
-                snprintf(line, sizeof(line), PARAM_GESTURE_FEEDBACK, effect->instance,
-                         param_name(effect, ev[i].id, name, sizeof(name)),
-                         ev[i].kind == OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN ? "begin" : "end");
-                socket_send_feedback(line);
-            }
+            param_gesture_notify(effect, ev[i].id, ev[i].kind == OMX_CLAP_PARAM_EVENT_GESTURE_BEGIN);
         }
         for (j = 0; j < k; j++)
             param_set_feedback(effect, held[j].id, held[j].value);
@@ -1004,6 +1046,8 @@ static void param_events_notify(effect_t *effect)
         for (i = 0; i < count; i++)
             if (omx_clap_host_param_row(effect->clap, i, &row) == 0 && omx_clap_host_param_read(effect->clap, row.id, &value) == 0)
                 param_set_feedback(effect, row.id, value);
+        while (effect->gestures_open_count > 0)
+            param_gesture_notify(effect, effect->gestures_open[effect->gestures_open_count - 1], 0);
     }
 }
 
