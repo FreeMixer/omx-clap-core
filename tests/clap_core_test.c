@@ -118,7 +118,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 8u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 8, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 9u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 9, the oldest accepted 1 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
@@ -131,9 +131,9 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, voice_flags) > offsetof(struct omx_clap_instance, voice_capacity) &&
             offsetof(struct omx_clap_instance, voice_capacity) > offsetof(struct omx_clap_instance, voice_count) &&
             offsetof(struct omx_clap_instance, voice_count) > offsetof(struct omx_clap_instance, voice_info_read),
-        "the voice info is the instance's last field (%zu)", offsetof(struct omx_clap_instance, voice_flags));
-  /* ABI 8 appends the MPE zones after the note output */
-  CHECK(offsetof(struct omx_clap_instance, mpe_zones) >= offsetof(struct omx_clap_instance, note_out) + sizeof(struct omx_clap_note_out),
+        "the voice info follows the note output (%zu)", offsetof(struct omx_clap_instance, voice_flags));
+  /* ABI 9 appends the MPE zones after the voice info */
+  CHECK(offsetof(struct omx_clap_instance, mpe_zones) >= offsetof(struct omx_clap_instance, voice_flags) + sizeof(uint64_t),
         "the MPE zones are the instance's last field (%zu)", offsetof(struct omx_clap_instance, mpe_zones));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");

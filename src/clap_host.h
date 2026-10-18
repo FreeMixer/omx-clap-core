@@ -70,12 +70,12 @@
 /** The version of the structures below, the stage's and the instance's: a field is only ever appended, and each append
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
- * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 8: the
+ * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
  * instance's MPE zones, a lower and an upper, 0.11).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               8u
+#define OMX_CLAP_CORE_ABI               9u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -373,7 +373,7 @@ struct omx_clap_instance
     uint32_t voice_capacity;  ///< the voices the plugin has allocated; 0 with no declaration
     uint64_t voice_flags;  ///< the declaration's CLAP_VOICE_INFO_* flags; 0 with no declaration
 
-    // the MPE zones of the note input (ABI 8): a lower and an upper zone held together, read and written by the RT; the
+    // the MPE zones of the note input (ABI 9): a lower and an upper zone held together, read and written by the RT; the
     // control thread asks for a zone through omx_clap_host_set_mpe
     struct omx_clap_mpe_zones mpe_zones;  ///< fed by omx_clap_host_note_in
 };
