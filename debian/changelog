@@ -7,7 +7,7 @@ omx-clap-host (0.11.0) unstable; urgency=medium
     channel's expressions reach only the notes of its own zone, and a note that
     starts later begins with its master's last values. omx_clap_host_set_mpe
     sets one zone (members 0 ends it; OFF ends both). The instance gains
-    mpe_zones and omx_clap_note_in_ids takes the zones. The library ABI is 8.
+    mpe_zones and omx_clap_note_in_ids takes the zones. The library ABI is 9.
 
  -- Pau Aliagas <linuxnow@gmail.com>  Sun, 18 Oct 2026 00:00:00 +0000
 

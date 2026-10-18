@@ -238,11 +238,11 @@ struct omx_clap_note_ids
     struct omx_clap_stage *stage;                       ///< the stage whose notes carry the ids
     clap_output_events_t out_events;                    ///< the stage's sink that also reads NOTE_END; ctx is this structure
     uint32_t hold_frames;                               ///< frames after a note off an id waits for NOTE_END (the bind sets it)
-    _Atomic uint32_t mpe_wanted;                        ///< ABI 6 and 7 consumers' single zone; unused from ABI 8, see struct omx_clap_mpe_zones
-    uint32_t mpe;                                       ///< ABI 6 and 7: unused from ABI 8
-    uint32_t mpe_members;                               ///< ABI 6 and 7: unused from ABI 8
-    double mpe_master_bend;                             ///< ABI 6 and 7: unused from ABI 8
-    double mpe_member_bend;                             ///< ABI 6 and 7: unused from ABI 8
+    _Atomic uint32_t mpe_wanted;                        ///< ABI 6 to 8 consumers' single zone; unused from ABI 9, see struct omx_clap_mpe_zones
+    uint32_t mpe;                                       ///< ABI 6 to 8: unused from ABI 9
+    uint32_t mpe_members;                               ///< ABI 6 to 8: unused from ABI 9
+    double mpe_master_bend;                             ///< ABI 6 to 8: unused from ABI 9
+    double mpe_member_bend;                             ///< ABI 6 to 8: unused from ABI 9
     uint8_t rpn[16][2];                                 ///< the RPN each channel selected (controllers 101, 100); 127 none
     int32_t chan_id[16];                                ///< the id of the newest note held on each channel, -1 none: an MPE member's note
     int32_t key_id[16][128];                            ///< the id each held key sounds under; -1 none, OMX_CLAP_NOTE_SKIPPED its note on was skipped
@@ -276,7 +276,7 @@ struct omx_clap_mpe_zone
 };
 
 /**
- * The MPE zones of one input (ABI 8): a lower and an upper zone held together. struct omx_clap_note_ids grew past its
+ * The MPE zones of one input (ABI 9): a lower and an upper zone held together. struct omx_clap_note_ids grew past its
  * place in the instance for ABI 6 and 7, so the zones live in their own structure, appended to the instance. Zeroed
  * with its owner; a zone takes its bend defaults when omx_clap_mpe_take sets it.
  */
