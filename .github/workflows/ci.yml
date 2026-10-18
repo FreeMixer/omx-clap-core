@@ -479,8 +479,13 @@ jobs:
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
 
+      # nocheck: plugin-hostd's tests and their build dependency omx-clap-host-tests stay out, so the channel's
+      # libomx-clap-core0 is never installed under the packages this job builds. Its own CI runs its tests.
       - name: Build the plugin-hostd DEBs
         uses: FreeMixer/.github/.github/actions/build-deb@v1
+        env:
+          DEB_BUILD_PROFILES: nocheck
+          DEB_BUILD_OPTIONS: nocheck
         with:
           tree: /tmp/plugin-hostd
           out: plugin-hostd-debs
