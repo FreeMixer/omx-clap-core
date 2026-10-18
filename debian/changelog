@@ -1,3 +1,13 @@
+omx-clap-host (0.11.0) unstable; urgency=medium
+
+  * A note input holds a lower and an upper MPE zone together; a master
+    channel's expressions reach only the notes of its own zone, and a note that
+    starts later begins with its master's last values. omx_clap_host_set_mpe
+    sets one zone (members 0 ends it; OFF ends both). The instance gains
+    mpe_zones and omx_clap_note_in_ids takes the zones. The library ABI is 8.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 18 Oct 2026 00:00:00 +0000
+
 omx-clap-host (0.10.0) unstable; urgency=medium
 
   * A CLAP note input takes note ids, an MPE zone and note end; a note port
