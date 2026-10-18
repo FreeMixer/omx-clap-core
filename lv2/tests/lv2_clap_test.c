@@ -1017,6 +1017,61 @@ static int out_is(const struct midi_out *o, uint32_t i, uint32_t type, uint32_t 
 /* the note ports, the messages of every channel status and the system bytes through the fixture's echo, the frames of
  * the block, and nothing carried into the next block; a block past its capacity keeps what fits and counts the rest;
  * and a malformed output of the plugin is not passed on */
+/* #132: an instrument, a MIDI input and a stereo output with no audio input, is admitted: its face has no audio input
+ * port, one note input, and a note on through it sounds on both channels at the velocity's amplitude; the note off is
+ * silence from its frame on */
+static void t_instrument(double rate)
+{
+    static const uint8_t on[3] = { 0x90, 69, 100 }, off[3] = { 0x80, 69, 0 };
+    static float out_l[BLOCK], out_r[BLOCK];
+    float *outs[2] = { out_l, out_r };
+    clap_audio_buffer_t ob = { outs, NULL, 2, 0, 0 };
+    const clap_plugin_note_ports_t *np;
+    clap_audio_port_info_t info;
+    struct midi_in mi;
+    struct midi_out mo;
+    clap_process_t p;
+    struct rig g;
+    uint32_t i, all;
+    double worst = 0.0;
+
+    if (rig_up(&g, g_midi, MIDI_URI "#synth", rate, BLOCK) != 0)
+        return;
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(g.ports && g.ports->count(g.plugin, true) == 0 && g.ports->count(g.plugin, false) == 1
+              && g.ports->get(g.plugin, 0, false, &info) && info.channel_count == 2 && (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
+              && np && np->count(g.plugin, true) == 1,
+          "instrument %.0f: no audio input port, a stereo main output and one note input", rate);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = -1;
+    p.frames_count = BLOCK;
+    p.audio_outputs = &ob;
+    p.audio_outputs_count = 1;
+    p.out_events = &OUT_EVENTS;
+    midi_in_init(&mi);
+    mi_midi(&mi, 8, on, 3);
+    mi_midi(&mi, 40, off, 3);
+    midi_out_init(&mo);
+    p.in_events = &mi.list;
+    p.out_events = &mo.list;
+    g_audio = 1;
+    in_rt = 1;
+    CHECK(g.plugin->process(g.plugin, &p) == CLAP_PROCESS_CONTINUE, "instrument %.0f: a block with no audio input runs", rate);
+    in_rt = 0;
+    g_audio = 0;
+    for (i = 0, all = 1; i < BLOCK; i++)
+    {
+        const double want = i >= 8 && i < 40 ? 100.0 / 127.0 * sin(2.0 * M_PI * 440.0 * (double)(i - 8) / rate) : 0.0;
+        const double d = fabs((double)out_l[i] - want);
+
+        worst = d > worst ? d : worst;
+        all &= out_l[i] == out_r[i];
+    }
+    CHECK(worst < 1e-6 && all, "instrument %.0f: A4 at velocity 100 from frame 8 to its note off at 40, on both channels (worst %g)",
+          rate, worst);
+    rig_down(&g);
+}
+
 static void t_midi(double rate)
 {
     static const uint8_t note[3] = { 0x90, 0x3c, 0x64 }, pc[3] = { 0xc3, 0x05, 0x00 }, cp[3] = { 0xd5, 0x40, 0x00 };
@@ -2726,6 +2781,7 @@ int main(int argc, char **argv)
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
+        t_instrument(RATES[r]);
         t_time(RATES[r]);
         t_atom_text(RATES[r]);
         t_atom_midi_time(RATES[r]);

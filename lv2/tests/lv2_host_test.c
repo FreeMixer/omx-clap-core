@@ -592,6 +592,10 @@ static void t_midi_ports(void)
     p = open_plugin(g_fixture, FIXTURE_URI "#atom", why);
     CHECK(!p && strcmp(why, "hosting.features.atom-in-unfed") == 0, "midi: an atom input that is no MIDI port is not refused as MIDI (%s)", why);
     lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#synth", why);
+    CHECK(p && p->midi_in_port == 0 && p->in_legs == 0 && p->legs == 2 && p->out_ports[0] == 1 && p->out_ports[1] == 2,
+          "midi: an instrument, a MIDI input and a stereo output with no audio input, is admitted as a source (%s)", why);
+    lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
     CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: a second MIDI input is refused (%s)", why);
     lv2_plugin_close(p);
