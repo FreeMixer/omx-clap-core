@@ -1101,7 +1101,13 @@ static inline int omx_clap_mpe_in(struct omx_clap_stage *s, const struct omx_cla
  * RPN 0 (omx_clap_rpn), or a zone the control thread asked for (omx_clap_note_ids_want_mpe); in a zone, a zone
  * channel's bend, channel pressure and controller 74 become per-note expressions (omx_clap_mpe_in) whatever else the
  * port reads.
- * A system real-time byte besides sysex is dropped; a channel message longer than three bytes is counted as unmappable.
+ * A system byte besides sysex (0xf1 and up) is dropped; a channel message longer than three bytes is counted as unmappable.
+ * The types each dialect passes, one line each (doc/reference.md repeats them; tests/dialect_doc_check.sh compares):
+ * Passes, CLAP only: note on, note off, all sound off, all notes off, pitch bend, channel pressure, poly pressure.
+ * Counts, CLAP only: other controller, program change, sysex.
+ * Passes, CLAP and MIDI: note on, note off, every other channel message, sysex.
+ * Passes, MIDI: every channel message, sysex.
+ * Passes, MIDI MPE: every channel message, sysex only when the port also declares MIDI.
  * A full block drops what can be lost first: past CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED a message that is
  * not a release is counted and dropped, and a release only past CLAP_HOST_NOTES_PER_BLOCK (OMX_CLAP_NOTES_RESERVED);
  * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is counted and dropped too. A stage with no note input takes none.
