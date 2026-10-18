@@ -123,6 +123,10 @@ jobs:
       - name: Build
         run: make
 
+      # the relaxed-ordering copy of clap_stage.h compiles beside the headers it includes (#165)
+      - name: The stage bench builds and runs
+        run: make bench-stage
+
       - name: Test the plugin lifecycle and the scanner against the fake plugins
         run: make test-fake
 
