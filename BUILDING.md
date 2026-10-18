@@ -102,7 +102,9 @@ it to 0.75 and lets it go, and the feedback socket carries `param_gesture
 begin`, `param_set 0.75` and `param_gesture end` in that order, once; a value
 the controller sets is not echoed. With `FAKE_MOVER_FLOOD=300`, more values
 than the ring holds between two ticks, the last line of each parameter is
-what the plugin holds. `make test-fake` drives the same plugin through the
+what the plugin holds; with `FAKE_MOVER_HELD=1` as well the flood comes while
+level is held, the ring has no room for the gesture's end, and the feedback
+still closes the gesture, once. `make test-fake` drives the same plugin through the
 library: the events in order, a modulation the plugin hears with its set
 value unchanged, the host's gestures around a write, the plugin's text,
 `params.rescan` of the info and of everything, `params.clear`, and the ring's
@@ -223,8 +225,12 @@ added, and that is a new minor (`0.1.0` to `0.2.0`, the soname unchanged); a fie
 function removed, moved or changed is a new soname major (`libomx-clap-core.so.1`, a new
 package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.0.abi`,
 the baseline of the last release, with libabigail's `abidiff`, and CI runs it on every
-push and before every release. A release commit records its own baseline with `make
-abi-baseline` and commits `abi/`.
+push and before every release. `abidw` leaves `_Atomic` members out of its dump, so
+`make abi-check` also runs `tests/abi-layout.sh`: it reads every public structure,
+member by member (offset, size and type, atomics included), with `pahole` (the
+dwarves package) from an object built from the installed headers, and holds them to
+`abi/libomx-clap-core.so.0.layout` under the same rule. A release commit records both
+baselines with `make abi-baseline` and commits `abi/`.
 
 The message ring
 ----------------
@@ -236,13 +242,23 @@ a record and never waits. Header only, so it changes nothing in the ABI. `make
 test-msgring` runs its closed-form test, and `make test-fake` includes it. The LV2
 adapter's worker uses the same ring.
 
+`make test-transport` runs `tests/transport_seqlock_test.c`: a writer thread
+publishes the transport record every cycle and three reader threads read a
+whole record per cycle, 1,000,000 cycles each, under the allocation witness.
+No reader sees fields of two publishes, and no position goes backwards except
+at a published loop wrap. `make test-fake` includes it. `make test-transport-tsan`
+runs it under ThreadSanitizer (CI does). `make test-transport-sabotage` takes
+the sequence re-check out of the read and expects torn records.
+
 `make test-param-contract` checks the parameter contract's arithmetic against
 answers computed elsewhere: SHA-256 against FIPS 180-4's examples, the
 canonical fingerprint against the contract's worked vector and the fake
 plugin's (node's SHA-256 of the same lines), and the shortest decimals against
 node's `String(n)`. `make test-fake` includes it, and `tests/clap_host_test`
 opens the fake plugin with each `FAKE_CONTRACT` arm: whole, at version 2 with
-one rename step, and broken by R1, R2, R4 or R5, each named.
+one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
+`FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
+changes a symbol (`follow`, refused under R3).
 
 The hosting limits and refusal codes are declared in `data/hosting.json`, in
 omx-contract's schema. `make install` puts them into omx-contract's contract

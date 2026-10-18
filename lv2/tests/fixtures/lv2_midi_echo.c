@@ -27,8 +27,13 @@
  * wrote it: what the adapter made of a CLAP event shows here, where the output cannot tell a 2-byte message from a 3-byte
  * one. And one malformed output the next run writes after the echo, chosen by lv2_midi_echo_extra: a message the adapter
  * must not pass on.
+ *
+ * The instrument, urn:openmixer:test:midi-echo#synth: a MIDI input and a stereo output, no audio input. A note on is a
+ * sine at the key's frequency from phase 0 on its frame, the velocity / 127 its amplitude, on both channels; its note off
+ * is silence from its frame on. One voice: the last note on sounds.
  */
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,6 +46,7 @@
 #define EXPORT __attribute__((visibility("default")))
 
 #define ECHO_URI "urn:openmixer:test:midi-echo"
+#define SYNTH_URI ECHO_URI "#synth"
 
 #define SEEN_MAX 64u            // the input events kept for the test, the first SEEN_MAX of the last run
 #define SEEN_BYTES 8u           // the bytes kept of each
@@ -175,9 +181,110 @@ static const LV2_Descriptor DESCRIPTOR =
     .cleanup = echo_cleanup,
 };
 
+enum { S_MIDI_IN, S_OUT_L, S_OUT_R };
+
+struct synth
+{
+    const LV2_Atom_Sequence *midi_in;
+    float *out[2];
+    LV2_URID midi;
+    double rate;
+    int key;                    // the sounding key, -1 for none
+    double amplitude;
+    uint64_t age;               // frames since its note on
+};
+
+static LV2_Handle synth_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features)
+{
+    struct synth *s = calloc(1, sizeof(*s));
+    const LV2_URID_Map *map = NULL;
+    int i;
+
+    (void)d;
+    (void)path;
+    for (i = 0; s && features && features[i]; i++)
+        if (!strcmp(features[i]->URI, LV2_URID__map))
+            map = features[i]->data;
+    if (!s || !map)
+    {
+        free(s);
+        return NULL;
+    }
+    s->midi = map->map(map->handle, LV2_MIDI__MidiEvent);
+    s->rate = rate;
+    s->key = -1;
+    return s;
+}
+
+static void synth_connect(LV2_Handle h, uint32_t port, void *data)
+{
+    struct synth *s = h;
+
+    switch (port)
+    {
+    case S_MIDI_IN: s->midi_in = data; break;
+    case S_OUT_L: s->out[0] = data; break;
+    case S_OUT_R: s->out[1] = data; break;
+    default: break;
+    }
+}
+
+static void synth_render(struct synth *s, uint32_t from, uint32_t to)
+{
+    const double hz = s->key >= 0 ? 440.0 * pow(2.0, (s->key - 69) / 12.0) : 0.0;
+    uint32_t i;
+
+    for (i = from; i < to; i++)
+    {
+        const float v = s->key >= 0 ? (float)(s->amplitude * sin(2.0 * M_PI * hz * (double)s->age++ / s->rate)) : 0.0f;
+
+        s->out[0][i] = v;
+        s->out[1][i] = v;
+    }
+}
+
+static void synth_run(LV2_Handle h, uint32_t n)
+{
+    struct synth *s = h;
+    uint32_t at = 0;
+
+    LV2_ATOM_SEQUENCE_FOREACH(s->midi_in, ev)
+    {
+        const uint8_t *m = LV2_ATOM_BODY_CONST(&ev->body);
+        uint32_t frame = ev->time.frames < 0 ? 0u : (uint32_t)ev->time.frames;
+
+        if (ev->body.type != s->midi || ev->body.size < 3)
+            continue;
+        if (frame > n)
+            frame = n;
+        synth_render(s, at, frame);
+        at = frame;
+        if ((m[0] & 0xf0) == 0x90 && m[2] > 0)
+        {
+            s->key = m[1];
+            s->amplitude = m[2] / 127.0;
+            s->age = 0;
+        }
+        else if (((m[0] & 0xf0) == 0x80 || (m[0] & 0xf0) == 0x90) && m[1] == s->key)
+        {
+            s->key = -1;
+        }
+    }
+    synth_render(s, at, n);
+}
+
+static const LV2_Descriptor SYNTH =
+{
+    .URI = SYNTH_URI,
+    .instantiate = synth_instantiate,
+    .connect_port = synth_connect,
+    .run = synth_run,
+    .cleanup = echo_cleanup,
+};
+
 EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &DESCRIPTOR : NULL;
+    return index == 0 ? &DESCRIPTOR : index == 1 ? &SYNTH : NULL;
 }
 
 /* the last run's input: how many events it had, and the one at `i`, with its frame, size and first bytes */
