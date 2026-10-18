@@ -81,6 +81,39 @@ static const char *g_lilv;
 static pthread_t g_main;
 static volatile int g_in_run;      // the main thread holds the audio role only inside a block
 
+/* A failing allocator for the strings the core duplicates (the Makefile wraps strdup and free for this test): strdup of
+ * the text in g_strdup_fail returns NULL, and every pointer strdup hands out is held until free takes it back, so the
+ * pointers still held are the strings a path leaked. */
+#define LIVE_MAX 256
+static const char *g_strdup_fail;
+static void *g_live[LIVE_MAX];
+static int g_live_n;
+char *__real_strdup(const char *);
+void __real_free(void *);
+
+char *__wrap_strdup(const char *s)
+{
+    char *r;
+
+    if (g_strdup_fail && strcmp(s, g_strdup_fail) == 0)
+        return NULL;
+    r = __real_strdup(s);
+    if (r && g_live_n < LIVE_MAX)
+        g_live[g_live_n++] = r;
+    return r;
+}
+
+void __wrap_free(void *p)
+{
+    for (int i = 0; p && i < g_live_n; i++)
+        if (g_live[i] == p)
+        {
+            g_live[i] = g_live[--g_live_n];
+            break;
+        }
+    __real_free(p);
+}
+
 static int thread_count(void)
 {
     DIR *d = opendir("/proc/self/task");
@@ -320,6 +353,29 @@ static void t_sidechains(void)
         CHECK(!q && strcmp(rwhy, refused[i].code) == 0, "side chain refusal: %s is refused %s (got '%s')", refused[i].uri, refused[i].code, rwhy);
         lv2_plugin_close(q);
     }
+}
+
+/* The open of a plugin with two side chains when the allocator refuses the name of the second: the open is refused as
+ * no realisation and the name of the first, already duplicated, is freed with the rest. Unrefused, the same open
+ * holds both names and the close frees them. */
+static void t_sidechain_names_oom(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p;
+    int base = g_live_n;
+
+    p = open_plugin(g_sc, SC_URI "#two", why);
+    CHECK(p != NULL && p->n_side == 2 && strcmp(p->side_name[0], "Side A") == 0 && strcmp(p->side_name[1], "Side B") == 0,
+          "side chain names: two side chains are named by their ports (%s)", why);
+    lv2_plugin_close(p);
+    CHECK(g_live_n == base, "side chain names: a closed plugin holds no duplicated string (%d held)", g_live_n - base);
+
+    g_strdup_fail = "Side B";
+    p = open_plugin(g_sc, SC_URI "#two", why);
+    g_strdup_fail = NULL;
+    CHECK(!p && strcmp(why, LV2_CODE_NO_REALISATION) == 0, "side chain names: a refused second name refuses the open (%s)", why);
+    lv2_plugin_close(p);
+    CHECK(g_live_n == base, "side chain names: a refused open frees the first name (%d strings held)", g_live_n - base);
 }
 
 /* ---- the refusals ---- */
@@ -1073,6 +1129,7 @@ int main(int argc, char **argv)
     t_atom_ui();
     t_midi_run();
     t_sidechains();
+    t_sidechain_names_oom();
     t_cv();
     for (r = 0; r < N_RATES; r++)
     {
