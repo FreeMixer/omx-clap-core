@@ -35,6 +35,24 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "../src/param_contract.h"
 
+#include <omxcontract/omx_contract_limits.h>
+
+// the scale codes are omx-contract's PARAM_SCALES positions: how many scales there are, here; which word stands at which
+// ordinal, in main
+#define PC_SCALE_COUNT(code, name) +1
+_Static_assert(0 OMX_CLAP_PARAM_SCALES(PC_SCALE_COUNT) == OMX_PARAM_SCALES_COUNT, "OMX_CLAP_PARAM_SCALES names every scale of PARAM_SCALES");
+
+#define PC_SCALE_ROW(code, name) { code, name },
+static const struct { uint32_t code; const char *name; } g_scales[] = { OMX_CLAP_PARAM_SCALES(PC_SCALE_ROW) };
+
+static long scale_code(const char *name)
+{
+    for (size_t i = 0; i < sizeof(g_scales) / sizeof(g_scales[0]); i++)
+        if (strcmp(g_scales[i].name, name) == 0)
+            return g_scales[i].code;
+    return -1;
+}
+
 static int g_failures;
 
 #define CHECK(cond, ...) \
@@ -82,6 +100,10 @@ static int symbol_ok(const char *symbol)
 
 int main(void)
 {
+    CHECK(scale_code("linear") == OMX_PARAM_SCALES_LINEAR, "linear stands at omx-contract's PARAM_SCALES position %d (%ld)", OMX_PARAM_SCALES_LINEAR, scale_code("linear"));
+    CHECK(scale_code("log") == OMX_PARAM_SCALES_LOG, "log stands at omx-contract's PARAM_SCALES position %d (%ld)", OMX_PARAM_SCALES_LOG, scale_code("log"));
+    CHECK(scale_code("stepped") == OMX_PARAM_SCALES_STEPPED, "stepped stands at omx-contract's PARAM_SCALES position %d (%ld)", OMX_PARAM_SCALES_STEPPED, scale_code("stepped"));
+
     /* node: for (const x of [...]) String(x) */
     static const struct { double value; const char *text; } numbers[] = {
         { 0.1, "0.1" }, { 0.10000000149011612, "0.10000000149011612" }, { 1e21, "1e+21" }, { 1e-7, "1e-7" },
