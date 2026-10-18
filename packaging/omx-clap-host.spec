@@ -15,7 +15,7 @@ BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script
-BuildRequires: omx-contract-devel >= 2.15.0
+BuildRequires: omx-contract-devel >= 2.16.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -65,7 +65,7 @@ Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
 # the hosting limits and refusal codes, in omx-contract's contract directory, which that package owns
-Requires: omx-contract-devel >= 2.15.0
+Requires: omx-contract-devel >= 2.16.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel

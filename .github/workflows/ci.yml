@@ -16,7 +16,7 @@ env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.4.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
-  OMX_CONTRACT_REF: v2.15.0
+  OMX_CONTRACT_REF: v2.16.0
 
 jobs:
   version:
