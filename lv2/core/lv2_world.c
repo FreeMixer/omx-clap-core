@@ -1181,7 +1181,7 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->texts[k].name);
     }
     free(p->texts);
-    for (i = 0; i < p->n_side; i++)
+    for (i = 0; i < LV2_CORE_SIDE_LEGS; i++)    // every slot: a refused open has named some side chains, not set n_side
         free(p->side_name[i]);
     for (i = 0; i < LV2_CORE_CV_PORTS; i++)
     {
