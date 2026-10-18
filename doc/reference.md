@@ -249,7 +249,7 @@ empties at the start of its next cycle, at its first frame and ahead of what
 `midi_in` carries in it, through the same path, so the dialect rules, the
 release reserve and `note_drops` hold for both. A verb the ring has no room
 for (512 messages, which only a stopped graph fills) is not queued at all
-and answers `-901`.
+and answers `-517`, plugin-hostd's code for a full note queue.
 
 A main port wider than stereo, a main pair of different widths, a second
 note input, a note input that reads none of the CLAP, MIDI and MIDI MPE dialects, or

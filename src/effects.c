@@ -1658,6 +1658,12 @@ int effects_note_drops(int effect_id, char *reply, size_t size)
     return SUCCESS;
 }
 
+/* plugin-hostd's code for a note verb its worker had no room to queue; declared by plugin-hostd 0.5 (FreeMixer/plugin-hostd#91),
+ * the same number here until that header is the floor */
+#ifndef PHD_ERR_NOTE_QUEUE_FULL
+#define PHD_ERR_NOTE_QUEUE_FULL (-517)
+#endif
+
 /* note_input: "resp 0 midi_in" for an instance that takes notes, "resp 0 -" for one that takes none */
 int effects_note_input(int effect_id, char *reply, size_t size)
 {
@@ -1680,7 +1686,7 @@ int effects_note(int effect_id, const uint8_t (*messages)[3], uint32_t count)
     if (!effect->note_ring_buf)
         return PHD_ERR_NO_NOTE_INPUT;
     if (NOTE_RING_BYTES - omx_msgring_used(&effect->note_ring) < count * omx_msgring_record_bytes(3) + omx_msgring_record_bytes(3))
-        return ERR_MEMORY_ALLOCATION;   // the audio thread has not drained the ring: no room, nothing queued
+        return PHD_ERR_NOTE_QUEUE_FULL;     // the audio thread has not drained the ring: no room, nothing queued
     for (i = 0; i < count; i++)
         omx_msgring_push(&effect->note_ring, messages[i], 3);
     return SUCCESS;
