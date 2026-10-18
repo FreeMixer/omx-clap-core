@@ -248,14 +248,34 @@ free id is skipped and counted, and its note off is dropped, since nothing
 sounds. A note off of a key the host holds no id for goes with note id -1.
 A reset of the plugin frees every id.
 
-MPE. The MPE configuration message (RPN 6 on channel 1 or 16) sets the
-lower or upper zone and its member channel count; the library's caller may
-set the zone itself (`omx_clap_host_set_mpe`). In a zone, a member
-channel's pitch bend, channel pressure and controller 74 become
-`CLAP_NOTE_EXPRESSION_TUNING`, `_PRESSURE` and `_BRIGHTNESS` for the newest
-note held on that channel, with its id, channel and key; the master
-channel's reach every note. The bend range is 48 semitones on the members
-and 2 on the master, MPE's defaults, until RPN 0 sets another.
+MPE. A lower zone (master channel 1, members from channel 2 up) and an
+upper zone (master channel 16, members from channel 15 down) are held
+together. The MPE configuration message (RPN 6 on channel 1 or 16) sets the
+lower or the upper zone and its member channel count, and touches only that
+zone; a count of 0 ends it. The library's caller may set a zone itself
+(`omx_clap_host_set_mpe(in, zone, members)`: `OMX_CLAP_MPE_LOWER` or
+`OMX_CLAP_MPE_UPPER` with `members` 0 ends that zone only;
+`OMX_CLAP_MPE_OFF` ends both).
+
+With both zones live the members share channels 2 to 15, so the zone just
+configured wins: the other zone keeps the channels left (14 minus the new
+zone's members, none when the new zone has 15) and ends when none are left.
+A zone cut or ended this way keeps its bend ranges only while it exists. Notes
+held on a channel that leaves a zone keep their ids and sound until their note
+off; the channel's expressions are no longer per note.
+
+In a zone, a member channel's pitch bend, channel pressure and controller 74
+become `CLAP_NOTE_EXPRESSION_TUNING`, `_PRESSURE` and `_BRIGHTNESS` for the
+newest note held on that channel, with its id, channel and key. A master
+channel's reach the notes held on the member channels of its own zone only,
+one expression per held note with that note's id, channel and key; the other
+zone's notes are not touched. The master's last bend, pressure and
+controller 74 are kept per zone, and a note that starts in the zone later
+begins with them (as expressions at its note on) until the zone's
+configuration message clears them. The bend range of each zone is 48
+semitones on the members and 2 on the master, MPE's defaults, until RPN 0 on
+that zone's master or one of its members sets another; the zone's own
+configuration message returns them to the defaults, and the other zone's stay.
 
 A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
 128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on

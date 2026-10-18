@@ -132,6 +132,9 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, voice_capacity) > offsetof(struct omx_clap_instance, voice_count) &&
             offsetof(struct omx_clap_instance, voice_count) > offsetof(struct omx_clap_instance, voice_info_read),
         "the voice info is the instance's last field (%zu)", offsetof(struct omx_clap_instance, voice_flags));
+  /* ABI 8 appends the MPE zones after the note output */
+  CHECK(offsetof(struct omx_clap_instance, mpe_zones) >= offsetof(struct omx_clap_instance, note_out) + sizeof(struct omx_clap_note_out),
+        "the MPE zones are the instance's last field (%zu)", offsetof(struct omx_clap_instance, mpe_zones));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
