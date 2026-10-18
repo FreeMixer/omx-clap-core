@@ -38,7 +38,8 @@
 *       non-empty to symbols are unique; no step changes nothing; a value map keeps the symbol, the unit, factor 1 and
 *       offset 0, its old and new values each unique, and on its last version lands on an enumerated parameter's range;
 *       a removed symbol never comes back; the unit pair is one the conversion table holds
-* R3 (the contract is the same after params.rescan) is the rescan's to check.
+* R3 (the contract is the same after params.rescan) is the rescan's to check: pc_read again, then pc_same against what the
+* open held.
 *
 ************************************************************************************************************************
 */
@@ -314,10 +315,15 @@ static int pc_convertible(uint32_t from, uint32_t to)
 ************************************************************************************************************************
 */
 
-/* the contract of one instance as the open read it: entries by clap.params index, the version, or why there is none */
+/* the contract of one instance as the open read it: entries by clap.params index, the version, or why there is none.
+ * The entries are one allocation whose tail, after the count of them, holds the fingerprint the host computed (64 hex
+ * digits and a NUL): what a rescan's contract is held to (R3), kept with the entries so the instance needs no field of
+ * its own for it. */
+#define PC_FINGERPRINT_SIZE 65
+
 struct pc_contract
 {
-    omx_clap_param_contract_entry_t *entry;  // count of them, by the params index; NULL when uncontracted
+    omx_clap_param_contract_entry_t *entry;  // count of them, by the params index, then the fingerprint; NULL when uncontracted
     uint32_t count;
     uint32_t version;
     char why[128];  // "" when contracted; "absent" with no extension; else the rule and what broke it
@@ -572,7 +578,7 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
     }
     if (pc_migrations(c, plugin, ext, p, count) != 0)
         goto out;
-    c->entry = calloc(count, sizeof(*c->entry));
+    c->entry = calloc(1, count * sizeof(*c->entry) + PC_FINGERPRINT_SIZE);
     if (!c->entry)
     {
         pc_refuse(c, "R1", "no memory for the entries", NULL);
@@ -589,12 +595,28 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
             if (p[j].info.id == info.id)
                 c->entry[i] = p[j].entry;
     }
+    memcpy(c->entry + count, hex, PC_FINGERPRINT_SIZE);
     c->count = count;
     c->why[0] = '\0';
     ret = 0;
 out:
     free(p);
     return ret;
+}
+
+/* the fingerprint the host computed when `entry` (`count` of them, from pc_read) was read */
+static const char *pc_fingerprint_of(const omx_clap_param_contract_entry_t *entry, uint32_t count)
+{
+    return (const char *)(entry + count);
+}
+
+/* R3: whether `now`, a contract read after params.rescan, is the one `entry` (`count` of them, at `version`) held: the
+ * same version and the same fingerprint, which serialises every id, symbol, unit, scale, bound, step and flag. The name
+ * and the module are display text, free to change. */
+static int pc_same(const struct pc_contract *now, const omx_clap_param_contract_entry_t *entry, uint32_t count, uint32_t version)
+{
+    return now->entry && entry && now->version == version && now->count == count
+           && strcmp(pc_fingerprint_of(now->entry, now->count), pc_fingerprint_of(entry, count)) == 0;
 }
 
 /* the entry of `id`, or NULL for an uncontracted instance or an id the contract does not hold */

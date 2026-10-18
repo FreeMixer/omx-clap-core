@@ -950,6 +950,37 @@ static void t_note_ids(void) {
           "@%d: once the hold (%u frames, %u ms) has run out, the ids come back (%u expired)", RATES_C[ri], hold, OMX_CLAP_NOTE_ID_HOLD_MS,
           atomic_load(&NI.ids_expired));
   }
+
+  /* #138: a NOTE_END the plugin sends late, past the hold, for the old voice of an id the pool has handed to a new note:
+   * the new note keeps its id. Note i of the loop took id i, on channel i / 128 and key i % 128; the new note is on
+   * channel 6, key 1. */
+  {
+    const int32_t x = NS.notes[0].note.note_id;
+    const uint8_t off61[] = {0x85, 1, 0};
+
+    CHECK(x >= 0 && NI.ids[x].state == 1 && NI.key_id[5][1] == x, "the new note on channel 6, key 1 holds the reused id %d", x);
+    ni_end(x, (int16_t)(x / 128), (int16_t)(x % 128));
+    CHECK(NI.ids[x].state == 1 && NI.key_id[5][1] == x && atomic_load(&NI.notes_ended) == 0,
+          "a late NOTE_END for the old voice of id %d (channel %d, key %d) leaves the live note its id (state %u, key holds %d)",
+          x, x / 128 + 1, x % 128, NI.ids[x].state, NI.key_id[5][1]);
+    ni_block();
+    ni_in(0, off61, 3);
+    CHECK(NS.n_notes == 1 && NS.notes[0].header.type == CLAP_EVENT_NOTE_OFF && NS.notes[0].note.note_id == x,
+          "the new note's note off still carries id %d (%d)", x, NS.n_notes ? NS.notes[0].note.note_id : -9);
+    ni_end(x, 5, 1);
+    CHECK(NI.ids[x].state == 0 && atomic_load(&NI.notes_ended) == 1, "its own NOTE_END, channel 6 and key 1, frees id %d", x);
+    ni_end(-1, -1, -1);
+  }
+
+  /* a released id's NOTE_END that names another channel and key is not its own either; one with -1 in either matches */
+  ni_up(1000);
+  ni_in(0, ON60, 3);
+  a = NS.notes[0].note.note_id;
+  ni_in(1, OFF60, 3);
+  ni_end(a, 0, 61);
+  CHECK(NI.ids[a].state == 2 && atomic_load(&NI.notes_ended) == 0, "a NOTE_END for id %d on key 61 does not free key 60's id", a);
+  ni_end(a, -1, 60);
+  CHECK(NI.ids[a].state == 0 && atomic_load(&NI.notes_ended) == 1, "one on key 60 with channel -1 does");
 }
 
 /* an MPE zone: each member channel's bend, pressure and CC74 are per-note expressions of the note sounding on it */
