@@ -879,7 +879,7 @@ static int ni_expr(uint32_t i, int32_t expr, int32_t id, int16_t channel, int16_
 static void t_note_ids(void) {
   static const uint8_t ON60[] = {0x90, 60, 100}, ON62[] = {0x90, 62, 90}, OFF60[] = {0x80, 60, 0}, OFF62[] = {0x90, 62, 0};
   static const uint8_t POLY62[] = {0xa0, 62, 64}, OFF70[] = {0x80, 70, 0}, ALL_OFF[] = {0xb0, 123, 0};
-  static const int RATES_C[] = OMX_RME_RATES_INIT;
+  static const int RATES_C[] = OMX_ORACLE_FULL_RATES_INIT;
   int32_t a, b;
   uint32_t i, ri;
 

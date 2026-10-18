@@ -20,7 +20,7 @@
 
 /*
  * host_transport_test.c: omx-clap-host's transport (src/host_transport.h) against closed forms, at every rate the
- * contract declares (OMX_RME_RATES_INIT).
+ * contract declares (OMX_ORACLE_FULL_RATES_INIT).
  *
  *  1. NONE until a tempo: no command, or a set_bpb alone, hands the plugin no transport (flags 0).
  *  2. PLAYING at 120 bpm from frame 1000: the block that starts half a second later reads beat 1.0 and 0.5 s exactly,
@@ -147,7 +147,7 @@ static void at_rate(int rate_hz)
 
 int main(void)
 {
-    static const int rates[] = OMX_RME_RATES_INIT;
+    static const int rates[] = OMX_ORACLE_FULL_RATES_INIT;
     struct host_transport p;
     struct host_transport_intent in = { 1, 1, 133.5, 7.0, 4242u, 12.25, 6.5 }, out = { 0 };
     size_t i;

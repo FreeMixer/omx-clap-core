@@ -693,7 +693,7 @@ static void synth_out_checks(const char *path, const char *id, double rate)
 
 static void synth_out_all(const char *path)
 {
-    static const int rates[] = OMX_RME_RATES_INIT;
+    static const int rates[] = OMX_ORACLE_FULL_RATES_INIT;
     size_t r;
 
     for (r = 0; r < sizeof(rates) / sizeof(rates[0]); r++)
