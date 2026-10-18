@@ -233,6 +233,14 @@ a record and never waits. Header only, so it changes nothing in the ABI. `make
 test-msgring` runs its closed-form test, and `make test-fake` includes it. The LV2
 adapter's worker uses the same ring.
 
+`make test-transport` runs `tests/transport_seqlock_test.c`: a writer thread
+publishes the transport record every cycle and three reader threads read a
+whole record per cycle, 1,000,000 cycles each, under the allocation witness.
+No reader sees fields of two publishes, and no position goes backwards except
+at a published loop wrap. `make test-fake` includes it. `make test-transport-tsan`
+runs it under ThreadSanitizer (CI does). `make test-transport-sabotage` takes
+the sequence re-check out of the read and expects torn records.
+
 `make test-param-contract` checks the parameter contract's arithmetic against
 answers computed elsewhere: SHA-256 against FIPS 180-4's examples, the
 canonical fingerprint against the contract's worked vector and the fake
