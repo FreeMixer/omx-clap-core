@@ -29,6 +29,10 @@ Commands
     cpu_load
     note_drops <instance_number>
     note_out_drops <instance_number>
+    note_input <instance_number>
+    note_on <instance_number> <channel> <key> <velocity>
+    note_off <instance_number> <channel> <key> <velocity>
+    all_notes_off <instance_number>
     set_bpm <beats_per_minute>
     set_bpb <beats_per_bar>
     transport <rolling> <beats_per_bar> <beats_per_minute>
@@ -231,6 +235,21 @@ order they came, and count 172 dropped. `note_drops <N>` answers
 had no room for, of them the releases, the sysex past a cycle's eight, and the
 messages no dialect of the plugin carries, since the instance was added.
 Nothing is allocated or locked on the audio thread.
+
+A controller that is not a jack client plays an instrument through the
+socket with plugin-hostd's note verbs. `note_input <N>` answers
+`resp 0 midi_in` for an instance that takes notes and `resp 0 -` for one
+that takes none. `note_on <N> <channel> <key> <velocity>`,
+`note_off <N> <channel> <key> <velocity>` and `all_notes_off <N>` (controller
+123 on each of the 16 channels) answer `resp 0`, `-513` for an instance that
+takes no notes, and `-902` for a word out of MIDI's range (channel 0 to 15,
+key 0 to 127, a note on's velocity 1 to 127, a note off's 0 to 127). The
+control thread writes each message into a lock-free ring the audio thread
+empties at the start of its next cycle, at its first frame and ahead of what
+`midi_in` carries in it, through the same path, so the dialect rules, the
+release reserve and `note_drops` hold for both. A verb the ring has no room
+for (512 messages, which only a stopped graph fills) is not queued at all
+and answers `-901`.
 
 A main port wider than stereo, a main pair of different widths, a second
 note input, a note input that reads none of the CLAP, MIDI and MIDI MPE dialects, or

@@ -185,6 +185,48 @@ static void note_drops_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+static void note_input_cb(proto_t *proto)
+{
+    char reply[64];
+    int resp = phd_note_valid(proto->list, (int)proto->list_count) ? effects_note_input(atoi(proto->list[1]), reply, sizeof(reply))
+                                                                  : ERR_INVALID_OPERATION;
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+}
+
+/* note_on, note_off and all_notes_off as plugin-hostd declares them: each word in its range, else -902 */
+static void note_cb(proto_t *proto)
+{
+    uint8_t messages[16][3];
+    uint32_t count = 0, c;
+
+    if (!phd_note_valid(proto->list, (int)proto->list_count))
+    {
+        protocol_response_int(ERR_INVALID_OPERATION, proto);
+        return;
+    }
+    if (!strcmp(proto->list[0], PHD_VERB_ALL_NOTES_OFF))
+    {
+        for (c = 0; c < 16; c++)
+        {
+            messages[count][0] = (uint8_t)(0xb0 | c);
+            messages[count][1] = 123;
+            messages[count++][2] = 0;
+        }
+    }
+    else
+    {
+        messages[0][0] = (uint8_t)((strcmp(proto->list[0], PHD_VERB_NOTE_ON) ? 0x80 : 0x90) | atoi(proto->list[2]));
+        messages[0][1] = (uint8_t)atoi(proto->list[3]);
+        messages[0][2] = (uint8_t)atoi(proto->list[4]);
+        count = 1;
+    }
+    protocol_response_int(effects_note(atoi(proto->list[1]), (const uint8_t (*)[3])messages, count), proto);
+}
+
 static void pin_expect_cb(proto_t *proto)
 {
     protocol_response_int(effects_pin_expect(atoi(proto->list[1]), proto->list[2]), proto);
@@ -263,6 +305,25 @@ static void term_signal(int sig)
     return; (void)sig;
 }
 
+/* mod-host's verbs this host does not answer, -902 each. host_dispatch_register_unsupported registers these and also the
+ * nine this host answers itself (set_bpm, set_bpb, transport, transport_sync, monitor_output, track_info, remote_pages,
+ * remote_page_get, param_info): a second entry under a verb is dead, and the protocol library's table holds
+ * PROTOCOL_MAX_COMMANDS entries and drops any past it in silence, which with the note verbs was quit itself. */
+static void register_unsupported(void)
+{
+    static const char *const commands[] = {
+        EFFECT_PRESET_SAVE, EFFECT_PRESET_SHOW, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
+        MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
+        CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
+        FEATURE_ENABLE, SHOW_EXTERNAL_UI, OUTPUT_DATA_READY,
+        NULL
+    };
+    const char *const *command;
+
+    for (command = commands; *command; command++)
+        protocol_add_command(*command, host_dispatch_unsupported_cb);
+}
+
 static int host_init(int socket_port, int feedback_port)
 {
     // the first command registered under a verb is the one that answers it: this add, not the dispatch's
@@ -278,9 +339,13 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
     protocol_add_command(TRANSPORT_SYNC, transport_sync_cb);
-    host_dispatch_register_unsupported();
+    register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command("note_drops %i", note_drops_cb);
+    protocol_add_command(PHD_VERB_NOTE_INPUT_FMT, note_input_cb);
+    protocol_add_command(PHD_VERB_NOTE_ON_FMT, note_cb);
+    protocol_add_command(PHD_VERB_NOTE_OFF_FMT, note_cb);
+    protocol_add_command(PHD_VERB_ALL_NOTES_OFF_FMT, note_cb);
     protocol_add_command("note_out_drops %i", note_out_drops_cb);
     protocol_add_command(HELP, help_cb);
     protocol_add_command(QUIT, quit_cb);
