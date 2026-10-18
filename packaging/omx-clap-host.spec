@@ -145,6 +145,8 @@ make test-lv2
 - The library reads an instrument's clap.voice-info at activate and answers it
   through omx_clap_host_voice_info, in the version node OMX_CLAP_CORE_0.11.
   The library ABI is 8.
+- A note input holds a lower and an upper MPE zone together; a master
+  channel's expressions reach only its own zone's notes. The library ABI is 8.
 * Sat Oct 17 2026 Pau Aliagas <linuxnow@gmail.com> - 0.10.0-1
 - A CLAP note input takes note ids, an MPE zone and note end; a note port that
   prefers MIDI_MPE gets raw MIDI. The library ABI is 6.
