@@ -256,9 +256,11 @@ struct omx_clap_note_ids
 
 /** The two MPE zones: index 0 the lower (master channel 1, members from 2 up), 1 the upper (master channel 16, members from 15 down). */
 #define OMX_CLAP_MPE_ZONES              2u
-/** a zone's master expressions kept for the notes that start later: bend, pressure, controller 74 */
+/** master_have: the zone's master has sent a pitch bend since the zone was set */
 #define OMX_CLAP_MPE_MASTER_BEND_BIT    1u
+/** master_have: the zone's master has sent a channel pressure since the zone was set */
 #define OMX_CLAP_MPE_MASTER_PRESSURE_BIT 2u
+/** master_have: the zone's master has sent a controller 74 since the zone was set */
 #define OMX_CLAP_MPE_MASTER_BRIGHTNESS_BIT 4u
 
 /** One MPE zone: its member channels (0: the zone does not exist), its bend ranges and the master's last values. */
