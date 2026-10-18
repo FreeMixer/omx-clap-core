@@ -114,12 +114,15 @@ expect "transport 1 4 120" "resp 0"
 settle
 [ "$(probe_get 1)" = "120.0000" ] && [ "$(probe_get 2)" = "1.0000" ] && [ "$(probe_get 3)" = "4.0000" ]
 step $? "transport 1 4 120: the probe reads 120 bpm, playing, 4 beats a bar"
-b1=$(probe_get 5); s1=$(probe_get 6)
+# beats and seconds are read at one instant: parameter 8 is their difference as ONE process() saw it, so a pair of reads
+# a cycle or two apart (a loaded desk) cannot make the timelines look out of step. Parameter 5 alone gives the beats moved.
+b1=$(probe_get 5); g1=$(probe_get 8)
 sleep 1
-b2=$(probe_get 5); s2=$(probe_get 6)
-db=$(awk -v a="$b1" -v b="$b2" 'BEGIN { printf "%.4f", b - a }'); ds=$(awk -v a="$s1" -v b="$s2" 'BEGIN { printf "%.4f", b - a }')
-near "$db" 2 0.25 && near "$(awk -v d="$db" -v s="$ds" 'BEGIN { print d - 2 * s }')" 0 0.0005
-step $? "a second of playing moves it 2 beats at 120 bpm, beats and seconds in step ($db beats, $ds s)"
+b2=$(probe_get 5); g2=$(probe_get 8)
+db=$(awk -v a="$b1" -v b="$b2" 'BEGIN { printf "%.4f", b - a }'); dg=$(awk -v a="$g1" -v b="$g2" 'BEGIN { printf "%.4f", b - a }')
+# -1 is the probe's "no tempo or no timeline" reading: a constant, so it must not pass as zero drift.
+[ "$g1" != "-1.0000" ] && [ "$g2" != "-1.0000" ] && near "$db" 2 0.25 && near "$dg" 0 0.0005
+step $? "a second of playing moves it 2 beats at 120 bpm, beats and seconds in step ($db beats, drift $g1 then $g2)"
 expect "transport 0 4 120" "resp 0"
 settle
 b3=$(probe_get 5)

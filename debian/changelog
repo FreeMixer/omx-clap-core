@@ -1,3 +1,27 @@
+omx-clap-host (0.11.0) unstable; urgency=medium
+
+  * An instrument's clap.voice-info is read at activate and answered through
+    omx_clap_host_voice_info, in the version node OMX_CLAP_CORE_0.11. The
+    library ABI is 8.
+  * A note input holds a lower and an upper MPE zone together; a master
+    channel's expressions reach only the notes of its own zone, and a note that
+    starts later begins with its master's last values. omx_clap_host_set_mpe
+    sets one zone (members 0 ends it; OFF ends both). The instance gains
+    mpe_zones and omx_clap_note_in_ids takes the zones. The library ABI is 9.
+  * The LV2 adapter frees the side-chain names of a plugin it refuses to open.
+  * The reference says what the code does: the message types each note dialect
+    passes, and that there is no plugin window. A test compares those lines
+    with clap_stage.h.
+  * The hosting headers are tested value by value against what omx-contract
+    reads, and OMX_CLAP_PARAM_SCALES against omx-contract's PARAM_SCALES.
+  * The oracle tests take their rates from OMX_ORACLE_FULL_RATES_*, so the
+    package requires omx-contract 2.16.0 or newer.
+  * Steadier tests: the transport over jack reads beats and seconds in one
+    process(), and the LV2 worker test holds the worker inside work(). The
+    stage bench builds and runs in CI.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 19 Oct 2026 00:00:00 +0000
+
 omx-clap-host (0.10.0) unstable; urgency=medium
 
   * A CLAP note input takes note ids, an MPE zone and note end; a note port

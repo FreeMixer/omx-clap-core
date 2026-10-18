@@ -238,11 +238,11 @@ struct omx_clap_note_ids
     struct omx_clap_stage *stage;                       ///< the stage whose notes carry the ids
     clap_output_events_t out_events;                    ///< the stage's sink that also reads NOTE_END; ctx is this structure
     uint32_t hold_frames;                               ///< frames after a note off an id waits for NOTE_END (the bind sets it)
-    _Atomic uint32_t mpe_wanted;                        ///< control thread -> RT: a zone to take, OMX_CLAP_MPE_WANTED | zone | members << 8
-    uint32_t mpe;                                       ///< enum omx_clap_mpe: the zone the input reads
-    uint32_t mpe_members;                               ///< the zone's member channels, 1 to 15
-    double mpe_master_bend;                             ///< the master channel's bend range in semitones (RPN 0 on the master)
-    double mpe_member_bend;                             ///< the member channels' bend range in semitones (RPN 0 on a member)
+    _Atomic uint32_t mpe_wanted;                        ///< ABI 6 to 8 consumers' single zone; unused from ABI 9, see struct omx_clap_mpe_zones
+    uint32_t mpe;                                       ///< ABI 6 to 8: unused from ABI 9
+    uint32_t mpe_members;                               ///< ABI 6 to 8: unused from ABI 9
+    double mpe_master_bend;                             ///< ABI 6 to 8: unused from ABI 9
+    double mpe_member_bend;                             ///< ABI 6 to 8: unused from ABI 9
     uint8_t rpn[16][2];                                 ///< the RPN each channel selected (controllers 101, 100); 127 none
     int32_t chan_id[16];                                ///< the id of the newest note held on each channel, -1 none: an MPE member's note
     int32_t key_id[16][128];                            ///< the id each held key sounds under; -1 none, OMX_CLAP_NOTE_SKIPPED its note on was skipped
@@ -252,6 +252,38 @@ struct omx_clap_note_ids
     _Atomic uint32_t notes_skipped;                     ///< note ons with no free id: skipped, and their note offs dropped
     _Atomic uint32_t notes_ended;                       ///< ids the plugin's NOTE_END freed
     _Atomic uint32_t ids_expired;                       ///< ids taken back after their hold with no NOTE_END
+};
+
+/** The two MPE zones: index 0 the lower (master channel 1, members from 2 up), 1 the upper (master channel 16, members from 15 down). */
+#define OMX_CLAP_MPE_ZONES              2u
+/** master_have: the zone's master has sent a pitch bend since the zone was set */
+#define OMX_CLAP_MPE_MASTER_BEND_BIT    1u
+/** master_have: the zone's master has sent a channel pressure since the zone was set */
+#define OMX_CLAP_MPE_MASTER_PRESSURE_BIT 2u
+/** master_have: the zone's master has sent a controller 74 since the zone was set */
+#define OMX_CLAP_MPE_MASTER_BRIGHTNESS_BIT 4u
+
+/** One MPE zone: its member channels (0: the zone does not exist), its bend ranges and the master's last values. */
+struct omx_clap_mpe_zone
+{
+    uint32_t members;                                   ///< the zone's member channels, 0 none (no zone) or 1 to 15
+    uint32_t master_have;                                ///< OMX_CLAP_MPE_MASTER_*_BIT of the values below the master has sent since the zone was set
+    double master_bend;                                 ///< the master channel's bend range in semitones (RPN 0 on the master)
+    double member_bend;                                 ///< the member channels' bend range in semitones (RPN 0 on a member)
+    double master_tuning;                               ///< the master's last bend, in semitones
+    double master_pressure;                             ///< the master's last channel pressure, 0 to 1
+    double master_brightness;                           ///< the master's last controller 74, 0 to 1
+};
+
+/**
+ * The MPE zones of one input (ABI 9): a lower and an upper zone held together. struct omx_clap_note_ids grew past its
+ * place in the instance for ABI 6 and 7, so the zones live in their own structure, appended to the instance. Zeroed
+ * with its owner; a zone takes its bend defaults when omx_clap_mpe_take sets it.
+ */
+struct omx_clap_mpe_zones
+{
+    _Atomic uint32_t wanted[OMX_CLAP_MPE_ZONES];        ///< control thread -> RT: a zone to take, OMX_CLAP_MPE_WANTED | members << 8
+    struct omx_clap_mpe_zone zone[OMX_CLAP_MPE_ZONES];  ///< the lower zone, then the upper
 };
 
 /** One event of a plugin's note output, as its MIDI message: what omx_clap_note_out_take hands the reader. */
@@ -346,8 +378,8 @@ static inline bool omx_clap_out_push(const struct clap_output_events *list, cons
 ************************************************************************************************************************
 */
 
-/** Control thread, holding the audio role (or before the first block): every id free and no key held; the MPE zone
- * and its bend ranges are kept. omx_clap_note_ids_bind calls it; the host calls it again when it resets the plugin,
+/** Control thread, holding the audio role (or before the first block): every id free and no key held; the MPE zones
+ * (struct omx_clap_mpe_zones, kept beside the ids) are not touched. omx_clap_note_ids_bind calls it; the host calls it again when it resets the plugin,
  * whose voices are then gone. */
 static inline void omx_clap_note_ids_reset(struct omx_clap_note_ids *n)
 {
@@ -473,14 +505,7 @@ static inline bool omx_clap_out_push_ids(const struct clap_output_events *list, 
  */
 static inline void omx_clap_note_ids_bind(struct omx_clap_note_ids *n, struct omx_clap_stage *s, uint32_t hold_frames)
 {
-    if (n->stage == NULL)       // the first bind: no zone yet; a later one keeps the zone the input last set
-    {
-        n->mpe = OMX_CLAP_MPE_OFF;
-        n->mpe_members = 15;
-        n->mpe_master_bend = OMX_CLAP_MPE_MASTER_BEND_DEFAULT;
-        n->mpe_member_bend = OMX_CLAP_MPE_MEMBER_BEND_DEFAULT;
-    }
-    omx_clap_note_ids_reset(n);     // mpe_wanted is kept: a zone asked for before or between activations is taken at the next message
+    omx_clap_note_ids_reset(n);
     n->stage = s;
     n->hold_frames = hold_frames;
     n->out_events.ctx = n;
@@ -489,13 +514,20 @@ static inline void omx_clap_note_ids_bind(struct omx_clap_note_ids *n, struct om
 }
 
 /** Any thread: ask for MPE zone `zone` (enum omx_clap_mpe) with `members` member channels (1 to 15), as an MPE
- * configuration message would set it; the RT takes it ahead of the next message it reads. OMX_CLAP_MPE_OFF ends the zone. */
-static inline void omx_clap_note_ids_want_mpe(struct omx_clap_note_ids *n, uint32_t zone, uint32_t members)
+ * configuration message would set it; the RT takes it ahead of the next message it reads. The other zone is not asked
+ * about, but yields channels to this one as the configuration message makes it (omx_clap_mpe_take). `members` 0 ends
+ * the zone; OMX_CLAP_MPE_OFF ends both. */
+static inline void omx_clap_mpe_zones_want(struct omx_clap_mpe_zones *z, uint32_t zone, uint32_t members)
 {
-    if (zone > OMX_CLAP_MPE_UPPER)
-        zone = OMX_CLAP_MPE_OFF;
-    members = members < 1u ? 1u : members > 15u ? 15u : members;
-    atomic_store_explicit(&n->mpe_wanted, OMX_CLAP_MPE_WANTED | zone | members << 8, memory_order_release);
+    if (zone == OMX_CLAP_MPE_OFF || zone > OMX_CLAP_MPE_UPPER)
+    {
+        atomic_store_explicit(&z->wanted[0], OMX_CLAP_MPE_WANTED, memory_order_release);
+        atomic_store_explicit(&z->wanted[1], OMX_CLAP_MPE_WANTED, memory_order_release);
+        return;
+    }
+    if (members > 15)
+        members = 15;
+    atomic_store_explicit(&z->wanted[zone - 1u], OMX_CLAP_MPE_WANTED | members << 8, memory_order_release);
 }
 
 
@@ -989,35 +1021,74 @@ static inline void omx_clap_note_ids_release_channel(struct omx_clap_note_ids *n
             n->key_id[channel][k] = -1;
 }
 
-/** What channel `channel` is in the MPE zone: 0 outside it (or no zone), 1 its master, 2 a member. */
-static inline int omx_clap_mpe_role(const struct omx_clap_note_ids *n, uint8_t channel)
+/** Whether `channel` is a member channel of zone `zi` (0 lower, 1 upper) holding `members` member channels. */
+static inline int omx_clap_mpe_is_member(uint32_t zi, uint32_t members, uint8_t channel)
 {
-    if (n->mpe == OMX_CLAP_MPE_LOWER)
-        return channel == 0 ? 1 : channel <= n->mpe_members ? 2 : 0;
-    if (n->mpe == OMX_CLAP_MPE_UPPER)
-        return channel == 15 ? 1 : channel + n->mpe_members >= 15u ? 2 : 0;
+    if (zi == 0)
+        return channel >= 1 && channel <= members;
+    return channel <= 14 && (uint32_t)channel + members >= 15u;
+}
+
+/** What channel `channel` is in the MPE zones: 0 outside them, 1 a zone's master, 2 a member; `*zi` is the zone (0 lower, 1 upper). */
+static inline int omx_clap_mpe_role(const struct omx_clap_mpe_zones *z, uint8_t channel, uint32_t *zi)
+{
+    for (uint32_t i = 0; i < OMX_CLAP_MPE_ZONES; i++)
+    {
+        const uint32_t m = z->zone[i].members;
+
+        if (m == 0)
+            continue;
+        *zi = i;
+        if (channel == (i == 0 ? 0 : 15))
+            return 1;
+        if (omx_clap_mpe_is_member(i, m, channel))
+            return 2;
+    }
     return 0;
 }
 
-/** RT: take zone `zone` with `members` member channels; the zone's bend ranges return to MPE's defaults. */
-static inline void omx_clap_mpe_take(struct omx_clap_note_ids *n, uint32_t zone, uint32_t members)
+/**
+ * RT: take zone `zi` (0 lower, 1 upper) with `members` member channels, 0 ending it. The zone's bend ranges return to
+ * MPE's defaults and the master's kept values are cleared; the other zone is not touched, except for the channels
+ * this one takes: with both zones the members share channels 2 to 15, so the other zone keeps 14 minus `members`
+ * (none when `members` is 15, which reaches the other's master channel) and ends when none are left.
+ */
+static inline void omx_clap_mpe_take(struct omx_clap_mpe_zones *z, uint32_t zi, uint32_t members)
 {
-    n->mpe = zone;
-    n->mpe_members = members;
-    n->mpe_master_bend = OMX_CLAP_MPE_MASTER_BEND_DEFAULT;
-    n->mpe_member_bend = OMX_CLAP_MPE_MEMBER_BEND_DEFAULT;
+    struct omx_clap_mpe_zone *me = &z->zone[zi];
+    struct omx_clap_mpe_zone *other = &z->zone[1u - zi];
+    uint32_t room;
+
+    if (members > 15)
+        members = 15;
+    memset(me, 0, sizeof(*me));
+    if (members == 0)
+        return;
+    me->members = members;
+    me->master_bend = OMX_CLAP_MPE_MASTER_BEND_DEFAULT;
+    me->member_bend = OMX_CLAP_MPE_MEMBER_BEND_DEFAULT;
+    room = members >= 15 ? 0u : 14u - members;
+    if (other->members > room)
+    {
+        if (room == 0)
+            memset(other, 0, sizeof(*other));
+        else
+            other->members = room;
+    }
 }
 
 /**
  * RT: a controller of the RPN protocol (101 and 100 select, 6 and 38 set), tracked per channel. RPN 0 (pitch bend
- * sensitivity) on a zone's master sets mpe_master_bend, on a member mpe_member_bend (semitones from 6, cents from 38).
- * RPN 6 on channel 1 or 16 is MPE's configuration message: its value is the member channel count of the lower or the
- * upper zone (0: no zone). 1 when the controller was read: a selection, or a value the zone took; a port that reads
- * MIDI still gets it raw, a CLAP-only one does not count it unmappable.
+ * sensitivity) on a zone's master sets that zone's master_bend, on one of its members its member_bend (semitones from
+ * 6, cents from 38). RPN 6 on channel 1 or 16 is MPE's configuration message: its value is the member channel count of
+ * the lower or the upper zone (0: no zone), and sets that zone alone. 1 when the controller was read: a selection, or a
+ * value the zone took; a port that reads MIDI still gets it raw, a CLAP-only one does not count it unmappable.
  */
-static inline int omx_clap_rpn(struct omx_clap_note_ids *n, uint8_t channel, uint8_t cc, uint8_t value)
+static inline int omx_clap_rpn(struct omx_clap_note_ids *n, struct omx_clap_mpe_zones *z, uint8_t channel, uint8_t cc,
+                               uint8_t value)
 {
-    const int role = omx_clap_mpe_role(n, channel);
+    uint32_t zi = 0;
+    const int role = z ? omx_clap_mpe_role(z, channel, &zi) : 0;
     double *range;
 
     if (cc == 101 || cc == 100)
@@ -1027,58 +1098,101 @@ static inline int omx_clap_rpn(struct omx_clap_note_ids *n, uint8_t channel, uin
     }
     if ((cc != 6 && cc != 38) || n->rpn[channel][0] != 0)
         return 0;
-    if (n->rpn[channel][1] == 6 && cc == 6 && (channel == 0 || channel == 15))
+    if (z && n->rpn[channel][1] == 6 && cc == 6 && (channel == 0 || channel == 15))
     {
-        const uint32_t zone = channel == 0 ? OMX_CLAP_MPE_LOWER : OMX_CLAP_MPE_UPPER;
-
-        if (value)
-            omx_clap_mpe_take(n, zone, value > 15 ? 15u : value);
-        else if (n->mpe == zone)
-            n->mpe = OMX_CLAP_MPE_OFF;
+        omx_clap_mpe_take(z, channel == 0 ? 0u : 1u, value);
         return 1;
     }
     if (n->rpn[channel][1] != 0 || role == 0)
         return 0;
-    range = role == 1 ? &n->mpe_master_bend : &n->mpe_member_bend;
+    range = role == 1 ? &z->zone[zi].master_bend : &z->zone[zi].member_bend;
     *range = cc == 6 ? (double)value : floor(*range) + (double)value / 100.0;
     return 1;
 }
 
 /**
- * RT: a message of a channel of the MPE zone that MPE makes per note: pitch bend (TUNING, the member or master range),
- * channel pressure (PRESSURE, 0 to 1) and controller 74 (BRIGHTNESS, 0 to 1). On a member channel the expression
- * carries the id, channel and key of the newest note held there (the whole channel when none is); on the master it
- * reaches every note (channel -1). 1 when the message was taken.
+ * RT: a message of a channel of an MPE zone that MPE makes per note: pitch bend (TUNING, the member or master range of
+ * that zone), channel pressure (PRESSURE, 0 to 1) and controller 74 (BRIGHTNESS, 0 to 1). On a member channel the
+ * expression carries the id, channel and key of the newest note held there (the whole channel when none is). On a
+ * master it goes to each note held on the member channels of its own zone, with that note's id, channel and key, and
+ * the value is kept for the notes that start in the zone later (omx_clap_mpe_note_start). 1 when the message was taken.
  */
-static inline int omx_clap_mpe_in(struct omx_clap_stage *s, const struct omx_clap_note_ids *n, uint32_t time, uint8_t type,
-                                  uint8_t channel, const uint8_t *data, size_t size)
+static inline int omx_clap_mpe_in(struct omx_clap_stage *s, const struct omx_clap_note_ids *n, struct omx_clap_mpe_zones *z,
+                                  uint32_t time, uint8_t type, uint8_t channel, const uint8_t *data, size_t size)
 {
-    const int role = omx_clap_mpe_role(n, channel);
-    const int32_t id = role == 2 ? n->chan_id[channel] : -1;
-    const int16_t key = id >= 0 ? (int16_t)n->ids[id].key : -1;
-    const int16_t ch = role == 2 ? (int16_t)channel : -1;
+    uint32_t zi = 0;
+    const int role = omx_clap_mpe_role(z, channel, &zi);
+    struct omx_clap_mpe_zone *zone = &z->zone[zi];
+    int32_t expression;
+    double value;
 
     if (role == 0)
         return 0;
     if (type == 0xe0 && size == 3)
     {
         const int bend14 = ((int)data[2] << 7 | data[1]) - 8192;
-        const double range = role == 2 ? n->mpe_member_bend : n->mpe_master_bend;
 
-        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_TUNING, id, ch, key, (double)bend14 / 8192.0 * range);
-        return 1;
+        expression = CLAP_NOTE_EXPRESSION_TUNING;
+        value = (double)bend14 / 8192.0 * (role == 2 ? zone->member_bend : zone->master_bend);
     }
-    if (type == 0xd0 && size == 2)
+    else if (type == 0xd0 && size == 2)
     {
-        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, id, ch, key, (double)data[1] / 127.0);
-        return 1;
+        expression = CLAP_NOTE_EXPRESSION_PRESSURE;
+        value = (double)data[1] / 127.0;
     }
-    if (type == 0xb0 && size == 3 && data[1] == 74)
+    else if (type == 0xb0 && size == 3 && data[1] == 74)
     {
-        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_BRIGHTNESS, id, ch, key, (double)data[2] / 127.0);
+        expression = CLAP_NOTE_EXPRESSION_BRIGHTNESS;
+        value = (double)data[2] / 127.0;
+    }
+    else
+        return 0;
+    if (role == 2)
+    {
+        const int32_t id = n->chan_id[channel];
+
+        omx_clap_expr_slot_id(s, time, expression, id, (int16_t)channel, id >= 0 ? (int16_t)n->ids[id].key : (int16_t)-1, value);
         return 1;
     }
-    return 0;
+    if (expression == CLAP_NOTE_EXPRESSION_TUNING)
+    {
+        zone->master_tuning = value;
+        zone->master_have |= OMX_CLAP_MPE_MASTER_BEND_BIT;
+    }
+    else if (expression == CLAP_NOTE_EXPRESSION_PRESSURE)
+    {
+        zone->master_pressure = value;
+        zone->master_have |= OMX_CLAP_MPE_MASTER_PRESSURE_BIT;
+    }
+    else
+    {
+        zone->master_brightness = value;
+        zone->master_have |= OMX_CLAP_MPE_MASTER_BRIGHTNESS_BIT;
+    }
+    for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+        if (n->ids[i].state == 1 && n->ids[i].channel < 16 && omx_clap_mpe_is_member(zi, zone->members, (uint8_t)n->ids[i].channel))
+            omx_clap_expr_slot_id(s, time, expression, (int32_t)i, n->ids[i].channel, n->ids[i].key, value);
+    return 1;
+}
+
+/** RT: the note on of `key` on `channel` just started; when the channel is a member of a zone, the note begins with the
+ * zone's master values the master sent since the zone was set (bend, pressure, controller 74), as expressions at the note on's frame. */
+static inline void omx_clap_mpe_note_start(struct omx_clap_stage *s, const struct omx_clap_note_ids *n,
+                                           const struct omx_clap_mpe_zones *z, uint32_t time, uint8_t channel, uint8_t key)
+{
+    uint32_t zi = 0;
+    const int32_t id = n->key_id[channel][key];
+    const struct omx_clap_mpe_zone *zone;
+
+    if (id < 0 || omx_clap_mpe_role(z, channel, &zi) != 2)
+        return;
+    zone = &z->zone[zi];
+    if (zone->master_have & OMX_CLAP_MPE_MASTER_BEND_BIT)
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_TUNING, id, channel, key, zone->master_tuning);
+    if (zone->master_have & OMX_CLAP_MPE_MASTER_PRESSURE_BIT)
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, id, channel, key, zone->master_pressure);
+    if (zone->master_have & OMX_CLAP_MPE_MASTER_BRIGHTNESS_BIT)
+        omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_BRIGHTNESS, id, channel, key, zone->master_brightness);
 }
 
 /**
@@ -1097,17 +1211,23 @@ static inline int omx_clap_mpe_in(struct omx_clap_stage *s, const struct omx_cla
  *    program change, a sysex) is counted, never silently dropped.
  *  - A MIDI_MPE-dialect input: as the MIDI one; the plugin reads the MPE zone itself.
  * With note ids `n` (NULL: none, every CLAP note and expression has id -1), a CLAP-dialect input's notes carry ids
- * (omx_clap_note_onoff), poly aftertouch carries its key's id, and the MPE zone is read: the configuration message and
- * RPN 0 (omx_clap_rpn), or a zone the control thread asked for (omx_clap_note_ids_want_mpe); in a zone, a zone
- * channel's bend, channel pressure and controller 74 become per-note expressions (omx_clap_mpe_in) whatever else the
- * port reads.
- * A system real-time byte besides sysex is dropped; a channel message longer than three bytes is counted as unmappable.
+ * (omx_clap_note_onoff), poly aftertouch carries its key's id, and with MPE zones `z` (NULL: none read) the zones are
+ * read: the configuration messages and RPN 0 (omx_clap_rpn), or a zone the control thread asked for
+ * (omx_clap_mpe_zones_want); in a zone, a zone channel's bend, channel pressure and controller 74 become per-note
+ * expressions (omx_clap_mpe_in), a master's those of its own zone's notes, whatever else the port reads.
+ * A system byte besides sysex (0xf1 and up) is dropped; a channel message longer than three bytes is counted as unmappable.
+ * The types each dialect passes, one line each (doc/reference.md repeats them; tests/dialect_doc_check.sh compares):
+ * Passes, CLAP only: note on, note off, all sound off, all notes off, pitch bend, channel pressure, poly pressure.
+ * Counts, CLAP only: other controller, program change, sysex.
+ * Passes, CLAP and MIDI: note on, note off, every other channel message, sysex.
+ * Passes, MIDI: every channel message, sysex.
+ * Passes, MIDI MPE: every channel message, sysex only when the port also declares MIDI.
  * A full block drops what can be lost first: past CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED a message that is
  * not a release is counted and dropped, and a release only past CLAP_HOST_NOTES_PER_BLOCK (OMX_CLAP_NOTES_RESERVED);
  * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is counted and dropped too. A stage with no note input takes none.
  */
-static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_clap_note_ids *n, uint32_t time,
-                                        const uint8_t *data, size_t size)
+static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_clap_note_ids *n, struct omx_clap_mpe_zones *z,
+                                        uint32_t time, const uint8_t *data, size_t size)
 {
     const int also_midi = (s->note_dialects & CLAP_NOTE_DIALECT_MIDI) != 0;
     uint8_t type, channel;
@@ -1115,13 +1235,15 @@ static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_cla
 
     if (!s->note_inputs || size == 0 || data[0] < 0x80)
         return;
-    if (n && atomic_load_explicit(&n->mpe_wanted, memory_order_relaxed))
-    {
-        const uint32_t want = atomic_exchange_explicit(&n->mpe_wanted, 0u, memory_order_acquire);
+    if (z)
+        for (uint32_t zi = 0; zi < OMX_CLAP_MPE_ZONES; zi++)
+            if (atomic_load_explicit(&z->wanted[zi], memory_order_relaxed))
+            {
+                const uint32_t want = atomic_exchange_explicit(&z->wanted[zi], 0u, memory_order_acquire);
 
-        if (want & OMX_CLAP_MPE_WANTED)
-            omx_clap_mpe_take(n, want & 0xffu, (want >> 8) & 0xffu);
-    }
+                if (want & OMX_CLAP_MPE_WANTED)
+                    omx_clap_mpe_take(z, zi, (want >> 8) & 0xffu);
+            }
 
     if (data[0] == 0xf0)        // sysex: one complete message, any length
     {
@@ -1166,17 +1288,19 @@ static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_cla
     if ((type == 0x80 || type == 0x90) && size == 3)
     {
         omx_clap_note_onoff(s, n, time, channel, data[1] & 0x7f, data[2] & 0x7f, type == 0x90 && data[2]);
+        if (n && z && type == 0x90 && data[2])
+            omx_clap_mpe_note_start(s, n, z, time, channel, data[1] & 0x7f);
         return;
     }
 
     if (n && type == 0xb0 && size == 3)
     {
-        if (omx_clap_rpn(n, channel, data[1], data[2]) && !also_midi)
+        if (omx_clap_rpn(n, z, channel, data[1], data[2]) && !also_midi)
             return;                             // the host read it, and the port takes no raw MIDI
         if (data[1] == 120 || data[1] >= 123)   // the plugin ends every note of the channel
             omx_clap_note_ids_release_channel(n, channel, s->steady_time + (int64_t)time);
     }
-    if (n && n->mpe && omx_clap_mpe_in(s, n, time, type, channel, data, size))
+    if (n && z && omx_clap_mpe_in(s, n, z, time, type, channel, data, size))
         return;
 
     if (also_midi)
@@ -1217,7 +1341,7 @@ static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_cla
 /** RT: omx_clap_note_in_ids with no note ids: every CLAP note and expression goes with id -1, and no MPE zone is read. */
 static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
 {
-    omx_clap_note_in_ids(s, NULL, time, data, size);
+    omx_clap_note_in_ids(s, NULL, NULL, time, data, size);
 }
 
 /** RT: fill every output channel the plugin reported constant from its sample 0. */
