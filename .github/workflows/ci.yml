@@ -196,6 +196,18 @@ jobs:
             echo "::warning::test-jack-info SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # The command socket's framing against tests/socket_conformance.py: a command of exactly the receive buffer, many
+      # commands in one write, one command over many writes, clients that leave mid-command, the size limit and a random
+      # chunking fuzz (#103). It checks the protocol library the mod-host-protocol step built, which carries
+      # mod-audio/mod-host#113; the log names the library the host loaded.
+      - name: Test the command socket's framing
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-socket
+          else
+            echo "::warning::test-socket SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # a plugin that moves its own parameter: param_gesture and param_set on the feedback port, in order
       - name: Test the values and gestures a plugin makes itself over jack
         run: |
