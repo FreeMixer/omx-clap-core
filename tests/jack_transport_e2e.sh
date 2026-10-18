@@ -120,7 +120,8 @@ b1=$(probe_get 5); g1=$(probe_get 8)
 sleep 1
 b2=$(probe_get 5); g2=$(probe_get 8)
 db=$(awk -v a="$b1" -v b="$b2" 'BEGIN { printf "%.4f", b - a }'); dg=$(awk -v a="$g1" -v b="$g2" 'BEGIN { printf "%.4f", b - a }')
-near "$db" 2 0.25 && near "$dg" 0 0.0005
+# -1 is the probe's "no tempo or no timeline" reading: a constant, so it must not pass as zero drift.
+[ "$g1" != "-1.0000" ] && [ "$g2" != "-1.0000" ] && near "$db" 2 0.25 && near "$dg" 0 0.0005
 step $? "a second of playing moves it 2 beats at 120 bpm, beats and seconds in step ($db beats, drift $g1 then $g2)"
 expect "transport 0 4 120" "resp 0"
 settle
