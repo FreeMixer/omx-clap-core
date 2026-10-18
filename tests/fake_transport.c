@@ -26,7 +26,9 @@
  *   1 the tempo, under HAS_TEMPO                5 the song position in beats, under HAS_BEATS_TIMELINE
  *   2 playing (IS_PLAYING)                      6 the song position in seconds, under HAS_SECONDS_TIMELINE
  *   3 the time signature's numerator            7 the bar number, under HAS_BEATS_TIMELINE
- * A field whose flag is not set reads -1. */
+ *   8 the beats minus the seconds times the tempo over 60, both taken from the one transport of one process(): 0
+ *     while the two timelines run in step, whatever the position they started from
+ * A field whose flag is not set reads -1; so does 8 when the transport lacks the tempo or either timeline. */
 
 #include <stdatomic.h>
 #include <stdio.h>
@@ -35,7 +37,7 @@
 #include <clap/clap.h>
 
 #define ID_PROBE        "org.omx-clap-host.test.transport-probe"
-#define PROBE_PARAMS    8u
+#define PROBE_PARAMS    9u
 
 typedef struct PROBE_T {
     clap_plugin_t plugin;
@@ -43,7 +45,7 @@ typedef struct PROBE_T {
 } probe_t;
 
 static const char *const g_names[PROBE_PARAMS] = {
-    "has transport", "tempo", "playing", "tsig num", "tsig denom", "beats", "seconds", "bar"
+    "has transport", "tempo", "playing", "tsig num", "tsig denom", "beats", "seconds", "bar", "beats vs seconds"
 };
 
 static void keep(probe_t *p, uint32_t id, double v)
@@ -187,6 +189,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     keep(p, 5, t && (t->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) ? (double)t->song_pos_beats / (double)CLAP_BEATTIME_FACTOR : -1.0);
     keep(p, 6, t && (t->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) ? (double)t->song_pos_seconds / (double)CLAP_SECTIME_FACTOR : -1.0);
     keep(p, 7, t && (t->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) ? t->bar_number : -1.0);
+    keep(p, 8, t && (t->flags & CLAP_TRANSPORT_HAS_TEMPO) && (t->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) &&
+               (t->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE)
+                   ? (double)t->song_pos_beats / (double)CLAP_BEATTIME_FACTOR -
+                         (double)t->song_pos_seconds / (double)CLAP_SECTIME_FACTOR * t->tempo / 60.0
+                   : -1.0);
     return CLAP_PROCESS_CONTINUE;
 }
 
