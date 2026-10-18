@@ -349,8 +349,8 @@ struct omx_clap_instance
     // the host's modulations and gestures (ABI 0.10): the input event list that turns their records into their kind
     struct omx_clap_param_in param_in;  ///< the input event list over the stage's, bound at activate
 
-    // the plugin's org.openmixer.param-contract/1 (ABI 0.10): read and checked once at open, fixed for the instance's
-    // life; read by the control thread only
+    // the plugin's org.openmixer.param-contract/1 (ABI 0.10): read and checked at open and again after each params.rescan
+    // (R3); read by the control thread only
     omx_clap_param_contract_entry_t *contract;  ///< one entry per parameter by params index, NULL when uncontracted
     uint32_t contract_count;  ///< the entries, 0 when uncontracted
     uint32_t contract_version;  ///< the contract's version, 0 when uncontracted
@@ -594,9 +594,10 @@ OMX_CLAP_EXPORT int omx_clap_host_param_text(struct omx_clap_instance *in, clap_
 OMX_CLAP_EXPORT int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const char *text, double *value);
 
 /** Whether the plugin's org.openmixer.param-contract/1 holds, as checked at open (rules R1, R2, R4 and R5 of openmixer's
- * contract's rules, see omx_clap_ext.h): 1 with `*version`; 0 for an uncontracted plugin, `*why` "absent" when it
- * offers no contract, else the rule it broke and how (a contract that breaks one rule is not trusted at all). Either
- * pointer may be NULL. Control thread. */
+ * contract's rules, see omx_clap_ext.h) and again by the tick after each params.rescan (R3: the contract read again is
+ * the same one): 1 with `*version`; 0 for an uncontracted plugin, `*why` "absent" when it offers no contract, else the
+ * rule it broke and how (a contract that breaks one rule is not trusted at all, and one a rescan changed is not trusted
+ * again for the instance's life). Either pointer may be NULL. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_param_contract(struct omx_clap_instance *in, uint32_t *version, const char **why);
 
 /** What parameter `id` means: 0 with `*meaning` filled from the contract and from get_info; -1 for an uncontracted

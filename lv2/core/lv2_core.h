@@ -186,7 +186,8 @@ struct lv2_plugin
     char *uri;
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
-    uint32_t legs;                  // the main input's channels: 1 or 2
+    uint32_t legs;                  // the main channels: 1 or 2, the output's and, for an effect, the input's
+    uint32_t in_legs;               // the main input's channels: legs, or 0 for an instrument (a MIDI input, no audio input)
     uint32_t in_ports[2], out_ports[2];
     uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
     uint32_t n_side_legs;           // the legs of all of them

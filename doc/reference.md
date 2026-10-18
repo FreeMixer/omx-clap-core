@@ -72,7 +72,9 @@ pushes into a ring of `OMX_CLAP_PARAM_OUT_DEPTH` (256) events between two
 ticks, on the audio thread with no allocation, lock or call out; past it an
 event is dropped and counted, and the next tick sends every parameter's
 value as the plugin reads it then, so the controller still ends on what the
-plugin holds. A value the controller sets is not echoed back.
+plugin holds, and an `end` for every gesture still open, so it is never left
+holding one whose end was dropped. Begin and end go out in pairs: an end with
+no open begin is not sent. A value the controller sets is not echoed back.
 
 A program that hosts plugins through the library reads the same events with
 `omx_clap_host_param_events_take` (and `omx_clap_host_param_events_dropped`),
@@ -162,7 +164,11 @@ sets the tempo and the beats per bar only: the host never starts, stops or
 moves the JACK transport.
 
 A program that hosts plugins through the library hands them a transport of its
-own with `omx_clap_host_set_transport` and `omx_clap_transport_publish`.
+own with `omx_clap_host_set_transport` and `omx_clap_transport_publish`. The
+record has one writer, the control thread or an audio thread that publishes
+it once per cycle (a console counting its song position in frames), never
+both; any number of audio threads read it whole in the same cycle. Neither
+side allocates or locks.
 
 Replies are mod-host's: `resp <code>`, with mod-host's error codes. A refused
 `add` that has a `hosting.*` code says it after the error code, `resp -102
@@ -203,7 +209,10 @@ expression of it carry the same id. A note on of a key that already sounds
 first ends the old note, a note off under its old id. The id is free again
 when the plugin pushes `CLAP_EVENT_NOTE_END` for it, or, for a plugin that
 never does, 2 seconds after its note off (`OMX_CLAP_NOTE_ID_HOLD_MS`, in
-frames at the rate the instance is activated at). A note on that finds no
+frames at the rate the instance is activated at). A `CLAP_EVENT_NOTE_END`
+frees its id only while the id still names the event's channel and key (-1
+in either matches any): an id taken back after its hold may already name a
+new note, which keeps it when the old voice's end comes late. A note on that finds no
 free id is skipped and counted, and its note off is dropped, since nothing
 sounds. A note off of a key the host holds no id for goes with note id -1.
 A reset of the plugin frees every id.
