@@ -446,13 +446,19 @@ static uint32_t latency_get(const clap_plugin_t *plugin)
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
-/* the main pair, then one input per side chain (LV2 port groups and lv2:isSideChain, lv2/core), then one per CV input; the
- * output is the main pair, then one per CV output */
+/* the inputs before the side chains and the CV inputs: the main one, none for an instrument */
+static uint32_t main_inputs(const struct lv2_plugin *l)
+{
+    return l->in_legs ? 1u : 0u;
+}
+
+/* the main pair (none in for an instrument), then one input per side chain (LV2 port groups and lv2:isSideChain,
+ * lv2/core), then one per CV input; the output is the main pair, then one per CV output */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const struct lv2_plugin *l = SHIM_OF(plugin)->lv2;
 
-    return is_input ? 1u + l->n_side + l->n_cv_in : 1u + l->n_cv_out;
+    return is_input ? main_inputs(l) + l->n_side + l->n_cv_in : 1u + l->n_cv_out;
 }
 
 static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_audio_port_info_t *info)
@@ -463,6 +469,8 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
         return false;
     memset(info, 0, sizeof(*info));
     info->id = index;
+    if (is_input)
+        index += 1u - main_inputs(s->lv2);     // an instrument's first input is a side chain's or a CV input's
     if (index == 0)
     {
         snprintf(info->name, sizeof(info->name), "%s", is_input ? "in" : "out");
@@ -767,13 +775,13 @@ static int time_of(const clap_process_t *process, struct lv2_time *out)
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process)
 {
     struct shim *s = SHIM_OF(plugin);
-    const uint32_t n = process->frames_count, legs = s->lv2->legs;
+    const uint32_t n = process->frames_count, legs = s->lv2->legs, m = main_inputs(s->lv2);
     struct lv2_counters c;
     uint32_t leg;
 
     if (!s->active || s->broken || n > s->max_frames)
         return CLAP_PROCESS_ERROR;
-    for (leg = 0; leg < legs; leg++)
+    for (leg = 0; leg < s->lv2->in_legs; leg++)
     {
         float *dst = lv2_instance_audio_in(s->in, leg);
         const clap_audio_buffer_t *b = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
@@ -785,7 +793,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     }
     for (leg = 0; leg < s->lv2->n_side; leg++)
     {
-        const clap_audio_buffer_t *b = process->audio_inputs_count > 1 + leg ? &process->audio_inputs[1 + leg] : NULL;
+        const clap_audio_buffer_t *b = process->audio_inputs_count > m + leg ? &process->audio_inputs[m + leg] : NULL;
         uint32_t c;
 
         for (c = 0; c < s->lv2->side_channels[leg]; c++)
@@ -800,7 +808,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     }
     for (leg = 0; leg < s->lv2->n_cv_in; leg++)
     {
-        const uint32_t port = 1u + s->lv2->n_side + leg;
+        const uint32_t port = m + s->lv2->n_side + leg;
         const clap_audio_buffer_t *b = process->audio_inputs_count > port ? &process->audio_inputs[port] : NULL;
         float *dst = lv2_instance_cv_in(s->in, leg);
 

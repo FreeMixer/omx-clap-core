@@ -209,7 +209,10 @@ expression of it carry the same id. A note on of a key that already sounds
 first ends the old note, a note off under its old id. The id is free again
 when the plugin pushes `CLAP_EVENT_NOTE_END` for it, or, for a plugin that
 never does, 2 seconds after its note off (`OMX_CLAP_NOTE_ID_HOLD_MS`, in
-frames at the rate the instance is activated at). A note on that finds no
+frames at the rate the instance is activated at). A `CLAP_EVENT_NOTE_END`
+frees its id only while the id still names the event's channel and key (-1
+in either matches any): an id taken back after its hold may already name a
+new note, which keeps it when the old voice's end comes late. A note on that finds no
 free id is skipped and counted, and its note off is dropped, since nothing
 sounds. A note off of a key the host holds no id for goes with note id -1.
 A reset of the plugin frees every id.

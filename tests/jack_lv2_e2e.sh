@@ -29,10 +29,11 @@ port=${JACK_E2E_PORT:-5566}
 fbport=$((port + 1))
 fake=$here/fake.clap
 source=$here/jack_meter_source
+probe=$here/jack_synth_probe
 fixture=urn:openmixer:test:host-fixture
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
-    for f in "$host" "$bundles/omx-host-fixture.lv2/manifest.ttl" "$fake" "$source"; do
+    for f in "$host" "$bundles/omx-host-fixture.lv2/manifest.ttl" "$fake" "$source" "$probe"; do
         [ -e "$f" ] || { echo "missing $f" >&2; exit 2; }
     done
     JACK_E2E_INSIDE=1 OMX_CLAP_HOST=$host LV2_BUNDLES=$(readlink -f "$bundles") JACK_E2E_PORT=$port \
@@ -161,6 +162,23 @@ expect "add lv2:urn:openmixer:test:nobin 2" "resp -102 hosting.no-realisation"
 expect "add clap:$fake#org.omx-clap-host.test.wide 2" "resp -102 hosting.topology.wider-than-strip"
 # a refusal names no later add
 expect "add lv2:$fixture 2" "resp 2"
+expect "remove 2" "resp 0"
+
+# ---- an LV2 instrument (#132): a MIDI input and a stereo output, no audio input, admitted as a source and played
+# through its midi_in; a plugin with neither an audio nor a MIDI input is still refused, with the code that names it ----
+expect "add lv2:$fixture#no-in 2" "resp -102 hosting.topology.no-audio-input"
+expect "add lv2:urn:openmixer:test:midi-echo#synth 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:midi_in " ]; step $? "the instrument's inputs: $(ports effect_2 i)(midi_in alone, no audio input)"
+[ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
+line=$(timeout 10 "$probe" effect_2:midi_in effect_2:out_1 effect_2:out_2 2>"$runtime/probe.log")
+step $? "the probe played the instrument through midi_in: $line"
+set -- $line
+near "${1:-1}" 0 0.000001; step $? "silence before a note (${1:-})"
+# a sine of amplitude v/127 has RMS v/127/sqrt 2: 0.5567 at 100
+near "${2:-0}" 0.5567 0.02; step $? "a note on at velocity 100 is 0.5567 RMS (${2:-})"
+near "${5:-0}" 0.7874 0.01; step $? "its peak is 100/127 (${5:-})"
+near "$(awk -v a="${3:-0}" -v b="${2:-1}" 'BEGIN { printf "%.4f", a / b }')" 0.5 0.02; step $? "velocity 50 is half of velocity 100 (${3:-})"
+near "${4:-1}" 0 0.000001; step $? "silence after the note off (${4:-})"
 expect "remove 2" "resp 0"
 [ -z "$(ports effect_2 i)$(ports effect_2 o)" ]; step $? "remove leaves no effect_2 port"
 
