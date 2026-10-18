@@ -91,7 +91,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
-            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan \
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan \
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract under them, from the FreeMixer
@@ -128,6 +128,10 @@ jobs:
 
       - name: Test what a plugin reports about its parameters under AddressSanitizer
         run: make test-untrusted-asan
+
+      # the published transport with an audio thread as its one writer and three readers, under ThreadSanitizer (#121)
+      - name: Test the published transport under ThreadSanitizer
+        run: make test-transport-tsan
 
       # The LV2 adapter: lv2/core against the fixture bundles through lilv, the CLAP face and libomx-clap-core's body
       # around it, and a program linked through the installed pkg-config file alone

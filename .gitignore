@@ -41,3 +41,5 @@ lv2/tests/lv2_clap_test
 lv2/*/*.o
 lv2/tests/lv2_cost
 lv2/tests/lv2_link_test
+tests/transport_seqlock_test
+tests/transport_seqlock_tsan

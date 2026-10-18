@@ -272,7 +272,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -285,7 +285,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport
+test-fake: tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
@@ -312,6 +312,29 @@ tests/host_transport_test: tests/host_transport_test.c src/host_transport.h src/
 # the worker message ring of the shared host-services layer, single- and two-threaded
 test-msgring: tests/msgring_test
 	./tests/msgring_test
+
+# the published transport with an audio thread as its writer and three more reading it in the same cycle: whole records
+# and no allocation (the witness); test-transport-tsan runs the same under ThreadSanitizer (needs libtsan; CI runs it,
+# the package builds do not)
+test-transport: tests/transport_seqlock_test
+	./tests/transport_seqlock_test
+
+test-transport-tsan: tests/transport_seqlock_tsan
+	TSAN_OPTIONS=halt_on_error=1 ./tests/transport_seqlock_tsan
+
+tests/transport_seqlock_test: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DOMX_TEST_WITNESS $(WRAP_ALLOC) -pthread -o $@ $< -lm
+
+tests/transport_seqlock_tsan: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
+	$(CC) -Isrc $(CLAP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror -fsanitize=thread -pthread -o $@ $< -lm
+
+# the sabotage of test-transport: the read without its sequence re-check must let torn records through
+test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
+	mkdir -p build/transport-sabotage
+	sed -e '/if (atomic_load_explicit(&src->seq, memory_order_relaxed) != s1)/{N;d;}' src/clap_stage.h > build/transport-sabotage/clap_stage.h
+	! grep -q 'memory_order_relaxed) != s1' build/transport-sabotage/clap_stage.h
+	$(CC) -Ibuild/transport-sabotage -Isrc $(CLAP_CFLAGS) $(CFLAGS) -pthread -o build/transport-sabotage/test $< -lm
+	! ./build/transport-sabotage/test
 
 # the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
 test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
@@ -664,7 +687,7 @@ test-lv2-link: lv2/tests/lv2_link_test build/lv2/omx-host-fixture.lv2/omx-host-f
 # an LV2 plugin through the host over jack in the same kind of namespace: the fixture bundles on LV2_PATH, lv2:<uri> and the
 # bare URI, the adapter's refusals with their codes in the reply, the control ports by symbol, lv2:enabled as the bypass,
 # state, presets by URI and remove; the host links the adapter and not lilv
-test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source
+test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
 	@! readelf -d $(PROG) | grep -q 'liblilv' && echo "ok   $(PROG) does not link lilv: the adapter dlopens it"
 	./tests/jack_lv2_e2e.sh
 
