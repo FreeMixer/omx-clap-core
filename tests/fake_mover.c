@@ -28,7 +28,9 @@
  * 0.75, and the gesture's end, and takes 0.75 as its own; then it asks for a main-thread callback, in which FAKE_MOVER
  * names what else it does: "info" renames level to "gain" and calls params.rescan(CLAP_PARAM_RESCAN_INFO), "all" calls
  * params.rescan(CLAP_PARAM_RESCAN_ALL) although it is active, "clear" calls params.clear(level, CLAP_PARAM_CLEAR_ALL).
- * FAKE_MOVER_FLOOD=<n> makes the same process() push n values of trim after them (0.001 apart, the last n / 1000).
+ * FAKE_MOVER_FLOOD=<n> makes the same process() push n values of trim after them (0.001 apart, the last n / 1000);
+ * with FAKE_MOVER_HELD=1 it pushes them while level is held, between 0.75 and the gesture's end, so that a flood larger
+ * than the host's ring leaves no room for the end.
  * Every environment variable is read at create, never on the audio thread. FAKE_LOG names a file each instance appends
  * "<id> host gesture begin|end <param>" to as the host's gestures arrive, and "<id> mod <param> <amount>". */
 
@@ -51,6 +53,7 @@ typedef struct MOVER_T {
     uint32_t blocks;
     uint32_t move_at;
     uint32_t flood;
+    int held;
     int renamed;
     char action[16];
     char log_path[512];
@@ -302,9 +305,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         push_gesture(process->out_events, CLAP_EVENT_PARAM_GESTURE_BEGIN, 0);
         push_value(process->out_events, 0, MOVED_VALUE);
         m->level = MOVED_VALUE;
-        push_gesture(process->out_events, CLAP_EVENT_PARAM_GESTURE_END, 0);
+        if (!m->held)
+            push_gesture(process->out_events, CLAP_EVENT_PARAM_GESTURE_END, 0);
         for (i = 1; i <= m->flood; i++)
             push_value(process->out_events, 3, (double)i / 1000.0);
+        if (m->held)
+            push_gesture(process->out_events, CLAP_EVENT_PARAM_GESTURE_END, 0);
         if (m->flood)
             m->trim = (double)m->flood / 1000.0;
         m->host->request_callback(m->host);
@@ -356,6 +362,7 @@ static const clap_plugin_descriptor_t *factory_get_plugin_descriptor(const clap_
 static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *factory, const clap_host_t *host, const char *plugin_id)
 {
     const char *at = getenv("FAKE_MOVER_AT"), *action = getenv("FAKE_MOVER"), *flood = getenv("FAKE_MOVER_FLOOD");
+    const char *held = getenv("FAKE_MOVER_HELD");
     const char *log = getenv("FAKE_LOG");
     mover_t *m;
 
@@ -366,6 +373,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     m->level = 0.5;
     m->move_at = at && *at ? (uint32_t)atoi(at) : MOVE_AT;
     m->flood = flood && *flood ? (uint32_t)atoi(flood) : 0;
+    m->held = held && !strcmp(held, "1");
     snprintf(m->action, sizeof(m->action), "%s", action ? action : "");
     snprintf(m->log_path, sizeof(m->log_path), "%s", log ? log : "");
     m->plugin.desc = &g_descriptor;
