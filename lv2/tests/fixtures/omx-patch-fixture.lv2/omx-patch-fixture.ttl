@@ -64,10 +64,12 @@ fx:name
         lv2:index 3 ; lv2:symbol "patch_out" ; lv2:name "Patch out"
     ] .
 
-# the twin the host must refuse: its patch port also takes MIDI, which the patch mapping does not carry
+# the twin with ONE atom port for both: MIDI and patch messages in one sequence, the lsp samplers' shape. The host
+# feeds it from the note path and the parameter path in frame order.
 <urn:openmixer:test:patch-fixture#midi>
     a lv2:Plugin ;
     doap:name "openmixer patch fixture (MIDI twin)" ;
+    patch:writable fx:gain , fx:mode ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
     ] , [

@@ -89,6 +89,7 @@
 #include "fixtures/lv2_path_probe.h"
 #include "fixtures/lv2_atom_probe.h"
 #include "fixtures/lv2_host_fixture.h"
+#include "fixtures/lv2_patch_fixture.h"
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -121,7 +122,7 @@ int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(voi
 }
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
-static char g_patch[PATH_MAX];
+static char g_patch[PATH_MAX], g_patch_so[PATH_MAX + 32];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
@@ -1291,6 +1292,72 @@ static void t_inplace(double rate)
     CHECK(w && w->runs == 2 && w->aliased == 0,
           "inplace %.0f: the plugin saw two runs and never one buffer as input and output (runs %u aliased %u)", rate,
           w ? w->runs : 0, w ? w->aliased : 0);
+    rig_down(&g);
+}
+
+/* a two-event list: one parameter value, then one MIDI message */
+struct two_events { clap_input_events_t list; clap_event_param_value_t p; clap_event_midi_t m; };
+static uint32_t two_size(const clap_input_events_t *l) { (void)l; return 2; }
+static const clap_event_header_t *two_get(const clap_input_events_t *l, uint32_t i)
+{
+    const struct two_events *b = l->ctx;
+
+    return i == 0 ? &b->p.header : i == 1 ? &b->m.header : NULL;
+}
+
+/* one atom input for MIDI and patch (the patch fixture's #midi twin): admitted, and a block carrying a parameter write
+ * and a note reaches the plugin as ONE sequence, the patch:Set at frame 0 before the note at its frame, in order */
+static void t_midi_patch(double rate)
+{
+    struct two_events both;
+    struct lv2_patch_fixture_midi *w = NULL;
+    clap_param_info_t info;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    uint32_t i;
+
+    if (rig_up(&g, g_patch, FIXTURE_PATCH_URI "#midi", rate, BLOCK) != 0)
+        return;
+    *(void **)&w = loaded_symbol(g_patch_so, "lv2_patch_fixture_midi");
+    CHECK(w != NULL && patch_info(&g, "Gain", &info), "midi+patch %.0f: the twin is admitted, its witness and its Gain at hand", rate);
+    if (!w)
+    {
+        rig_down(&g);
+        return;
+    }
+    memset(&both, 0, sizeof(both));
+    both.p.header.size = sizeof(both.p);
+    both.p.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    both.p.header.type = CLAP_EVENT_PARAM_VALUE;
+    both.p.param_id = info.id;
+    both.p.note_id = -1;
+    both.p.port_index = -1;
+    both.p.channel = -1;
+    both.p.key = -1;
+    both.p.value = 0.5;
+    both.m.header.size = sizeof(both.m);
+    both.m.header.time = 10;
+    both.m.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    both.m.header.type = CLAP_EVENT_MIDI;
+    both.m.data[0] = 0x90;
+    both.m.data[1] = 60;
+    both.m.data[2] = 100;
+    both.list.ctx = &both;
+    both.list.size = two_size;
+    both.list.get = two_get;
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.25f, out[i] = 0.0f;
+    // the first block carries every property's initial value as the parameter path always does; the measured block is the next
+    process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL);
+    w->runs = w->out_of_order = 0;
+    CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, &both.list, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.25f,
+          "midi+patch %.0f: the block runs through the twin", rate);
+    CHECK(w->runs == 1 && w->patch == 1 && w->midi == 1,
+          "midi+patch %.0f: one run saw one patch:Set and one MIDI message in one sequence (runs %u patch %u midi %u of %u)",
+          rate, w->runs, w->patch, w->midi, w->events);
+    CHECK(w->out_of_order == 0 && w->first_patch_frame == 0 && w->first_midi_frame == 10,
+          "midi+patch %.0f: in frame order, the patch:Set at 0 before the note at 10 (order faults %u, patch %lld, midi %lld)",
+          rate, w->out_of_order, (long long)w->first_patch_frame, (long long)w->first_midi_frame);
     rig_down(&g);
 }
 
@@ -2809,6 +2876,7 @@ int main(int argc, char **argv)
     abs_dir(dir, g_fakes);
     snprintf(dir, sizeof(dir), "%somx-patch-fixture.lv2", build);
     abs_dir(dir, g_patch);
+    snprintf(g_patch_so, sizeof(g_patch_so), "%somx-patch-fixture.so", g_patch);
     snprintf(dir, sizeof(dir), "%somx-time-probe.lv2", build);
     abs_dir(dir, g_time);
     snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
@@ -2859,6 +2927,7 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_fixed_block(RATES[r]);
         t_inplace(RATES[r]);
+        t_midi_patch(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);

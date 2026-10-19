@@ -207,6 +207,8 @@ struct lv2_plugin
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
     int patch_time;                 // the patch input also supports time:Position: the transport is forged into it
+    int patch_in_shared;            // the patch input IS the MIDI input: one sequence both writers fill, in frame order
+    int patch_out_shared;           // the patch output IS the MIDI output: one sequence both readers read
     uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
     struct lv2_patch *patches;      // the numeric patch:writable properties, in their URIs' order
     uint32_t n_patches;

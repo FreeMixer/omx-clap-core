@@ -100,8 +100,10 @@ static void t_structure(void)
     uint32_t j, k;
     const struct lv2_patch *g;
 
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0,
-          "patch: a patch port that also takes MIDI is refused with the MIDI code (%s)", why);
+    CHECK(p && p->patch_in_shared && p->patch_in == 2 && p->midi_in_port == 2 && !p->midi_time,
+          "patch: a port that takes MIDI and patch is one port for both, the MIDI input and the patch input (%s)", why);
+    if (p)
+        lv2_plugin_close(p);
     p = open_fx(FX_URI, why);
     CHECK(p != NULL, "patch: the fixture opens and loads (%s)", why);
     if (!p)
