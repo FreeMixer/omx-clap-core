@@ -171,6 +171,7 @@ union omx_clap_note
     clap_event_midi_t midi;         ///< a MIDI event
     clap_event_note_expression_t expr;  ///< a CLAP note expression: pitch bend and pressure in the CLAP dialect
     clap_event_midi_sysex_t sysex;  ///< a sysex message, its bytes in the stage's pool
+    clap_event_midi2_t midi2;       ///< a MIDI 2.0 channel voice message, translated from MIDI 1.0
 };
 
 /** The RT stage of one hosted CLAP instance: the hosted core, the bound plugin, the block's events and the counters. */
@@ -195,7 +196,7 @@ struct omx_clap_stage
     uint32_t n_sysex;                                   ///< the sysex messages in `sysex_bytes`
     _Atomic uint32_t notes_visible;                     ///< 1 only while the plugin is inside process()
     uint32_t note_inputs;                               ///< 0 or 1 note input
-    uint32_t note_dialect;                              ///< CLAP_NOTE_DIALECT_CLAP or CLAP_NOTE_DIALECT_MIDI: how notes travel
+    uint32_t note_dialect;                              ///< one CLAP_NOTE_DIALECT_*: how notes travel
     uint32_t note_dialects;                             ///< every dialect the note input's port declared, not just note_dialect
     double bend_semitones;                              ///< full-scale pitch bend as CLAP tuning, in semitones either way; the host sets it
                                                         ///< before arming, the RT reads it with no lock (default OMX_CLAP_BEND_SEMITONES_DEFAULT)
@@ -916,6 +917,103 @@ static inline void omx_clap_midi_slot(struct omx_clap_stage *s, uint32_t time, c
     slot->midi.data[2] = size > 2 ? data[2] : 0;
 }
 
+/**
+ * `value`, `src_bits` wide, scaled up to `dst_bits` (at most 32) by the MIDI 2.0 rule (min-centre-max scaling, the UMP
+ * specification's default translation): 0 stays 0, the centre of the source range lands on the centre of the
+ * destination, and the source's maximum on the destination's maximum, the bits below the centre repeated to fill.
+ */
+static inline uint32_t omx_clap_midi2_scale_up(uint32_t value, uint32_t src_bits, uint32_t dst_bits)
+{
+    const uint32_t scale_bits = dst_bits - src_bits;
+    const uint32_t repeat_bits = src_bits - 1u;
+    uint64_t shifted = (uint64_t)value << scale_bits;
+    uint64_t repeat;
+
+    if (value <= (1u << repeat_bits))
+        return (uint32_t)shifted;
+    repeat = value & ((1u << repeat_bits) - 1u);
+    repeat = scale_bits > repeat_bits ? repeat << (scale_bits - repeat_bits) : repeat >> (repeat_bits - scale_bits);
+    while (repeat)
+    {
+        shifted |= repeat;
+        repeat >>= repeat_bits;
+    }
+    return (uint32_t)shifted;
+}
+
+/** The MIDI 2.0 note off a MIDI 1.0 note on of velocity 0 stands for: MIDI 1.0's release velocity, 64, scaled up. */
+#define OMX_CLAP_MIDI2_RELEASE_VELOCITY 0x8000u
+
+/**
+ * One MIDI 1.0 channel message of one to three bytes as the MIDI 2.0 channel voice message (Universal MIDI Packet,
+ * message type 4, group 0) the UMP specification translates it to, in `words`: a note on or off with its velocity
+ * scaled from 7 to 16 bits (a note on of velocity 0 is a note off of velocity OMX_CLAP_MIDI2_RELEASE_VELOCITY) and no
+ * attribute, poly and channel pressure and a controller from 7 to 32 bits, pitch bend from 14 to 32 bits, and a program
+ * change with no bank. No state is kept: bank select, RPN and NRPN controllers pass as the plain controllers they are.
+ * Returns 1, or 0 for a message that is not a channel voice message of its full length (`words` is then untouched).
+ */
+static inline int omx_clap_midi2_from_midi1(const uint8_t *data, size_t size, uint32_t words[4])
+{
+    const uint32_t type = data[0] & 0xf0u, channel = data[0] & 0x0fu;
+    const size_t need = (type == 0xc0u || type == 0xd0u) ? 2u : 3u;
+    uint32_t status = type, b2 = 0, value = 0;
+
+    if (type < 0x80u || type > 0xe0u || size != need)
+        return 0;
+    switch (type)
+    {
+    case 0x90u:
+    case 0x80u:
+        b2 = data[1] & 0x7fu;
+        if (type == 0x90u && (data[2] & 0x7fu) == 0)
+        {
+            status = 0x80u;
+            value = OMX_CLAP_MIDI2_RELEASE_VELOCITY << 16;
+        }
+        else
+            value = omx_clap_midi2_scale_up(data[2] & 0x7fu, 7, 16) << 16;
+        break;
+    case 0xa0u:
+    case 0xb0u:
+        b2 = data[1] & 0x7fu;
+        value = omx_clap_midi2_scale_up(data[2] & 0x7fu, 7, 32);
+        break;
+    case 0xc0u:
+        value = (uint32_t)(data[1] & 0x7fu) << 24;     // the program in the second word's top byte, no bank
+        break;
+    case 0xd0u:
+        value = omx_clap_midi2_scale_up(data[1] & 0x7fu, 7, 32);
+        break;
+    default:                    // 0xe0
+        value = omx_clap_midi2_scale_up((uint32_t)(data[2] & 0x7fu) << 7 | (data[1] & 0x7fu), 14, 32);
+        break;
+    }
+    words[0] = 0x40000000u | (status | channel) << 16 | b2 << 8;
+    words[1] = value;
+    words[2] = 0;
+    words[3] = 0;
+    return 1;
+}
+
+/** RT: fill a CLAP_EVENT_MIDI2 slot with one MIDI 1.0 channel message, translated (omx_clap_midi2_from_midi1); a
+ * message that does not translate is counted as unmappable. A release keeps its reserve, as it does as raw MIDI. */
+static inline void omx_clap_midi2_slot(struct omx_clap_stage *s, uint32_t time, const uint8_t *data, size_t size)
+{
+    uint32_t words[4];
+    union omx_clap_note *slot;
+
+    if (!omx_clap_midi2_from_midi1(data, size, words))
+    {
+        omx_hosted_count(&s->notes_unmappable, 1);
+        return;
+    }
+    slot = omx_clap_note_slot_for(s, time, CLAP_EVENT_MIDI2, sizeof(clap_event_midi2_t), omx_clap_midi_is_release(data, size));
+    if (!slot)
+        return;
+    slot->midi2.port_index = 0;
+    memcpy(slot->midi2.data, words, sizeof(words));
+}
+
 /** RT: fill a CLAP_EVENT_NOTE_EXPRESSION slot for note id `note_id` (-1: by channel and key); `key` -1 for every key
  * of the channel, `channel` -1 for every channel. */
 static inline void omx_clap_expr_slot_id(struct omx_clap_stage *s, uint32_t time, int32_t expression_id, int32_t note_id,
@@ -1210,6 +1308,10 @@ static inline void omx_clap_mpe_note_start(struct omx_clap_stage *s, const struc
  *    CLAP_EVENT_NOTE_OFF, both on every key of the channel (key -1). Anything still unmappable (another controller, a
  *    program change, a sysex) is counted, never silently dropped.
  *  - A MIDI_MPE-dialect input: as the MIDI one; the plugin reads the MPE zone itself.
+ *  - A MIDI2-dialect input (a port that declares MIDI 2.0 and neither CLAP nor MIDI, or prefers it): every channel
+ *    message as the MIDI 2.0 channel voice message the UMP specification translates it to (omx_clap_midi2_from_midi1),
+ *    as CLAP_EVENT_MIDI2; a sysex goes as it does for a CLAP input. A CLAP-dialect input whose port also declares
+ *    MIDI 2.0 and not MIDI gets a controller and a program change that way too, rather than counted.
  * With note ids `n` (NULL: none, every CLAP note and expression has id -1), a CLAP-dialect input's notes carry ids
  * (omx_clap_note_onoff), poly aftertouch carries its key's id, and with MPE zones `z` (NULL: none read) the zones are
  * read: the configuration messages and RPN 0 (omx_clap_rpn), or a zone the control thread asked for
@@ -1222,6 +1324,9 @@ static inline void omx_clap_mpe_note_start(struct omx_clap_stage *s, const struc
  * Passes, CLAP and MIDI: note on, note off, every other channel message, sysex.
  * Passes, MIDI: every channel message, sysex.
  * Passes, MIDI MPE: every channel message, sysex only when the port also declares MIDI.
+ * Passes, MIDI 2.0: every channel message as MIDI 2.0, sysex only when the port also declares MIDI.
+ * Passes, CLAP and MIDI 2.0: note on, note off, all sound off, all notes off, pitch bend, channel pressure, poly pressure, other controller and program change as MIDI 2.0.
+ * Counts, CLAP and MIDI 2.0: sysex.
  * A full block drops what can be lost first: past CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED a message that is
  * not a release is counted and dropped, and a release only past CLAP_HOST_NOTES_PER_BLOCK (OMX_CLAP_NOTES_RESERVED);
  * past OMX_CLAP_SYSEX_PER_BLOCK a sysex is counted and dropped too. A stage with no note input takes none.
@@ -1230,6 +1335,7 @@ static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_cla
                                         uint32_t time, const uint8_t *data, size_t size)
 {
     const int also_midi = (s->note_dialects & CLAP_NOTE_DIALECT_MIDI) != 0;
+    const int also_midi2 = (s->note_dialects & CLAP_NOTE_DIALECT_MIDI2) != 0;
     uint8_t type, channel;
     union omx_clap_note *slot;
 
@@ -1284,6 +1390,11 @@ static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_cla
         omx_clap_midi_slot(s, time, data, size);     // MIDI_MPE: raw, the plugin reads the zone itself
         return;
     }
+    if (s->note_dialect == CLAP_NOTE_DIALECT_MIDI2)
+    {
+        omx_clap_midi2_slot(s, time, data, size);    // every channel message, as its MIDI 2.0 channel voice message
+        return;
+    }
 
     if ((type == 0x80 || type == 0x90) && size == 3)
     {
@@ -1333,6 +1444,11 @@ static inline void omx_clap_note_in_ids(struct omx_clap_stage *s, struct omx_cla
 
         omx_clap_expr_slot_id(s, time, CLAP_NOTE_EXPRESSION_PRESSURE, held >= 0 ? held : -1, (int16_t)channel, (int16_t)data[1],
                               (double)data[2] / 127.0);
+        return;
+    }
+    if (also_midi2)
+    {
+        omx_clap_midi2_slot(s, time, data, size);    // a controller or a program change, in the port's other dialect
         return;
     }
     omx_hosted_count(&s->notes_unmappable, 1);  // a controller or a program change: no CLAP note expression carries it
