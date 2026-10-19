@@ -31,8 +31,9 @@
 #ifndef CLAP_HOST_EXTENSIONS_H
 #define CLAP_HOST_EXTENSIONS_H
 
-/** the host object offers exactly these extensions, NULL-terminated */
+/** how many extensions the host object offers: the ids of CLAP_HOST_EXTENSIONS_INIT */
 #define CLAP_HOST_EXTENSION_COUNT 9u
+/** the host object offers exactly these extensions, NULL-terminated */
 #define CLAP_HOST_EXTENSIONS_INIT { "clap.log", "clap.thread-check", "clap.latency", "clap.params", "clap.audio-ports", "clap.state", \
                                     "clap.note-ports", "clap.note-name", "clap.voice-info", NULL }
 
