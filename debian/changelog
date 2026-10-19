@@ -1,3 +1,20 @@
+omx-clap-host (0.13.0) unstable; urgency=medium
+
+  * Preset listing: omx_clap_host_presets and omx_clap_host_entry_presets read
+    a plugin file's preset-discovery factory, its PLUGIN locations and its FILE
+    locations walked for the declared filetypes; omx_clap_host_preset_load_key
+    loads a listed preset by kind, location and key. A file that answers the
+    preset-discovery id with its plugin factory lists nothing. The calls are
+    in the version node OMX_CLAP_CORE_0.13.
+  * The LV2 adapter's entry offers a preset-discovery factory: each pset:Preset
+    of the bundle by its label, its URI the load key.
+  * The host offers clap.event-registry; it names no space beyond the core one.
+  * omx-clap-scan lists a file's presets.
+  * doc/reference.md tables every CLAP extension header with its status, held
+    to the installed headers by tests/ext_table_check.sh.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 19 Oct 2026 00:00:00 +0000
+
 omx-clap-host (0.12.0) unstable; urgency=medium
 
   * The host offers a plugin clap.note-ports, clap.note-name and
