@@ -134,6 +134,10 @@ struct shim
     int active, processing;
     int broken;                         // a reset whose worker could not start again: process() fails until activate
     uint32_t max_frames;
+    // bufsz:fixedBlockLength declared at this activation: a process() of another frame count is refused, never run
+    int fixed_block;
+    _Atomic uint32_t fixed_refused;
+    uint32_t fixed_refused_logged;
     double rate;
 
     // latency: the figure latency.get answers, and a different one being held
@@ -671,6 +675,7 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     s->broken = 0;
     s->rate = rate;
     s->max_frames = max_frames;
+    s->fixed_block = (lv2_core_feature_options()->block.declares & OMX_LV2_BLOCK_FIXED) != 0;
     // the restart a held latency asked for is this activation: it takes the reading
     s->latency_active = lv2_instance_latency(s->in);
     s->latency_pending = s->latency_active;
@@ -781,6 +786,15 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
     if (!s->active || s->broken || n > s->max_frames)
         return CLAP_PROCESS_ERROR;
+    // the fixed block length the plugin was promised: a cycle of another length is the host's fault, refused here
+    // and said on the main thread, and the plugin never runs on it
+    if (s->fixed_block && n != s->max_frames)
+    {
+        atomic_fetch_add_explicit(&s->fixed_refused, 1u, memory_order_relaxed);
+        if (!atomic_exchange_explicit(&s->counters_moved, 1u, memory_order_relaxed))
+            s->host->request_callback(s->host);
+        return CLAP_PROCESS_ERROR;
+    }
     for (leg = 0; leg < s->lv2->in_legs; leg++)
     {
         float *dst = lv2_instance_audio_in(s->in, leg);
@@ -1004,6 +1018,17 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
 
     if (!atomic_exchange_explicit(&s->counters_moved, 0u, memory_order_relaxed))
         return;
+    {
+        const uint32_t refused = atomic_load_explicit(&s->fixed_refused, memory_order_relaxed);
+
+        if (refused != s->fixed_refused_logged)
+        {
+            snprintf(line, sizeof(line), "lv2 fixed block: %u process() calls refused, their frame count not the activation's %u",
+                     refused - s->fixed_refused_logged, s->max_frames);
+            host_log(s->host, CLAP_LOG_WARNING, line);
+            s->fixed_refused_logged = refused;
+        }
+    }
     lv2_instance_counters(s->in, &c);
     if (memcmp(&c, &s->logged, sizeof(c)) == 0)
         return;

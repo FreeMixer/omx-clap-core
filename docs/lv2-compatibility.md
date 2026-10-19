@@ -7,8 +7,8 @@ to run bit-identically through the adapter, `libomx-clap-lv2`. The proof of that
 identity run in the console, at every declared rate and quantum; until its results are published,
 this page claims only what the tests of this repository prove. MIDI, transport, state and presets
 are supported where the matrix below names a passing test; each atom message type is either carried or refused with
-its reason (the atom rows below). Not supported:
-fixed or power-of-two
+its reason (the atom rows below). A fixed block length is supported where the host declares it (omx-clap-host
+does, under JACK; the console does not). Not supported: power-of-two
 block lengths. A latency
 that moves under a parameter sweep is applied after a hold and a restart rather than per cycle.
 
@@ -123,7 +123,8 @@ Features and extensions
 | `urid:unmap` | supported (`lv2_host_test` worker) | unsupported |
 | `options:options` | supported: `param:sampleRate`, `bufsz:minBlockLength`, `bufsz:maxBlockLength` and `bufsz:nominalBlockLength` as the activation says (`lv2_host_test` worker) | unsupported |
 | `bufsz:boundedBlockLength` | supported (`lv2_host_test` worker) | unsupported |
-| `bufsz:fixedBlockLength`, `bufsz:powerOf2BlockLength` | unsupported by default; a plugin requiring one is refused with `hosting.features.missing` (`lv2_host_test` refusals and the configure arm). A host that pins its block declares them through the feature options' block declarations (`lv2_host_test` options, `lv2_features_test` block) | unsupported |
+| `bufsz:fixedBlockLength` | supported where the host declares `OMX_LV2_BLOCK_FIXED`: omx-clap-host does, since under JACK every cycle is the buffer size and any change of it re-activates; the plugin is then told one length, and a cycle of another length is refused and counted apart from the plugin's faults (`lv2_clap_test` fixed, `jack_lv2_e2e` the shrink and the growth). Not declared, a plugin requiring it is refused `hosting.features.missing` (`lv2_host_test` refusals) | unsupported |
+| `bufsz:powerOf2BlockLength` | unsupported by default; a plugin requiring it is refused with `hosting.features.missing` (`lv2_host_test` refusals and the configure arm). A host that pins its block to a power of two declares it through the feature options' block declarations (`lv2_host_test` options, `lv2_features_test` block) | unsupported |
 | `worker:schedule` and `worker:interface` | lossy: one worker thread per instance, which polls instead of being woken, so a response lands on a later block than in a host that wakes its worker (`lv2_run_test` worker, `lv2_host_test` worker, `lv2_clap_test` worker) | unsupported |
 | `log:log` | lossy: answered and discarded by default, so a log call never blocks the audio thread (`lv2_host_test` worker). The feature options route a line to a host sink or capture it into a buffer, off the audio role only (`lv2_host_test` options, `lv2_features_test` log) | unsupported |
 | `state:loadDefaultState` | supported (`lv2_host_test` fixture: -26 dB only with the default state restored) | unsupported |

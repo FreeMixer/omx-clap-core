@@ -1215,6 +1215,57 @@ static void t_props(void)
 
 /* ---- the latency hold, on the pad ---- */
 
+/* bufsz:fixedBlockLength: declared by the host, the twin requiring it is admitted, a block of the activation's length
+ * runs, one of another length is refused and never reaches the plugin, and under the defaults the twin is refused */
+static void t_fixed_block(double rate)
+{
+    struct omx_lv2_feature_options o;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    uint32_t i;
+
+    omx_lv2_feature_options_init(&o);
+    o.block.declares |= OMX_LV2_BLOCK_FIXED;
+    CHECK(omx_clap_lv2_feature_options(&o, why) == 0, "fixed %.0f: the options declare a fixed block (%s)", rate, why);
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#fixed", rate, BLOCK) == 0)
+    {
+        for (i = 0; i < BLOCK; i++)
+            in[i] = 0.25f, out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] != -7.0f,
+              "fixed %.0f: the twin requiring fixedBlockLength is admitted and a block of the activation's length runs", rate);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK / 2, NULL, NULL) == CLAP_PROCESS_ERROR && out[0] == -7.0f,
+              "fixed %.0f: a block of another length is refused and the plugin never runs on it (out %g)", rate, out[0]);
+        // the host's cycle shrank: it re-activates at the new length, and that length runs while the old one is refused
+        g.plugin->stop_processing(g.plugin);
+        g.plugin->deactivate(g.plugin);
+        CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK / 2) && g.plugin->start_processing(g.plugin), "fixed %.0f: re-activated at half the block", rate);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK / 2, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.25f,
+              "fixed %.0f: after the shrink the new length runs (out %g)", rate, out[0]);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_ERROR && out[0] == -7.0f,
+              "fixed %.0f: and the old length is refused now (out %g)", rate, out[0]);
+        rig_down(&g);
+    }
+    CHECK(omx_clap_lv2_feature_options(NULL, why) == 0, "fixed %.0f: the defaults again (%s)", rate, why);
+    {
+        const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_fixture, why);
+        const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+        struct th t;
+
+        th_init(&t);
+        CHECK(f && f->create_plugin(f, &t.host, FIXTURE_URI "#fixed") == NULL
+              && strcmp(omx_clap_lv2_last_refusal(), "hosting.features.missing") == 0,
+              "fixed %.0f: under the defaults the twin is refused hosting.features.missing again", rate);
+        omx_clap_lv2_entry_release(e);
+    }
+}
+
 static void t_latency_hold(double rate)
 {
     const uint32_t want = pad_latency_frames(rate), hold = (uint32_t)(rate * HOLD_MS / 1000.0);
@@ -2777,6 +2828,7 @@ int main(int argc, char **argv)
         t_preset(RATES[r]);
         t_patch(RATES[r]);
         t_latency_hold(RATES[r]);
+        t_fixed_block(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);

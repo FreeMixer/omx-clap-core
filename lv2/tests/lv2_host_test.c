@@ -1019,8 +1019,15 @@ static void t_options(void)
     CHECK(seen && (seen->seen & (LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2 | LV2_FEATURE_PROBE_BOUNDED))
                   == (LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2 | LV2_FEATURE_PROBE_BOUNDED),
           "options: the probe sees bounded, fixed and power of two");
+    // fixed declared, a fixed length is one number: the minimum and nominal named are overruled by the maximum
+    CHECK(seen && seen->min_block == (int32_t)BLOCK && seen->max_block == (int32_t)BLOCK && seen->nominal_block == (int32_t)BLOCK,
+          "options: fixed declared, the lengths are the maximum, over the minimum and nominal named (%d %d %d)",
+          seen ? seen->min_block : -1, seen ? seen->max_block : -1, seen ? seen->nominal_block : -1);
+    o.block.declares = OMX_LV2_BLOCK_BOUNDED | OMX_LV2_BLOCK_POW2;
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
     CHECK(seen && seen->min_block == 1 && seen->max_block == (int32_t)BLOCK && seen->nominal_block == 32,
-          "options: and the lengths named, over the activation's (%d %d %d)", seen ? seen->min_block : -1,
+          "options: not fixed, the lengths named stand over the activation's (%d %d %d)", seen ? seen->min_block : -1,
           seen ? seen->max_block : -1, seen ? seen->nominal_block : -1);
 
     // the log, captured

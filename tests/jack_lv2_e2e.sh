@@ -148,7 +148,11 @@ expect "add lv2:$fixture 3" "resp 3"
 expect "add lv2:$fixture#wide 2" "resp -102 hosting.topology.wider-than-strip"
 expect "add lv2:$fixture#atom 2" "resp -102 hosting.features.atom-in-unfed"
 expect "add lv2:$fixture#midi-two 2" "resp -102 hosting.features.midi-in-fed-empty"
-expect "add lv2:$fixture#fixed 2" "resp -102 hosting.features.missing"
+# bufsz:fixedBlockLength is declared by omx-clap-host (JACK's cycle is the buffer size), so the twin requiring it is admitted;
+# state:mapPath is offered by no provider, so that twin keeps the refusal
+expect "add lv2:$fixture#fixed 2" "resp 2"
+expect "remove 2" "resp 0"
+expect "add lv2:$fixture#mappath 2" "resp -102 hosting.features.missing"
 expect "add lv2:$fixture#no-out 2" "resp -102 hosting.topology.no-audio-output"
 for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.features.midi-in-fed-empty hosting.features.missing hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
@@ -192,6 +196,16 @@ pw-link effect_0:out_1 effect_1:in_1; step $? "effect_0:out_1 -> effect_1:in_1"
 # the default state: -20 dB from the port's default, -6 dB from state:loadDefaultState
 reads 3 meter "$(db 0.25 -26)" 0.00006 "the default state"
 reads 0 meter "$(db 0.5 -26)" 0.00006 "the default state"
+# ---- the fixed block promise over a change of the JACK buffer size: a shrink, then a growth, re-activate the plugins
+# at the new length and the audio keeps flowing (before, only a growth re-activated; a shrink left the plugin refusing
+# every cycle) ----
+pw-metadata -n settings 0 clock.force-quantum 128 >/dev/null 2>&1; step $? "the quantum forced to 128 (a shrink)"
+reads 0 meter "$(db 0.5 -26)" 0.00006 "after the shrink effect_0 still passes audio"
+reads 3 meter "$(db 0.25 -26)" 0.00006 "after the shrink effect_3 still passes audio"
+pw-metadata -n settings 0 clock.force-quantum 2048 >/dev/null 2>&1; step $? "the quantum forced to 2048 (a growth)"
+reads 0 meter "$(db 0.5 -26)" 0.00006 "after the growth effect_0 still passes audio"
+pw-metadata -n settings 0 clock.force-quantum 1024 >/dev/null 2>&1; step $? "the quantum forced back to 1024"
+reads 0 meter "$(db 0.5 -26)" 0.00006 "and back at 1024, effect_0 still passes audio"
 
 # ---- parameters by symbol, and by id ----
 expect "param_get 0 gain_db" "resp 0 -20.0000"
