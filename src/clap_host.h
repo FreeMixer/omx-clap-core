@@ -277,8 +277,11 @@ struct omx_clap_fd
 
 /**
  * The sleep of an idle plugin (CLAP_PROCESS_SLEEP and its kin), kept by the RT. A plugin that answers SLEEP sleeps; one
- * that answers CONTINUE_IF_NOT_QUIET sleeps after a block whose input was silent; one that answers TAIL sleeps once its
- * input has been silent for its tail. While asleep, a block whose input is silent and that carries no note and no
+ * that answers CONTINUE_IF_NOT_QUIET sleeps after a block whose input and output were silent; one that answers TAIL
+ * sleeps once its input has been silent for its tail and its output is silent. Whatever it answers, it sleeps only once
+ * its output has been silent for quiet_min_frames (OMX_CLAP_SLEEP_QUIET_MS at the activated rate) and no note the host
+ * gave it an id for is held or inside its hold after a note off: an instrument whose voice starts silent, or that says it
+ * may sleep while a voice is still to sound, is kept awake. While asleep, a block whose input is silent and that carries no note and no
  * parameter event is not processed: the lane keeps its silence and the steady time moves on. Anything else wakes it, and
  * so does the plugin's request_process. A stage with a bound side chain never sleeps.
  */
@@ -286,10 +289,15 @@ struct omx_clap_sleep
 {
     uint32_t asleep;                ///< 1 while the plugin is not processed on silence
     uint64_t quiet_frames;          ///< frames of silent input since the last sound, for a TAIL plugin
+    uint64_t quiet_out_frames;      ///< frames of silent output since the last sound
+    uint32_t quiet_min_frames;      ///< the silent output a sleep needs first; set at activate, a caller may change it
     _Atomic uint32_t wake;          ///< the plugin's request_process, from any thread
     _Atomic uint64_t skipped;       ///< blocks not processed while asleep
     _Atomic uint32_t sleeps;        ///< times the plugin went to sleep
 };
+
+/** How long a plugin's output must have been silent before it may sleep, in milliseconds. */
+#define OMX_CLAP_SLEEP_QUIET_MS         200u
 
 /** The quiet of a block: every sample of the lane exactly 0. */
 static inline int omx_clap_block_silent(const float *l, const float *r, uint32_t n)
@@ -870,7 +878,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
     struct omx_clap_transport rec;
     struct omx_clap_sleep *z = &in->sleep;
     clap_process_status said;
-    int silent;
+    int silent, quiet_out;
 
     if (in->transport_src)
     {
@@ -903,6 +911,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         }
         z->asleep = 0;
         z->quiet_frames = 0;
+        z->quiet_out_frames = 0;
     }
     omx_clap_run_transport_status(&in->stage, l, r, n, &in->transport, &rec, &said);
     if (said < 0)
@@ -914,8 +923,14 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         z->quiet_frames = 0;
     else
         z->quiet_frames += n;
-    if (said == CLAP_PROCESS_SLEEP || (said == CLAP_PROCESS_CONTINUE_IF_NOT_QUIET && silent) ||
-        (said == CLAP_PROCESS_TAIL && silent && atomic_load_explicit(&in->tail_frames, memory_order_relaxed) != UINT32_MAX &&
+    // the lane after the block is the plugin's output: CONTINUE_IF_NOT_QUIET and TAIL sleep only once that is silent
+    // too, so an instrument that sounds on silent input, or a reverb still ringing, is never put to sleep
+    quiet_out = omx_clap_block_silent(l, r, n);
+    z->quiet_out_frames = quiet_out ? z->quiet_out_frames + n : 0;
+    if (z->quiet_out_frames < z->quiet_min_frames || omx_clap_note_ids_live(&in->note_ids, in->stage.steady_time))
+        return;
+    if (said == CLAP_PROCESS_SLEEP || (said == CLAP_PROCESS_CONTINUE_IF_NOT_QUIET && silent && quiet_out) ||
+        (said == CLAP_PROCESS_TAIL && silent && quiet_out && atomic_load_explicit(&in->tail_frames, memory_order_relaxed) != UINT32_MAX &&
          z->quiet_frames >= atomic_load_explicit(&in->tail_frames, memory_order_relaxed)))
     {
         z->asleep = 1;

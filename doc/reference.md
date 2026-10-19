@@ -558,9 +558,14 @@ What a plugin may ask of any host besides its audio and its parameters:
   active only while its buffers are bound, so the plugin may skip a port no
   one reads or writes.
 - Sleep. A plugin's process status is read: after `CLAP_PROCESS_SLEEP`, after
-  `CLAP_PROCESS_CONTINUE_IF_NOT_QUIET` on a block whose input was silent, and
-  after `CLAP_PROCESS_TAIL` once its input has been silent for its tail
-  (never for an infinite one), the plugin sleeps. While it sleeps, a block
+  `CLAP_PROCESS_CONTINUE_IF_NOT_QUIET` on a block whose input and output were
+  silent, and after `CLAP_PROCESS_TAIL` once its input has been silent for its
+  tail and its output is silent (never for an infinite tail), the plugin
+  sleeps. Whatever it answers, it sleeps only once its output has been
+  silent for 200 ms (`OMX_CLAP_SLEEP_QUIET_MS`, `in->sleep.quiet_min_frames`)
+  and no note the host gave an id for is held or inside its hold after a
+  note off. So an instrument that sounds on a silent lane, one whose voice
+  starts silent, or a reverb still ringing, is never put to sleep. While it sleeps, a block
   whose input is exactly silent, that carries no note and no parameter
   event, and that finds the stage processing and wet, is not processed: the
   lane keeps its silence and the steady time moves on. Any other block
