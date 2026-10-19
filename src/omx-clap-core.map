@@ -98,3 +98,13 @@ OMX_CLAP_CORE_0.11
   global:
     omx_clap_host_voice_info;
 } OMX_CLAP_CORE_0.10;
+
+/* added in 0.12.0 */
+OMX_CLAP_CORE_0.12
+{
+  global:
+    omx_clap_host_note_name;
+    omx_clap_host_note_name_count;
+    omx_clap_host_note_names_changed;
+    omx_clap_host_note_ports_rescanned;
+} OMX_CLAP_CORE_0.11;

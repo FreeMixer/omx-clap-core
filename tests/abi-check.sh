@@ -48,9 +48,12 @@ fi
 
 # abidiff's own exit bits call a removed or moved data member a compatible change (4) when the type is reached through a
 # pointer, which every type here is; the rule of the library is stricter, so the report is read: a function or variable
-# removed or changed, a data member removed, moved or changed, a size that shrank, an enumerator changed is incompatible
+# removed or changed, a data member removed, moved or changed, a size that shrank, an enumerator changed is incompatible.
+# "no data member change (N filtered)" is abidiff saying the members it filtered out (the _Atomic ones, #117) did not
+# change: an appended field beside them is no change, and abi-layout.sh holds every member's offset itself
 if [ $((rc & 8)) -ne 0 ] \
-   || grep -Eq "Removed function|Removed variable|data member deletion|data member change|offset changed|return type changed|parameter [0-9]+ of type .* changed|enumerator|Changed variable" "$report" \
+   || grep -Ev "^ *no data member change" "$report" \
+      | grep -Eq "Removed function|Removed variable|data member deletion|data member change|offset changed|return type changed|parameter [0-9]+ of type .* changed|enumerator|Changed variable" \
    || awk '/type size changed from/ { if ($6 + 0 < $4 + 0) bad = 1 } END { exit !bad }' "$report"; then
     echo "FAIL an incompatible change under the soname $old_soname: a function or a field removed, moved or changed needs a new soname major"
     exit 1
