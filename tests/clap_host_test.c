@@ -29,6 +29,8 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/stat.h>
 
 #include "../src/clap_host.h"
 #include "test_util.h"
@@ -551,6 +553,7 @@ typedef struct
 {
     uint32_t notes_on, ids_reused, no_id, ended, end_refused, voices, voices_max;
     uint32_t host_dialects, voice_count, ports_gone, renamed;
+    char last_preset[512];
 } poly_stats_t;
 
 static const poly_stats_t *poly_stats(const char *path)
@@ -748,6 +751,172 @@ static void synth_host_details_checks(const char *path)
     CHECK(omx_clap_host_activate(synth, 48000.0, BLOCK, why) == -1 && !strcmp(why, CLAP_HOST_CODE_NOTE_INPUT) && synth->note_inputs == 1,
           "an instrument left with no note input is refused at activate: %s, the old reading kept (%s)", CLAP_HOST_CODE_NOTE_INPUT, why);
     omx_clap_host_close(synth);
+}
+
+/* the presets a listing handed its callback, copied: each pointer of a preset lives only for its call */
+#define PRESETS_KEPT 16
+struct kept_preset
+{
+    char name[256], location[512], key[64], provider[64], plugin[128], description[64];
+    uint32_t kind, flags, plugins;
+    int has_location, has_key;
+};
+struct kept
+{
+    struct kept_preset p[PRESETS_KEPT];
+    int n, stop_after;
+};
+
+static int keep_preset(void *ctx, const struct omx_clap_preset *p)
+{
+    struct kept *k = ctx;
+    struct kept_preset *e;
+
+    if (k->n < PRESETS_KEPT)
+    {
+        e = &k->p[k->n];
+        snprintf(e->name, sizeof(e->name), "%s", p->name);
+        snprintf(e->location, sizeof(e->location), "%s", p->location ? p->location : "");
+        snprintf(e->key, sizeof(e->key), "%s", p->load_key ? p->load_key : "");
+        snprintf(e->provider, sizeof(e->provider), "%s", p->provider_id);
+        snprintf(e->plugin, sizeof(e->plugin), "%s", p->plugin_count ? p->plugin_ids[0] : "");
+        snprintf(e->description, sizeof(e->description), "%s", p->description);
+        e->kind = p->location_kind;
+        e->flags = p->flags;
+        e->plugins = p->plugin_count;
+        e->has_location = p->location != NULL;
+        e->has_key = p->load_key != NULL;
+    }
+    k->n++;
+    return k->stop_after && k->n >= k->stop_after;
+}
+
+static void write_file(const char *path, const char *text)
+{
+    FILE *f = fopen(path, "w");
+
+    if (f)
+    {
+        fputs(text, f);
+        fclose(f);
+    }
+}
+
+/*
+ * Preset listing through the core, against the fake file's preset-discovery factory: the PLUGIN location's two presets
+ * (a favourite with a description, a plugin id of another format left out), then a directory of preset files walked in
+ * name order: a file naming its preset, one that names none (the file's name), a container of two by key, a .txt file
+ * of no declared filetype skipped, and a link back to the directory not followed. A callback that stops the listing
+ * stops it; a file with no factory lists nothing. preset_load_key loads by kind, location and key.
+ */
+static void synth_presets_checks(const char *path, const char *fake)
+{
+    char dir[] = "/tmp/clap_host_presets_XXXXXX", sub[600], file[700], want[700];
+    struct omx_clap_binary *binary, *plain;
+    struct omx_clap_instance *synth = NULL;
+    struct kept k;
+    const clap_plugin_entry_t *entry;
+    const poly_stats_t *seen;
+    void *so;
+    char reason[256];
+    int listed;
+
+    CHECK(mkdtemp(dir) != NULL, "a scratch preset directory");
+    snprintf(sub, sizeof(sub), "%s/sub", dir);
+    mkdir(sub, 0700);
+    snprintf(file, sizeof(file), "%s/a.fspreset", dir);
+    write_file(file, "Warm\n");
+    snprintf(file, sizeof(file), "%s/c.txt", dir);
+    write_file(file, "Not a preset\n");
+    snprintf(file, sizeof(file), "%s/b.fspreset", sub);
+    write_file(file, "\n");
+    snprintf(file, sizeof(file), "%s/box.fspreset", sub);
+    write_file(file, "#container\nOne=1\nTwo=2\n");
+    snprintf(file, sizeof(file), "%s/loop", sub);
+    CHECK(symlink(dir, file) == 0, "a link from the subdirectory back to the directory");
+    setenv("FAKE_SYNTH_PRESET_DIR", dir, 1);
+
+    binary = omx_clap_host_binary_open(path, reason, sizeof(reason));
+    CHECK(binary != NULL, "fake_synth.clap opens as a binary (%s)", binary ? "" : reason);
+    if (!binary)
+        return;
+    memset(&k, 0, sizeof(k));
+    listed = omx_clap_host_presets(binary, keep_preset, &k);
+    CHECK(listed == 6 && k.n == 6, "six presets are listed: the .txt is skipped, the link back not followed (%d, %d)", listed, k.n);
+    CHECK(!strcmp(k.p[0].name, "Init") && k.p[0].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && !k.p[0].has_location &&
+              !strcmp(k.p[0].key, "init") && !strcmp(k.p[0].provider, "org.omx-clap-host.test.presets") && k.p[0].plugins == 1 &&
+              !strcmp(k.p[0].plugin, SYNTH_POLY) && k.p[0].flags == CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT,
+          "preset 0: Init in the PLUGIN location, key init, for synth-poly, its location's factory flag (%s %s %u)", k.p[0].name,
+          k.p[0].key, k.p[0].flags);
+    CHECK(!strcmp(k.p[1].name, "Bright \"pad\"") && !strcmp(k.p[1].key, "bright") && k.p[1].plugins == 1 &&
+              k.p[1].flags == (CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT | CLAP_PRESET_DISCOVERY_IS_FAVORITE) &&
+              !strcmp(k.p[1].description, "A pad"),
+          "preset 1: its own flags and description, the other format's plugin id left out (%u plugins, %u)", k.p[1].plugins, k.p[1].flags);
+    snprintf(want, sizeof(want), "%s/a.fspreset", dir);
+    CHECK(!strcmp(k.p[2].name, "Warm") && k.p[2].kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && !strcmp(k.p[2].location, want) &&
+              !k.p[2].has_key && k.p[2].flags == CLAP_PRESET_DISCOVERY_IS_USER_CONTENT,
+          "preset 2: Warm, a file of one preset, no key, the user location's flag (%s %s)", k.p[2].name, k.p[2].location);
+    snprintf(want, sizeof(want), "%s/b.fspreset", sub);
+    CHECK(!strcmp(k.p[3].name, "b.fspreset") && !strcmp(k.p[3].location, want),
+          "preset 3: a file that names none takes the file's name (%s)", k.p[3].name);
+    snprintf(want, sizeof(want), "%s/box.fspreset", sub);
+    CHECK(!strcmp(k.p[4].name, "One") && !strcmp(k.p[4].key, "1") && !strcmp(k.p[5].name, "Two") && !strcmp(k.p[5].key, "2") &&
+              !strcmp(k.p[4].location, want) && !strcmp(k.p[5].location, want),
+          "presets 4 and 5: a container's two by key, the file as their location");
+
+    // the declared location may itself be a link to the directory: it is followed, the link inside still is not
+    snprintf(want, sizeof(want), "%s-link", dir);
+    CHECK(symlink(dir, want) == 0, "a link to the preset directory");
+    setenv("FAKE_SYNTH_PRESET_DIR", want, 1);
+    memset(&k, 0, sizeof(k));
+    CHECK(omx_clap_host_presets(binary, keep_preset, &k) == 6 && !strncmp(k.p[2].location, want, strlen(want)),
+          "a location that is a link to the directory lists the same six, under the link's path (%d, %s)", k.n, k.p[2].location);
+    unlink(want);
+    setenv("FAKE_SYNTH_PRESET_DIR", dir, 1);
+
+    memset(&k, 0, sizeof(k));
+    k.stop_after = 3;
+    CHECK(omx_clap_host_presets(binary, keep_preset, &k) == 3 && k.n == 3, "a callback that stops at three stops the listing (%d)", k.n);
+
+    so = dlopen(path, RTLD_NOW | RTLD_NOLOAD);
+    entry = so ? (const clap_plugin_entry_t *)dlsym(so, "clap_entry") : NULL;
+    memset(&k, 0, sizeof(k));
+    CHECK(entry && omx_clap_host_entry_presets(entry, keep_preset, &k) == 6, "the same listing through the file's entry (%d)", k.n);
+    if (so)
+        dlclose(so);
+
+    plain = omx_clap_host_binary_open(fake, reason, sizeof(reason));
+    CHECK(plain && omx_clap_host_presets(plain, keep_preset, &k) == -1, "fake.clap has no preset-discovery factory: -1");
+    setenv("FAKE_ANY_FACTORY", "1", 1);
+    CHECK(plain && omx_clap_host_presets(plain, keep_preset, &k) == -1,
+          "a plugin factory handed back for the preset-discovery id is no preset factory: -1, and no plugin is created");
+    unsetenv("FAKE_ANY_FACTORY");
+    if (plain)
+        omx_clap_host_binary_close(plain);
+    CHECK(omx_clap_host_presets(NULL, keep_preset, &k) == -1 && omx_clap_host_entry_presets(NULL, keep_preset, &k) == -1, "no file: -1");
+
+    CHECK(open_ok(path, SYNTH_POLY, &synth), "open %s", SYNTH_POLY);
+    seen = poly_stats(path);
+    if (synth && seen)
+    {
+        CHECK(omx_clap_host_preset_load_key(synth, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, "ignored", "bright") == 0 &&
+                  !strcmp(seen->last_preset, "1|-|bright"),
+              "a PLUGIN preset loads by its key, no location handed on (%s)", seen->last_preset);
+        snprintf(want, sizeof(want), "0|%s/box.fspreset|2", sub);
+        snprintf(file, sizeof(file), "%s/box.fspreset", sub);
+        CHECK(omx_clap_host_preset_load_key(synth, CLAP_PRESET_DISCOVERY_LOCATION_FILE, file, "2") == 0 && !strcmp(seen->last_preset, want),
+              "a container's preset loads by its file and key (%s)", seen->last_preset);
+        CHECK(omx_clap_host_preset_load_key(synth, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, "missing") == -1 &&
+                  omx_clap_host_preset_load_key(synth, CLAP_PRESET_DISCOVERY_LOCATION_FILE, NULL, "1") == -1 &&
+                  omx_clap_host_preset_load_key(synth, 7, file, "1") == -1,
+              "a refused key, a FILE location with no path and an unknown kind answer -1");
+    }
+    if (synth)
+        omx_clap_host_close(synth);
+    omx_clap_host_binary_close(binary);
+    unsetenv("FAKE_SYNTH_PRESET_DIR");
+    snprintf(file, sizeof(file), "rm -rf '%s'", dir);
+    CHECK(system(file) == 0, "the scratch preset directory removed");
 }
 
 /*
@@ -1187,6 +1356,7 @@ int main(int argc, char **argv)
         {
             synth_checks(synth_path);
             synth_out_all(synth_path);
+            synth_presets_checks(synth_path, fake_path);
         }
         if (mover_path)
             mover_checks(mover_path);
@@ -1311,6 +1481,8 @@ int main(int argc, char **argv)
     {
         synth_checks(synth_path);
         synth_out_all(synth_path);
+        if (fake_path)
+            synth_presets_checks(synth_path, fake_path);
     }
 
     return report("clap host test ok");
