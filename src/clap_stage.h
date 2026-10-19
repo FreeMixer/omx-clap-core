@@ -458,6 +458,18 @@ static inline int omx_clap_note_id_names(const struct omx_clap_note_id *id, int1
     return id->state != 0 && (channel < 0 || id->channel == channel) && (key < 0 || id->key == key);
 }
 
+/** RT: whether a note the ids name may still sound at steady time `now`: one held, or released less than hold_frames
+ * ago with no NOTE_END yet. A stage with no ids bound (hold_frames 0) has none. */
+static inline int omx_clap_note_ids_live(const struct omx_clap_note_ids *n, int64_t now)
+{
+    if (!n || n->n_free == OMX_CLAP_NOTE_IDS || n->hold_frames == 0)
+        return 0;
+    for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+        if (n->ids[i].state == 1 || (n->ids[i].state == 2 && now - n->ids[i].released_at < (int64_t)n->hold_frames))
+            return 1;
+    return 0;
+}
+
 /** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed when the id still names the note the event
  * names (its channel and key, -1 in either matching any): an id whose hold ran out may already name a new note, and a
  * late NOTE_END for the old voice must not take the id from the one that sounds. With no id (-1), every id of its

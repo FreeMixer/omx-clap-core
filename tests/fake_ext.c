@@ -30,7 +30,8 @@
  *    `pool_request` tasks, recording whether the host ran every one before request_exec returned;
  *  - records render.set, and answers has_hard_realtime_requirement with `hard_rt`;
  *  - answers tail.get with `tail` (fake_ext_set_tail changes it and tells the host);
- *  - returns `status` from process() and counts its calls and the steady time it was handed;
+ *  - returns `status` from process() and counts its calls and the steady time it was handed; while `ring` counts down it
+ *    adds 0.25 to its output, sounding on a silent input;
  *  - saves "plain" through clap.state and "preset", "duplicate" or "project" through clap.state-context, and records
  *    the context of a load;
  *  - records audio-ports-activation.set_active for its auxiliary output.
@@ -66,6 +67,7 @@ typedef struct FAKE_EXT_STATS_T {
     uint32_t plain_loads;       ///< state.load calls
     uint32_t aux_out_set;       ///< set_active calls for the auxiliary output
     uint32_t aux_out_active;    ///< its last is_active
+    uint32_t ring;              ///< process() calls left that add 0.25 to the output, as a voice or a tail still sounding
 } fake_ext_stats_t;
 
 static fake_ext_stats_t g_stats;
@@ -154,7 +156,10 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
     (void)plugin;
     for (c = 0; c < 2; c++)
-        memcpy(process->audio_outputs[0].data32[c], process->audio_inputs[0].data32[c], process->frames_count * sizeof(float));
+        for (i = 0; i < process->frames_count; i++)
+            process->audio_outputs[0].data32[c][i] = process->audio_inputs[0].data32[c][i] + (g_stats.ring ? 0.25f : 0.0f);
+    if (g_stats.ring)
+        g_stats.ring--;
     for (i = 1; i < process->audio_outputs_count; i++)
         for (c = 0; c < process->audio_outputs[i].channel_count; c++)
             memset(process->audio_outputs[i].data32[c], 0, process->frames_count * sizeof(float));

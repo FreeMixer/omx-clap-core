@@ -554,6 +554,8 @@ typedef struct
     uint32_t notes_on, ids_reused, no_id, ended, end_refused, voices, voices_max;
     uint32_t host_dialects, voice_count, ports_gone, renamed;
     char last_preset[512];
+    int32_t status;
+    uint32_t process_calls;
 } poly_stats_t;
 
 static const poly_stats_t *poly_stats(const char *path)
@@ -920,6 +922,54 @@ static void synth_presets_checks(const char *path, const char *fake)
 }
 
 /*
+ * The sleep never takes a voice: synth-poly answers SLEEP on every block, which would put it to sleep on its silent lane,
+ * but while a note the host gave an id to is held, and inside the hold after its note off until the plugin's NOTE_END,
+ * every block is processed; once its voices have ended, it sleeps.
+ */
+/* one block as a host runs an instance: its notes, then omx_clap_host_run_io, where the sleep is */
+static void host_block(struct omx_clap_instance *instance, const midi_at_t *messages, uint32_t count, float *out_l, float *out_r)
+{
+    float *outputs[2] = { out_l, out_r };
+
+    for (uint32_t i = 0; i < count; i++)
+        omx_clap_host_note_in(instance, messages[i].time, messages[i].data, messages[i].size);
+    omx_clap_host_run_io(instance, NULL, outputs, BLOCK);
+}
+
+static void synth_sleep_checks(const char *path)
+{
+    static const midi_at_t on[] = { { 0, { 0x90, 60, 100 }, 3 } };
+    static const midi_at_t off[] = { { 0, { 0x80, 60, 0 }, 3 } };
+    float out_l[BLOCK], out_r[BLOCK];
+    struct omx_clap_instance *synth = open_synth(path, SYNTH_POLY, 2, CLAP_NOTE_DIALECT_CLAP);
+    poly_stats_t *seen = (poly_stats_t *)poly_stats(path);
+    uint32_t calls, b;
+
+    if (!synth || !seen)
+        return;
+    synth->sleep.quiet_min_frames = 0;
+    seen->status = CLAP_PROCESS_SLEEP;
+    host_block(synth, on, 1, out_l, out_r);
+    calls = seen->process_calls;
+    for (b = 0; b < 4; b++)
+        host_block(synth, NULL, 0, out_l, out_r);
+    CHECK(seen->process_calls == calls + 4 && !synth->sleep.asleep, "a held note keeps a plugin that says SLEEP awake (%u)",
+          seen->process_calls - calls);
+    host_block(synth, off, 1, out_l, out_r);
+    calls = seen->process_calls;
+    for (b = 0; b < 1024u / BLOCK; b++)     /* the fake's FAKE_SYNTH_RELEASE, in blocks */
+        host_block(synth, NULL, 0, out_l, out_r);
+    CHECK(seen->process_calls == calls + 1024u / BLOCK - 1u, "the release after the note off is processed until its NOTE_END, the off block and three more (%u)",
+          seen->process_calls - calls);
+    for (b = 0; b < 2; b++)
+        host_block(synth, NULL, 0, out_l, out_r);
+    CHECK(synth->sleep.asleep && atomic_load(&synth->sleep.sleeps) >= 1, "once its voice has ended it sleeps (%u)",
+          atomic_load(&synth->sleep.sleeps));
+    seen->status = CLAP_PROCESS_CONTINUE;
+    omx_clap_host_close(synth);
+}
+
+/*
  * Note output through the core, against synth-arp: a note on of key 60 on channel 2 at frame 100 sends 60, 64 and 67, a
  * step of FAKE_ARP_STEP_MS apart, each at its own frame across the blocks it falls in; the note off sends their three
  * note offs at its own frame, and the NOTE_END the arpeggiator pushes for the input note is not note output. Read after
@@ -1041,6 +1091,7 @@ static void synth_checks(const char *path)
     synth_ids_checks(path);
     synth_voice_checks(path);
     synth_host_details_checks(path);
+    synth_sleep_checks(path);
 
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     if (!synth)

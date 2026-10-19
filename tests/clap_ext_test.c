@@ -49,7 +49,7 @@ typedef struct
     int32_t status;
     uint32_t process_calls;
     int64_t last_steady;
-    uint32_t loaded_context, plain_loads, aux_out_set, aux_out_active;
+    uint32_t loaded_context, plain_loads, aux_out_set, aux_out_active, ring;
 } ext_stats_t;
 
 static void *hook(const char *path, const char *name)
@@ -166,6 +166,9 @@ int main(int argc, char **argv)
     CHECK(set_tail && set_tail(2000) == 0, "the plugin says its tail changed");
     omx_clap_host_tick(in);
     CHECK(omx_clap_host_tail(in) == 2000, "the tick reads it again (%u)", omx_clap_host_tail(in));
+    CHECK(in->sleep.quiet_min_frames == (uint32_t)(48000 * OMX_CLAP_SLEEP_QUIET_MS / 1000), "a sleep needs 200 ms of silent output (%u)",
+          in->sleep.quiet_min_frames);
+    in->sleep.quiet_min_frames = 0;     // the statuses below are each read on their own; the window is checked last
     omx_clap_host_publish(in, pthread_self());
     run(in, 0.0f);      // the first cycle after arming fades in
 
@@ -219,6 +222,14 @@ int main(int argc, char **argv)
     run(in, 0.0f);
     run(in, 0.0f);
     CHECK(st->process_calls == calls + 2, "and asleep after the first silent block (%u)", st->process_calls - calls);
+    // an output that still sounds on a silent input (an instrument's voice) keeps it awake: the status is about the output
+    run(in, 0.5f);
+    st->ring = 3;
+    calls = st->process_calls;
+    for (i = 0; i < 6; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 4, "CONTINUE_IF_NOT_QUIET: a silent input whose output still sounds is processed until "
+          "the output is silent too (%u)", st->process_calls - calls);
 
     /* TAIL: processed for the tail after the sound stops, then asleep */
     st->status = CLAP_PROCESS_TAIL;
@@ -229,6 +240,13 @@ int main(int argc, char **argv)
     for (i = 0; i < 6; i++)
         run(in, 0.0f);
     CHECK(st->process_calls == calls + 3, "TAIL: three silent blocks processed, the tail, then none (%u)", st->process_calls - calls);
+    run(in, 0.5f);
+    st->ring = 5;
+    calls = st->process_calls;
+    for (i = 0; i < 8; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 6, "TAIL: a tail that has passed while the output still sounds goes on until it is silent (%u)",
+          st->process_calls - calls);
     CHECK(set_tail(UINT32_MAX) == 0, "an infinite tail");
     omx_clap_host_tick(in);
     run(in, 0.5f);
@@ -237,6 +255,16 @@ int main(int argc, char **argv)
     for (i = 0; i < 6; i++)
         run(in, 0.0f);
     CHECK(st->process_calls == calls + 6, "an infinite tail never sleeps, however long the silence (%u)", st->process_calls - calls);
+
+    /* the window: a plugin that says SLEEP sleeps only after its output has been silent that long */
+    in->sleep.quiet_min_frames = 3 * BLK;
+    st->status = CLAP_PROCESS_SLEEP;
+    run(in, 0.5f);
+    calls = st->process_calls;
+    for (i = 0; i < 6; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 3, "SLEEP waits for three blocks of silent output, the window, then sleeps (%u)",
+          st->process_calls - calls);
 
     omx_clap_host_unpublish(in, 10, 1000000);
     omx_clap_host_close(in);
