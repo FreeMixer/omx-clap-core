@@ -560,6 +560,51 @@ OMX_CLAP_EXPORT int omx_clap_host_state_load(struct omx_clap_instance *in, const
 /** preset-load from a file location; -1 when the plugin has no such extension or refuses. */
 OMX_CLAP_EXPORT int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location);
 
+/** preset-load of a preset omx_clap_host_presets listed, by its location kind, location and load key: a FILE location
+ * names its file (`load_key` NULL for a file that holds one preset, the key for one inside a container), a PLUGIN
+ * location none (`location` is not read) and its key. -1 when the plugin has no such extension, refuses, or a FILE
+ * location has no path. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_preset_load_key(struct omx_clap_instance *in, uint32_t location_kind, const char *location,
+                                                  const char *load_key);
+
+/** The plugin ids one listed preset names at most (CLAP ids only: a preset for another format's plugin names none). */
+#define OMX_CLAP_PRESET_PLUGINS         8u
+/** The presets one listing hands its callback at most; the rest of the file is not read. */
+#define OMX_CLAP_PRESETS_MAX            65536u
+/** The preset files one listing reads at most, across every location of every provider. */
+#define OMX_CLAP_PRESET_FILES_MAX       65536u
+/** How deep a FILE location that is a directory is walked: its files are depth 1. */
+#define OMX_CLAP_PRESET_DEPTH           16u
+
+/** One preset a plugin file lists through its preset-discovery factory. Every pointer is valid only for the callback. */
+struct omx_clap_preset
+{
+    const char *provider_id;    ///< the provider that listed it
+    const char *name;           ///< its name; for a file holding one preset that gives none, the file's name
+    uint32_t location_kind;     ///< CLAP_PRESET_DISCOVERY_LOCATION_FILE or CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN
+    const char *location;       ///< the file's path for FILE, NULL for PLUGIN
+    const char *load_key;       ///< the key inside a container or a PLUGIN location; NULL for a file holding one preset
+    uint32_t flags;             ///< CLAP_PRESET_DISCOVERY_IS_*: its own, else its location's
+    const char *description;    ///< "" when it gives none
+    uint32_t plugin_count;      ///< the CLAP plugin ids it applies to, at most OMX_CLAP_PRESET_PLUGINS
+    const char *plugin_ids[OMX_CLAP_PRESET_PLUGINS];  ///< the first plugin_count are set
+};
+
+/** One preset of a listing; return nonzero to stop it. */
+typedef int (*omx_clap_preset_fn)(void *ctx, const struct omx_clap_preset *preset);
+
+/** Every preset a plugin file lists through its preset-discovery factory (clap.preset-discovery-factory/2, or its draft
+ * id), in order: each provider is created and initialised, and each location it declares is read: a PLUGIN location
+ * through get_metadata, a FILE location that is a file the same, and a directory walked in name order (at most
+ * OMX_CLAP_PRESET_DEPTH deep, a link to a directory inside it not followed) for its files of a declared filetype. At most
+ * OMX_CLAP_PRESETS_MAX presets and OMX_CLAP_PRESET_FILES_MAX files. Returns the presets listed, or -1 when the file
+ * has no preset-discovery factory. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_presets(struct omx_clap_binary *binary, omx_clap_preset_fn fn, void *ctx);
+
+/** The same for a linked entry, or an adapter's (omx_clap_lv2_entry): init once as omx_clap_host_open_entry does, kept
+ * for the listing. */
+OMX_CLAP_EXPORT int omx_clap_host_entry_presets(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, void *ctx);
+
 /** clap.track-info, where the configuration offers it: store what the host's get answers from now on and call the
  * plugin's changed. `name` NULL or "" for none, `color` NULL for none; `flags` the CLAP_TRACK_INFO_IS_FOR_* bits, the
  * HAS_ bits are set here. The name is cut at CLAP_NAME_SIZE - 1 bytes. -1 when the configuration does not offer it. */
