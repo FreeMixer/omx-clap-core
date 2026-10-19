@@ -933,14 +933,16 @@ static void patch_out_value(struct lv2_instance *in, LV2_URID key, uint32_t vtyp
  * another type are ignored. */
 static void patch_read_outputs(struct lv2_instance *in)
 {
-    const uint8_t *buf = in->atom_out;
+    const int shared = in->plugin->patch_out_shared;
+    const uint8_t *buf = shared ? in->midi[1] : in->atom_out;
+    const uint32_t cap = shared ? in->midi_bytes : in->atom_cap;
     uint32_t end, off;
 
     if (!buf || in->plugin->patch_out < 0 || get32(buf + 4) != in->urids.sequence)
         return;
     end = get32(buf) + 8u;
-    if (end > in->atom_cap)
-        end = in->atom_cap;
+    if (end > cap)
+        end = cap;
     for (off = SEQ_HEADER_BYTES; off + 16u <= end; )
     {
         const uint8_t *body = buf + off + 8u;
@@ -1012,9 +1014,37 @@ static int patch_buffers(struct lv2_instance *in)
     in->atom_cap = cap;
     if (p->patch_in >= 0 && !(in->atom_in = calloc(1, cap)))
         return 0;
-    if (p->patch_out >= 0 && !(in->atom_out = calloc(1, cap)))
+    // a shared output is the MIDI output's buffer: read there, never a buffer of its own
+    if (p->patch_out >= 0 && !p->patch_out_shared && !(in->atom_out = calloc(1, cap)))
         return 0;
     return 1;
+}
+
+/* A shared input port: the patch events forged into the scratch (atom_in) go to the HEAD of the MIDI input sequence,
+ * at frame 0 before every message the host appended, so the sequence stays in frame order. What does not fit is dropped
+ * whole and counted. */
+static void patch_splice_into_midi(struct lv2_instance *in)
+{
+    LV2_Atom_Sequence *seq = (LV2_Atom_Sequence *)in->midi[0];
+    const uint32_t capacity = in->midi_bytes - (uint32_t)sizeof(LV2_Atom);
+    uint32_t events, have;
+    uint8_t *body;
+
+    if (!in->atom_in || !seq)
+        return;
+    events = get32(in->atom_in) + 8u - SEQ_HEADER_BYTES;
+    have = seq->atom.size;
+    if (events == 0)
+        return;
+    if (have + events > capacity)
+    {
+        atomic_fetch_add_explicit(&in->patch_dropped, 1u, memory_order_relaxed);
+        return;
+    }
+    body = (uint8_t *)&seq->body + sizeof(LV2_Atom_Sequence_Body);
+    memmove(body + events, body, have - (uint32_t)sizeof(LV2_Atom_Sequence_Body));
+    memcpy(body, in->atom_in + SEQ_HEADER_BYTES, events);
+    seq->atom.size = have + events;
 }
 
 /* options:options: the rate, and the block lengths as the instance's options report this activation's min and max (by
@@ -1146,6 +1176,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     // the host reads
     in->latency_port = 0.0f;
     in->midi_bytes = atom_bytes();
+    // a shared port carries the patch messages too: the MIDI buffers are at least the patch capacity
+    if ((p->patch_in_shared || p->patch_out_shared) && patch_cap(p) > in->midi_bytes)
+        in->midi_bytes = patch_cap(p);
     in->urid_sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
     in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
     for (k = 0; k < 2; k++)
@@ -1191,9 +1224,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             else if (p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;
         }
-        if (!at && p->patch_in >= 0 && (uint32_t)p->patch_in == i)
+        if (!at && p->patch_in >= 0 && !p->patch_in_shared && (uint32_t)p->patch_in == i)
             at = in->atom_in;
-        if (!at && p->patch_out >= 0 && (uint32_t)p->patch_out == i)
+        if (!at && p->patch_out >= 0 && !p->patch_out_shared && (uint32_t)p->patch_out == i)
             at = in->atom_out;
         if (!at && p->midi_in_port >= 0 && (uint32_t)p->midi_in_port == i)
             at = in->midi[0];
@@ -1708,6 +1741,8 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     if (before)
         before(ctx);
     patch_forge_inputs(in);
+    if (p->patch_in_shared)
+        patch_splice_into_midi(in);
     if (in->atom_out)
     {
         put32(in->atom_out, in->atom_cap - 8u);
