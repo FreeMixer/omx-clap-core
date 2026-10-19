@@ -112,6 +112,7 @@ Port properties
 | `pprops:rangeSteps`, `pprops:expensive`, `pprops:causesArtifacts` | unsupported | unsupported |
 | No `lv2:default` | supported: the minimum is the default (`lv2_clap_test` props) | unsupported |
 | Units (`units:unit`) | unsupported | unsupported |
+| More than one MIDI input or output port | supported: the first of each, in port index order, is the note path's; a later MIDI input is fed an empty sequence every block and a later MIDI output is offered a buffer and drained, up to 16 of each (carla midijoin, midisplit; `lv2_clap_test` two-in and two-out) | unsupported |
 | `lv2:inPlaceBroken` | supported: every port is the adapter's own memory, so a host that processes in place is safe (`lv2_run_test` and `lv2_clap_test` pad) | unsupported |
 
 Features and extensions
