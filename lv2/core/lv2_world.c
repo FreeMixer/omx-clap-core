@@ -1003,13 +1003,36 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             return LV2_CODE_MIDI_IN;
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
         {
-            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most; a port that
-            // also takes patch:Message is refused, since neither mapping carries both on one port
+            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most. One that
+            // also takes patch:Message is the patch port too: one sequence the note path and the parameter path both
+            // fill, in frame order, or both readers read (the lsp samplers, midimap, midifile); a second patch port
+            // beside it is one more than the mapping carries
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
                 return LV2_CODE_MIDI_IN;
             if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
-                return LV2_CODE_MIDI_IN;
-            if (input)
+            {
+                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+                if (input ? p->patch_in >= 0 : p->patch_out >= 0)
+                {
+                    L.lilv_nodes_free(rsz);
+                    return input ? LV2_CODE_ATOM_IN : LV2_CODE_MIDI_IN;
+                }
+                if (input)
+                {
+                    p->patch_in = (int32_t)i;
+                    p->patch_in_shared = 1;
+                    p->patch_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+                }
+                else
+                {
+                    p->patch_out = (int32_t)i;
+                    p->patch_out_shared = 1;
+                }
+                p->atom_min = rsz_max(rsz, p->atom_min);
+                L.lilv_nodes_free(rsz);
+            }
+            else if (input)
                 p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
             if (input)
                 p->midi_in_port = (int32_t)i;
