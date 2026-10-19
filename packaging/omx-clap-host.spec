@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.14.0
+Version:        0.15.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -141,6 +141,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.15.0-1
+- The LV2 adapter: the worker woken, options:interface, state:threadSafeRestore,
+  state:mapPath and state:freePath, units and log scale and steps through the
+  param contract, pprops:trigger reset, time:Position at every block while
+  playing, lv2:inPlaceBroken admitted.
 * Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
 - The host offers clap.timer-support, clap.posix-fd-support, clap.thread-pool
   and clap.tail; the tick serves timers and descriptors, request_exec runs

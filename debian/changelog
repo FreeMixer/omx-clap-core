@@ -1,3 +1,16 @@
+omx-clap-host (0.15.0) unstable; urgency=medium
+
+  * The LV2 adapter covers the rest of the non-UI LV2 specification: the
+    worker is woken, not polled; options:interface tells a running plugin a
+    shorter block; state:threadSafeRestore takes a load without a restart;
+    state:mapPath and state:freePath are offered at instantiate; units,
+    pprops:logarithmic and pprops:rangeSteps reach the host through the
+    face's org.openmixer.param-contract/1; a pprops:trigger is reset after
+    one block; time:Position is forged at every block while playing; a
+    plugin that requires lv2:inPlaceBroken is admitted.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 19 Oct 2026 00:00:00 +0000
+
 omx-clap-host (0.14.0) unstable; urgency=medium
 
   * The host offers clap.timer-support, clap.posix-fd-support,
