@@ -203,6 +203,11 @@ static void t_block(void)
     CHECK(!omx_lv2_feature_offered(&o, LV2_BUF_SIZE__powerOf2BlockLength), "block: and none is offered");
 
     omx_lv2_feature_options_init(&o);
+    o.block.declares |= OMX_LV2_BLOCK_FIXED;
+    CHECK(observe(&o, 64, 512) == 0 && g_probe->min_block == 512 && g_probe->max_block == 512 && g_probe->nominal_block == 512,
+          "block: fixed declared, the minimum reported is the maximum, whatever the activation's minimum (%d %d %d)",
+          g_probe->min_block, g_probe->max_block, g_probe->nominal_block);
+    omx_lv2_feature_options_init(&o);
     o.block.min = 1;
     CHECK(observe(&o, 64, 512) == 0 && g_probe->min_block == 1 && g_probe->max_block == 512 && g_probe->nominal_block == 512,
           "block: a minimum of 1 reported over the activation's 64 (%d %d %d)", g_probe->min_block, g_probe->max_block,

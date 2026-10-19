@@ -1223,7 +1223,17 @@ static int configure_lv2_with(const char *root, char why[OMX_CLAP_LV2_WHY_MAX])
     config.latency_hold_ms = CLAP_HOST_LATENCY_HOLD_MS;
     config.lilv_soname = NULL;
     config.state_root = root;
-    return omx_clap_lv2_configure(&config, why);
+    if (omx_clap_lv2_configure(&config, why) != 0)
+        return -1;
+    // Under JACK every process() gets the buffer size and a change of it re-activates (buffer_size above), so within one
+    // activation the block length is fixed: declared, and the adapter refuses a cycle of another length (#192).
+    {
+        struct omx_lv2_feature_options options;
+
+        omx_lv2_feature_options_init(&options);
+        options.block.declares |= OMX_LV2_BLOCK_FIXED;
+        return omx_clap_lv2_feature_options(&options, why);
+    }
 }
 
 /* the adapter with a state root, so state:makePath is offered; a root that cannot be made or written leaves it
