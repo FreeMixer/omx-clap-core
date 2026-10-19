@@ -71,11 +71,12 @@
  * raises it (2: the instance's tempo and transport, 0.3; 3: the host's published transport and the auxiliary inputs, 0.7;
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
  * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
- * instance's MPE zones, a lower and an upper, 0.11).
+ * instance's MPE zones, a lower and an upper, 0.11; 10: what the plugin tells the host's note-ports, note-name and
+ * voice-info, 0.12).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               9u
+#define OMX_CLAP_CORE_ABI               10u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -376,6 +377,14 @@ struct omx_clap_instance
     // the MPE zones of the note input (ABI 9): a lower and an upper zone held together, read and written by the RT; the
     // control thread asks for a zone through omx_clap_host_set_mpe
     struct omx_clap_mpe_zones mpe_zones;  ///< fed by omx_clap_host_note_in
+
+    // what the plugin tells the host through its clap.note-ports, clap.note-name and clap.voice-info (ABI 10): set on the
+    // main thread by the plugin's call, taken by the control thread
+    _Atomic uint32_t note_ports_rescan_flags;  ///< the CLAP_NOTE_PORTS_RESCAN_* flags of the rescans the tick has not seen
+    _Atomic uint32_t note_ports_rescanned;  ///< the flags the tick saw since the last omx_clap_host_note_ports_rescanned
+    uint32_t note_ports_stale;  ///< 1 after a rescan of every note port: the next activate reads the note input again
+    _Atomic uint32_t note_names_changed;  ///< the plugin said its note names changed, until omx_clap_host_note_names_changed
+    _Atomic uint32_t voice_info_changed;  ///< the plugin said its voice info changed: the tick asks it again while active
 };
 
 
@@ -580,6 +589,29 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in
  * Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count, uint32_t *capacity, uint64_t *flags);
 
+/** The note dialects the host's clap.note-ports answers a plugin that asks (supported_dialects): every dialect a note
+ * input can be fed in, CLAP, MIDI, MIDI with MPE and MIDI 2.0 (translated from the MIDI 1.0 the host reads), when the
+ * configuration admits note inputs; none when it does not. */
+#define OMX_CLAP_HOST_NOTE_DIALECTS     (CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE | CLAP_NOTE_DIALECT_MIDI2)
+
+/** The note names the plugin declares through clap.note-name (a drum machine naming its pads), asked now: 0 when it offers
+ * none. Control thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_note_name_count(struct omx_clap_instance *in);
+
+/** Note name `index` (below omx_clap_host_note_name_count) into `*name`: its text, always terminated, and the port, key
+ * and channel it names, each -1 for every one. 0, or -1 for an index the plugin does not answer. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_note_name(struct omx_clap_instance *in, uint32_t index, clap_note_name_t *name);
+
+/** 1 once after the plugin said its note names changed (the host's clap.note-name), then 0 until it says so again: the
+ * names are worth reading again. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_note_names_changed(struct omx_clap_instance *in);
+
+/** The CLAP_NOTE_PORTS_RESCAN_* flags of every note-ports rescan the plugin made since the last call, as the tick saw
+ * them, then none. A rescan of CLAP_NOTE_PORTS_RESCAN_ALL is only the plugin's to make while inactive: made while
+ * active, the tick asks for a restart; either way the next omx_clap_host_activate reads the note input again, and
+ * refuses with hosting.clap.note-input when the new ports are ones open would have refused. Control thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in);
+
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
  * waits for the next take. Control thread. */
@@ -634,8 +666,9 @@ OMX_CLAP_EXPORT const char *omx_clap_param_scale_name(uint32_t scale);
  * (-0 written 0): the length written, or -1 for a value that is not finite or does not fit in `size`. */
 OMX_CLAP_EXPORT int omx_clap_param_number(double value, char *out, size_t size);
 
-/** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency. Returns
- * nonzero when the plugin asked for a restart (the caller performs it). */
+/** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency, take
+ * the plugin's parameter and note-port rescans and ask its voice info again when it said it changed. Returns nonzero
+ * when the plugin asked for a restart (the caller performs it). */
 OMX_CLAP_EXPORT int omx_clap_host_tick(struct omx_clap_instance *in);
 
 /** The last log message the tick drained, once: NULL when it was taken already. */

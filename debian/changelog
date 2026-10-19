@@ -1,3 +1,19 @@
+omx-clap-host (0.12.0) unstable; urgency=medium
+
+  * The host offers a plugin clap.note-ports, clap.note-name and
+    clap.voice-info: supported_dialects answers CLAP, MIDI, MIDI MPE and
+    MIDI 2.0; a rescan of every note port while active asks for a restart,
+    and the next activate reads the note input again; note names read through
+    omx_clap_host_note_name_count and omx_clap_host_note_name; a voice count
+    the plugin says changed is asked again by the tick. The calls are in the
+    version node OMX_CLAP_CORE_0.12. The library ABI is 10.
+  * A note port that speaks MIDI 2.0 gets every channel message as its MIDI
+    2.0 channel voice message, CLAP_EVENT_MIDI2, scaled by the UMP
+    specification's rule.
+  * omx-clap-scan lists a plugin's note names and its voice info.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 19 Oct 2026 00:00:00 +0000
+
 omx-clap-host (0.11.0) unstable; urgency=medium
 
   * An instrument's clap.voice-info is read at activate and answered through
