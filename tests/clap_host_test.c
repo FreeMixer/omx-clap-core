@@ -1016,8 +1016,22 @@ static void synth_checks(const char *path)
 
     check_refused(path, SYNTH_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     check_refused(path, SYNTH_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
-    check_refused(path, SILENT, CLAP_HOST_CODE_NO_AUDIO_INPUT);
     CHECK(omx_clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
+
+    // #184: a generator, no main input and no note input, is admitted as a source: no input channel, its outputs its own
+    synth = NULL;
+    CHECK(open_ok(path, SILENT, &synth), "a generator with no input of any kind is admitted (%s)", SILENT);
+    if (synth)
+    {
+        CHECK(synth->in_channels == 0 && synth->channels == 2 && synth->note_inputs == 0,
+              "the generator: no main input, a stereo output, no note input (%u, %u, %u)", synth->in_channels, synth->channels, synth->note_inputs);
+        CHECK(activate(synth), "the generator activates");
+        omx_clap_host_publish(synth, pthread_self());
+        run_block(synth, NULL, 0, out_l, out_r);
+        run_block(synth, NULL, 0, out_l, out_r);
+        CHECK(is_silent(out_l, 0, BLOCK) && is_silent(out_r, 0, BLOCK), "a block with no input runs; this one renders silence");
+        omx_clap_host_close(synth);
+    }
 
     synth = open_synth(path, SYNTH_AUX, 2, CLAP_NOTE_DIALECT_CLAP);
     if (synth)
@@ -1108,6 +1122,49 @@ struct mover_cycles
     uint32_t blocks;
     _Atomic int go;
 };
+
+/* A cycle during a re-activation. The host's buffer-size path (omx-clap-host, effects.c) stops, deactivates and
+ * activates the instance again on JACK's notification thread, under a lock of its own; the audio role never takes that
+ * lock, and a cycle that lands while the instance is deactivated returns at once, runs nothing and writes nothing (the
+ * stage is unbound: no lane to copy onto), so the host passes the cycle dry itself around it (effects.c process). */
+struct cycle_timed { struct omx_clap_instance *instance; double ms; int dry; };
+static void *cycle_timed_run(void *arg)
+{
+    struct cycle_timed *c = arg;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    const double t0 = now_ms();
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK, in_r[i] = -(float)i / BLOCK, out_l[i] = out_r[i] = 7.0f;
+    omx_clap_run_io(&c->instance->stage, inputs, outputs, BLOCK);
+    c->ms = now_ms() - t0;
+    c->dry = out_l[0] == 7.0f && out_r[0] == 7.0f;     // untouched: nothing written, nothing run
+    return NULL;
+}
+static void test_cycle_while_deactivated(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct cycle_timed c = { NULL, 0.0, 0 };
+    pthread_t t;
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance) || !activate(instance))
+    {
+        CHECK(0, "cycle while deactivated: the fake opens and activates");
+        return;
+    }
+    omx_clap_host_stop(instance);
+    omx_clap_host_deactivate(instance);
+    c.instance = instance;
+    CHECK(pthread_create(&t, NULL, cycle_timed_run, &c) == 0, "cycle while deactivated: a cycle runs on another thread");
+    pthread_join(t, NULL);
+    CHECK(c.ms < 100.0 && c.dry && atomic_load(&instance->stage.h.runs) == 0,
+          "cycle while deactivated: it returns at once (%.1f ms), writes nothing (%d) and runs nothing (%u runs)", c.ms, c.dry,
+          atomic_load(&instance->stage.h.runs));
+    omx_clap_host_close(instance);
+}
 
 static void *mover_cycles_run(void *arg)
 {
@@ -1351,6 +1408,7 @@ int main(int argc, char **argv)
         }
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
+        test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
         if (synth_path)
         {

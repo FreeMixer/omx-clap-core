@@ -599,15 +599,15 @@ static const char *reread_note_input(struct omx_clap_instance *in)
  * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
  * channels; an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each of 1 or 2 channels); an input
  * besides them a side chain, fed silence until the caller binds it (up to CLAP_HOST_AUX_INPUTS, each of 1 or 2 channels);
- * where the configuration admits note inputs, one note input, and with it no main input at all (an instrument); otherwise
- * no note input. Returns the hosting code that refuses, or NULL.
+ * no main input at all is a source (an instrument with a note input, a generator without one, #184), its output its own;
+ * where the configuration admits note inputs, one note input; otherwise no note input. Returns the hosting code that
+ * refuses, or NULL.
  */
 static const char *read_topology(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
     uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0;
     const char *code;
-    int instrument;
     int dir;
 
     if (g_config.note_inputs)
@@ -616,7 +616,6 @@ static const char *read_topology(struct omx_clap_instance *in)
         if (code)
             return code;
     }
-    instrument = g_config.note_inputs && in->note_inputs;
 
     if (ports)
     {
@@ -659,8 +658,6 @@ static const char *read_topology(struct omx_clap_instance *in)
             }
         }
     }
-    if ((n_main_in == 0 || main_in == 0) && !instrument)
-        return CLAP_HOST_CODE_NO_AUDIO_INPUT;
     if (n_main_out == 0 || main_out == 0)
         return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
     if (main_in > CLAP_HOST_MAIN_PORT_CHANNELS || main_out > CLAP_HOST_MAIN_PORT_CHANNELS || n_main_in > 1 || n_main_out > 1)

@@ -31,12 +31,22 @@
     lv2:binary <omx-host-fixture.so> ;
     rdfs:seeAlso <omx-host-fixture.ttl> .
 
-<urn:openmixer:test:host-fixture#no-in>
+<urn:openmixer:test:host-fixture#gen>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#ctl-alone>
     a lv2:Plugin ;
     lv2:binary <omx-host-fixture.so> ;
     rdfs:seeAlso <omx-host-fixture.ttl> .
 
 <urn:openmixer:test:host-fixture#no-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#ctl-only>
     a lv2:Plugin ;
     lv2:binary <omx-host-fixture.so> ;
     rdfs:seeAlso <omx-host-fixture.ttl> .
@@ -47,6 +57,11 @@
     rdfs:seeAlso <omx-host-fixture.ttl> .
 
 <urn:openmixer:test:host-fixture#fixed>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
+<urn:openmixer:test:host-fixture#inplace>
     a lv2:Plugin ;
     lv2:binary <omx-host-fixture.so> ;
     rdfs:seeAlso <omx-host-fixture.ttl> .

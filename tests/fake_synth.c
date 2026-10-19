@@ -43,7 +43,7 @@
  *                                         test asks it to (fake_synth_poly_rescan, _rename, _revoice). Its
  *                                         preset-load records the last load; the file's preset-discovery factory
  *                                         lists its presets (below)
- *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused
+ *   org.omx-clap-host.test.silent         a generator: no input and no note input, admitted as a source; silent
  *   org.omx-clap-host.test.synth-arp      silent stereo out, a CLAP note input and a CLAP note output: an arpeggiator.
  *                                         A note on of key k at frame f sends note ons of k, k + 4 and k + 7 at f,
  *                                         f + s and f + 2s, s FAKE_ARP_STEP_MS at the activated rate, across blocks;
