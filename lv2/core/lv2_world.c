@@ -1007,8 +1007,31 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             // also takes patch:Message is the patch port too: one sequence the note path and the parameter path both
             // fill, in frame order, or both readers read (the lsp samplers, midimap, midifile); a second patch port
             // beside it is one more than the mapping carries
+            // a MIDI port after the first: an input is fed an empty sequence every block, an output is offered a buffer
+            // and drained, as the other atom ports are (carla's midijoin, 16 inputs; midisplit, 16 outputs); the note path
+            // is the first port's in index order
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
-                return LV2_CODE_MIDI_IN;
+            {
+                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+                if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
+                {
+                    L.lilv_nodes_free(rsz);
+                    return LV2_CODE_MIDI_IN;
+                }
+                if (input)
+                {
+                    p->atom_in[p->n_atom_in++] = i;
+                    p->atom_in_min = rsz_max(rsz, p->atom_in_min);
+                }
+                else
+                {
+                    p->notify_out[p->n_notify++] = i;
+                    p->notify_min = rsz_max(rsz, p->notify_min);
+                }
+                L.lilv_nodes_free(rsz);
+                continue;
+            }
             if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
             {
                 LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);

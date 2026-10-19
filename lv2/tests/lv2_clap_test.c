@@ -90,6 +90,7 @@
 #include "fixtures/lv2_atom_probe.h"
 #include "fixtures/lv2_host_fixture.h"
 #include "fixtures/lv2_patch_fixture.h"
+struct lv2_midi_echo_two { unsigned runs, a, b, in; };
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -522,8 +523,14 @@ static void t_midi_refusal(void)
     const clap_plugin_note_ports_t *np;
 
     th_init(&t);
-    CHECK(f && f->create_plugin(f, &t.host, MIDI_URI "#two-in") == NULL && strcmp(t.log, "hosting.features.midi-in-fed-empty\n") == 0,
-          "create_plugin refuses a second MIDI input, and clap.log carries its code (got '%.*s')", (int)strcspn(t.log, "\n"), t.log);
+    {
+        const clap_plugin_t *p = f ? f->create_plugin(f, &t.host, MIDI_URI "#two-in") : NULL;
+
+        CHECK(p != NULL && t.log[0] == '\0', "create_plugin admits a second MIDI input (fed empty), nothing on clap.log (got '%.*s')",
+              (int)strcspn(t.log, "\n"), t.log);
+        if (p)
+            p->destroy(p);
+    }
     omx_clap_lv2_entry_release(e);
     if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
     {
@@ -1359,6 +1366,46 @@ static void t_midi_patch(double rate)
           "midi+patch %.0f: in frame order, the patch:Set at 0 before the note at 10 (order faults %u, patch %lld, midi %lld)",
           rate, w->out_of_order, (long long)w->first_patch_frame, (long long)w->first_midi_frame);
     rig_down(&g);
+}
+
+/* more than one MIDI port (#199): the first input is the note path's and the second is fed an empty sequence; the
+ * first output is the note output's and the second is drained, so an event the plugin writes to both reaches the host once */
+static void t_midi_extra(double rate)
+{
+    struct lv2_midi_echo_two *w = NULL;
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    static const uint8_t note[3] = { 0x90, 60, 100 };
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f, out[i] = 0.0f;
+    if (rig_up(&g, g_midi, MIDI_URI "#two-in", rate, BLOCK) == 0)
+    {
+        *(void **)&w = loaded_symbol(g_midi_so, "lv2_midi_echo_two");
+        midi_in_init(&mi);
+        mi_midi(&mi, 3, note, 3);
+        midi_out_init(&mo);
+        CHECK(w && process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE && out[0] == 0.5f,
+              "two-in %.0f: admitted and runs", rate);
+        CHECK(w && w->a == 1 && w->b == 0, "two-in %.0f: the note reached the first MIDI input, the second was empty (a %u b %u)", rate,
+              w ? w->a : 0, w ? w->b : 0);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_midi, MIDI_URI "#two-out", rate, BLOCK) == 0)
+    {
+        *(void **)&w = loaded_symbol(g_midi_so, "lv2_midi_echo_two");
+        midi_in_init(&mi);
+        mi_midi(&mi, 3, note, 3);
+        midi_out_init(&mo);
+        CHECK(w && process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE && w->in == 1,
+              "two-out %.0f: admitted, the note reached the plugin (in %u)", rate, w ? w->in : 0);
+        CHECK(mo.n == 1 && out_is(&mo, 0, CLAP_EVENT_MIDI, 3, note, 3),
+              "two-out %.0f: the plugin wrote the note to both outputs and the host read it once, from the first (%u)", rate, mo.n);
+        rig_down(&g);
+    }
 }
 
 static void t_latency_hold(double rate)
@@ -2928,6 +2975,7 @@ int main(int argc, char **argv)
         t_fixed_block(RATES[r]);
         t_inplace(RATES[r]);
         t_midi_patch(RATES[r]);
+        t_midi_extra(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);

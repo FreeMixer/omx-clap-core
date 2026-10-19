@@ -78,11 +78,11 @@
 
 /* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
  * may have: each gets a sequence buffer of its own, emptied before every block; one more is refused */
-#define LV2_CORE_ATOM_IN_PORTS          4
+#define LV2_CORE_ATOM_IN_PORTS          16
 
 /* the atom outputs that are neither MIDI nor the patch output (a notify port for the plugin's GUI) a plugin may have: each
  * gets a buffer of its own, offered every block and discarded after it; one more is refused */
-#define LV2_CORE_NOTIFY_PORTS           4
+#define LV2_CORE_NOTIFY_PORTS           16
 
 /* the longest string or path property value, with its NUL, the patch port carries either way */
 #define LV2_CORE_TEXT_MAX               4096u
