@@ -828,6 +828,104 @@ static void t_preset(double rate)
     }
 }
 
+/* ---- the bundle's presets listed: the face's preset-discovery factory, through the core's listing ---- */
+
+#define PRESET_LOUD "urn:openmixer:test:host-fixture-preset:loud"          /* offset +3 dB, applies to the fixture */
+#define FIXTURE_CV_URI "urn:openmixer:test:host-fixture#cv"
+
+struct listed_preset
+{
+    char name[64], key[96], plugin[96], provider[64];
+    uint32_t kind, flags, plugins;
+    int has_location;
+};
+
+struct listed
+{
+    struct listed_preset p[8];
+    int n;
+};
+
+static int list_preset(void *ctx, const struct omx_clap_preset *p)
+{
+    struct listed *l = ctx;
+
+    if (l->n < 8)
+    {
+        struct listed_preset *e = &l->p[l->n];
+
+        snprintf(e->name, sizeof(e->name), "%s", p->name);
+        snprintf(e->key, sizeof(e->key), "%s", p->load_key ? p->load_key : "");
+        snprintf(e->plugin, sizeof(e->plugin), "%s", p->plugin_count ? p->plugin_ids[0] : "");
+        snprintf(e->provider, sizeof(e->provider), "%s", p->provider_id);
+        e->kind = p->location_kind;
+        e->flags = p->flags;
+        e->plugins = p->plugin_count;
+        e->has_location = p->location != NULL;
+    }
+    l->n++;
+    return 0;
+}
+
+static const struct listed_preset *listed_key(const struct listed *l, const char *key)
+{
+    for (int i = 0; i < l->n && i < 8; i++)
+        if (!strcmp(l->p[i].key, key))
+            return &l->p[i];
+    return NULL;
+}
+
+/* the fixture bundle lists three presets, quiet and loud for the fixture and one for the CV twin, each by its label with
+ * its URI the load key; loud then loads by that key, as a listed preset does */
+static void t_preset_list(double rate)
+{
+    static float in[N_BLOCKS * BLOCK], out[N_BLOCKS * BLOCK];
+    const struct listed_preset *quiet, *loud, *wrong;
+    const clap_plugin_entry_t *entry;
+    const clap_plugin_preset_load_t *pl;
+    char why[OMX_CLAP_LV2_WHY_MAX];
+    struct listed l;
+    struct rig g;
+    uint32_t blk;
+    int listed;
+
+    entry = omx_clap_lv2_entry(g_fixture, why);
+    CHECK(entry != NULL, "preset list: the fixture bundle's entry (%s)", why);
+    if (!entry)
+        return;
+    memset(&l, 0, sizeof(l));
+    listed = omx_clap_host_entry_presets(entry, list_preset, &l);
+    quiet = listed_key(&l, PRESET_QUIET);
+    loud = listed_key(&l, PRESET_LOUD);
+    wrong = listed_key(&l, PRESET_WRONG);
+    CHECK(listed == 3 && l.n == 3, "preset list: the bundle lists three presets (%d)", listed);
+    CHECK(quiet && !strcmp(quiet->name, "quiet") && !strcmp(quiet->plugin, FIXTURE_URI) && quiet->plugins == 1,
+          "preset list: quiet, by its label, its URI the load key, for the fixture");
+    CHECK(loud && !strcmp(loud->name, "loud") && !strcmp(loud->plugin, FIXTURE_URI), "preset list: loud, for the fixture");
+    CHECK(wrong && !strcmp(wrong->name, "quiet, for the CV twin") && !strcmp(wrong->plugin, FIXTURE_CV_URI),
+          "preset list: the CV twin's own, for the CV twin");
+    CHECK(quiet && loud && wrong && quiet->kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && !quiet->has_location &&
+              loud->kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN && quiet->flags == CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT &&
+              !strcmp(quiet->provider, "org.openmixer.lv2.pset"),
+          "preset list: the bundle is a PLUGIN location of factory content, through the provider org.openmixer.lv2.pset");
+    omx_clap_lv2_entry_release(entry);
+
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        tone(in + blk * BLOCK, BLOCK, 0.5f, blk * BLOCK);
+    if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
+    {
+        pl = preset_of(&g);
+        CHECK(pl && pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_LOUD),
+              "preset list %.0f: loud loads by its listed key", rate);
+        CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK) && g.plugin->start_processing(g.plugin), "preset list %.0f: activates", rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&g, in + blk * BLOCK, NULL, out + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(fabs(gain_db(in, out, 2, N_BLOCKS) - -17.0) < 0.01, "preset list %.0f: the gain reads %.3f dB: -20 plus loud's +3", rate,
+              gain_db(in, out, 2, N_BLOCKS));
+        rig_down(&g);
+    }
+}
+
 /* ---- the numeric patch parameters through the face: ids above the ports, a write before the block, the echo after ---- */
 
 /* the parameter named `name`, its info filled: 1 when the plugin lists one */
@@ -2775,6 +2873,7 @@ int main(int argc, char **argv)
         t_fixture(RATES[r]);
         t_state(RATES[r]);
         t_preset(RATES[r]);
+        t_preset_list(RATES[r]);
         t_patch(RATES[r]);
         t_latency_hold(RATES[r]);
         t_pad(RATES[r]);
