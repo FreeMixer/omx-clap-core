@@ -49,6 +49,8 @@
 #define SYNTH_POLY          "org.omx-clap-host.test.synth-poly"
 #define SYNTH_ARP           "org.omx-clap-host.test.synth-arp"
 #define SYNTH_ARP_MIDI      "org.omx-clap-host.test.synth-arp-midi"
+#define SYNTH_MIDI2         "org.omx-clap-host.test.synth-midi2"
+#define SYNTH_MIDI2_PREF    "org.omx-clap-host.test.synth-midi2-pref"
 #define SILENT              "org.omx-clap-host.test.silent"
 
 // the read-only parameters every fake effect answers, and how many rows it has (parameter 0 is the only writable one)
