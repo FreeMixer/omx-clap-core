@@ -447,7 +447,7 @@ static void t_atom_ports(void)
     CHECK(p && !p->midi_time && p->n_texts == 0 && lv2_plugin_text_limit(p) == 0, "atom: the MIDI echo's input takes no time:Position, and it has no text");
     lv2_plugin_close(p);
     p = open_plugin(g_atom, ATOM_URI "#notify-many", why);
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "atom: a fifth notify output is refused (%s)", why);
+    CHECK(p && p->n_notify == 5, "atom: a fifth notify output is admitted, up to %d are (%s, %u)", LV2_CORE_NOTIFY_PORTS, why, p ? p->n_notify : 0);
     lv2_plugin_close(p);
 }
 
@@ -545,7 +545,8 @@ static void t_atom_ui(void)
         CHECK(!p && strcmp(why, ATOM_CODE) == 0, "atom ui: an atom input that is no sequence is refused " ATOM_CODE ", not as MIDI (%s)", why);
         lv2_plugin_close(p);
         p = open_plugin(g_atom, ATOM_URI "#ui-many", why);
-        CHECK(!p && strcmp(why, ATOM_CODE) == 0, "atom ui: a fifth control input is refused " ATOM_CODE " (%s)", why);
+        CHECK(p && p->n_atom_in == 5, "atom ui: a fifth control input is admitted, fed empty, up to %d are (%s, %u)", LV2_CORE_ATOM_IN_PORTS, why,
+              p ? p->n_atom_in : 0);
         lv2_plugin_close(p);
     }
 }
@@ -653,7 +654,12 @@ static void t_midi_ports(void)
           "midi: an instrument, a MIDI input and a stereo output with no audio input, is admitted as a source (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: a second MIDI input is refused (%s)", why);
+    CHECK(p && p->midi_in_port == 2 && p->n_atom_in == 1 && p->atom_in[0] == 3,
+          "midi: a second MIDI input is admitted: the first is the MIDI input, the second an input fed empty (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-out", why);
+    CHECK(p && p->midi_out_port == 3 && p->n_notify == 1 && p->notify_out[0] == 4,
+          "midi: a second MIDI output is admitted: the first is the MIDI output, the second an output drained (%s)", why);
     lv2_plugin_close(p);
 }
 

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # lv2_midi_echo.c's ports: one audio pair and one MIDI input and output, each an atom:Sequence that supports
-# midi:MidiEvent. The twin has two MIDI inputs, which the adapter refuses from this TTL before it opens the binary.
+# midi:MidiEvent. The #two-in twin has two MIDI inputs (the first is the note path's, the second fed empty) and
+# #two-out two MIDI outputs (the first is the note output's, the second drained).
 @prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
 @prefix doap:  <http://usefulinc.com/ns/doap#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
@@ -39,6 +40,24 @@
     ] , [
         a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
         lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .
+
+<urn:openmixer:test:midi-echo#two-out>
+    a lv2:Plugin ;
+    doap:name "openmixer midi echo (two MIDI outputs twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 2 ; lv2:symbol "midi_in" ; lv2:name "MIDI In"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 3 ; lv2:symbol "midi_out_a" ; lv2:name "MIDI Out A"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 4 ; lv2:symbol "midi_out_b" ; lv2:name "MIDI Out B"
     ] .
 
 # the instrument: a MIDI input and a stereo output, no audio input
