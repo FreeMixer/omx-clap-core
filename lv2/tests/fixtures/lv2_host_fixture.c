@@ -171,12 +171,17 @@ static const LV2_Descriptor INPLACE_TWIN = {FIXTURE_URI "#inplace", fixed_instan
 /* the two-MIDI-inputs twin (#midi-two): audio in to out, MIDI A (2) the note path's, MIDI B (3) fed empty; admitted since
  * a MIDI port after the first is an input fed empty (#199), so it needs a descriptor to run through */
 struct midi_two { float *in, *out; const void *a, *b; };
+static LV2_Handle midi_two_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    (void)d; (void)rate; (void)path; (void)f;
+    return calloc(1, sizeof(struct midi_two));
+}
 static void midi_two_connect_port(LV2_Handle h, uint32_t port, void *data)
 {
     struct midi_two *t = h;
     if (port == 0) t->in = data; else if (port == 1) t->out = data; else if (port == 2) t->a = data; else if (port == 3) t->b = data;
 }
-static const LV2_Descriptor MIDI_TWO_TWIN = {FIXTURE_URI "#midi-two", fixed_instantiate, midi_two_connect_port, NULL, fixed_run, NULL, fixed_cleanup, NULL};
+static const LV2_Descriptor MIDI_TWO_TWIN = {FIXTURE_URI "#midi-two", midi_two_instantiate, midi_two_connect_port, NULL, fixed_run, NULL, fixed_cleanup, NULL};
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
