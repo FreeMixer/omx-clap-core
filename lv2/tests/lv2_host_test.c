@@ -226,7 +226,7 @@ static void t_one_bundle(void)
     struct lv2_bundle *f = lv2_bundle_ref(g_fixture, why), *w;
     struct lv2_plugin *p;
 
-    CHECK(f && lv2_bundle_count(f) == 13, "bundle: the fixture bundle lists its 12 plugins (%u)", lv2_bundle_count(f));
+    CHECK(f && lv2_bundle_count(f) == 14, "bundle: the fixture bundle lists its 14 plugins (%u)", lv2_bundle_count(f));
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p && strcmp(why, "hosting.no-realisation") == 0, "bundle: LV2_PATH holds the worker gain, the fixture bundle does not know it: one bundle, never load_all (%s)", why);
     w = lv2_bundle_ref(g_wg, why);
@@ -236,7 +236,7 @@ static void t_one_bundle(void)
     lv2_plugin_close(p);
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p, "bundle: with the worker gain's bundle loaded too, the fixture bundle still does not hold it: the plugin must be THAT bundle's (%s)", why);
-    CHECK(lv2_bundle_count(f) == 13, "bundle: and does not list it");
+    CHECK(lv2_bundle_count(f) == 14, "bundle: and does not list it");
     lv2_bundle_unref(w);
     lv2_bundle_unref(f);
 }
@@ -385,8 +385,8 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
-        { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
+        { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
@@ -637,6 +637,23 @@ static void t_cv_run(double rate)
 
 /* the echo's MIDI input and output are its two atom ports, found by what they support; a twin with two MIDI inputs is
  * refused from the TTL alone, and the fixture's atom input that is no sequence is refused, but not as MIDI */
+/* #184: a generator, audio outputs and no input of any kind, is admitted as a source, its outputs its main channels;
+ * a MIDI source, a MIDI output and no input at all, is hosted with the strip's audio passing through it; a control
+ * port alone is nothing to host (t_refusals) */
+static void t_sources(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_fixture, FIXTURE_URI "#gen", why);
+
+    CHECK(p && p->in_legs == 0 && p->legs == 2 && p->midi_in_port < 0 && p->out_ports[0] == 0 && p->out_ports[1] == 1 && !p->passthrough,
+          "sources: a generator, a stereo output and no input of any kind, is admitted as a source, its outputs 0 and 1 (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#source", why);
+    CHECK(p && p->in_legs == 0 && p->midi_in_port < 0 && p->midi_out_port == 0 && p->passthrough,
+          "sources: a MIDI source, a MIDI output and no input at all, is hosted with the strip's audio passing through (%s)", why);
+    lv2_plugin_close(p);
+}
+
 static void t_midi_ports(void)
 {
     char why[LV2_CORE_WHY_MAX] = "";
@@ -1137,6 +1154,7 @@ int main(int argc, char **argv)
     t_one_bundle();
     t_fixture();
     t_refusals();
+    t_sources();
     t_midi_ports();
     t_atom_ports();
     t_atom_ui();

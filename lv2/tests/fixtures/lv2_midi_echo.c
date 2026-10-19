@@ -375,12 +375,36 @@ static void tool_run(LV2_Handle h, uint32_t n)
 }
 static const LV2_Descriptor TOOL = { ECHO_URI "#tool", tool_instantiate, tool_connect, NULL, tool_run, NULL, echo_cleanup, NULL };
 
+/* the MIDI source twin (#source): a MIDI output (0) and no input of any kind; a note on (key 60, velocity 100) at frame
+ * 0 of every run, so a host reads a note it never sent */
+static void source_connect(LV2_Handle h, uint32_t port, void *data)
+{
+    struct tool *t = h;
+    if (port == 0) t->out = data;
+}
+static void source_run(LV2_Handle h, uint32_t n)
+{
+    struct tool *t = h;
+    struct { LV2_Atom_Event ev; uint8_t data[8]; } raw;
+    const uint32_t cap = t->out ? t->out->atom.size : 0;
+    (void)n;
+    if (!t->out) return;
+    lv2_atom_sequence_clear(t->out);
+    memset(&raw, 0, sizeof(raw));
+    raw.ev.time.frames = 0;
+    raw.ev.body.type = t->midi;
+    raw.ev.body.size = 3;
+    raw.data[0] = 0x90; raw.data[1] = 60; raw.data[2] = 100;
+    lv2_atom_sequence_append_event(t->out, cap, &raw.ev);
+}
+static const LV2_Descriptor SOURCE = { ECHO_URI "#source", tool_instantiate, source_connect, NULL, source_run, NULL, echo_cleanup, NULL };
+
 static const LV2_Descriptor TWO_IN = { ECHO_URI "#two-in", two_instantiate, two_in_connect, NULL, two_in_run, NULL, echo_cleanup, NULL };
 static const LV2_Descriptor TWO_OUT = { ECHO_URI "#two-out", two_instantiate, two_out_connect, NULL, two_out_run, NULL, echo_cleanup, NULL };
 
 EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &DESCRIPTOR : index == 1 ? &SYNTH : index == 2 ? &TWO_IN : index == 3 ? &TWO_OUT : index == 4 ? &TOOL : NULL;
+    return index == 0 ? &DESCRIPTOR : index == 1 ? &SYNTH : index == 2 ? &TWO_IN : index == 3 ? &TWO_OUT : index == 4 ? &TOOL : index == 5 ? &SOURCE : NULL;
 }
 
 /* the last run's input: how many events it had, and the one at `i`, with its frame, size and first bytes */

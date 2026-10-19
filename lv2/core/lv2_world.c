@@ -865,9 +865,9 @@ static char *side_name(const LilvPlugin *pl, const LilvPort *port)
 }
 
 /* The audio inputs, sorted. The main input is every input that is not a side chain, or with pg:mainInput the members of
- * that group; more than two, or an input outside the group, is refused as extra. None is an instrument when the plugin
- * has a MIDI input (read_ports finds it first): a source, its main channels its outputs'; with no MIDI input either it is
- * refused as no audio input. A side chain is an input with
+ * that group; more than two, or an input outside the group, is refused as extra. None is a source, its main channels
+ * its outputs' (read_ports): an instrument when the plugin has a MIDI input, a generator (an oscillator, a noise source)
+ * with no input of any kind (#184). A side chain is an input with
  * lv2:isSideChain, or with pg:sideChainOf on the port or on its group. A CLAP input is made of the members of one
  * pg:group, or of one ungrouped port, in the order of their first member, one or two channels each. Fills p->legs,
  * p->in_ports and the side chains; returns the refusal, or NULL. */
@@ -912,8 +912,6 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
             p->in_ports[nmain] = i;
         nmain++;
     }
-    if (!refusal && nmain == 0 && p->midi_in_port < 0)
-        refusal = LV2_CODE_NO_AUDIO_INPUT;
     if (!refusal && nmain > 2)
         refusal = LV2_CODE_EXTRA_INPUTS;
     for (i = 0; i < n && !refusal; i++)
@@ -1158,7 +1156,7 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     else
     {
         if (p->in_legs == 0 && nout <= 2)
-            p->legs = nout;     // an instrument: its outputs are its main channels
+            p->legs = nout;     // a source, an instrument or a generator: its outputs are its main channels
         if (nout != p->legs)
             return LV2_CODE_WIDER_THAN_STRIP;
         memcpy(p->out_ports, out, sizeof(p->out_ports));

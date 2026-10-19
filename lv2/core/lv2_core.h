@@ -104,7 +104,6 @@
 #define LV2_CODE_ATOM_IN                "hosting.features.atom-in-unfed"    // a non-MIDI atom input no buffer here can feed
 #define LV2_CODE_CV_PORTS               "hosting.features.cv-ports"
 #define LV2_CODE_FEATURES_MISSING       "hosting.features.missing"
-#define LV2_CODE_NO_AUDIO_INPUT         "hosting.topology.no-audio-input"
 #define LV2_CODE_NO_AUDIO_OUTPUT        "hosting.topology.no-audio-output"
 #define LV2_CODE_EXTRA_INPUTS           "hosting.topology.extra-inputs-fed-silence"
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
@@ -187,7 +186,7 @@ struct lv2_plugin
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
     uint32_t legs;                  // the main channels: 1 or 2, the output's and, for an effect, the input's
-    uint32_t in_legs;               // the main input's channels: legs, or 0 for an instrument (a MIDI input, no audio input)
+    uint32_t in_legs;               // the main input's channels: legs, or 0 for a source (an instrument or a generator: no audio input)
     uint32_t in_ports[2], out_ports[2];
     uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
     uint32_t n_side_legs;           // the legs of all of them
