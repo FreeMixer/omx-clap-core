@@ -207,7 +207,7 @@ reads 1 meter "$(db 0.5 -26)" 0.00006 "the probe after effect_0, -20 dB then -6 
 expect "param_set 0 nosuch 1" "resp -103"
 expect "param_get 0 in" "resp -103"
 expect "param_set 0 meter 1" "resp -103"
-expect "param_info 0 gain_db" "resp -511"
+expect "param_info 0 gain_db" "resp 0 none linear -60 0 -20 0 gain_db"
 expect "param_info 0 nosuch" "resp -103"
 
 # ---- monitoring an output port by its symbol ----
