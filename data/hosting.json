@@ -60,7 +60,7 @@
     "source": {
       "impl": [
         "src/hosted_stage.h#omx_hosted_prime",
-        "src/hosted_stage.h#omx_hosted_strike",
+        "src/hosted_stage.h#omx_hosted_strike_as",
         "src/hosted_stage.h#omx_hosted_clamp",
         "src/clap_stage.h#omx_clap_bind_aux",
         "src/clap_stage.h#omx_clap_bind_aux_in",
