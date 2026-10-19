@@ -224,6 +224,21 @@ arrived on, in the dialect the note port prefers:
   itself. The instance's `note_dialect` is `CLAP_NOTE_DIALECT_MIDI_MPE`. A
   sysex goes the way it does for a CLAP input: delivered when the port also
   declares MIDI, counted as unmappable when it does not.
+- MIDI 2.0: a port that prefers `CLAP_NOTE_DIALECT_MIDI2`, or declares it
+  and none of CLAP, MIDI and MIDI MPE, gets every channel message as the
+  MIDI 2.0 channel voice message the UMP specification translates it to, a
+  `CLAP_EVENT_MIDI2` (message type 4, group 0): a note on or off with its
+  velocity scaled from 7 to 16 bits, poly and channel pressure and a
+  controller from 7 to 32 bits, pitch bend from 14 to 32 bits, all by the
+  specification's min-centre-max scaling (0 stays 0, 64 becomes the top bit,
+  127 all ones), and a program change with no bank. A note on of velocity 0
+  is a note off of velocity `0x8000`, MIDI 1.0's release velocity of 64. No
+  state is kept, so bank select, RPN and NRPN pass as the plain controllers
+  they are. A sysex goes as it does for a CLAP input. A CLAP-dialect port
+  that also declares MIDI 2.0 and not MIDI keeps its notes, bend and
+  pressure as CLAP events and gets a controller and a program change as
+  MIDI 2.0 rather than counted (`t_midi2` in `tests/clap_stage_test.c`;
+  `synth-midi2` in `tests/fake_synth.c` plays from them).
 
 The message types each dialect passes, as `src/clap_stage.h` documents them
 (`tests/dialect_doc_check.sh` fails when the two lists differ):
@@ -233,6 +248,9 @@ Counts, CLAP only: other controller, program change, sysex.
 Passes, CLAP and MIDI: note on, note off, every other channel message, sysex.
 Passes, MIDI: every channel message, sysex.
 Passes, MIDI MPE: every channel message, sysex only when the port also declares MIDI.
+Passes, MIDI 2.0: every channel message as MIDI 2.0, sysex only when the port also declares MIDI.
+Passes, CLAP and MIDI 2.0: note on, note off, all sound off, all notes off, pitch bend, channel pressure, poly pressure, other controller and program change as MIDI 2.0.
+Counts, CLAP and MIDI 2.0: sysex.
 
 Note ids. Every CLAP note on takes a fresh id from a pool of 256 per
 instance (`OMX_CLAP_NOTE_IDS`), and its note off and every per-note
@@ -306,7 +324,7 @@ for (512 messages, which only a stopped graph fills) is not queued at all
 and answers `-517`, plugin-hostd's code for a full note queue.
 
 A main port wider than stereo, a main pair of different widths, a second
-note input, or a note input that reads none of the CLAP, MIDI and MIDI MPE dialects
+note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects
 is refused at `add` with `resp -102` followed
 by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
 `hosting.clap.note-input`. A plugin with no main input is a source, its output its
@@ -469,7 +487,38 @@ answers 1 with the three figures, or 0 when the plugin declares none: no
 extension, a `get` that fails, an answer outside
 `1 <= voice_count <= voice_capacity`, or an instance not yet activated.
 With no declaration every figure reads 0, which is never a voice count.
-The last activate's answer is kept across a deactivate.
+The last activate's answer is kept across a deactivate. A plugin that
+says its voice info changed (the host's `clap.voice-info`) is asked again
+by the next `omx_clap_host_tick` while it is active.
+
+Instrument details
+------------------
+
+The host object offers a plugin `clap.note-ports`, `clap.note-name` and
+`clap.voice-info` besides the six extensions every plugin gets
+(`src/clap_host_extensions.h`).
+
+- `note-ports.supported_dialects` answers what a note input can be fed in:
+  CLAP, MIDI, MIDI MPE and MIDI 2.0 (`OMX_CLAP_HOST_NOTE_DIALECTS`) when the
+  configuration admits note inputs, none when it does not.
+- `note-ports.rescan`: the flags are taken by the tick and read once with
+  `omx_clap_host_note_ports_rescanned`. A rescan of the names
+  (`CLAP_NOTE_PORTS_RESCAN_NAMES`) changes nothing the host holds. A rescan
+  of every port (`CLAP_NOTE_PORTS_RESCAN_ALL`) is the plugin's to make only
+  while inactive; made while active, the tick asks for a restart. Either way
+  the next activate reads the note input again and chooses its dialect
+  anew; ports that `add` would have refused, or a note input that came or
+  went (the audio topology rests on it), refuse the activate with
+  `hosting.clap.note-input` and keep the old reading.
+- `note-name`: a drum machine names its keys ("Kick" on 36). The library's
+  caller reads them with `omx_clap_host_note_name_count` and
+  `omx_clap_host_note_name`, each with the port, key and channel it names,
+  -1 for every one; a name the plugin's `get` refuses is not answered.
+  `note-name.changed` reads once through `omx_clap_host_note_names_changed`.
+- `voice-info.changed`: above, under Voices.
+
+Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
+its own to share yet (FreeMixer/omx-clap-core#91 keeps it).
 
 Scanning
 --------
@@ -487,8 +536,15 @@ instance that is initialised, read and destroyed without being activated:
   name (`stepped`, `hidden`, `readonly`, `bypass`, `automatable`, ...);
 - the audio ports of each direction: id, name, `main` or `aux`, channels;
 - the note port counts;
+- the note names (`clap.note-name`), each with its port, key and channel;
+  absent when the plugin names none;
 - the latency, when the plugin answers it before activation with more than
-  0 frames; otherwise the key is absent, never 0.
+  0 frames; otherwise the key is absent, never 0;
+- the voice info (`clap.voice-info`): the voices the patch uses, the voices
+  allocated, and whether two notes may sound on one key. The extension
+  answers only while active, so a plugin that offers it is activated once,
+  at 48 kHz with blocks of up to 1024 frames, read and deactivated; absent
+  when it offers none or answers outside `1 <= count <= capacity`.
 
 `--json` writes one document on stdout with the keys in a fixed order:
 
@@ -498,7 +554,9 @@ instance that is initialised, read and destroyed without being activated:
      "url":"...","features":["audio-effect"],
      "params":[{"id":0,"name":"...","module":"","min":0,"max":1,"default":0,"flags":["stepped"]}],
      "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2}],"outputs":[...]},
-     "note_ports":{"inputs":0,"outputs":0},"latency":64}
+     "note_ports":{"inputs":0,"outputs":0},
+     "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
+     "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}
     ]}
     ]}
 
