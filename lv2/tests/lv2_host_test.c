@@ -226,7 +226,7 @@ static void t_one_bundle(void)
     struct lv2_bundle *f = lv2_bundle_ref(g_fixture, why), *w;
     struct lv2_plugin *p;
 
-    CHECK(f && lv2_bundle_count(f) == 11, "bundle: the fixture bundle lists its 11 plugins (%u)", lv2_bundle_count(f));
+    CHECK(f && lv2_bundle_count(f) == 14, "bundle: the fixture bundle lists its 14 plugins (%u)", lv2_bundle_count(f));
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p && strcmp(why, "hosting.no-realisation") == 0, "bundle: LV2_PATH holds the worker gain, the fixture bundle does not know it: one bundle, never load_all (%s)", why);
     w = lv2_bundle_ref(g_wg, why);
@@ -236,7 +236,7 @@ static void t_one_bundle(void)
     lv2_plugin_close(p);
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p, "bundle: with the worker gain's bundle loaded too, the fixture bundle still does not hold it: the plugin must be THAT bundle's (%s)", why);
-    CHECK(lv2_bundle_count(f) == 11, "bundle: and does not list it");
+    CHECK(lv2_bundle_count(f) == 14, "bundle: and does not list it");
     lv2_bundle_unref(w);
     lv2_bundle_unref(f);
 }
@@ -385,8 +385,8 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
-        { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
-        { FIXTURE_URI "#no-out", "hosting.topology.no-audio-output" },
+        { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
+        { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
@@ -447,7 +447,7 @@ static void t_atom_ports(void)
     CHECK(p && !p->midi_time && p->n_texts == 0 && lv2_plugin_text_limit(p) == 0, "atom: the MIDI echo's input takes no time:Position, and it has no text");
     lv2_plugin_close(p);
     p = open_plugin(g_atom, ATOM_URI "#notify-many", why);
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "atom: a fifth notify output is refused (%s)", why);
+    CHECK(p && p->n_notify == 5, "atom: a fifth notify output is admitted, up to %d are (%s, %u)", LV2_CORE_NOTIFY_PORTS, why, p ? p->n_notify : 0);
     lv2_plugin_close(p);
 }
 
@@ -545,7 +545,8 @@ static void t_atom_ui(void)
         CHECK(!p && strcmp(why, ATOM_CODE) == 0, "atom ui: an atom input that is no sequence is refused " ATOM_CODE ", not as MIDI (%s)", why);
         lv2_plugin_close(p);
         p = open_plugin(g_atom, ATOM_URI "#ui-many", why);
-        CHECK(!p && strcmp(why, ATOM_CODE) == 0, "atom ui: a fifth control input is refused " ATOM_CODE " (%s)", why);
+        CHECK(p && p->n_atom_in == 5, "atom ui: a fifth control input is admitted, fed empty, up to %d are (%s, %u)", LV2_CORE_ATOM_IN_PORTS, why,
+              p ? p->n_atom_in : 0);
         lv2_plugin_close(p);
     }
 }
@@ -636,6 +637,23 @@ static void t_cv_run(double rate)
 
 /* the echo's MIDI input and output are its two atom ports, found by what they support; a twin with two MIDI inputs is
  * refused from the TTL alone, and the fixture's atom input that is no sequence is refused, but not as MIDI */
+/* #184: a generator, audio outputs and no input of any kind, is admitted as a source, its outputs its main channels;
+ * a MIDI source, a MIDI output and no input at all, is hosted with the strip's audio passing through it; a control
+ * port alone is nothing to host (t_refusals) */
+static void t_sources(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_fixture, FIXTURE_URI "#gen", why);
+
+    CHECK(p && p->in_legs == 0 && p->legs == 2 && p->midi_in_port < 0 && p->out_ports[0] == 0 && p->out_ports[1] == 1 && !p->passthrough,
+          "sources: a generator, a stereo output and no input of any kind, is admitted as a source, its outputs 0 and 1 (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#source", why);
+    CHECK(p && p->in_legs == 0 && p->midi_in_port < 0 && p->midi_out_port == 0 && p->passthrough,
+          "sources: a MIDI source, a MIDI output and no input at all, is hosted with the strip's audio passing through (%s)", why);
+    lv2_plugin_close(p);
+}
+
 static void t_midi_ports(void)
 {
     char why[LV2_CORE_WHY_MAX] = "";
@@ -653,7 +671,12 @@ static void t_midi_ports(void)
           "midi: an instrument, a MIDI input and a stereo output with no audio input, is admitted as a source (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
-    CHECK(!p && strcmp(why, "hosting.features.midi-in-fed-empty") == 0, "midi: a second MIDI input is refused (%s)", why);
+    CHECK(p && p->midi_in_port == 2 && p->n_atom_in == 1 && p->atom_in[0] == 3,
+          "midi: a second MIDI input is admitted: the first is the MIDI input, the second an input fed empty (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-out", why);
+    CHECK(p && p->midi_out_port == 3 && p->n_notify == 1 && p->notify_out[0] == 4,
+          "midi: a second MIDI output is admitted: the first is the MIDI output, the second an output drained (%s)", why);
     lv2_plugin_close(p);
 }
 
@@ -1019,8 +1042,15 @@ static void t_options(void)
     CHECK(seen && (seen->seen & (LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2 | LV2_FEATURE_PROBE_BOUNDED))
                   == (LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2 | LV2_FEATURE_PROBE_BOUNDED),
           "options: the probe sees bounded, fixed and power of two");
+    // fixed declared, a fixed length is one number: the minimum and nominal named are overruled by the maximum
+    CHECK(seen && seen->min_block == (int32_t)BLOCK && seen->max_block == (int32_t)BLOCK && seen->nominal_block == (int32_t)BLOCK,
+          "options: fixed declared, the lengths are the maximum, over the minimum and nominal named (%d %d %d)",
+          seen ? seen->min_block : -1, seen ? seen->max_block : -1, seen ? seen->nominal_block : -1);
+    o.block.declares = OMX_LV2_BLOCK_BOUNDED | OMX_LV2_BLOCK_POW2;
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
     CHECK(seen && seen->min_block == 1 && seen->max_block == (int32_t)BLOCK && seen->nominal_block == 32,
-          "options: and the lengths named, over the activation's (%d %d %d)", seen ? seen->min_block : -1,
+          "options: not fixed, the lengths named stand over the activation's (%d %d %d)", seen ? seen->min_block : -1,
           seen ? seen->max_block : -1, seen ? seen->nominal_block : -1);
 
     // the log, captured
@@ -1124,6 +1154,7 @@ int main(int argc, char **argv)
     t_one_bundle();
     t_fixture();
     t_refusals();
+    t_sources();
     t_midi_ports();
     t_atom_ports();
     t_atom_ui();

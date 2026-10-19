@@ -135,6 +135,10 @@ struct shim
     int active, processing;
     int broken;                         // a reset whose worker could not start again: process() fails until activate
     uint32_t max_frames;
+    // bufsz:fixedBlockLength declared at this activation: a process() of another frame count is refused, never run
+    int fixed_block;
+    _Atomic uint32_t fixed_refused;
+    uint32_t fixed_refused_logged;
     double rate;
 
     // latency: the figure latency.get answers, and a different one being held
@@ -442,18 +446,25 @@ static const clap_plugin_params_t g_params =
 
 static uint32_t latency_get(const clap_plugin_t *plugin)
 {
-    return SHIM_OF(plugin)->latency_active;
+    // a pass-through plugin adds no latency to the audio it does not touch: its own latency applies to its MIDI alone
+    return SHIM_OF(plugin)->lv2->passthrough ? 0u : SHIM_OF(plugin)->latency_active;
 }
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
-/* the inputs before the side chains and the CV inputs: the main one, none for an instrument */
+/* the inputs before the side chains and the CV inputs: the main one, none for a source (an instrument or a generator) */
 static uint32_t main_inputs(const struct lv2_plugin *l)
 {
-    return l->in_legs ? 1u : 0u;
+    return l->in_legs || l->passthrough ? 1u : 0u;
 }
 
-/* the main pair (none in for an instrument), then one input per side chain (LV2 port groups and lv2:isSideChain,
+/* the main pair's width as the host sees it: a pass-through tool with no audio of its own carries the strip's stereo pair */
+static uint32_t shim_legs(const struct lv2_plugin *l)
+{
+    return l->passthrough ? (l->in_legs ? l->in_legs : 2u) : l->legs;
+}
+
+/* the main pair (none in for a source), then one input per side chain (LV2 port groups and lv2:isSideChain,
  * lv2/core), then one per CV input; the output is the main pair, then one per CV output */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
@@ -471,13 +482,14 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
     memset(info, 0, sizeof(*info));
     info->id = index;
     if (is_input)
-        index += 1u - main_inputs(s->lv2);     // an instrument's first input is a side chain's or a CV input's
+        index += 1u - main_inputs(s->lv2);     // a source's first input is a side chain's or a CV input's
     if (index == 0)
     {
-        snprintf(info->name, sizeof(info->name), "%s", is_input ? "in" : "out");
+        // a pass-through plugin's main pair is the host's placement, said in the port's own name
+        snprintf(info->name, sizeof(info->name), "%s%s", is_input ? "in" : "out", s->lv2->passthrough ? " (passthrough: host)" : "");
         info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-        info->channel_count = s->lv2->legs;
-        info->port_type = s->lv2->legs == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+        info->channel_count = shim_legs(s->lv2);
+        info->port_type = shim_legs(s->lv2) == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
     }
     else if (is_input && index - 1 < s->lv2->n_side)
     {
@@ -672,9 +684,18 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     s->broken = 0;
     s->rate = rate;
     s->max_frames = max_frames;
+    s->fixed_block = (lv2_core_feature_options()->block.declares & OMX_LV2_BLOCK_FIXED) != 0;
     // the restart a held latency asked for is this activation: it takes the reading
     s->latency_active = lv2_instance_latency(s->in);
     s->latency_pending = s->latency_active;
+    if (s->lv2->passthrough)
+    {
+        char line[256];
+
+        snprintf(line, sizeof(line), "%s: passthrough: host (no audio output: the strip's audio passes through untouched; the plugin's %u frames of latency apply to its MIDI alone)",
+                 s->lv2->uri, s->latency_active);
+        host_log(s->host, CLAP_LOG_INFO, line);
+    }
     s->latency_held_frames = 0;
     s->latency_hold_frames = (uint64_t)(rate * (double)g_latency_hold_ms / 1000.0);
     s->restart_requested = 0;
@@ -782,6 +803,15 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
     if (!s->active || s->broken || n > s->max_frames)
         return CLAP_PROCESS_ERROR;
+    // the fixed block length the plugin was promised: a cycle of another length is the host's fault, refused here
+    // and said on the main thread, and the plugin never runs on it
+    if (s->fixed_block && n != s->max_frames)
+    {
+        atomic_fetch_add_explicit(&s->fixed_refused, 1u, memory_order_relaxed);
+        if (!atomic_exchange_explicit(&s->counters_moved, 1u, memory_order_relaxed))
+            s->host->request_callback(s->host);
+        return CLAP_PROCESS_ERROR;
+    }
     for (leg = 0; leg < s->lv2->in_legs; leg++)
     {
         float *dst = lv2_instance_audio_in(s->in, leg);
@@ -834,7 +864,23 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     if (s->lv2->midi_out_port >= 0 && s->out_events)
         lv2_instance_midi_out_each(s->in, midi_out_event, s);
     s->out_events = NULL;
-    if (process->audio_outputs_count && process->audio_outputs[0].data32)
+    if (process->audio_outputs_count && process->audio_outputs[0].data32 && s->lv2->passthrough)
+    {
+        // the host's placement: the main input passes to the main output bit for bit, silence where there is none
+        const clap_audio_buffer_t *b = &process->audio_outputs[0];
+        const clap_audio_buffer_t *a = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
+
+        for (leg = 0; leg < b->channel_count; leg++)
+        {
+            const float *src = a && a->data32 && a->channel_count ? a->data32[leg < a->channel_count ? leg : 0] : NULL;
+
+            if (!src)
+                memset(b->data32[leg], 0, n * sizeof(float));
+            else if (src != b->data32[leg])
+                memcpy(b->data32[leg], src, n * sizeof(float));
+        }
+    }
+    else if (process->audio_outputs_count && process->audio_outputs[0].data32)
     {
         const clap_audio_buffer_t *b = &process->audio_outputs[0];
 
@@ -1005,6 +1051,17 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
 
     if (!atomic_exchange_explicit(&s->counters_moved, 0u, memory_order_relaxed))
         return;
+    {
+        const uint32_t refused = atomic_load_explicit(&s->fixed_refused, memory_order_relaxed);
+
+        if (refused != s->fixed_refused_logged)
+        {
+            snprintf(line, sizeof(line), "lv2 fixed block: %u process() calls refused, their frame count not the activation's %u",
+                     refused - s->fixed_refused_logged, s->max_frames);
+            host_log(s->host, CLAP_LOG_WARNING, line);
+            s->fixed_refused_logged = refused;
+        }
+    }
     lv2_instance_counters(s->in, &c);
     if (memcmp(&c, &s->logged, sizeof(c)) == 0)
         return;

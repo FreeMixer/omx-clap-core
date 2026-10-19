@@ -88,6 +88,9 @@
 #include "fixtures/lv2_time_probe.h"
 #include "fixtures/lv2_path_probe.h"
 #include "fixtures/lv2_atom_probe.h"
+#include "fixtures/lv2_host_fixture.h"
+#include "fixtures/lv2_patch_fixture.h"
+struct lv2_midi_echo_two { unsigned runs, a, b, in; };
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -120,11 +123,11 @@ int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(voi
 }
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
-static char g_patch[PATH_MAX];
+static char g_patch[PATH_MAX], g_patch_so[PATH_MAX + 32];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
-static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX];
+static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX], g_fixture_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
 
@@ -443,7 +446,7 @@ static void t_entry(void)
 
     CHECK(a && a == b, "the entry of a bundle, the same entry for a second reference");
     CHECK(a && a->init(g_fixture) && clap_version_is_compatible(a->clap_version), "its init answers and its CLAP version is compatible");
-    CHECK(fa && fa->get_plugin_count(fa) == 11, "its factory lists the fixture bundle's 11 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
+    CHECK(fa && fa->get_plugin_count(fa) == 14, "its factory lists the fixture bundle's 14 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
     CHECK(fa && has_plugin(fa, FIXTURE_URI, &name) && name && strcmp(name, "openmixer host fixture") == 0,
           "descriptor id = the LV2 URI, name = doap:name (%s), features: audio-effect only", name ? name : "");
     CHECK(a && a->get_factory("clap.no-such-factory") == NULL, "no factory but the plugin factory");
@@ -458,7 +461,7 @@ static void t_entry(void)
     omx_clap_lv2_entry_release(w);
     a = omx_clap_lv2_entry(g_fixture, why);
     fa = a ? a->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
-    CHECK(fa && fa->get_plugin_count(fa) == 11, "after the last release the bundle is loaded afresh for the next entry");
+    CHECK(fa && fa->get_plugin_count(fa) == 14, "after the last release the bundle is loaded afresh for the next entry");
     omx_clap_lv2_entry_release(a);
 }
 
@@ -467,8 +470,8 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
-        { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
-        { FIXTURE_URI "#no-out", "hosting.topology.no-audio-output" },
+        { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
+        { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
@@ -520,8 +523,14 @@ static void t_midi_refusal(void)
     const clap_plugin_note_ports_t *np;
 
     th_init(&t);
-    CHECK(f && f->create_plugin(f, &t.host, MIDI_URI "#two-in") == NULL && strcmp(t.log, "hosting.features.midi-in-fed-empty\n") == 0,
-          "create_plugin refuses a second MIDI input, and clap.log carries its code (got '%.*s')", (int)strcspn(t.log, "\n"), t.log);
+    {
+        const clap_plugin_t *p = f ? f->create_plugin(f, &t.host, MIDI_URI "#two-in") : NULL;
+
+        CHECK(p != NULL && t.log[0] == '\0', "create_plugin admits a second MIDI input (fed empty), nothing on clap.log (got '%.*s')",
+              (int)strcspn(t.log, "\n"), t.log);
+        if (p)
+            p->destroy(p);
+    }
     omx_clap_lv2_entry_release(e);
     if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) == 0)
     {
@@ -1312,6 +1321,303 @@ static void t_props(void)
 }
 
 /* ---- the latency hold, on the pad ---- */
+
+/* bufsz:fixedBlockLength: declared by the host, the twin requiring it is admitted, a block of the activation's length
+ * runs, one of another length is refused and never reaches the plugin, and under the defaults the twin is refused */
+static void t_fixed_block(double rate)
+{
+    struct omx_lv2_feature_options o;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    uint32_t i;
+
+    omx_lv2_feature_options_init(&o);
+    o.block.declares |= OMX_LV2_BLOCK_FIXED;
+    CHECK(omx_clap_lv2_feature_options(&o, why) == 0, "fixed %.0f: the options declare a fixed block (%s)", rate, why);
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#fixed", rate, BLOCK) == 0)
+    {
+        for (i = 0; i < BLOCK; i++)
+            in[i] = 0.25f, out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] != -7.0f,
+              "fixed %.0f: the twin requiring fixedBlockLength is admitted and a block of the activation's length runs", rate);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK / 2, NULL, NULL) == CLAP_PROCESS_ERROR && out[0] == -7.0f,
+              "fixed %.0f: a block of another length is refused and the plugin never runs on it (out %g)", rate, out[0]);
+        // the host's cycle shrank: it re-activates at the new length, and that length runs while the old one is refused
+        g.plugin->stop_processing(g.plugin);
+        g.plugin->deactivate(g.plugin);
+        CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK / 2) && g.plugin->start_processing(g.plugin), "fixed %.0f: re-activated at half the block", rate);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK / 2, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.25f,
+              "fixed %.0f: after the shrink the new length runs (out %g)", rate, out[0]);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_ERROR && out[0] == -7.0f,
+              "fixed %.0f: and the old length is refused now (out %g)", rate, out[0]);
+        rig_down(&g);
+    }
+    CHECK(omx_clap_lv2_feature_options(NULL, why) == 0, "fixed %.0f: the defaults again (%s)", rate, why);
+    {
+        const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_fixture, why);
+        const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+        struct th t;
+
+        th_init(&t);
+        CHECK(f && f->create_plugin(f, &t.host, FIXTURE_URI "#fixed") == NULL
+              && strcmp(omx_clap_lv2_last_refusal(), "hosting.features.missing") == 0,
+              "fixed %.0f: under the defaults the twin is refused hosting.features.missing again", rate);
+        omx_clap_lv2_entry_release(e);
+    }
+}
+
+/* lv2:inPlaceBroken as a requirement: admitted under the defaults, and the twin's witness sees distinct buffers on
+ * every run, also when the host itself processes in place (one buffer in and out): the adapter copies both ways */
+static void t_inplace(double rate)
+{
+    struct lv2_host_fixture_inplace *w = NULL;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    uint32_t i;
+
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#inplace", rate, BLOCK) != 0)
+        return;
+    *(void **)&w = loaded_symbol(g_fixture_so, "lv2_host_fixture_inplace");
+    CHECK(w != NULL, "inplace %.0f: the twin's witness is at hand", rate);
+    if (w)
+        w->runs = w->aliased = 0;
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f, out[i] = 0.0f;
+    CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.5f,
+          "inplace %.0f: the twin requiring inPlaceBroken is admitted and runs (out %g)", rate, out[0]);
+    CHECK(process_with(&g, in, NULL, in, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE,
+          "inplace %.0f: the host processing in place runs too", rate);
+    CHECK(w && w->runs == 2 && w->aliased == 0,
+          "inplace %.0f: the plugin saw two runs and never one buffer as input and output (runs %u aliased %u)", rate,
+          w ? w->runs : 0, w ? w->aliased : 0);
+    rig_down(&g);
+}
+
+/* a two-event list: one parameter value, then one MIDI message */
+struct two_events { clap_input_events_t list; clap_event_param_value_t p; clap_event_midi_t m; };
+static uint32_t two_size(const clap_input_events_t *l) { (void)l; return 2; }
+static const clap_event_header_t *two_get(const clap_input_events_t *l, uint32_t i)
+{
+    const struct two_events *b = l->ctx;
+
+    return i == 0 ? &b->p.header : i == 1 ? &b->m.header : NULL;
+}
+
+/* one atom input for MIDI and patch (the patch fixture's #midi twin): admitted, and a block carrying a parameter write
+ * and a note reaches the plugin as ONE sequence, the patch:Set at frame 0 before the note at its frame, in order */
+static void t_midi_patch(double rate)
+{
+    struct two_events both;
+    struct lv2_patch_fixture_midi *w = NULL;
+    clap_param_info_t info;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    uint32_t i;
+
+    if (rig_up(&g, g_patch, FIXTURE_PATCH_URI "#midi", rate, BLOCK) != 0)
+        return;
+    *(void **)&w = loaded_symbol(g_patch_so, "lv2_patch_fixture_midi");
+    CHECK(w != NULL && patch_info(&g, "Gain", &info), "midi+patch %.0f: the twin is admitted, its witness and its Gain at hand", rate);
+    if (!w)
+    {
+        rig_down(&g);
+        return;
+    }
+    memset(&both, 0, sizeof(both));
+    both.p.header.size = sizeof(both.p);
+    both.p.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    both.p.header.type = CLAP_EVENT_PARAM_VALUE;
+    both.p.param_id = info.id;
+    both.p.note_id = -1;
+    both.p.port_index = -1;
+    both.p.channel = -1;
+    both.p.key = -1;
+    both.p.value = 0.5;
+    both.m.header.size = sizeof(both.m);
+    both.m.header.time = 10;
+    both.m.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    both.m.header.type = CLAP_EVENT_MIDI;
+    both.m.data[0] = 0x90;
+    both.m.data[1] = 60;
+    both.m.data[2] = 100;
+    both.list.ctx = &both;
+    both.list.size = two_size;
+    both.list.get = two_get;
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.25f, out[i] = 0.0f;
+    // the first block carries every property's initial value as the parameter path always does; the measured block is the next
+    process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL);
+    w->runs = w->out_of_order = 0;
+    CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, &both.list, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.25f,
+          "midi+patch %.0f: the block runs through the twin", rate);
+    CHECK(w->runs == 1 && w->patch == 1 && w->midi == 1,
+          "midi+patch %.0f: one run saw one patch:Set and one MIDI message in one sequence (runs %u patch %u midi %u of %u)",
+          rate, w->runs, w->patch, w->midi, w->events);
+    CHECK(w->out_of_order == 0 && w->first_patch_frame == 0 && w->first_midi_frame == 10,
+          "midi+patch %.0f: in frame order, the patch:Set at 0 before the note at 10 (order faults %u, patch %lld, midi %lld)",
+          rate, w->out_of_order, (long long)w->first_patch_frame, (long long)w->first_midi_frame);
+    rig_down(&g);
+}
+
+/* more than one MIDI port (#199): the first input is the note path's and the second is fed an empty sequence; the
+ * first output is the note output's and the second is drained, so an event the plugin writes to both reaches the host once */
+static void t_midi_extra(double rate)
+{
+    struct lv2_midi_echo_two *w = NULL;
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    static const uint8_t note[3] = { 0x90, 60, 100 };
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f, out[i] = 0.0f;
+    if (rig_up(&g, g_midi, MIDI_URI "#two-in", rate, BLOCK) == 0)
+    {
+        *(void **)&w = loaded_symbol(g_midi_so, "lv2_midi_echo_two");
+        midi_in_init(&mi);
+        mi_midi(&mi, 3, note, 3);
+        midi_out_init(&mo);
+        CHECK(w && process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE && out[0] == 0.5f,
+              "two-in %.0f: admitted and runs", rate);
+        CHECK(w && w->a == 1 && w->b == 0, "two-in %.0f: the note reached the first MIDI input, the second was empty (a %u b %u)", rate,
+              w ? w->a : 0, w ? w->b : 0);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_midi, MIDI_URI "#two-out", rate, BLOCK) == 0)
+    {
+        *(void **)&w = loaded_symbol(g_midi_so, "lv2_midi_echo_two");
+        midi_in_init(&mi);
+        mi_midi(&mi, 3, note, 3);
+        midi_out_init(&mo);
+        CHECK(w && process_with(&g, in, NULL, out, NULL, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE && w->in == 1,
+              "two-out %.0f: admitted, the note reached the plugin (in %u)", rate, w ? w->in : 0);
+        CHECK(mo.n == 1 && out_is(&mo, 0, CLAP_EVENT_MIDI, 3, note, 3),
+              "two-out %.0f: the plugin wrote the note to both outputs and the host read it once, from the first (%u)", rate, mo.n);
+        rig_down(&g);
+    }
+}
+
+/* no audio output (#183): a MIDI tool (notes in and out, no audio port) and an analyser (audio in, no output) are
+ * hosted with the strip's audio passing through them bit for bit, the host's placement said in the port's name, no
+ * latency on that audio, the tool's notes transformed and the analyser's control output read as before */
+static void t_passthrough(double rate)
+{
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    clap_audio_port_info_t info;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    static const uint8_t note[3] = { 0x90, 60, 100 }, up[3] = { 0x90, 72, 100 };
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK - 0.5f, in_r[i] = 0.5f - (float)i / BLOCK, out_l[i] = out_r[i] = 7.0f;
+    if (rig_up(&g, g_midi, MIDI_URI "#tool", rate, BLOCK) == 0)
+    {
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1 && g.ports->get(g.plugin, 0, false, &info)
+              && info.channel_count == 2 && strstr(info.name, "passthrough: host") != NULL,
+              "tool %.0f: a stereo main pair in and out, named as the host's placement (%s)", rate, info.name);
+        CHECK(g.latency && g.latency->get(g.plugin) == 0, "tool %.0f: no latency on the audio it does not touch", rate);
+        midi_in_init(&mi);
+        mi_midi(&mi, 5, note, 3);
+        midi_out_init(&mo);
+        CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
+              && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+              "tool %.0f: the audio passes through bit for bit, both legs", rate);
+        CHECK(mo.n == 1 && out_is(&mo, 0, CLAP_EVENT_MIDI, 5, up, 3), "tool %.0f: the note came out transformed, an octave up at its frame (%u)", rate, mo.n);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#no-out", rate, BLOCK) == 0)
+    {
+        clap_param_info_t pi;
+        uint32_t k, n = g.params ? g.params->count(g.plugin) : 0;
+        clap_id peak = CLAP_INVALID_ID;
+
+        for (k = 0; k < n; k++)
+            if (g.params->get_info(g.plugin, k, &pi) && strcmp(pi.name, "peak") == 0)
+                peak = pi.id;
+        CHECK(g.ports && g.ports->get(g.plugin, 0, false, &info) && info.channel_count == 1 && strstr(info.name, "passthrough: host") != NULL,
+              "analyser %.0f: a mono main out named as the host's placement (%s)", rate, info.name);
+        for (i = 0; i < BLOCK; i++)
+            out_l[i] = 7.0f;
+        CHECK(process_with(&g, in_l, NULL, out_l, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE && memcmp(out_l, in_l, sizeof out_l) == 0,
+              "analyser %.0f: the audio passes through bit for bit", rate);
+        CHECK(peak != CLAP_INVALID_ID && param(&g, peak) == 0.5f, "analyser %.0f: its control output reads the block's peak as before (%g)", rate,
+              peak != CLAP_INVALID_ID ? param(&g, peak) : -1.0);
+        rig_down(&g);
+    }
+}
+
+/* #184: a generator, a stereo output and no input of any kind, is admitted as a source: its face has no audio input
+ * port and no note port, one stereo main output, and a block with no input renders its signal on both channels; a
+ * MIDI source, a MIDI output and no input at all, is hosted as a pass-through tool whose note output carries its notes */
+static void t_generator(double rate)
+{
+    static const uint8_t note[3] = { 0x90, 60, 100 };
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    clap_audio_port_info_t info;
+    const clap_plugin_note_ports_t *np;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    float *outs[2] = { out_l, out_r };
+    clap_audio_buffer_t ob = { outs, NULL, 2, 0, 0 };
+    clap_process_t p;
+    uint32_t i, all;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK - 0.5f, in_r[i] = 0.5f - (float)i / BLOCK, out_l[i] = out_r[i] = 7.0f;
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#gen", rate, BLOCK) == 0)
+    {
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 0 && g.ports->count(g.plugin, false) == 1
+                  && g.ports->get(g.plugin, 0, false, &info) && info.channel_count == 2 && (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
+                  && strstr(info.name, "passthrough") == NULL && (!np || (np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 0)),
+              "generator %.0f: no audio input port, no note port, a stereo main output of its own (%s)", rate, info.name);
+        memset(&p, 0, sizeof(p));
+        p.steady_time = -1;
+        p.frames_count = BLOCK;
+        p.audio_outputs = &ob;
+        p.audio_outputs_count = 1;
+        midi_in_init(&mi);
+        midi_out_init(&mo);
+        p.in_events = &mi.list;
+        p.out_events = &mo.list;
+        g_audio = 1;
+        in_rt = 1;
+        CHECK(g.plugin->process(g.plugin, &p) == CLAP_PROCESS_CONTINUE, "generator %.0f: a block with no audio input runs", rate);
+        in_rt = 0;
+        g_audio = 0;
+        for (i = 0, all = 1; i < BLOCK; i++)
+            all &= out_l[i] == 0.5f && out_r[i] == 0.25f;
+        CHECK(all, "generator %.0f: 0.5 on the left and 0.25 on the right, every frame (%g, %g)", rate, out_l[0], out_r[BLOCK - 1]);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_midi, MIDI_URI "#source", rate, BLOCK) == 0)
+    {
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1 && g.ports->get(g.plugin, 0, false, &info)
+                  && info.channel_count == 2 && strstr(info.name, "passthrough: host") != NULL
+                  && np && np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 1,
+              "midi source %.0f: the strip's pair passing through, no note input, one note output (%s)", rate, info.name);
+        midi_in_init(&mi);
+        midi_out_init(&mo);
+        CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
+                  && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+              "midi source %.0f: the audio passes through bit for bit, both legs", rate);
+        CHECK(mo.n == 1 && out_is(&mo, 0, CLAP_EVENT_MIDI, 0, note, 3), "midi source %.0f: its note came out at frame 0, a note the host never sent (%u)", rate, mo.n);
+        rig_down(&g);
+    }
+}
 
 static void t_latency_hold(double rate)
 {
@@ -2821,12 +3127,14 @@ int main(int argc, char **argv)
     }
     snprintf(dir, sizeof(dir), "%somx-host-fixture.lv2", build);
     abs_dir(dir, g_fixture);
+    snprintf(g_fixture_so, sizeof(g_fixture_so), "%somx-host-fixture.so", g_fixture);
     snprintf(dir, sizeof(dir), "%somx-worker-gain.lv2", build);
     abs_dir(dir, g_wg);
     snprintf(dir, sizeof(dir), "%somx-lv2-fakes.lv2", build);
     abs_dir(dir, g_fakes);
     snprintf(dir, sizeof(dir), "%somx-patch-fixture.lv2", build);
     abs_dir(dir, g_patch);
+    snprintf(g_patch_so, sizeof(g_patch_so), "%somx-patch-fixture.so", g_patch);
     snprintf(dir, sizeof(dir), "%somx-time-probe.lv2", build);
     abs_dir(dir, g_time);
     snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
@@ -2876,11 +3184,17 @@ int main(int argc, char **argv)
         t_preset_list(RATES[r]);
         t_patch(RATES[r]);
         t_latency_hold(RATES[r]);
+        t_fixed_block(RATES[r]);
+        t_inplace(RATES[r]);
+        t_midi_patch(RATES[r]);
+        t_midi_extra(RATES[r]);
+        t_passthrough(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
         t_instrument(RATES[r]);
+        t_generator(RATES[r]);
         t_time(RATES[r]);
         t_atom_text(RATES[r]);
         t_atom_midi_time(RATES[r]);
