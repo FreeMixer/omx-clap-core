@@ -383,6 +383,17 @@ static const char *fake_trace(void)
     return fn ? fn() : "";
 }
 
+/* the worker fake's gate: held, its work() waits before it traces, so a block's trace holds the RT's events alone (the
+ * worker is woken at once by schedule_work, and would otherwise trace beside the block's end_run) */
+static void fake_worker_hold(int on)
+{
+    lv2_fakes_worker_hold_fn fn;
+
+    *(void **)&fn = loaded_symbol(g_fakes_so, "lv2_fakes_worker_hold");
+    if (fn)
+        fn(on);
+}
+
 static void fake_trace_clear(void)
 {
     lv2_fakes_trace_clear_fn fn;
@@ -1693,10 +1704,14 @@ static void t_worker(double rate)
         float l[32] = { 0 };
 
         fake_trace_clear();
+        fake_worker_hold(1);
         process(&g, l, NULL, l, NULL, 32, NULL);
+        fake_worker_hold(0);
         omx_clap_lv2_worker_quiesce(g.plugin);
+        fake_worker_hold(1);
         process(&g, l, NULL, l, NULL, 32, NULL);
         CHECK(!strcmp(fake_trace(), "run0,end0,work0,resp0,run1,end1"), "worker %.0f: the drain order through process(): %s", rate, fake_trace());
+        fake_worker_hold(0);
         omx_clap_lv2_worker_quiesce(g.plugin);
         CHECK(f && f->respond && f->respond(f->respond_handle, 4, "abcd") == LV2_WORKER_ERR_UNKNOWN, "worker %.0f: a respond outside work() is refused", rate);
         process(&g, l, NULL, l, NULL, 32, NULL);
@@ -1714,8 +1729,11 @@ static void t_worker(double rate)
             CHECK(f && f->deactivations == deacts + 1 && f->activations == acts + 1, "worker %.0f: reset is one LV2 deactivate and one activate", rate);
             fake_trace_clear();
             seq = f ? f->seq : 0;
+            fake_worker_hold(1);
             process(&g, l, NULL, l, NULL, 32, NULL);
+            fake_worker_hold(0);
             omx_clap_lv2_worker_quiesce(g.plugin);
+            fake_worker_hold(1);
             process(&g, l, NULL, l, NULL, 32, NULL);
             {
                 char want[64];
@@ -1723,6 +1741,8 @@ static void t_worker(double rate)
                 snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
                 CHECK(!strcmp(fake_trace(), want), "worker %.0f: after the reset the worker answers again: %s", rate, fake_trace());
             }
+            fake_worker_hold(0);
+            omx_clap_lv2_worker_quiesce(g.plugin);
         }
         rig_down(&g);
     }
@@ -1760,11 +1780,16 @@ static void t_reset_no_worker(double rate)
     CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && g.plugin->start_processing(g.plugin), "reset %.0f: the next activate succeeds", rate);
     fake_trace_clear();
     seq = f ? f->seq : 0;
+    fake_worker_hold(1);
     CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_CONTINUE, "reset %.0f: and process() runs again", rate);
+    fake_worker_hold(0);
     omx_clap_lv2_worker_quiesce(g.plugin);
+    fake_worker_hold(1);
     process(&g, l, NULL, l, NULL, 32, NULL);
     snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
     CHECK(!strcmp(fake_trace(), want), "reset %.0f: with the worker answering again: %s", rate, fake_trace());
+    fake_worker_hold(0);
+    omx_clap_lv2_worker_quiesce(g.plugin);
     rig_down(&g);
 }
 
