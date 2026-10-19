@@ -37,14 +37,21 @@
  *                                         id a voice still sounds under is counted (fake_synth_poly_stats). It
  *                                         declares clap.voice-info, answered only while active: FAKE_SYNTH_VOICE_COUNT
  *                                         of FAKE_SYNTH_VOICE_CAPACITY voices, overlapping notes supported. No other
- *                                         layout offers voice-info
+ *                                         layout offers voice-info. It names three keys through clap.note-name
+ *                                         (the third answers no get), reads the host's clap.note-ports at init
+ *                                         and calls the host's note-ports, note-name and voice-info back when a
+ *                                         test asks it to (fake_synth_poly_rescan, _rename, _revoice)
  *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused
  *   org.omx-clap-host.test.synth-arp      silent stereo out, a CLAP note input and a CLAP note output: an arpeggiator.
  *                                         A note on of key k at frame f sends note ons of k, k + 4 and k + 7 at f,
  *                                         f + s and f + 2s, s FAKE_ARP_STEP_MS at the activated rate, across blocks;
  *                                         its note off sends their three note offs at its frame, and a NOTE_END of
  *                                         the input note, which is the host's and never note output
- *   org.omx-clap-host.test.synth-arp-midi the same, its note output in the MIDI dialect: CLAP_EVENT_MIDI */
+ *   org.omx-clap-host.test.synth-arp-midi the same, its note output in the MIDI dialect: CLAP_EVENT_MIDI
+ *   org.omx-clap-host.test.synth-midi2    mono out, the MIDI 2.0 note dialect only, no preference: plays from
+ *                                         CLAP_EVENT_MIDI2 channel voice messages (UMP message type 4, group 0), the
+ *                                         velocity's top 7 bits
+ *   org.omx-clap-host.test.synth-midi2-pref stereo out, CLAP and MIDI 2.0, MIDI 2.0 preferred: plays the same */
 
 #include <math.h>
 #include <stdio.h>
@@ -62,6 +69,8 @@
 #define ID_SYNTH_POLY   "org.omx-clap-host.test.synth-poly"
 #define ID_SYNTH_ARP    "org.omx-clap-host.test.synth-arp"
 #define ID_SYNTH_ARP_MIDI "org.omx-clap-host.test.synth-arp-midi"
+#define ID_SYNTH_MIDI2  "org.omx-clap-host.test.synth-midi2"
+#define ID_SYNTH_MIDI2_PREF "org.omx-clap-host.test.synth-midi2-pref"
 
 /** the release of a synth-poly voice, in frames from its note off to its NOTE_END */
 #define FAKE_SYNTH_RELEASE  1024u
@@ -72,6 +81,11 @@
  * so the host's note id pool runs out before it does */
 #define FAKE_SYNTH_VOICE_COUNT      4u
 #define FAKE_SYNTH_VOICE_CAPACITY   8u
+/** the keys synth-poly names through clap.note-name: two answered, the third counted but refused by get */
+#define FAKE_SYNTH_NOTE_NAMES       3u
+/** the bit of fake_synth_poly_rescan's flags that, with CLAP_NOTE_PORTS_RESCAN_ALL, takes synth-poly's note ports away */
+#define FAKE_SYNTH_PORTS_GONE       (1u << 31)
+
 /** the arpeggiator's step, a duration: frames at the activated rate, rounded */
 #define FAKE_ARP_STEP_MS    2.0
 /** the arpeggiator's intervals above the key it is played, in semitones */
@@ -104,6 +118,8 @@ static const layout_t g_layouts[] = {
     { ID_SYNTH_POLY,  2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 1, 0, 0 },
     { ID_SYNTH_ARP,   2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 1, CLAP_NOTE_DIALECT_CLAP },
     { ID_SYNTH_ARP_MIDI, 2, 0, 1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP, 1, 0, 1, CLAP_NOTE_DIALECT_MIDI },
+    { ID_SYNTH_MIDI2, 1, 0, 1, CLAP_NOTE_DIALECT_MIDI2, 0, 1, 0, 0, 0 },
+    { ID_SYNTH_MIDI2_PREF, 2, 0, 1, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2, 1, 0, 0, 0 },
 };
 
 #define LAYOUT_COUNT (sizeof(g_layouts) / sizeof(g_layouts[0]))
@@ -126,9 +142,14 @@ typedef struct FAKE_SYNTH_POLY_STATS_T {
     uint32_t end_refused;       ///< NOTE_END the host's list refused
     uint32_t voices;            ///< voices sounding or releasing now
     uint32_t voices_max;        ///< the most at once
+    uint32_t host_dialects;     ///< what the host's clap.note-ports answered at init; UINT32_MAX when it offers none
+    uint32_t voice_count;       ///< the voice count clap.voice-info answers (FAKE_SYNTH_VOICE_COUNT until _revoice)
+    uint32_t ports_gone;        ///< 1: the note ports answer none (set by _rescan with RESCAN_ALL | 1u << 31)
+    uint32_t renamed;           ///< 1: the first note name reads "Bass drum" (set by _rename)
 } fake_synth_poly_stats_t;
 
 static fake_synth_poly_stats_t g_poly;
+static const clap_host_t *g_poly_host;  ///< the host of the file's one poly instance
 
 CLAP_EXPORT const fake_synth_poly_stats_t *fake_synth_poly_stats(void)
 {
@@ -204,6 +225,9 @@ static const clap_plugin_audio_ports_t g_audio_ports = { audio_ports_count, audi
 static uint32_t note_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const synth_t *synth = plugin->plugin_data;
+
+    if (synth->layout->poly && g_poly.ports_gone)
+        return 0;
     return is_input ? synth->layout->note_inputs : synth->layout->note_outputs;
 }
 
@@ -410,6 +434,19 @@ static void take_event(synth_t *synth, const clap_event_header_t *header)
         else if (type == 0xb0 && (e->data[1] == 120 || e->data[1] >= 123))  // all sound off, all notes off
             synth->sounding = 0;
     }
+    else if (header->type == CLAP_EVENT_MIDI2)
+    {
+        // a MIDI 2.0 channel voice message of group 0 alone: anything else, MIDI 1.0 in a packet included, is not played
+        const clap_event_midi2_t *e = (const clap_event_midi2_t *)header;
+        const uint32_t w = e->data[0], status = (w >> 20) & 0xfu, key = (w >> 8) & 0x7fu, velocity7 = e->data[1] >> 25;
+
+        if ((w >> 24) != 0x40u)
+            return;
+        if (status == 0x9u && velocity7 > 0)
+            note_on(synth, (int16_t)key, velocity7 / 127.0);
+        else if ((status == 0x8u || status == 0x9u) && synth->sounding && (int16_t)key == synth->key)
+            synth->sounding = 0;
+    }
 }
 
 static float sample(const synth_t *synth)
@@ -418,10 +455,53 @@ static float sample(const synth_t *synth)
     return (float)(synth->velocity * sin(2.0 * M_PI * hz * (double)synth->age / synth->sample_rate));
 }
 
+/* synth-poly reads what the host's note-ports says it can feed, at init, which is on the main thread */
 static bool plugin_init(const clap_plugin_t *plugin)
 {
-    (void)plugin;
+    const synth_t *synth = plugin->plugin_data;
+    const clap_host_note_ports_t *ports;
+
+    if (!synth->layout->poly)
+        return true;
+    ports = g_poly_host->get_extension(g_poly_host, CLAP_EXT_NOTE_PORTS);
+    g_poly.host_dialects = ports && ports->supported_dialects ? ports->supported_dialects(g_poly_host) : UINT32_MAX;
     return true;
+}
+
+/* a test's hooks into synth-poly's host, called on the thread the host calls main: each says what a plugin says when
+ * its note ports, note names or voice count change. 0, or -1 when the host does not offer the extension. */
+CLAP_EXPORT int fake_synth_poly_rescan(uint32_t flags)
+{
+    const clap_host_note_ports_t *ports = g_poly_host ? g_poly_host->get_extension(g_poly_host, CLAP_EXT_NOTE_PORTS) : NULL;
+
+    if (!ports)
+        return -1;
+    if (flags & FAKE_SYNTH_PORTS_GONE)
+        g_poly.ports_gone = 1;
+    ports->rescan(g_poly_host, flags & ~FAKE_SYNTH_PORTS_GONE);
+    return 0;
+}
+
+CLAP_EXPORT int fake_synth_poly_rename(void)
+{
+    const clap_host_note_name_t *names = g_poly_host ? g_poly_host->get_extension(g_poly_host, CLAP_EXT_NOTE_NAME) : NULL;
+
+    if (!names)
+        return -1;
+    g_poly.renamed = 1;
+    names->changed(g_poly_host);
+    return 0;
+}
+
+CLAP_EXPORT int fake_synth_poly_revoice(uint32_t count)
+{
+    const clap_host_voice_info_t *voices = g_poly_host ? g_poly_host->get_extension(g_poly_host, CLAP_EXT_VOICE_INFO) : NULL;
+
+    if (!voices)
+        return -1;
+    g_poly.voice_count = count;
+    voices->changed(g_poly_host);
+    return 0;
 }
 
 static void plugin_destroy(const clap_plugin_t *plugin)
@@ -453,13 +533,37 @@ static bool voice_info_get(const clap_plugin_t *plugin, clap_voice_info_t *info)
 
     if (!synth->active)
         return false;
-    info->voice_count = FAKE_SYNTH_VOICE_COUNT;
+    info->voice_count = g_poly.voice_count;
     info->voice_capacity = FAKE_SYNTH_VOICE_CAPACITY;
     info->flags = CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES;
     return true;
 }
 
 static const clap_plugin_voice_info_t g_voice_info = { voice_info_get };
+
+/* synth-poly's note names: a kick on key 36 of every channel, a snare with a quote in its name on key 38 of channel 9, and
+ * a third the count promises and get refuses */
+static uint32_t note_name_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return FAKE_SYNTH_NOTE_NAMES;
+}
+
+static bool note_name_get(const clap_plugin_t *plugin, uint32_t index, clap_note_name_t *name)
+{
+    (void)plugin;
+    if (index == 0)
+        *name = (clap_note_name_t){ "", -1, 36, -1 };
+    else if (index == 1)
+        *name = (clap_note_name_t){ "Snare \"rim\"", 0, 38, 9 };
+    else
+        return false;
+    if (index == 0)
+        snprintf(name->name, sizeof(name->name), "%s", g_poly.renamed ? "Bass drum" : "Kick");
+    return true;
+}
+
+static const clap_plugin_note_name_t g_note_name = { note_name_count, note_name_get };
 
 static bool plugin_start_processing(const clap_plugin_t *plugin)
 {
@@ -528,6 +632,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_note_ports;
     if (!strcmp(id, CLAP_EXT_VOICE_INFO) && synth->layout->poly)
         return &g_voice_info;
+    if (!strcmp(id, CLAP_EXT_NOTE_NAME) && synth->layout->poly)
+        return &g_note_name;
     return NULL;
 }
 
@@ -554,7 +660,6 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     uint32_t i;
 
     (void)factory;
-    (void)host;
     for (i = 0; i < LAYOUT_COUNT; i++)
         if (!strcmp(g_layouts[i].id, plugin_id))
             break;
@@ -564,7 +669,11 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     synth = calloc(1, sizeof(synth_t));
     synth->layout = &g_layouts[i];
     if (synth->layout->poly)
+    {
         memset(&g_poly, 0, sizeof(g_poly));
+        g_poly.voice_count = FAKE_SYNTH_VOICE_COUNT;
+        g_poly_host = host;
+    }
     synth->sample_rate = 48000.0;
 
     synth->plugin.desc = &g_descriptors[i];

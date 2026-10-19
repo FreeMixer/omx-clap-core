@@ -550,6 +550,7 @@ static void synth_notes_checks(const char *path, const char *id, uint32_t output
 typedef struct
 {
     uint32_t notes_on, ids_reused, no_id, ended, end_refused, voices, voices_max;
+    uint32_t host_dialects, voice_count, ports_gone, renamed;
 } poly_stats_t;
 
 static const poly_stats_t *poly_stats(const char *path)
@@ -659,6 +660,94 @@ static void synth_voice_checks(const char *path)
           "%s offers no voice-info: absent, all 0 (%u, %u, %llu)", SYNTH, count, capacity, (unsigned long long)flags);
     omx_clap_host_close(synth);
     CHECK(omx_clap_host_voice_info(NULL, &count, NULL, NULL) == 0 && count == 0, "no instance: no voice info");
+}
+
+/* one of synth-poly's hooks into its host (fake_synth_poly_rescan, _rename, _revoice), through the file the core holds */
+static void *poly_hook(const char *path, const char *name)
+{
+    void *file = dlopen(path, RTLD_NOW | RTLD_NOLOAD);
+    void *hook = file ? dlsym(file, name) : NULL;
+
+    if (file)
+        dlclose(file);
+    return hook;
+}
+
+/*
+ * The host's side of an instrument's details, against synth-poly: its clap.note-ports asks what the host can feed and
+ * hears every dialect a note input is fed in; its three note names read through the core, the third refused by the
+ * plugin, and again after it says they changed; a voice count it says changed is asked again by the tick while active;
+ * a rescan of the note names is no restart, a rescan of every note port while active is, and the restart reads the
+ * note ports again, refusing ports open would have refused.
+ */
+#define NOTE_PORTS_GONE (1u << 31)      /* the fake's FAKE_SYNTH_PORTS_GONE */
+static void synth_host_details_checks(const char *path)
+{
+    struct omx_clap_instance *synth = NULL;
+    int (*rescan)(uint32_t);
+    int (*rename)(void);
+    int (*revoice)(uint32_t);
+    const poly_stats_t *seen;
+    clap_note_name_t name;
+    uint32_t count = 0;
+    char why[OMX_CLAP_WHY_MAX];
+
+    CHECK(open_ok(path, SYNTH_POLY, &synth), "open %s", SYNTH_POLY);
+    if (!synth)
+        return;
+    seen = poly_stats(path);
+    rescan = (int (*)(uint32_t))poly_hook(path, "fake_synth_poly_rescan");
+    rename = (int (*)(void))poly_hook(path, "fake_synth_poly_rename");
+    revoice = (int (*)(uint32_t))poly_hook(path, "fake_synth_poly_revoice");
+    CHECK(seen && rescan && rename && revoice, "synth-poly's counters and hooks are read through its exports");
+    if (!seen || !rescan || !rename || !revoice)
+    {
+        omx_clap_host_close(synth);
+        return;
+    }
+    CHECK(seen->host_dialects == OMX_CLAP_HOST_NOTE_DIALECTS &&
+              seen->host_dialects == (CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_MIDI_MPE | CLAP_NOTE_DIALECT_MIDI2),
+          "the host's note-ports answers CLAP, MIDI, MIDI MPE and MIDI 2.0 (%#x)", seen->host_dialects);
+
+    CHECK(omx_clap_host_note_name_count(synth) == 3, "three note names are counted (%u)", omx_clap_host_note_name_count(synth));
+    CHECK(omx_clap_host_note_name(synth, 0, &name) == 0 && !strcmp(name.name, "Kick") && name.port == -1 && name.key == 36 &&
+              name.channel == -1,
+          "note name 0: Kick, key 36, every port and channel (%s %d %d %d)", name.name, name.port, name.key, name.channel);
+    CHECK(omx_clap_host_note_name(synth, 1, &name) == 0 && !strcmp(name.name, "Snare \"rim\"") && name.port == 0 && name.key == 38 &&
+              name.channel == 9,
+          "note name 1: the snare on key 38 of channel 9, port 0 (%s %d %d %d)", name.name, name.port, name.key, name.channel);
+    CHECK(omx_clap_host_note_name(synth, 2, &name) == -1 && omx_clap_host_note_name(synth, 3, &name) == -1 &&
+              omx_clap_host_note_name(synth, 0, NULL) == -1,
+          "a name the plugin refuses, an index past the count and no output answer -1");
+    CHECK(omx_clap_host_note_names_changed(synth) == 0, "no change said yet");
+    CHECK(rename() == 0, "the plugin says its note names changed, through the host's clap.note-name");
+    CHECK(omx_clap_host_note_names_changed(synth) == 1 && omx_clap_host_note_names_changed(synth) == 0, "the change reads once");
+    CHECK(omx_clap_host_note_name(synth, 0, &name) == 0 && !strcmp(name.name, "Bass drum"), "and the new name reads (%s)", name.name);
+
+    CHECK(activate(synth), "activate %s", SYNTH_POLY);
+    CHECK(omx_clap_host_voice_info(synth, &count, NULL, NULL) == 1 && count == POLY_VOICE_COUNT, "%u voices at activate (%u)",
+          POLY_VOICE_COUNT, count);
+    CHECK(revoice(6) == 0, "the plugin says its voice info changed, through the host's clap.voice-info");
+    CHECK(omx_clap_host_voice_info(synth, &count, NULL, NULL) == 1 && count == POLY_VOICE_COUNT, "nothing is asked before the tick (%u)", count);
+    CHECK(omx_clap_host_tick(synth) == 0, "the tick asks for no restart for it");
+    CHECK(omx_clap_host_voice_info(synth, &count, NULL, NULL) == 1 && count == 6, "the tick asked again: 6 voices (%u)", count);
+
+    CHECK(rescan(CLAP_NOTE_PORTS_RESCAN_NAMES) == 0 && omx_clap_host_tick(synth) == 0, "a rescan of the note names is no restart");
+    CHECK(omx_clap_host_note_ports_rescanned(synth) == CLAP_NOTE_PORTS_RESCAN_NAMES && omx_clap_host_note_ports_rescanned(synth) == 0,
+          "the names rescan reads once");
+    CHECK(rescan(CLAP_NOTE_PORTS_RESCAN_ALL) == 0 && omx_clap_host_tick(synth) != 0, "a rescan of every note port while active asks for a restart");
+    CHECK(omx_clap_host_note_ports_rescanned(synth) == CLAP_NOTE_PORTS_RESCAN_ALL, "and reads as RESCAN_ALL");
+    CHECK(omx_clap_host_restart(synth) == 0 && synth->note_inputs == 1 && synth->note_dialect == CLAP_NOTE_DIALECT_CLAP &&
+              omx_clap_host_tick(synth) == 0,
+          "the restart reads the same note input again and asks for no other (%u, %u)", synth->note_inputs, synth->note_dialect);
+
+    CHECK(rescan(CLAP_NOTE_PORTS_RESCAN_ALL | NOTE_PORTS_GONE) == 0 && omx_clap_host_tick(synth) != 0,
+          "the plugin takes its note input away and rescans every port");
+    omx_clap_host_deactivate(synth);
+    why[0] = '\0';
+    CHECK(omx_clap_host_activate(synth, 48000.0, BLOCK, why) == -1 && !strcmp(why, CLAP_HOST_CODE_NOTE_INPUT) && synth->note_inputs == 1,
+          "an instrument left with no note input is refused at activate: %s, the old reading kept (%s)", CLAP_HOST_CODE_NOTE_INPUT, why);
+    omx_clap_host_close(synth);
 }
 
 /*
@@ -776,8 +865,13 @@ static void synth_checks(const char *path)
     synth_notes_checks(path, SYNTH_MIDI, 1, CLAP_NOTE_DIALECT_MIDI);
     // a port that prefers MIDI with MPE reads raw MIDI, the MPE dialect set: the synth plays from CLAP_EVENT_MIDI alone
     synth_notes_checks(path, SYNTH_MPE, 2, CLAP_NOTE_DIALECT_MIDI_MPE);
+    // a port that speaks only MIDI 2.0 gets CLAP_EVENT_MIDI2: the synth plays from the translated channel voice messages;
+    // so does one that also speaks CLAP and prefers MIDI 2.0
+    synth_notes_checks(path, SYNTH_MIDI2, 1, CLAP_NOTE_DIALECT_MIDI2);
+    synth_notes_checks(path, SYNTH_MIDI2_PREF, 2, CLAP_NOTE_DIALECT_MIDI2);
     synth_ids_checks(path);
     synth_voice_checks(path);
+    synth_host_details_checks(path);
 
     synth = open_synth(path, SYNTH, 2, CLAP_NOTE_DIALECT_CLAP);
     if (!synth)
