@@ -230,7 +230,8 @@ static void t_one_bundle(void)
     p = f ? lv2_plugin_open(f, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(!p && strcmp(why, "hosting.no-realisation") == 0, "bundle: LV2_PATH holds the worker gain, the fixture bundle does not know it: one bundle, never load_all (%s)", why);
     w = lv2_bundle_ref(g_wg, why);
-    CHECK(w && lv2_bundle_count(w) == 1 && strcmp(lv2_bundle_uri(w, 0), LV2_WORKER_GAIN_URI) == 0, "bundle: the worker gain's own bundle lists it");
+    CHECK(w && lv2_bundle_count(w) == 2 && (strcmp(lv2_bundle_uri(w, 0), LV2_WORKER_GAIN_URI) == 0 || strcmp(lv2_bundle_uri(w, 1), LV2_WORKER_GAIN_URI) == 0),
+          "bundle: the worker gain's own bundle lists it, and its live twin");
     p = w ? lv2_plugin_open(w, LV2_WORKER_GAIN_URI, why) : NULL;
     CHECK(p != NULL, "bundle: the worker gain's own bundle opens it (%s)", why);
     lv2_plugin_close(p);
@@ -919,6 +920,8 @@ static void without_default_state(void)
 #define PROBE_SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS \
                      | LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE \
                      | LV2_FEATURE_PROBE_LOG)
+/* the state path features the configured list adds after the seven: mapPath and freePath (makePath needs a root) */
+#define PROBE_PATHS (LV2_FEATURE_PROBE_MAP_PATH | LV2_FEATURE_PROBE_FREE_PATH)
 
 static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
 {
@@ -969,8 +972,8 @@ static void t_options(void)
     CHECK(lv2_core_feature_options()->features == OMX_LV2_FEATURES_ALL && lv2_core_feature_options()->strict,
           "options: the host starts at the defaults");
     seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-    CHECK(seen && seen->seen == PROBE_SEVEN && seen->n_features == OMX_LV2_FEATURE_KINDS,
-          "options: by default the probe sees the seven features and nothing else (%s)", why);
+    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 2u,
+          "options: by default the probe sees the seven features, then mapPath and freePath, and nothing else (%s)", why);
     for (k = 0; seen && k < OMX_LV2_FEATURE_KINDS; k++)
         in_order &= strcmp(seen->order[k], lv2_core_provided[k]) == 0;
     CHECK(seen && in_order, "options: by default in the providers' order");
@@ -985,7 +988,7 @@ static void t_options(void)
         o.features &= ~OMX_LV2_FEATURE_BIT(k);
         CHECK(lv2_core_feature_options_set(&o, why) == 0, "options: %s withheld is taken", omx_lv2_feature_uris[k]);
         seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-        CHECK(seen && seen->seen == (PROBE_SEVEN & ~g_probe_bit[k]), "options: %s withheld, the probe sees the other six (0x%x)",
+        CHECK(seen && seen->seen == ((PROBE_SEVEN & ~g_probe_bit[k]) | PROBE_PATHS), "options: %s withheld, the probe sees the other six and the paths (0x%x)",
               omx_lv2_feature_uris[k], seen ? seen->seen : 0u);
     }
 
@@ -1052,7 +1055,7 @@ static void options_within_list(void)
     CHECK(lv2_core_configure(&config, why) == 0, "within the list: configured without log:log");
     CHECK(omx_lv2_feature_offered(lv2_core_feature_options(), LV2_LOG__log), "within the list: the options offer the log");
     seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-    CHECK(seen && seen->seen == (PROBE_SEVEN & ~LV2_FEATURE_PROBE_LOG), "within the list: the probe sees no log (0x%x)",
+    CHECK(seen && seen->seen == ((PROBE_SEVEN & ~LV2_FEATURE_PROBE_LOG) | PROBE_PATHS), "within the list: the probe sees no log (0x%x)",
           seen ? seen->seen : 0u);
 }
 

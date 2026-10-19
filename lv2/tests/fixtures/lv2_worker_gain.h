@@ -37,6 +37,10 @@
 #include <lv2/core/lv2.h>
 
 #define LV2_WORKER_GAIN_URI "urn:openmixer:test:worker-gain"
+/* the live twin: the same gain, plus options:interface (a block length told while it lives) and state:interface with
+ * state:threadSafeRestore: its state is a trim in dB that restore() hands the worker, from the schedule restore() is
+ * given, and work_response applies; out = in x gain x trim */
+#define LV2_WORKER_GAIN_LIVE_URI LV2_WORKER_GAIN_URI "#live"
 enum { LV2_WORKER_GAIN_IN = 0, LV2_WORKER_GAIN_OUT = 1, LV2_WORKER_GAIN_DB = 2 };
 
 /* What the plugin saw — written by the thread the host called it on, read by the test. */
@@ -55,9 +59,17 @@ struct lv2_worker_gain_probe {
   int log_answered;                /* log:log was in the features and its printf answered */
   pthread_t work_thread;           /* the thread work() last ran on */
   pthread_t run_thread;            /* the thread run() last ran on */
+  /* the live twin */
+  _Atomic unsigned options_set;    /* options:interface set() calls */
+  int32_t max_block_set;           /* the bufsz:maxBlockLength the last set() carried */
+  _Atomic unsigned restores;       /* restore() calls */
+  int restore_had_schedule;        /* the last restore() was handed worker:schedule */
+  float save_trim_db;              /* what the next save stores as the trim (the test sets it) */
+  float trim_applied;              /* the linear trim work_response last applied */
 };
 extern struct lv2_worker_gain_probe lv2_worker_gain_probe;
 
 const LV2_Descriptor *lv2_worker_gain_descriptor(void);
+const LV2_Descriptor *lv2_worker_gain_live_descriptor(void);
 
 #endif /* OMX_TEST_LV2_WORKER_GAIN_H */

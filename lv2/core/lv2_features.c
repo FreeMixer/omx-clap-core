@@ -224,6 +224,20 @@ static int provider_of(const char *uri)
     return -1;
 }
 
+/* the configuration-only kinds, the state path features, by their URI: -1 for any other */
+static int instance_kind_of(const char *uri)
+{
+    if (!uri)
+        return -1;
+    if (strcmp(uri, LV2_STATE__makePath) == 0)
+        return (int)F_MAKE_PATH;
+    if (strcmp(uri, LV2_STATE__mapPath) == 0)
+        return (int)F_MAP_PATH;
+    if (strcmp(uri, LV2_STATE__freePath) == 0)
+        return (int)F_FREE_PATH;
+    return -1;
+}
+
 static int same_text(const char *a, const char *b)
 {
     return (!a && !b) || (a && b && strcmp(a, b) == 0);
@@ -309,7 +323,7 @@ int lv2_core_configure(const struct lv2_core_config *c, char why[LV2_CORE_WHY_MA
     }
     for (n = 0; c->features && c->features[n]; n++)
     {
-        const int k = strcmp(c->features[n], LV2_STATE__makePath) == 0 ? (int)F_MAKE_PATH : provider_of(c->features[n]);
+        const int k = instance_kind_of(c->features[n]) >= 0 ? instance_kind_of(c->features[n]) : provider_of(c->features[n]);
 
         if (k < 0)
         {
@@ -405,8 +419,8 @@ int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t
     const int k = uri ? provider_of(uri) : -1;
     uint32_t d;
 
-    if (uri && strcmp(uri, LV2_STATE__makePath) == 0)
-        return (allowed & (1u << F_MAKE_PATH)) != 0;
+    if (instance_kind_of(uri) >= 0)
+        return (allowed & (1u << instance_kind_of(uri))) != 0;
     if (k == F_BOUNDED)
         return (on & OMX_LV2_FEATURE_BIT(F_BOUNDED)) && (o->block.declares & OMX_LV2_BLOCK_BOUNDED);
     if (k >= 0)
@@ -418,7 +432,7 @@ int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t
 }
 
 uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, const struct omx_lv2_feature_options *o,
-                           uint32_t allowed, void *const data[LV2_FEATURE_KINDS + 1])
+                           uint32_t allowed, void *const data[LV2_INSTANCE_KINDS])
 {
     const uint32_t on = o->features & allowed;
     uint32_t n = 0, d;
@@ -446,11 +460,15 @@ uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, cons
         ptrs[n] = &features[n];
         n++;
     }
-    // state:makePath, last: the configuration's alone
-    if ((allowed & (1u << F_MAKE_PATH)) && data[F_MAKE_PATH])
+    // the state path features, last: the configuration's alone
+    for (k = F_MAKE_PATH; k < LV2_INSTANCE_KINDS; k++)
     {
-        features[n].URI = LV2_STATE__makePath;
-        features[n].data = data[F_MAKE_PATH];
+        static const char *const uri[] = { LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath };
+
+        if (!(allowed & (1u << k)) || !data[k])
+            continue;
+        features[n].URI = uri[k - F_MAKE_PATH];
+        features[n].data = data[k];
         ptrs[n] = &features[n];
         n++;
     }
@@ -658,7 +676,7 @@ const LV2_Feature *const *omx_lv2_features_build(struct omx_lv2_feature_block *b
                                                  double rate, uint32_t min_frames, uint32_t max_frames,
                                                  LV2_Worker_Schedule *schedule)
 {
-    void *data[LV2_FEATURE_KINDS + 1] = { NULL };
+    void *data[LV2_INSTANCE_KINDS] = { NULL };
 
     if (!b)
         return NULL;
