@@ -134,4 +134,25 @@ static const void *extension_data(const char *uri) {
 
 static const LV2_Descriptor DESCRIPTOR = {FIXTURE_URI, instantiate, connect_port, NULL, run, NULL, cleanup, extension_data};
 
-LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index) { return index == 0 ? &DESCRIPTOR : NULL; }
+/* the fixed-block twin (#fixed, the ttl's lv2:requiredFeature bufsz:fixedBlockLength): in to out, nothing else, so a
+ * host declaring a fixed block can instantiate and run it, and one that does not refuses it before this is reached */
+struct fixed_twin { float *in, *out; };
+static LV2_Handle fixed_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    (void)d; (void)rate; (void)path; (void)f;
+    return calloc(1, sizeof(struct fixed_twin));
+}
+static void fixed_connect_port(LV2_Handle h, uint32_t port, void *data)
+{
+    struct fixed_twin *t = h;
+    if (port == 0) t->in = data; else if (port == 1) t->out = data;
+}
+static void fixed_run(LV2_Handle h, uint32_t n)
+{
+    struct fixed_twin *t = h;
+    if (t->in && t->out) memmove(t->out, t->in, n * sizeof(float));
+}
+static void fixed_cleanup(LV2_Handle h) { free(h); }
+static const LV2_Descriptor FIXED_TWIN = {FIXTURE_URI "#fixed", fixed_instantiate, fixed_connect_port, NULL, fixed_run, NULL, fixed_cleanup, NULL};
+
+LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index) { return index == 0 ? &DESCRIPTOR : index == 1 ? &FIXED_TWIN : NULL; }
