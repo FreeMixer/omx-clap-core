@@ -1221,7 +1221,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         {
             if (leg < p->in_legs && p->in_ports[leg] == i)
                 at = in->audio + leg * (size_t)max_frames;
-            else if (p->out_ports[leg] == i)
+            else if (!p->passthrough && p->out_ports[leg] == i)
                 at = in->audio + (2u + leg) * (size_t)max_frames;
         }
         if (!at && p->patch_in >= 0 && !p->patch_in_shared && (uint32_t)p->patch_in == i)
