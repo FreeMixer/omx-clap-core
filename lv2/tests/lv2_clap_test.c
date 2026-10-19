@@ -88,6 +88,7 @@
 #include "fixtures/lv2_time_probe.h"
 #include "fixtures/lv2_path_probe.h"
 #include "fixtures/lv2_atom_probe.h"
+#include "fixtures/lv2_host_fixture.h"
 #include "lv2_test_util.h"
 
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
@@ -124,7 +125,7 @@ static char g_patch[PATH_MAX];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
-static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX];
+static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX], g_fixture_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
 
@@ -443,7 +444,7 @@ static void t_entry(void)
 
     CHECK(a && a == b, "the entry of a bundle, the same entry for a second reference");
     CHECK(a && a->init(g_fixture) && clap_version_is_compatible(a->clap_version), "its init answers and its CLAP version is compatible");
-    CHECK(fa && fa->get_plugin_count(fa) == 11, "its factory lists the fixture bundle's 11 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
+    CHECK(fa && fa->get_plugin_count(fa) == 12, "its factory lists the fixture bundle's 12 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
     CHECK(fa && has_plugin(fa, FIXTURE_URI, &name) && name && strcmp(name, "openmixer host fixture") == 0,
           "descriptor id = the LV2 URI, name = doap:name (%s), features: audio-effect only", name ? name : "");
     CHECK(a && a->get_factory("clap.no-such-factory") == NULL, "no factory but the plugin factory");
@@ -458,7 +459,7 @@ static void t_entry(void)
     omx_clap_lv2_entry_release(w);
     a = omx_clap_lv2_entry(g_fixture, why);
     fa = a ? a->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
-    CHECK(fa && fa->get_plugin_count(fa) == 11, "after the last release the bundle is loaded afresh for the next entry");
+    CHECK(fa && fa->get_plugin_count(fa) == 12, "after the last release the bundle is loaded afresh for the next entry");
     omx_clap_lv2_entry_release(a);
 }
 
@@ -1264,6 +1265,33 @@ static void t_fixed_block(double rate)
               "fixed %.0f: under the defaults the twin is refused hosting.features.missing again", rate);
         omx_clap_lv2_entry_release(e);
     }
+}
+
+/* lv2:inPlaceBroken as a requirement: admitted under the defaults, and the twin's witness sees distinct buffers on
+ * every run, also when the host itself processes in place (one buffer in and out): the adapter copies both ways */
+static void t_inplace(double rate)
+{
+    struct lv2_host_fixture_inplace *w = NULL;
+    struct rig g;
+    float in[BLOCK], out[BLOCK];
+    uint32_t i;
+
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#inplace", rate, BLOCK) != 0)
+        return;
+    *(void **)&w = loaded_symbol(g_fixture_so, "lv2_host_fixture_inplace");
+    CHECK(w != NULL, "inplace %.0f: the twin's witness is at hand", rate);
+    if (w)
+        w->runs = w->aliased = 0;
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f, out[i] = 0.0f;
+    CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.5f,
+          "inplace %.0f: the twin requiring inPlaceBroken is admitted and runs (out %g)", rate, out[0]);
+    CHECK(process_with(&g, in, NULL, in, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_CONTINUE,
+          "inplace %.0f: the host processing in place runs too", rate);
+    CHECK(w && w->runs == 2 && w->aliased == 0,
+          "inplace %.0f: the plugin saw two runs and never one buffer as input and output (runs %u aliased %u)", rate,
+          w ? w->runs : 0, w ? w->aliased : 0);
+    rig_down(&g);
 }
 
 static void t_latency_hold(double rate)
@@ -2774,6 +2802,7 @@ int main(int argc, char **argv)
     }
     snprintf(dir, sizeof(dir), "%somx-host-fixture.lv2", build);
     abs_dir(dir, g_fixture);
+    snprintf(g_fixture_so, sizeof(g_fixture_so), "%somx-host-fixture.so", g_fixture);
     snprintf(dir, sizeof(dir), "%somx-worker-gain.lv2", build);
     abs_dir(dir, g_wg);
     snprintf(dir, sizeof(dir), "%somx-lv2-fakes.lv2", build);
@@ -2829,6 +2858,7 @@ int main(int argc, char **argv)
         t_patch(RATES[r]);
         t_latency_hold(RATES[r]);
         t_fixed_block(RATES[r]);
+        t_inplace(RATES[r]);
         t_pad(RATES[r]);
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);

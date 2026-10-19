@@ -39,6 +39,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "lv2_host_fixture.h"
 
 #include <lv2/atom/atom.h>
 #include <lv2/core/lv2.h>
@@ -155,4 +156,19 @@ static void fixed_run(LV2_Handle h, uint32_t n)
 static void fixed_cleanup(LV2_Handle h) { free(h); }
 static const LV2_Descriptor FIXED_TWIN = {FIXTURE_URI "#fixed", fixed_instantiate, fixed_connect_port, NULL, fixed_run, NULL, fixed_cleanup, NULL};
 
-LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index) { return index == 0 ? &DESCRIPTOR : index == 1 ? &FIXED_TWIN : NULL; }
+/* the in-place twin (#inplace, lv2:requiredFeature lv2:inPlaceBroken): its witness counts the runs and the runs whose
+ * input and output were one buffer, which a host honouring the requirement never does */
+struct lv2_host_fixture_inplace lv2_host_fixture_inplace;
+static void inplace_run(LV2_Handle h, uint32_t n)
+{
+    struct fixed_twin *t = h;
+    lv2_host_fixture_inplace.runs++;
+    if (t->in && t->out && t->in == t->out) lv2_host_fixture_inplace.aliased++;
+    if (t->in && t->out) memmove(t->out, t->in, n * sizeof(float));
+}
+static const LV2_Descriptor INPLACE_TWIN = {FIXTURE_URI "#inplace", fixed_instantiate, fixed_connect_port, NULL, inplace_run, NULL, fixed_cleanup, NULL};
+
+LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
+{
+    return index == 0 ? &DESCRIPTOR : index == 1 ? &FIXED_TWIN : index == 2 ? &INPLACE_TWIN : NULL;
+}
