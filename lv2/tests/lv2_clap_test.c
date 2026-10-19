@@ -446,7 +446,7 @@ static void t_entry(void)
 
     CHECK(a && a == b, "the entry of a bundle, the same entry for a second reference");
     CHECK(a && a->init(g_fixture) && clap_version_is_compatible(a->clap_version), "its init answers and its CLAP version is compatible");
-    CHECK(fa && fa->get_plugin_count(fa) == 13, "its factory lists the fixture bundle's 13 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
+    CHECK(fa && fa->get_plugin_count(fa) == 14, "its factory lists the fixture bundle's 14 plugins (%u)", fa ? fa->get_plugin_count(fa) : 0);
     CHECK(fa && has_plugin(fa, FIXTURE_URI, &name) && name && strcmp(name, "openmixer host fixture") == 0,
           "descriptor id = the LV2 URI, name = doap:name (%s), features: audio-effect only", name ? name : "");
     CHECK(a && a->get_factory("clap.no-such-factory") == NULL, "no factory but the plugin factory");
@@ -461,7 +461,7 @@ static void t_entry(void)
     omx_clap_lv2_entry_release(w);
     a = omx_clap_lv2_entry(g_fixture, why);
     fa = a ? a->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
-    CHECK(fa && fa->get_plugin_count(fa) == 13, "after the last release the bundle is loaded afresh for the next entry");
+    CHECK(fa && fa->get_plugin_count(fa) == 14, "after the last release the bundle is loaded afresh for the next entry");
     omx_clap_lv2_entry_release(a);
 }
 
@@ -470,8 +470,8 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
-        { FIXTURE_URI "#no-in", "hosting.topology.no-audio-input" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
+        { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
@@ -1455,6 +1455,68 @@ static void t_passthrough(double rate)
               "analyser %.0f: the audio passes through bit for bit", rate);
         CHECK(peak != CLAP_INVALID_ID && param(&g, peak) == 0.5f, "analyser %.0f: its control output reads the block's peak as before (%g)", rate,
               peak != CLAP_INVALID_ID ? param(&g, peak) : -1.0);
+        rig_down(&g);
+    }
+}
+
+/* #184: a generator, a stereo output and no input of any kind, is admitted as a source: its face has no audio input
+ * port and no note port, one stereo main output, and a block with no input renders its signal on both channels; a
+ * MIDI source, a MIDI output and no input at all, is hosted as a pass-through tool whose note output carries its notes */
+static void t_generator(double rate)
+{
+    static const uint8_t note[3] = { 0x90, 60, 100 };
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    clap_audio_port_info_t info;
+    const clap_plugin_note_ports_t *np;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    float *outs[2] = { out_l, out_r };
+    clap_audio_buffer_t ob = { outs, NULL, 2, 0, 0 };
+    clap_process_t p;
+    uint32_t i, all;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK - 0.5f, in_r[i] = 0.5f - (float)i / BLOCK, out_l[i] = out_r[i] = 7.0f;
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#gen", rate, BLOCK) == 0)
+    {
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 0 && g.ports->count(g.plugin, false) == 1
+                  && g.ports->get(g.plugin, 0, false, &info) && info.channel_count == 2 && (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
+                  && strstr(info.name, "passthrough") == NULL && (!np || (np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 0)),
+              "generator %.0f: no audio input port, no note port, a stereo main output of its own (%s)", rate, info.name);
+        memset(&p, 0, sizeof(p));
+        p.steady_time = -1;
+        p.frames_count = BLOCK;
+        p.audio_outputs = &ob;
+        p.audio_outputs_count = 1;
+        midi_in_init(&mi);
+        midi_out_init(&mo);
+        p.in_events = &mi.list;
+        p.out_events = &mo.list;
+        g_audio = 1;
+        in_rt = 1;
+        CHECK(g.plugin->process(g.plugin, &p) == CLAP_PROCESS_CONTINUE, "generator %.0f: a block with no audio input runs", rate);
+        in_rt = 0;
+        g_audio = 0;
+        for (i = 0, all = 1; i < BLOCK; i++)
+            all &= out_l[i] == 0.5f && out_r[i] == 0.25f;
+        CHECK(all, "generator %.0f: 0.5 on the left and 0.25 on the right, every frame (%g, %g)", rate, out_l[0], out_r[BLOCK - 1]);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_midi, MIDI_URI "#source", rate, BLOCK) == 0)
+    {
+        np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1 && g.ports->get(g.plugin, 0, false, &info)
+                  && info.channel_count == 2 && strstr(info.name, "passthrough: host") != NULL
+                  && np && np->count(g.plugin, true) == 0 && np->count(g.plugin, false) == 1,
+              "midi source %.0f: the strip's pair passing through, no note input, one note output (%s)", rate, info.name);
+        midi_in_init(&mi);
+        midi_out_init(&mo);
+        CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
+                  && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+              "midi source %.0f: the audio passes through bit for bit, both legs", rate);
+        CHECK(mo.n == 1 && out_is(&mo, 0, CLAP_EVENT_MIDI, 0, note, 3), "midi source %.0f: its note came out at frame 0, a note the host never sent (%u)", rate, mo.n);
         rig_down(&g);
     }
 }
@@ -3033,6 +3095,7 @@ int main(int argc, char **argv)
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
         t_instrument(RATES[r]);
+        t_generator(RATES[r]);
         t_time(RATES[r]);
         t_atom_text(RATES[r]);
         t_atom_midi_time(RATES[r]);

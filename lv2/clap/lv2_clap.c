@@ -451,7 +451,7 @@ static uint32_t latency_get(const clap_plugin_t *plugin)
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
-/* the inputs before the side chains and the CV inputs: the main one, none for an instrument */
+/* the inputs before the side chains and the CV inputs: the main one, none for a source (an instrument or a generator) */
 static uint32_t main_inputs(const struct lv2_plugin *l)
 {
     return l->in_legs || l->passthrough ? 1u : 0u;
@@ -463,7 +463,7 @@ static uint32_t shim_legs(const struct lv2_plugin *l)
     return l->passthrough ? (l->in_legs ? l->in_legs : 2u) : l->legs;
 }
 
-/* the main pair (none in for an instrument), then one input per side chain (LV2 port groups and lv2:isSideChain,
+/* the main pair (none in for a source), then one input per side chain (LV2 port groups and lv2:isSideChain,
  * lv2/core), then one per CV input; the output is the main pair, then one per CV output */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
@@ -481,7 +481,7 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
     memset(info, 0, sizeof(*info));
     info->id = index;
     if (is_input)
-        index += 1u - main_inputs(s->lv2);     // an instrument's first input is a side chain's or a CV input's
+        index += 1u - main_inputs(s->lv2);     // a source's first input is a side chain's or a CV input's
     if (index == 0)
     {
         // a pass-through plugin's main pair is the host's placement, said in the port's own name

@@ -206,8 +206,35 @@ static void analyser_run(LV2_Handle h, uint32_t n)
 }
 static const LV2_Descriptor ANALYSER_TWIN = {FIXTURE_URI "#no-out", analyser_instantiate, analyser_connect_port, NULL, analyser_run, NULL, fixed_cleanup, NULL};
 
+/* the generator twin (#gen): a stereo output and no input of any kind; 0.5 on the left and 0.25 on the right, every
+ * frame, the levels of the e2e's meter source, so a graph that racks it hears a known signal */
+#define GEN_LEFT 0.5f
+#define GEN_RIGHT 0.25f
+struct generator { float *out[2]; };
+static LV2_Handle generator_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    (void)d; (void)rate; (void)path; (void)f;
+    return calloc(1, sizeof(struct generator));
+}
+static void generator_connect_port(LV2_Handle h, uint32_t port, void *data)
+{
+    struct generator *g = h;
+    if (port < 2) g->out[port] = data;
+}
+static void generator_run(LV2_Handle h, uint32_t n)
+{
+    struct generator *g = h;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+    {
+        if (g->out[0]) g->out[0][i] = GEN_LEFT;
+        if (g->out[1]) g->out[1][i] = GEN_RIGHT;
+    }
+}
+static const LV2_Descriptor GENERATOR_TWIN = {FIXTURE_URI "#gen", generator_instantiate, generator_connect_port, NULL, generator_run, NULL, fixed_cleanup, NULL};
+
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
     return index == 0 ? &DESCRIPTOR : index == 1 ? &FIXED_TWIN : index == 2 ? &INPLACE_TWIN : index == 3 ? &MIDI_TWO_TWIN
-         : index == 4 ? &ANALYSER_TWIN : NULL;
+         : index == 4 ? &ANALYSER_TWIN : index == 5 ? &GENERATOR_TWIN : NULL;
 }
