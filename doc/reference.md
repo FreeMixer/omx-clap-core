@@ -494,7 +494,8 @@ Instrument details
 
 The host object offers a plugin `clap.note-ports`, `clap.note-name` and
 `clap.voice-info` besides the six extensions every plugin gets, and
-`clap.event-registry` (below), ten in all (`src/clap_host_extensions.h`).
+`clap.event-registry` (below), and the four of a full host (A full host,
+below), fourteen in all (`src/clap_host_extensions.h`).
 
 - `note-ports.supported_dialects` answers what a note input can be fed in:
   CLAP, MIDI, MIDI MPE and MIDI 2.0 (`OMX_CLAP_HOST_NOTE_DIALECTS`) when the
@@ -521,6 +522,53 @@ its own to share yet (#186).
 `clap.event-registry`: the host reads no event space but CLAP's core one,
 so `query` answers false for every space a plugin names, and the plugin
 keeps to the core events.
+
+A full host
+-----------
+
+What a plugin may ask of any host besides its audio and its parameters:
+
+- `clap.timer-support`: a plugin registers up to 16 timers
+  (`OMX_CLAP_TIMERS`); `omx_clap_host_tick` calls `on_timer` for each that is
+  due, once per tick, then sets it a period on (from the tick's time when the
+  tick ran late). A period below 1 ms is served at 1 ms. The tick's own rate
+  bounds the resolution: a caller ticking every 10 ms serves a 5 ms timer
+  every 10 ms.
+- `clap.posix-fd-support`: up to 16 descriptors (`OMX_CLAP_FDS`), each for
+  reading, writing or both; the tick polls them without waiting and calls
+  `on_fd` with what each is ready for (`CLAP_POSIX_FD_ERROR` on an error or
+  a hang-up).
+- `clap.thread-pool`: `request_exec` inside `process()` runs every task
+  before it returns, one after another on the calling audio thread, which
+  the extension allows and which neither allocates nor waits. Off the audio
+  role it is refused.
+- `clap.tail`: the plugin's tail is read at every activate and again by the
+  tick after the plugin says it changed; `omx_clap_host_tail` answers it
+  (UINT32_MAX for an infinite tail).
+- `clap.render`: `omx_clap_host_set_render(in, CLAP_RENDER_OFFLINE)` before a
+  render that is not bound to the clock (a bounce, a freeze), and
+  `CLAP_RENDER_REALTIME` after; a plugin with a hard real-time requirement is
+  not asked to go offline (-1).
+- `clap.state-context`: `omx_clap_host_state_save_context` and
+  `omx_clap_host_state_load_context` with `CLAP_STATE_CONTEXT_FOR_PRESET`,
+  `_DUPLICATE` or `_PROJECT`; a plugin without the extension saves and loads
+  its plain state for each.
+- `clap.audio-ports-activation`: before each activate the host sets every
+  auxiliary output inactive (it is never connected) and each auxiliary input
+  active only while its buffers are bound, so the plugin may skip a port no
+  one reads or writes.
+- Sleep. A plugin's process status is read: after `CLAP_PROCESS_SLEEP`, after
+  `CLAP_PROCESS_CONTINUE_IF_NOT_QUIET` on a block whose input was silent, and
+  after `CLAP_PROCESS_TAIL` once its input has been silent for its tail
+  (never for an infinite one), the plugin sleeps. While it sleeps, a block
+  whose input is exactly silent, that carries no note and no parameter
+  event, and that finds the stage processing and wet, is not processed: the
+  lane keeps its silence and the steady time moves on. Any other block
+  wakes it, and so does its `request_process`. A stage with a side chain
+  bound never sleeps. `in->sleep` counts the blocks skipped and the times it
+  slept (`omx_clap_host_run`).
+
+The tests are `tests/clap_ext_test.c` against `tests/fake_ext.clap`.
 
 Presets
 -------
@@ -680,7 +728,7 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | Header | Status | What, or why not |
 |---|---|---|
 | `ext/ambisonic.h` | not supported | wider layouts, #92 |
-| `ext/audio-ports-activation.h` | not supported | #90 |
+| `ext/audio-ports-activation.h` | supported | A full host above: auxiliary ports set inactive while unused |
 | `ext/audio-ports-config.h` | not supported | #92 |
 | `ext/audio-ports.h` | supported | the port layout, Port layout above |
 | `ext/configurable-audio-ports.h` | not supported | #92 |
@@ -693,17 +741,17 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/note-ports.h` | supported | the plugin's ports and the host's dialects, Instrument details above |
 | `ext/param-indication.h` | not supported | ruled supported (#95): the console shows mapping and automation state; #187 |
 | `ext/params.h` | supported | parameters, read back, modulation and gestures |
-| `ext/posix-fd-support.h` | not supported | #90 |
+| `ext/posix-fd-support.h` | supported | A full host above |
 | `ext/preset-load.h` | supported | offered where the configuration asks; `preset_load`, `omx_clap_host_preset_load_key` |
 | `ext/remote-controls.h` | supported | offered where the configuration asks |
-| `ext/render.h` | not supported | #90 |
-| `ext/state-context.h` | not supported | #90 |
+| `ext/render.h` | supported | A full host above |
+| `ext/state-context.h` | supported | A full host above |
 | `ext/state.h` | supported | `state_save`, `state_load` |
 | `ext/surround.h` | not supported | #92 |
-| `ext/tail.h` | not supported | #90 |
+| `ext/tail.h` | supported | A full host above, and the sleep after it |
 | `ext/thread-check.h` | supported | the host offers it |
-| `ext/thread-pool.h` | not supported | #90 |
-| `ext/timer-support.h` | not supported | #90 |
+| `ext/thread-pool.h` | supported | A full host above: tasks run in turn on the audio thread |
+| `ext/timer-support.h` | supported | A full host above |
 | `ext/track-info.h` | supported | offered where the configuration asks |
 | `ext/voice-info.h` | supported | Voices above |
 | `ext/draft/background-activation.h` | not supported | a draft; not ruled |
