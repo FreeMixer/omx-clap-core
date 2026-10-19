@@ -45,13 +45,9 @@ export declare const HOSTING_CODES: {
     readonly code: "hosting.clap.note-input";
     readonly doc: "the plugin declares a note input the configuration refuses";
   };
-  readonly noAudioInput: {
-    readonly code: "hosting.topology.no-audio-input";
-    readonly doc: "the plugin has no audio input";
-  };
   readonly noAudioOutput: {
     readonly code: "hosting.topology.no-audio-output";
-    readonly doc: "the plugin has no audio output";
+    readonly doc: "the plugin has no audio output, no MIDI output and no audio input: nothing to carry and nothing to pass through";
   };
   readonly widerThanStrip: {
     readonly code: "hosting.topology.wider-than-strip";
