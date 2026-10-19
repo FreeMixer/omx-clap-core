@@ -1395,10 +1395,7 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
     s->steady_time += (int64_t)n;
     s->n_events = 0;
     if (status == CLAP_PROCESS_ERROR)
-    {
-        omx_hosted_count(&s->process_errors, 1);
-        return OMX_HOSTED_BLOCK_ERROR;
-    }
+        return OMX_HOSTED_BLOCK_ERROR;       // counted once, in the strike (omx_hosted_run_end_why)
     omx_clap_expand_constant(s, n);
     return omx_hosted_out_finite(&s->h, n) ? OMX_HOSTED_BLOCK_USABLE : OMX_HOSTED_BLOCK_NONFINITE;
 }
@@ -1579,7 +1576,7 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
     }
     usable = omx_clap_run_plugin(s, n);
     s->proc.transport = NULL;
-    omx_hosted_run_end_why(&s->h, usable, want_wet, l, r, n);
+    omx_hosted_run_end_why(&s->h, usable, &s->process_errors, want_wet, l, r, n);
 }
 
 /**
