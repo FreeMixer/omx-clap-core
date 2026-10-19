@@ -1147,12 +1147,22 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     if (refusal)
         return refusal;
     if (nout == 0)
-        return LV2_CODE_NO_AUDIO_OUTPUT;
-    if (p->in_legs == 0 && nout <= 2)
-        p->legs = nout;     // an instrument: its outputs are its main channels
-    if (nout != p->legs)
-        return LV2_CODE_WIDER_THAN_STRIP;
-    memcpy(p->out_ports, out, sizeof(p->out_ports));
+    {
+        // no audio output. A MIDI tool (a MIDI output) or an analyser (audio inputs) is hosted with the strip's audio
+        // passing through it untouched, the host's placement, never the plugin's own audio (#183); a plugin with
+        // neither an audio output, a MIDI output nor an audio input has nothing to host
+        if (p->midi_out_port < 0 && p->in_legs == 0)
+            return LV2_CODE_NO_AUDIO_OUTPUT;
+        p->passthrough = 1;
+    }
+    else
+    {
+        if (p->in_legs == 0 && nout <= 2)
+            p->legs = nout;     // an instrument: its outputs are its main channels
+        if (nout != p->legs)
+            return LV2_CODE_WIDER_THAN_STRIP;
+        memcpy(p->out_ports, out, sizeof(p->out_ports));
+    }
     if (p->patch_in >= 0)
         return read_patches(p, pl);     // a property is writable only through an input port
     return NULL;

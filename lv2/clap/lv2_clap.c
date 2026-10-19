@@ -445,7 +445,8 @@ static const clap_plugin_params_t g_params =
 
 static uint32_t latency_get(const clap_plugin_t *plugin)
 {
-    return SHIM_OF(plugin)->latency_active;
+    // a pass-through plugin adds no latency to the audio it does not touch: its own latency applies to its MIDI alone
+    return SHIM_OF(plugin)->lv2->passthrough ? 0u : SHIM_OF(plugin)->latency_active;
 }
 
 static const clap_plugin_latency_t g_latency = { latency_get };
@@ -453,7 +454,13 @@ static const clap_plugin_latency_t g_latency = { latency_get };
 /* the inputs before the side chains and the CV inputs: the main one, none for an instrument */
 static uint32_t main_inputs(const struct lv2_plugin *l)
 {
-    return l->in_legs ? 1u : 0u;
+    return l->in_legs || l->passthrough ? 1u : 0u;
+}
+
+/* the main pair's width as the host sees it: a pass-through tool with no audio of its own carries the strip's stereo pair */
+static uint32_t shim_legs(const struct lv2_plugin *l)
+{
+    return l->passthrough ? (l->in_legs ? l->in_legs : 2u) : l->legs;
 }
 
 /* the main pair (none in for an instrument), then one input per side chain (LV2 port groups and lv2:isSideChain,
@@ -477,10 +484,11 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
         index += 1u - main_inputs(s->lv2);     // an instrument's first input is a side chain's or a CV input's
     if (index == 0)
     {
-        snprintf(info->name, sizeof(info->name), "%s", is_input ? "in" : "out");
+        // a pass-through plugin's main pair is the host's placement, said in the port's own name
+        snprintf(info->name, sizeof(info->name), "%s%s", is_input ? "in" : "out", s->lv2->passthrough ? " (passthrough: host)" : "");
         info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-        info->channel_count = s->lv2->legs;
-        info->port_type = s->lv2->legs == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+        info->channel_count = shim_legs(s->lv2);
+        info->port_type = shim_legs(s->lv2) == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
     }
     else if (is_input && index - 1 < s->lv2->n_side)
     {
@@ -679,6 +687,14 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     // the restart a held latency asked for is this activation: it takes the reading
     s->latency_active = lv2_instance_latency(s->in);
     s->latency_pending = s->latency_active;
+    if (s->lv2->passthrough)
+    {
+        char line[256];
+
+        snprintf(line, sizeof(line), "%s: passthrough: host (no audio output: the strip's audio passes through untouched; the plugin's %u frames of latency apply to its MIDI alone)",
+                 s->lv2->uri, s->latency_active);
+        host_log(s->host, CLAP_LOG_INFO, line);
+    }
     s->latency_held_frames = 0;
     s->latency_hold_frames = (uint64_t)(rate * (double)g_latency_hold_ms / 1000.0);
     s->restart_requested = 0;
@@ -847,7 +863,23 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     if (s->lv2->midi_out_port >= 0 && s->out_events)
         lv2_instance_midi_out_each(s->in, midi_out_event, s);
     s->out_events = NULL;
-    if (process->audio_outputs_count && process->audio_outputs[0].data32)
+    if (process->audio_outputs_count && process->audio_outputs[0].data32 && s->lv2->passthrough)
+    {
+        // the host's placement: the main input passes to the main output bit for bit, silence where there is none
+        const clap_audio_buffer_t *b = &process->audio_outputs[0];
+        const clap_audio_buffer_t *a = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
+
+        for (leg = 0; leg < b->channel_count; leg++)
+        {
+            const float *src = a && a->data32 && a->channel_count ? a->data32[leg < a->channel_count ? leg : 0] : NULL;
+
+            if (!src)
+                memset(b->data32[leg], 0, n * sizeof(float));
+            else if (src != b->data32[leg])
+                memcpy(b->data32[leg], src, n * sizeof(float));
+        }
+    }
+    else if (process->audio_outputs_count && process->audio_outputs[0].data32)
     {
         const clap_audio_buffer_t *b = &process->audio_outputs[0];
 
