@@ -407,6 +407,11 @@ int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t
 
     if (uri && strcmp(uri, LV2_STATE__makePath) == 0)
         return (allowed & (1u << F_MAKE_PATH)) != 0;
+    // lv2:inPlaceBroken is a property some plugins spell as a requirement: every port of an instance is connected to
+    // the instance's own memory, the inputs and the outputs apart, so in-place is never asked of a plugin
+    // (lv2_instance.c) and the demand is met by construction, whatever the options
+    if (uri && strcmp(uri, LV2_CORE__inPlaceBroken) == 0)
+        return 1;
     if (k == F_BOUNDED)
         return (on & OMX_LV2_FEATURE_BIT(F_BOUNDED)) && (o->block.declares & OMX_LV2_BLOCK_BOUNDED);
     if (k >= 0)

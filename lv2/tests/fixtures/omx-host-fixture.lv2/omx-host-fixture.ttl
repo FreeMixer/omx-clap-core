@@ -136,6 +136,16 @@ fx:offset_db
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "out"
     ] .
 
+<urn:openmixer:test:host-fixture#inplace>
+    a lv2:Plugin ;
+    doap:name "openmixer host fixture (in-place broken twin)" ;
+    lv2:requiredFeature lv2:inPlaceBroken ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "in"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "out"
+    ] .
+
 <urn:openmixer:test:host-fixture#mappath>
     a lv2:Plugin ;
     doap:name "openmixer host fixture (state mapPath twin)" ;
