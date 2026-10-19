@@ -421,6 +421,36 @@ static void host_remote_controls_suggest_page(const clap_host_t *host, clap_id p
     main_thread_call(host);
 }
 
+/* what a note input can be fed in, or nothing when the configuration admits none */
+static uint32_t host_note_ports_supported_dialects(const clap_host_t *host)
+{
+    if (!main_thread_call(host))
+        return 0;
+    return g_config.note_inputs ? OMX_CLAP_HOST_NOTE_DIALECTS : 0;
+}
+
+static void host_note_ports_rescan(const clap_host_t *host, uint32_t flags)
+{
+    if (main_thread_call(host))
+        atomic_fetch_or_explicit(&instance_of(host)->note_ports_rescan_flags, flags, memory_order_relaxed);
+}
+
+static void host_note_name_changed(const clap_host_t *host)
+{
+    if (main_thread_call(host))
+        atomic_store_explicit(&instance_of(host)->note_names_changed, 1u, memory_order_relaxed);
+}
+
+static void host_voice_info_changed(const clap_host_t *host)
+{
+    if (main_thread_call(host))
+        atomic_store_explicit(&instance_of(host)->voice_info_changed, 1u, memory_order_relaxed);
+}
+
+static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
+static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
+static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
+
 static const clap_host_track_info_t g_host_track_info = { host_track_info_get };
 static const clap_host_remote_controls_t g_host_remote_controls = { host_remote_controls_changed,
                                                                     host_remote_controls_suggest_page };
@@ -459,6 +489,12 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_audio_ports;
     if (!strcmp(id, CLAP_EXT_STATE))
         return &g_host_state;
+    if (!strcmp(id, CLAP_EXT_NOTE_PORTS))
+        return &g_host_note_ports;
+    if (!strcmp(id, CLAP_EXT_NOTE_NAME))
+        return &g_host_note_name;
+    if (!strcmp(id, CLAP_EXT_VOICE_INFO))
+        return &g_host_voice_info;
     return NULL;
 }
 
@@ -502,17 +538,45 @@ static const char *read_note_input(struct omx_clap_instance *in)
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI_MPE;     // raw MIDI, the plugin reads the MPE zone itself
     else if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI))
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
+    else if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI2 && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI2))
+        in->note_dialect = CLAP_NOTE_DIALECT_MIDI2;     // MIDI 1.0 in, translated to MIDI 2.0 channel voice messages
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
         in->note_dialect = CLAP_NOTE_DIALECT_CLAP;
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI)
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI;
     else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE)
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI_MPE;
+    else if (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI2)
+        in->note_dialect = CLAP_NOTE_DIALECT_MIDI2;
     else
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->note_dialects = info.supported_dialects;
     in->note_inputs = 1;
     return NULL;
+}
+
+/* After a rescan of every note port, at activate: the note input read again. The new ports must be ones open admits for
+ * this instance, which also means keeping its note input when it had one and taking none when it had none (the audio
+ * topology rests on it); otherwise the old reading stays and the code is returned. */
+static const char *reread_note_input(struct omx_clap_instance *in)
+{
+    const uint32_t inputs = in->note_inputs, dialect = in->note_dialect, dialects = in->note_dialects;
+    const char *code;
+
+    in->note_ports_stale = 0;
+    if (!g_config.note_inputs)
+        return in->note_ports && in->note_ports->count(in->plugin, true) > 0 ? CLAP_HOST_CODE_NOTE_INPUT : NULL;
+    in->note_inputs = 0;
+    code = read_note_input(in);
+    if (!code && in->note_inputs != inputs)
+        code = CLAP_HOST_CODE_NOTE_INPUT;
+    if (code)
+    {
+        in->note_inputs = inputs;
+        in->note_dialect = dialect;
+        in->note_dialects = dialects;
+    }
+    return code;
 }
 
 /*
@@ -1256,6 +1320,45 @@ int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count
     return read;
 }
 
+static const clap_plugin_note_name_t *note_name_of(struct omx_clap_instance *in)
+{
+    const clap_plugin_note_name_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_NOTE_NAME) : NULL;
+
+    return ext && ext->count && ext->get ? ext : NULL;
+}
+
+uint32_t omx_clap_host_note_name_count(struct omx_clap_instance *in)
+{
+    const clap_plugin_note_name_t *ext = note_name_of(in);
+
+    return ext ? ext->count(in->plugin) : 0;
+}
+
+int omx_clap_host_note_name(struct omx_clap_instance *in, uint32_t index, clap_note_name_t *name)
+{
+    const clap_plugin_note_name_t *ext = note_name_of(in);
+    clap_note_name_t got;
+
+    if (!ext || !name || index >= ext->count(in->plugin))
+        return -1;
+    memset(&got, 0, sizeof(got));
+    if (!ext->get(in->plugin, index, &got))
+        return -1;
+    got.name[sizeof(got.name) - 1] = '\0';      // a plugin that fills every byte still reads as a string
+    *name = got;
+    return 0;
+}
+
+int omx_clap_host_note_names_changed(struct omx_clap_instance *in)
+{
+    return in && atomic_exchange_explicit(&in->note_names_changed, 0u, memory_order_relaxed) != 0;
+}
+
+uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in)
+{
+    return in ? atomic_exchange_explicit(&in->note_ports_rescanned, 0u, memory_order_relaxed) : 0;
+}
+
 int omx_clap_host_param_contract(struct omx_clap_instance *in, uint32_t *version, const char **why)
 {
     if (version)
@@ -1520,6 +1623,16 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
             why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // a bound pair shorter than the block: rebind it first
             return -1;
         }
+    if (in->note_ports_stale)
+    {
+        const char *code = reread_note_input(in);
+
+        if (code)
+        {
+            why_set(why, code);
+            return -1;
+        }
+    }
     if (take_bounce(in, max_block) != 0)
     {
         drop_bounce(in);
@@ -2116,6 +2229,7 @@ int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const ch
 int omx_clap_host_tick(struct omx_clap_instance *in)
 {
     const uint32_t rescan = atomic_exchange_explicit(&in->params_rescan_flags, 0u, memory_order_relaxed);
+    const uint32_t note_rescan = atomic_exchange_explicit(&in->note_ports_rescan_flags, 0u, memory_order_relaxed);
 
     // a rescan of everything is only the plugin's to make while inactive: made while active, it is a restart
     if (rescan)
@@ -2125,6 +2239,19 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
         if ((rescan & CLAP_PARAM_RESCAN_ALL) && in->active)
             atomic_store_explicit(&in->restart_requested, 1u, memory_order_relaxed);
     }
+    // the same for the note ports: a rescan of every port is a restart while active, and the next activate reads them
+    if (note_rescan)
+    {
+        atomic_fetch_or_explicit(&in->note_ports_rescanned, note_rescan, memory_order_relaxed);
+        if (note_rescan & CLAP_NOTE_PORTS_RESCAN_ALL)
+        {
+            in->note_ports_stale = 1;
+            if (in->active)
+                atomic_store_explicit(&in->restart_requested, 1u, memory_order_relaxed);
+        }
+    }
+    if (atomic_exchange_explicit(&in->voice_info_changed, 0u, memory_order_relaxed) && in->active)
+        voice_info_ask(in);
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         in->plugin->on_main_thread(in->plugin);
     if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))
