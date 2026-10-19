@@ -496,8 +496,12 @@ static void t_discard(enum kind kind) {
   memcpy(dl, l, sizeof dl), memcpy(dr, r, sizeof dr);
   run(&g, l, r, 64);
   CHECK(bytes_equal(l, dl, 64) && bytes_equal(r, dr, 64), "%s: the lane is bit-identical dry", kind == K_ERROR ? "error" : "nan");
-  CHECK(atomic_load(&g.st.h.nonfinite_blocks) == 1, "one strike");
-  if (kind == K_ERROR) CHECK(atomic_load(&g.st.process_errors) == 1, "counted as a process error too");
+  if (kind == K_ERROR) {
+    CHECK(atomic_load(&g.st.h.error_blocks) == 1 && atomic_load(&g.st.h.nonfinite_blocks) == 0, "error: one strike on the error counter, none on the non-finite one");
+    CHECK(atomic_load(&g.st.process_errors) == 1, "counted as a process error too");
+  } else {
+    CHECK(atomic_load(&g.st.h.nonfinite_blocks) == 1 && atomic_load(&g.st.h.error_blocks) == 0, "nan: one strike on the non-finite counter, none on the error one");
+  }
   CHECK(atomic_load(&g.st.h.fault) == OMX_HOSTED_FAULT_NONE, "not yet faulted");
   *bad = 0;
   ramp(l, 64), ramp(r, 64);
@@ -511,7 +515,9 @@ static void t_discard(enum kind kind) {
     ramp(l, 64), ramp(r, 64);
     run(&g, l, r, 64);
   }
-  CHECK(atomic_load(&g.st.h.fault) == OMX_HOSTED_FAULT_NONFINITE, "faulted at the strike count (%u)", CLAP_HOST_NON_FINITE_STRIKES);
+  CHECK(atomic_load(&g.st.h.fault) == (kind == K_ERROR ? OMX_HOSTED_FAULT_PROCESS_ERROR : OMX_HOSTED_FAULT_NONFINITE),
+        "faulted at the strike count (%u) as %s, never as the plugin's output when it did not run", CLAP_HOST_NON_FINITE_STRIKES,
+        kind == K_ERROR ? "a process error" : "non-finite output");
   *bad = 0;
   const uint32_t runs = atomic_load(&g.st.h.runs);
   ramp(l, 64), ramp(r, 64);

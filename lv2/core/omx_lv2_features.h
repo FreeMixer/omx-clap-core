@@ -97,10 +97,13 @@ struct omx_lv2_feature_options
                                      * without it, to degrade or refuse in its own instantiate: 1 */
     struct
     {
-        uint32_t declares;          /* OMX_LV2_BLOCK_* made when OMX_LV2_F_BOUNDED is offered: OMX_LV2_BLOCK_BOUNDED */
-        uint32_t min;               /* bufsz:minBlockLength; 0: the activation's: 0 */
+        uint32_t declares;          /* OMX_LV2_BLOCK_* made when OMX_LV2_F_BOUNDED is offered: OMX_LV2_BLOCK_BOUNDED.
+                                     * OMX_LV2_BLOCK_FIXED is a promise the host keeps (every run() the maximum's
+                                     * length): the minimum and nominal reported are then the maximum, whatever `min`
+                                     * and `nominal` name */
+        uint32_t min;               /* bufsz:minBlockLength; 0: the activation's: 0 (overruled by OMX_LV2_BLOCK_FIXED) */
         uint32_t max;               /* bufsz:maxBlockLength; 0: the activation's: 0 */
-        uint32_t nominal;           /* bufsz:nominalBlockLength; 0: the maximum reported: 0 */
+        uint32_t nominal;           /* bufsz:nominalBlockLength; 0: the maximum reported: 0 (overruled by FIXED) */
     } block;
     struct
     {

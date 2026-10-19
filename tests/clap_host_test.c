@@ -846,6 +846,49 @@ struct mover_cycles
     _Atomic int go;
 };
 
+/* A cycle during a re-activation. The host's buffer-size path (omx-clap-host, effects.c) stops, deactivates and
+ * activates the instance again on JACK's notification thread, under a lock of its own; the audio role never takes that
+ * lock, and a cycle that lands while the instance is deactivated returns at once, runs nothing and writes nothing (the
+ * stage is unbound: no lane to copy onto), so the host passes the cycle dry itself around it (effects.c process). */
+struct cycle_timed { struct omx_clap_instance *instance; double ms; int dry; };
+static void *cycle_timed_run(void *arg)
+{
+    struct cycle_timed *c = arg;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    const double t0 = now_ms();
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK, in_r[i] = -(float)i / BLOCK, out_l[i] = out_r[i] = 7.0f;
+    omx_clap_run_io(&c->instance->stage, inputs, outputs, BLOCK);
+    c->ms = now_ms() - t0;
+    c->dry = out_l[0] == 7.0f && out_r[0] == 7.0f;     // untouched: nothing written, nothing run
+    return NULL;
+}
+static void test_cycle_while_deactivated(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct cycle_timed c = { NULL, 0.0, 0 };
+    pthread_t t;
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance) || !activate(instance))
+    {
+        CHECK(0, "cycle while deactivated: the fake opens and activates");
+        return;
+    }
+    omx_clap_host_stop(instance);
+    omx_clap_host_deactivate(instance);
+    c.instance = instance;
+    CHECK(pthread_create(&t, NULL, cycle_timed_run, &c) == 0, "cycle while deactivated: a cycle runs on another thread");
+    pthread_join(t, NULL);
+    CHECK(c.ms < 100.0 && c.dry && atomic_load(&instance->stage.h.runs) == 0,
+          "cycle while deactivated: it returns at once (%.1f ms), writes nothing (%d) and runs nothing (%u runs)", c.ms, c.dry,
+          atomic_load(&instance->stage.h.runs));
+    omx_clap_host_close(instance);
+}
+
 static void *mover_cycles_run(void *arg)
 {
     struct mover_cycles *c = arg;
@@ -1088,6 +1131,7 @@ int main(int argc, char **argv)
         }
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
+        test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
         if (synth_path)
         {
