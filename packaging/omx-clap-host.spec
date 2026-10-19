@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.13.0
+Version:        0.12.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -141,14 +141,6 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
-* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
-- Preset listing: omx_clap_host_presets and omx_clap_host_entry_presets read a
-  plugin file's preset-discovery factory; omx_clap_host_preset_load_key loads a
-  listed preset. The calls are in the version node OMX_CLAP_CORE_0.13.
-- The LV2 adapter's entry offers a preset-discovery factory for pset:Preset.
-- The host offers clap.event-registry.
-- omx-clap-scan lists a file's presets.
-- doc/reference.md tables every CLAP extension header with its status.
 * Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.12.0-1
 - The host offers a plugin clap.note-ports, clap.note-name and clap.voice-info:
   supported_dialects answers CLAP, MIDI, MIDI MPE and MIDI 2.0; a rescan of
