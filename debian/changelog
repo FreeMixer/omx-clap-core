@@ -1,3 +1,19 @@
+omx-clap-host (0.14.0) unstable; urgency=medium
+
+  * The host offers clap.timer-support, clap.posix-fd-support,
+    clap.thread-pool and clap.tail: the tick serves timers and descriptors,
+    request_exec runs every task inside process(), the tail is read at
+    activate and after it changes (omx_clap_host_tail).
+  * A plugin that answers SLEEP, CONTINUE_IF_NOT_QUIET on silence, or TAIL
+    after its tail of silence is not processed on silent blocks until sound,
+    an event or its request_process wakes it.
+  * omx_clap_host_set_render, omx_clap_host_state_save_context and
+    omx_clap_host_state_load_context; an auxiliary port nobody uses is set
+    inactive through audio-ports-activation. The calls are in the version
+    node OMX_CLAP_CORE_0.14. The library ABI is 11.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 19 Oct 2026 00:00:00 +0000
+
 omx-clap-host (0.13.0) unstable; urgency=medium
 
   * Preset listing: omx_clap_host_presets and omx_clap_host_entry_presets read
