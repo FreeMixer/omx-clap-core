@@ -381,7 +381,7 @@ static int process(jack_nframes_t nframes, void *arg)
     for (c = 0; c < effect->clap->channels; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
     // a cycle while the instance is deactivated (buffer_size re-activating it; JACK stops this client's cycle for the
-    // callback, but this thread waits on nothing of it): the audio passes dry, an instrument's output silent, and the
+    // callback, but this thread waits on nothing of it): the audio passes dry, a source's output silent, and the
     // plugin is not run
     if (!effect->clap->active)
     {

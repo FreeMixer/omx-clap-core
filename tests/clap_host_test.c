@@ -847,8 +847,22 @@ static void synth_checks(const char *path)
 
     check_refused(path, SYNTH_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     check_refused(path, SYNTH_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
-    check_refused(path, SILENT, CLAP_HOST_CODE_NO_AUDIO_INPUT);
     CHECK(omx_clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
+
+    // #184: a generator, no main input and no note input, is admitted as a source: no input channel, its outputs its own
+    synth = NULL;
+    CHECK(open_ok(path, SILENT, &synth), "a generator with no input of any kind is admitted (%s)", SILENT);
+    if (synth)
+    {
+        CHECK(synth->in_channels == 0 && synth->channels == 2 && synth->note_inputs == 0,
+              "the generator: no main input, a stereo output, no note input (%u, %u, %u)", synth->in_channels, synth->channels, synth->note_inputs);
+        CHECK(activate(synth), "the generator activates");
+        omx_clap_host_publish(synth, pthread_self());
+        run_block(synth, NULL, 0, out_l, out_r);
+        run_block(synth, NULL, 0, out_l, out_r);
+        CHECK(is_silent(out_l, 0, BLOCK) && is_silent(out_r, 0, BLOCK), "a block with no input runs; this one renders silence");
+        omx_clap_host_close(synth);
+    }
 
     synth = open_synth(path, SYNTH_AUX, 2, CLAP_NOTE_DIALECT_CLAP);
     if (synth)
