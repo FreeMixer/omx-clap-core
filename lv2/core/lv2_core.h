@@ -207,6 +207,9 @@ struct lv2_plugin
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
     int patch_time;                 // the patch input also supports time:Position: the transport is forged into it
+    int passthrough;                // no audio output: hosted with the strip's audio passing through it untouched, the
+                                    // host's placement (a MIDI tool, or an analyser with audio inputs); legs is then
+                                    // the input count, 0 for a tool with no audio at all
     int patch_in_shared;            // the patch input IS the MIDI input: one sequence both writers fill, in frame order
     int patch_out_shared;           // the patch output IS the MIDI output: one sequence both readers read
     uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
