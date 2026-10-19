@@ -722,6 +722,101 @@ static void ns_up(uint32_t inputs, uint32_t dialect, uint32_t dialects) {
 
 static void ns_in(uint32_t time, const uint8_t *m, size_t n) { omx_clap_note_in(&NS, time, m, n); }
 
+/*
+ * MIDI 2.0: a port that speaks only MIDI 2.0 gets every channel message as the MIDI 2.0 channel voice message the UMP
+ * specification translates it to, word for word: UMP message type 4, group 0, the status and channel, the index; 7-bit
+ * values scaled to 16 (velocity) or 32 bits, a 14-bit bend to 32, by min-centre-max scaling. A CLAP port that also
+ * declares MIDI 2.0 (and not MIDI) keeps its notes, bends and pressure as CLAP, and takes what CLAP cannot carry as MIDI 2.0.
+ */
+static int m2_is(uint32_t i, uint32_t w0, uint32_t w1) {
+  return NS.notes[i].header.type == CLAP_EVENT_MIDI2 && NS.notes[i].header.size == sizeof(clap_event_midi2_t) &&
+         NS.notes[i].midi2.data[0] == w0 && NS.notes[i].midi2.data[1] == w1 && NS.notes[i].midi2.data[2] == 0 &&
+         NS.notes[i].midi2.data[3] == 0;
+}
+
+static void t_midi2(void) {
+  static const uint8_t NOTE_ON[] = {0x93, 60, 100}, ON_MAX[] = {0x90, 69, 127}, ON_MIN[] = {0x90, 69, 1};
+  static const uint8_t ON_VEL0[] = {0x92, 60, 0}, NOTE_OFF[] = {0x81, 60, 64}, POLY[] = {0xa4, 61, 64};
+  static const uint8_t CTRL[] = {0xb0, 7, 127}, CTRL0[] = {0xb0, 7, 0}, PROG[] = {0xc3, 5}, CHAN_PRESS[] = {0xd2, 127};
+  static const uint8_t BEND_MIN[] = {0xe5, 0x00, 0x00}, BEND_MID[] = {0xe5, 0x00, 0x40}, BEND_MAX[] = {0xe5, 0x7f, 0x7f};
+  static const uint8_t SYSEX[] = {0xf0, 1, 2, 3, 0xf7}, SHORT[] = {0x90, 60}, CLOCK[] = {0xf8};
+
+  CHECK(omx_clap_midi2_scale_up(0, 7, 16) == 0 && omx_clap_midi2_scale_up(64, 7, 16) == 0x8000u &&
+            omx_clap_midi2_scale_up(127, 7, 16) == 0xffffu && omx_clap_midi2_scale_up(100, 7, 16) == 51492u &&
+            omx_clap_midi2_scale_up(1, 7, 16) == 0x200u,
+        "MIDI 2.0: 7 to 16 bits by min-centre-max: 0, 64, 127, 100, 1 -> 0, 0x8000, 0xffff, 51492, 0x200");
+  CHECK(omx_clap_midi2_scale_up(127, 7, 32) == 0xffffffffu && omx_clap_midi2_scale_up(64, 7, 32) == 0x80000000u &&
+            omx_clap_midi2_scale_up(16383, 14, 32) == 0xffffffffu && omx_clap_midi2_scale_up(8192, 14, 32) == 0x80000000u &&
+            omx_clap_midi2_scale_up(8193, 14, 32) == 0x80040020u,
+        "MIDI 2.0: 7 and 14 to 32 bits: the top is all ones, the centre is the top bit (%08x)", omx_clap_midi2_scale_up(8193, 14, 32));
+  for (uint32_t v = 1; v < 128; v++)
+    if (omx_clap_midi2_scale_up(v, 7, 16) >> 9 != v || omx_clap_midi2_scale_up(v, 7, 16) <= omx_clap_midi2_scale_up(v - 1, 7, 16)) {
+      CHECK(0, "MIDI 2.0: 7 to 16 bits rises with the value and its top 7 bits read it back (%u)", v);
+      break;
+    }
+
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2);
+  ns_in(10, NOTE_ON, sizeof NOTE_ON);
+  ns_in(11, ON_MAX, sizeof ON_MAX);
+  ns_in(12, ON_MIN, sizeof ON_MIN);
+  ns_in(13, ON_VEL0, sizeof ON_VEL0);
+  ns_in(14, NOTE_OFF, sizeof NOTE_OFF);
+  CHECK(NS.n_notes == 5 && NS.notes[0].header.time == 10 && NS.notes[4].header.time == 14, "MIDI 2.0: five notes, at their frames (%u)", NS.n_notes);
+  CHECK(m2_is(0, 0x40933c00u, 51492u << 16), "MIDI 2.0: note on ch 3 key 60 velocity 100 (%08x %08x)", NS.notes[0].midi2.data[0], NS.notes[0].midi2.data[1]);
+  CHECK(m2_is(1, 0x40904500u, 0xffff0000u) && m2_is(2, 0x40904500u, 0x02000000u), "MIDI 2.0: velocity 127 is 0xffff, velocity 1 is 0x0200");
+  CHECK(m2_is(3, 0x40823c00u, 0x80000000u), "MIDI 2.0: a note on of velocity 0 is a note off of velocity 0x8000 (%08x %08x)",
+        NS.notes[3].midi2.data[0], NS.notes[3].midi2.data[1]);
+  CHECK(m2_is(4, 0x40813c00u, 0x80000000u), "MIDI 2.0: a note off keeps its release velocity, 64 is 0x8000");
+
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2);
+  ns_in(0, POLY, sizeof POLY);
+  ns_in(1, CTRL, sizeof CTRL);
+  ns_in(2, CTRL0, sizeof CTRL0);
+  ns_in(3, PROG, sizeof PROG);
+  ns_in(4, CHAN_PRESS, sizeof CHAN_PRESS);
+  ns_in(5, BEND_MIN, sizeof BEND_MIN);
+  ns_in(6, BEND_MID, sizeof BEND_MID);
+  ns_in(7, BEND_MAX, sizeof BEND_MAX);
+  CHECK(NS.n_notes == 8, "MIDI 2.0: every channel message is delivered (%u)", NS.n_notes);
+  CHECK(m2_is(0, 0x40a43d00u, 0x80000000u), "MIDI 2.0: poly pressure 64 on key 61 of channel 4 is 0x80000000");
+  CHECK(m2_is(1, 0x40b00700u, 0xffffffffu) && m2_is(2, 0x40b00700u, 0), "MIDI 2.0: controller 7 at 127 and 0 is 0xffffffff and 0");
+  CHECK(m2_is(3, 0x40c30000u, 0x05000000u), "MIDI 2.0: program 5 on channel 3, no bank (%08x %08x)", NS.notes[3].midi2.data[0], NS.notes[3].midi2.data[1]);
+  CHECK(m2_is(4, 0x40d20000u, 0xffffffffu), "MIDI 2.0: channel pressure 127 is 0xffffffff");
+  CHECK(m2_is(5, 0x40e50000u, 0) && m2_is(6, 0x40e50000u, 0x80000000u) && m2_is(7, 0x40e50000u, 0xffffffffu),
+        "MIDI 2.0: the bend's bottom, centre and top are 0, 0x80000000 and 0xffffffff");
+  ns_in(8, SYSEX, sizeof SYSEX);
+  ns_in(9, SHORT, sizeof SHORT);
+  ns_in(10, CLOCK, sizeof CLOCK);
+  CHECK(NS.n_notes == 8 && atomic_load(&NS.notes_unmappable) == 2,
+        "MIDI 2.0 only: a sysex and a short note on are counted, a clock byte dropped (%u, %u)", NS.n_notes, atomic_load(&NS.notes_unmappable));
+
+  /* a release keeps its reserve as MIDI 2.0 too: with the block full up to the reserve, a note off still goes */
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2);
+  for (uint32_t k = 0; k < CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1u; k++)
+    ns_in(0, ON_MAX, sizeof ON_MAX);
+  ns_in(1, ON_VEL0, sizeof ON_VEL0);
+  CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1u && atomic_load(&NS.notes_dropped) == 1 &&
+            m2_is(NS.n_notes - 1, 0x40823c00u, 0x80000000u),
+        "MIDI 2.0: past the reserve a note on is dropped and a release still goes (%u, %u)", NS.n_notes, atomic_load(&NS.notes_dropped));
+
+  /* a sysex on a port that declares MIDI 2.0 and MIDI goes as a sysex */
+  ns_up(1, CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2 | CLAP_NOTE_DIALECT_MIDI);
+  ns_in(0, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_notes == 1 && NS.notes[0].header.type == CLAP_EVENT_MIDI_SYSEX, "MIDI 2.0 and MIDI: a sysex is a CLAP sysex");
+
+  /* CLAP and MIDI 2.0: CLAP's own messages stay CLAP, a controller and a program change go as MIDI 2.0, a sysex is counted */
+  ns_up(1, CLAP_NOTE_DIALECT_CLAP, CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI2);
+  ns_in(0, NOTE_ON, sizeof NOTE_ON);
+  ns_in(1, BEND_MAX, sizeof BEND_MAX);
+  ns_in(2, CTRL, sizeof CTRL);
+  ns_in(3, PROG, sizeof PROG);
+  ns_in(4, SYSEX, sizeof SYSEX);
+  CHECK(NS.n_notes == 4 && NS.notes[0].header.type == CLAP_EVENT_NOTE_ON && NS.notes[1].header.type == CLAP_EVENT_NOTE_EXPRESSION &&
+            m2_is(2, 0x40b00700u, 0xffffffffu) && m2_is(3, 0x40c30000u, 0x05000000u) && atomic_load(&NS.notes_unmappable) == 1,
+        "CLAP and MIDI 2.0: note and bend as CLAP, controller and program as MIDI 2.0, the sysex counted (%u, %u)", NS.n_notes,
+        atomic_load(&NS.notes_unmappable));
+}
+
 static void t_channel_messages(void) {
   static const uint8_t NOTE_ON[] = {0x93, 60, 100}, NOTE_OFF[] = {0x80, 60, 0}, ON_VEL0[] = {0x92, 60, 0};
   static const uint8_t CTRL[] = {0xb0, 7, 100}, PROG[] = {0xc1, 5}, BEND_MIN[] = {0xe5, 0x00, 0x00};
@@ -1512,6 +1607,7 @@ int main(void) {
     t_out_events();
     t_xfade();
     t_channel_messages();
+    t_midi2();
     t_note_ids();
     t_mpe();
     t_mpe_two_zones();
