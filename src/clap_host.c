@@ -556,10 +556,12 @@ static bool host_request_exec(const clap_host_t *host, uint32_t num_tasks)
 {
     struct omx_clap_instance *in = instance_of(host);
 
-    if (!in->thread_pool || !in->thread_pool->exec || !on_audio_role(in))
-        return false;
+    if (!in->thread_pool || !in->thread_pool->exec || !on_audio_role(in) || in->in_exec)
+        return false;       // a request made from inside exec would nest the tasks: refused, the plugin runs its own
+    in->in_exec = 1;
     for (uint32_t i = 0; i < num_tasks; i++)
         in->thread_pool->exec(in->plugin, i);
+    in->in_exec = 0;
     return true;
 }
 
@@ -2286,6 +2288,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     voice_info_ask(in);
     tail_read(in);
     in->sleep.asleep = 0;
+    in->sleep.have_last = 0;
     in->sleep.quiet_frames = 0;
     in->sleep.quiet_out_frames = 0;
     in->sleep.quiet_min_frames = (uint32_t)(rate * OMX_CLAP_SLEEP_QUIET_MS / 1000.0);
