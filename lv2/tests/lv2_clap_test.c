@@ -1238,6 +1238,18 @@ static void t_fixed_block(double rate)
             out[i] = -7.0f;
         CHECK(process_with(&g, in, NULL, out, NULL, BLOCK / 2, NULL, NULL) == CLAP_PROCESS_ERROR && out[0] == -7.0f,
               "fixed %.0f: a block of another length is refused and the plugin never runs on it (out %g)", rate, out[0]);
+        // the host's cycle shrank: it re-activates at the new length, and that length runs while the old one is refused
+        g.plugin->stop_processing(g.plugin);
+        g.plugin->deactivate(g.plugin);
+        CHECK(g.plugin->activate(g.plugin, rate, 1, BLOCK / 2) && g.plugin->start_processing(g.plugin), "fixed %.0f: re-activated at half the block", rate);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK / 2, NULL, NULL) == CLAP_PROCESS_CONTINUE && out[0] == 0.25f,
+              "fixed %.0f: after the shrink the new length runs (out %g)", rate, out[0]);
+        for (i = 0; i < BLOCK; i++)
+            out[i] = -7.0f;
+        CHECK(process_with(&g, in, NULL, out, NULL, BLOCK, NULL, NULL) == CLAP_PROCESS_ERROR && out[0] == -7.0f,
+              "fixed %.0f: and the old length is refused now (out %g)", rate, out[0]);
         rig_down(&g);
     }
     CHECK(omx_clap_lv2_feature_options(NULL, why) == 0, "fixed %.0f: the defaults again (%s)", rate, why);
