@@ -41,7 +41,7 @@
  *                                         (the third answers no get), reads the host's clap.note-ports at init
  *                                         and calls the host's note-ports, note-name and voice-info back when a
  *                                         test asks it to (fake_synth_poly_rescan, _rename, _revoice)
- *   org.omx-clap-host.test.silent         an effect with no input and no note input, refused
+ *   org.omx-clap-host.test.silent         a generator: no input and no note input, admitted as a source; silent
  *   org.omx-clap-host.test.synth-arp      silent stereo out, a CLAP note input and a CLAP note output: an arpeggiator.
  *                                         A note on of key k at frame f sends note ons of k, k + 4 and k + 7 at f,
  *                                         f + s and f + 2s, s FAKE_ARP_STEP_MS at the activated rate, across blocks;

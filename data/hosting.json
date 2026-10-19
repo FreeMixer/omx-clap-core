@@ -144,13 +144,9 @@
         "code": "hosting.clap.note-input",
         "doc": "the plugin declares a note input the configuration refuses"
       },
-      "noAudioInput": {
-        "code": "hosting.topology.no-audio-input",
-        "doc": "the plugin has no audio input"
-      },
       "noAudioOutput": {
         "code": "hosting.topology.no-audio-output",
-        "doc": "the plugin has no audio output"
+        "doc": "the plugin has no audio output, no MIDI output and no audio input: nothing to carry and nothing to pass through"
       },
       "widerThanStrip": {
         "code": "hosting.topology.wider-than-strip",

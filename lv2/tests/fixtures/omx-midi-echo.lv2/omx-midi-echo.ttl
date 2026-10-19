@@ -75,6 +75,18 @@
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_r" ; lv2:name "Out R"
     ] .
 
+# the MIDI source: a MIDI output and no input of any kind (an arpeggio or sequence generator's shape); hosted with the
+# strip's audio passing through it untouched, its notes on the note output
+<urn:openmixer:test:midi-echo#source>
+    a lv2:Plugin ;
+    doap:name "openmixer midi echo (MIDI source twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 0 ; lv2:symbol "midi_out" ; lv2:name "MIDI Out"
+    ] .
+
 # the MIDI tool: a MIDI input and a MIDI output, no audio port at all (gareus midifilter's shape); hosted with the
 # strip's audio passing through it untouched
 <urn:openmixer:test:midi-echo#tool>
