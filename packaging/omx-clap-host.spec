@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.11.0
+Version:        0.12.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -141,6 +141,18 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.12.0-1
+- The host offers a plugin clap.note-ports, clap.note-name and clap.voice-info:
+  supported_dialects answers CLAP, MIDI, MIDI MPE and MIDI 2.0; a rescan of
+  every note port while active asks for a restart, and the next activate reads
+  the note input again; note names read through omx_clap_host_note_name_count
+  and omx_clap_host_note_name; a voice count the plugin says changed is asked
+  again by the tick. The calls are in the version node OMX_CLAP_CORE_0.12. The
+  library ABI is 10.
+- A note port that speaks MIDI 2.0 gets every channel message as its MIDI 2.0
+  channel voice message, CLAP_EVENT_MIDI2, scaled by the UMP specification's
+  rule.
+- omx-clap-scan lists a plugin's note names and its voice info.
 * Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.11.0-1
 - An instrument's clap.voice-info is read at activate and answered through
   omx_clap_host_voice_info, in the version node OMX_CLAP_CORE_0.11. The

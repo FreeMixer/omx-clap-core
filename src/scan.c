@@ -20,9 +20,11 @@
 
 
 /* Lists what CLAP plugin files hold: every plugin of every factory, with its
- * parameters, audio and note ports and latency, read from an initialised
- * instance that is never activated. Each file is scanned in a child process
- * so a plugin that crashes or hangs is reported and the scan goes on. */
+ * parameters, audio and note ports, note names and latency, read from an
+ * initialised instance that is not activated; a plugin that offers
+ * clap.voice-info is activated once, at 48 kHz, to read it, since the
+ * extension answers only while active. Each file is scanned in a child
+ * process so a plugin that crashes or hangs is reported and the scan goes on. */
 
 /*
 ************************************************************************************************************************
@@ -327,6 +329,63 @@ static void put_note_ports(FILE *out, const struct omx_clap_instance *instance)
         fprintf(out, "    note ports %u in, %u out\n", inputs, outputs);
 }
 
+/* the names a drum machine gives its keys (clap.note-name), each with the port, key and channel it names (-1: every
+ * one); left out when the plugin names none */
+static void put_note_names(FILE *out, struct omx_clap_instance *instance)
+{
+    const uint32_t count = omx_clap_host_note_name_count(instance);
+    uint32_t i, put = 0;
+
+    for (i = 0; i < count; i++)
+    {
+        clap_note_name_t name;
+
+        if (omx_clap_host_note_name(instance, i, &name) != 0)
+            continue;
+        if (g_json)
+        {
+            fputs(put++ ? "," : ",\"note_names\":[", out);
+            fputs("{\"name\":", out);
+            put_string(out, name.name);
+            fprintf(out, ",\"port\":%d,\"key\":%d,\"channel\":%d}", name.port, name.key, name.channel);
+        }
+        else
+        {
+            fputs("    note name \"", out);
+            put_string(out, name.name);
+            fprintf(out, "\" port %d key %d channel %d\n", name.port, name.key, name.channel);
+        }
+    }
+    if (g_json && put)
+        fputc(']', out);
+}
+
+/* the scan's one activation, for clap.voice-info alone (the extension answers only while active): the voices the patch
+ * uses, the voices allocated and the flags; left out when the plugin offers none, or answers outside its own rule */
+#define SCAN_RATE       48000.0
+#define SCAN_MAX_FRAMES 1024u
+static void put_voice_info(FILE *out, struct omx_clap_instance *instance)
+{
+    const clap_plugin_t *plugin = instance->plugin;
+    const clap_plugin_voice_info_t *ext = plugin->get_extension(plugin, CLAP_EXT_VOICE_INFO);
+    clap_voice_info_t info;
+    bool read;
+
+    if (!ext || !ext->get || !plugin->activate(plugin, SCAN_RATE, 1, SCAN_MAX_FRAMES))
+        return;
+    memset(&info, 0, sizeof(info));
+    read = ext->get(plugin, &info) && info.voice_count >= 1 && info.voice_count <= info.voice_capacity;
+    plugin->deactivate(plugin);
+    if (!read)
+        return;
+    if (g_json)
+        fprintf(out, ",\"voice_info\":{\"count\":%u,\"capacity\":%u,\"overlapping_notes\":%s}", info.voice_count,
+                info.voice_capacity, (info.flags & CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES) ? "true" : "false");
+    else
+        fprintf(out, "    voices %u of %u%s\n", info.voice_count, info.voice_capacity,
+                (info.flags & CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES) ? ", overlapping notes" : "");
+}
+
 /* what a plugin that is only initialised answers; a plugin not yet activated may say 0, so 0 is left out as unknown */
 static void put_latency(FILE *out, const struct omx_clap_instance *instance)
 {
@@ -401,7 +460,9 @@ static void put_plugin(FILE *out, struct omx_clap_binary *binary, const clap_plu
     if (g_json)
         fputc(',', out);
     put_note_ports(out, instance);
+    put_note_names(out, instance);
     put_latency(out, instance);
+    put_voice_info(out, instance);
     if (g_json)
         fputc('}', out);
     omx_clap_host_close(instance);
