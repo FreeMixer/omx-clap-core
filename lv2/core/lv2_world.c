@@ -84,7 +84,7 @@
     X(lilv_port_supports_event) \
     X(lilv_scale_points_is_end) X(lilv_scale_points_get) X(lilv_scale_points_free) X(lilv_scale_point_get_label) \
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
-    X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
+    X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) X(lilv_node_is_blank) X(lilv_nodes_size) \
     X(lilv_plugin_get_value) X(lilv_world_find_nodes) X(lilv_world_ask) \
     X(lilv_state_new_from_world) X(lilv_state_restore) X(lilv_state_free) X(lilv_state_new_from_instance) \
     X(lilv_state_to_string) X(lilv_state_new_from_string) X(lilv_world_load_resource) X(lilv_world_unload_resource)
@@ -1914,4 +1914,152 @@ int lv2_bundle_presets(const struct lv2_bundle *b, lv2_preset_fn fn, void *ctx)
     for (i = 0; i < b->count && !stopped; i++)
         listed += plugin_presets(b, i, fn, ctx, &stopped);
     return listed;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: THE FIELD DUMP, FROM THE WORLD ALONE
+************************************************************************************************************************
+*/
+
+/* a resource's label: its lv2:name, rdfs:label or foaf:name, the first it states; NULL when it states none */
+static char *resource_label(const LilvNode *node)
+{
+    static const char *const by[] = { LV2_CORE__name, LV2_RDFS_LABEL, "http://xmlns.com/foaf/0.1/name" };
+    char *label = NULL;
+    uint32_t i;
+
+    for (i = 0; i < sizeof(by) / sizeof(by[0]) && !label; i++)
+    {
+        LilvNode *predicate = L.lilv_new_uri(g.world, by[i]);
+        LilvNodes *values = predicate ? L.lilv_world_find_nodes(g.world, node, predicate, NULL) : NULL;
+
+        if (values && L.lilv_nodes_size(values) > 0)
+            label = strdup(L.lilv_node_as_string(L.lilv_nodes_get(values, L.lilv_nodes_begin(values))));
+        L.lilv_nodes_free(values);
+        if (predicate)
+            L.lilv_node_free(predicate);
+    }
+    return label;
+}
+
+/* a number literal as the dump writes it, %.17g */
+static void number_text(const LilvNode *node, char *buf, size_t size)
+{
+    snprintf(buf, size, "%.17g", strtod(L.lilv_node_as_string(node), NULL));
+}
+
+/* one value of a field, by its kind; a resource that is no URI is passed by its label, and left out when it has none */
+static void field_value(const struct lv2_field_ask *ask, int32_t port, uint32_t k, const LilvNode *v, lv2_field_fn fn, void *ctx)
+{
+    char number[64];
+
+    if (L.lilv_node_is_uri(v) && !ask->by_label)
+        fn(ctx, port, k, LV2_FIELD_URI, L.lilv_node_as_uri(v));
+    else if (L.lilv_node_is_uri(v) || L.lilv_node_is_blank(v))
+    {
+        char *label = resource_label(v);
+
+        if (label)
+            fn(ctx, port, k, LV2_FIELD_TEXT, label);
+        free(label);
+    }
+    else if (L.lilv_node_is_float(v) || L.lilv_node_is_int(v))
+    {
+        number_text(v, number, sizeof(number));
+        fn(ctx, port, k, LV2_FIELD_NUMBER, number);
+    }
+    else
+        fn(ctx, port, k, LV2_FIELD_TEXT, L.lilv_node_as_string(v));
+}
+
+/* a port's scale points, each "<value> <label>" */
+static void scale_points(const LilvPlugin *pl, const LilvPort *port, int32_t index, uint32_t k, lv2_field_fn fn, void *ctx)
+{
+    LilvScalePoints *points = L.lilv_port_get_scale_points(pl, port);
+    LilvIter *it;
+
+    for (it = L.lilv_scale_points_begin(points); points && !L.lilv_scale_points_is_end(points, it);
+         it = L.lilv_scale_points_next(points, it))
+    {
+        const LilvScalePoint *sp = L.lilv_scale_points_get(points, it);
+        char number[64], *text;
+
+        number_text(L.lilv_scale_point_get_value(sp), number, sizeof(number));
+        if (asprintf(&text, "%s %s", number, L.lilv_node_as_string(L.lilv_scale_point_get_label(sp))) < 0)
+            continue;
+        fn(ctx, index, k, LV2_FIELD_TEXT, text);
+        free(text);
+    }
+    L.lilv_scale_points_free(points);
+}
+
+int lv2_bundle_fields(struct lv2_bundle *bundle, const char *uri, const struct lv2_field_ask *asks, uint32_t count,
+                      lv2_field_fn fn, void *ctx, char why[LV2_CORE_WHY_MAX])
+{
+    LilvNode *uri_node, **predicates;
+    const LilvPlugin *pl;
+    uint32_t k, i, ports;
+
+    if (!bundle || !uri || !g.world || !fn)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    uri_node = L.lilv_new_uri(g.world, uri);
+    pl = uri_node ? L.lilv_plugins_get_by_uri(L.lilv_world_get_all_plugins(g.world), uri_node) : NULL;
+    if (uri_node)
+        L.lilv_node_free(uri_node);
+    // the plugin must be THIS bundle's, as lv2_plugin_open has it
+    if (!pl || !L.lilv_node_equals(L.lilv_plugin_get_bundle_uri(pl), bundle->node))
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    predicates = calloc(count ? count : 1, sizeof(*predicates));
+    if (!predicates)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    for (k = 0; k < count; k++)
+        predicates[k] = L.lilv_new_uri(g.world, asks[k].uri);
+
+    for (k = 0; k < count; k++)
+    {
+        LilvNodes *values = predicates[k] ? L.lilv_plugin_get_value(pl, predicates[k]) : NULL;
+        LilvIter *it;
+
+        for (it = L.lilv_nodes_begin(values); values && !L.lilv_nodes_is_end(values, it); it = L.lilv_nodes_next(values, it))
+            field_value(&asks[k], -1, k, L.lilv_nodes_get(values, it), fn, ctx);
+        L.lilv_nodes_free(values);
+    }
+    ports = L.lilv_plugin_get_num_ports(pl);
+    for (i = 0; i < ports; i++)
+    {
+        const LilvPort *port = L.lilv_plugin_get_port_by_index(pl, i);
+
+        for (k = 0; port && k < count; k++)
+        {
+            LilvNodes *values;
+            LilvIter *it;
+
+            if (strcmp(asks[k].uri, LV2_CORE__scalePoint) == 0)
+            {
+                scale_points(pl, port, (int32_t)i, k, fn, ctx);
+                continue;
+            }
+            values = predicates[k] ? L.lilv_port_get_value(pl, port, predicates[k]) : NULL;
+            for (it = L.lilv_nodes_begin(values); values && !L.lilv_nodes_is_end(values, it); it = L.lilv_nodes_next(values, it))
+                field_value(&asks[k], (int32_t)i, k, L.lilv_nodes_get(values, it), fn, ctx);
+            L.lilv_nodes_free(values);
+        }
+    }
+    for (k = 0; k < count; k++)
+        if (predicates[k])
+            L.lilv_node_free(predicates[k]);
+    free(predicates);
+    lv2_why_set(why, "");
+    return 0;
 }

@@ -106,8 +106,9 @@ OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c src/idle_hold.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
-# the scanner shares the plugin loading with the host through the core and needs neither jack nor the protocol library
-SCAN_SRC = src/scan.c
+# the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
+# and needs neither jack nor the protocol library
+SCAN_SRC = src/scan.c src/scan_fields.c src/lv2_locate.c
 SCAN_OBJ = $(SCAN_SRC:.c=.o)
 
 # the LV2 adapter, libomx-clap-lv2.a: lv2/core is the LV2 host with no CLAP in it, lv2/clap the shim that presents one LV2
@@ -147,8 +148,8 @@ $(PROTOCOL_LIB):
 	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
 endif
 
-$(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
-	$(CC) $(SCAN_OBJ) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
+$(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
+	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
 # the objects that embed the version: a move of VERSION rebuilds them, or the library keeps answering the old number
@@ -157,6 +158,10 @@ src/clap_host.o src/main.o src/scan.o: VERSION
 
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the scanner's field dump reads an LV2 plugin through the adapter's world: lv2/core's header and the LV2 headers it names
+src/scan_fields.o: src/scan_fields.c
+	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
 
 # the host adds an LV2 plugin through the adapter: its header, and the LV2 headers that names
 src/effects.o: src/effects.c
@@ -240,6 +245,14 @@ install-contract:
 # own package, and every file this tree commits as a render of it held to `render --package omx-clap-core`, byte for
 # byte (tests/contract-dir-check.sh), and every limit and refusal code of the two hosting headers held, value by value, to
 # what the reader reads (tests/hosting-values-check.mjs, with its sabotage arms); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+# omx-clap-scan --fields held to omx-contract's TERM files, and the dumps of the fake plugins and the LV2 fixture bundles
+# (their binaries absent: nothing is opened) read as records; PLUGIN_HOSTD_TABLES (plugin-hostd's data/formats) holds
+# every field a dump writes to a row of its table
+PLUGIN_HOSTD_TABLES ?=
+.PHONY: test-fields
+test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap
+	python3 tests/scan-fields-check.py ./$(SCAN_PROG) $(OMX_CONTRACT_DIR)/data/formats $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(LV2_FIXTURE_DIR) $(PLUGIN_HOSTD_TABLES)
+
 test-contract:
 	rm -rf build/contract
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh
@@ -247,6 +260,7 @@ test-contract:
 	node $(OMX_CONTRACT_DIR)/bin/omx-contract.mjs render --target json --contract-dir build/contract/dir --out build/contract/json
 	node tests/hosting-values-check.mjs build/contract/json/omx-contract.json src
 	node tests/hosting-values-check.mjs --self-test build/contract/json/omx-contract.json src
+	$(MAKE) --no-print-directory test-fields
 
 install: install-lib install-lv2 install-tests install_man install-contract
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(UDEVDIR)
