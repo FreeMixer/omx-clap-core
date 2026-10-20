@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# hosting-codes-check.sh — every hosting code the C sources write is omx-contract's: an OMX_HOSTING_* macro of
-# omxcontract/omx_vocabulary.h, never a literal of their own.
+# hosting-codes-check.sh — every hosting code the C sources write is declared: an OMX_HOSTING_* macro of omx-contract's
+# omxcontract/omx_vocabulary.h, or a CLAP_HOST_CODE_* define of src/clap_host_limits.h, which data/hosting.json renders
+# for the dimension this tree owns (hosting.idle.*, #296; contract-dir-check.sh holds the file to the data). Never a
+# literal of their own.
 #
 #   hosting-codes-check.sh [--self-test] [--root <dir>] [<omx_vocabulary.h>]
 #
 # The sources are src/ and lv2/ (their .c and .h, lv2/tests/ left out: a test compares against the literal on purpose,
-# an oracle the macro cannot be). Outside comments, a string literal holding a hosting.<word> is a failure, and so is an
+# an oracle the macro cannot be; src/clap_host_limits.h left out: it is the render, this tree's declaration). Outside comments, a string literal holding a hosting.<word> is a failure, and so is an
 # OMX_HOSTING_ name the header does not define. The header is the one the compiler finds ($CC, $CFLAGS and CPATH, the
 # way the build finds it) unless named. --self-test runs the check on a copy of the sources once clean and once per
 # sabotage: a hand-typed code in a define, one inside a longer string, a name the header lacks, each of which must fail;
@@ -38,7 +40,7 @@ fi
 check() {
   local dir=$1
   local files
-  files=$(cd "$dir" && find src lv2 -path lv2/tests -prune -o \( -name '*.c' -o -name '*.h' \) -type f -print | sort)
+  files=$(cd "$dir" && find src lv2 -path lv2/tests -prune -o \( -name '*.c' -o -name '*.h' \) -type f -print | grep -vx 'src/clap_host_limits.h' | sort)
   [ -n "$files" ] || { echo "hosting-codes-check: no sources under $dir" >&2; return 2; }
   (cd "$dir" && perl -e '
     my $header = shift;
@@ -95,6 +97,7 @@ copy
 check "$work/t" >/dev/null || { echo "hosting-codes-check: self test: the clean copy fails" >&2; exit 1; }
 arm 'a hand-typed code in a define' fail src/effects.c '#define SABOTAGE_CODE "hosting.features.missing"'
 arm 'a hand-typed code in lv2/core' fail lv2/core/lv2_core.h '#define LV2_CODE_SABOTAGE "hosting.state.unreadable"'
+arm 'a hand-typed code of the dimension this tree renders' fail src/effects.c '#define SABOTAGE_IDLE "hosting.idle.hold-refused"'
 arm 'a code inside a longer string' fail src/main.c 'static const char *sabotage = "resp -102 hosting.clap.note-input";'
 arm 'a code the core lacks' fail lv2/clap/lv2_clap.c 'static const char *sabotage = OMX_HOSTING_NOT_A_CODE;'
 arm 'a quoted code in a comment' pass src/clap_host.c '/* refused as "hosting.clap.note-input" */'
