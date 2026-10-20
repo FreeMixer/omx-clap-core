@@ -671,8 +671,10 @@ static uint32_t surround_get_channel_map(const clap_plugin_t *plugin, bool is_in
 
 static const clap_plugin_surround_t g_surround = { surround_is_channel_mask_supported, surround_get_channel_map };
 
-/* LV2 port groups declare no normalisation: a full-order ambisonic group is ACN by its elements' order, and SN3D by
- * assumption, the AmbiX convention (docs/lv2-compatibility.md). That one configuration is the plugin's. */
+/* LV2 port groups declare no normalisation: a full-order ambisonic group is ACN by its elements' order, and its
+ * normalisation is unknown (docs/lv2-compatibility.md). get_config answers false, so the shim claims nothing it does not
+ * know and the core reads ACN/SN3D with the port marked ambisonic_assumed; is_config_supported accepts ACN with SN3D
+ * only, the one configuration the adapter carries. */
 static bool ambisonic_is_config_supported(const clap_plugin_t *plugin, const clap_ambisonic_config_t *config)
 {
     (void)plugin;
@@ -681,13 +683,11 @@ static bool ambisonic_is_config_supported(const clap_plugin_t *plugin, const cla
 
 static bool ambisonic_get_config(const clap_plugin_t *plugin, bool is_input, uint32_t port_index, clap_ambisonic_config_t *config)
 {
-    const struct lv2_audio_port *a = audio_port_at(SHIM_OF(plugin)->lv2, is_input, port_index);
-
-    if (!a || a->kind != LV2_PORT_AMBISONIC || !config)
-        return false;
-    config->ordering = CLAP_AMBISONIC_ORDERING_ACN;
-    config->normalization = CLAP_AMBISONIC_NORMALIZATION_SN3D;
-    return true;
+    (void)plugin;
+    (void)is_input;
+    (void)port_index;
+    (void)config;
+    return false;
 }
 
 static const clap_plugin_ambisonic_t g_ambisonic = { ambisonic_is_config_supported, ambisonic_get_config };
