@@ -44,6 +44,9 @@ static const struct
     { LV2_LOG__log, LV2_FEATURE_PROBE_LOG },
     { LV2_BUF_SIZE__fixedBlockLength, LV2_FEATURE_PROBE_FIXED },
     { LV2_BUF_SIZE__powerOf2BlockLength, LV2_FEATURE_PROBE_POW2 },
+    { LV2_STATE__mapPath, LV2_FEATURE_PROBE_MAP_PATH },
+    { LV2_STATE__freePath, LV2_FEATURE_PROBE_FREE_PATH },
+    { LV2_STATE__makePath, LV2_FEATURE_PROBE_MAKE_PATH },
 };
 
 static void *feature(const LV2_Feature *const *features, const char *uri)

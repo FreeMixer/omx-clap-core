@@ -714,7 +714,12 @@ Strip and controls
   the broken rule once (`<plugin id>: the parameter contract is not trusted:
   R4 ...`). An id `param_set` would refuse (a read-only parameter, the
   plugin's own bypass, an unknown id, `:bypass`) answers `resp -103`. An LV2
-  plugin answers `resp -511`: the adapter offers no contract.
+  plugin answers from the contract the adapter makes of its TTL: the port's
+  symbol, LV2's `units:unit` by name, `log` for `pprops:logarithmic` over a
+  positive travel, `stepped` for a stepped port, and the step of
+  `pprops:rangeSteps` (`param_info 0 gain_db` of the host fixture reads
+  `resp 0 none linear -60 0 -20 0 gain_db`); one whose symbol is longer than
+  a contract holds answers `resp -511`.
 
   The same reading is libomx-clap-core's: `omx_clap_host_param_contract` says
   whether the contract holds (or which rule it broke) and

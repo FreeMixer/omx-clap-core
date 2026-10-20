@@ -89,6 +89,12 @@
 #include "lv2_core.h"
 #include "omx_clap_midi.h"
 #include "omx_clap_lv2.h"
+#include "omx_clap_ext.h"
+// the contract's canonical serialisation and fingerprint, the library's own (internal, header-only); the face uses a few
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#include "param_contract.h"
+#pragma GCC diagnostic pop
 
 
 /*
@@ -156,6 +162,13 @@ struct shim
     const clap_input_events_t *events;
     const clap_output_events_t *out_events;
     uint32_t frames;
+
+    // org.openmixer.param-contract/1, made at init from the TTL: one entry per parameter in clap.params' order, and the
+    // fingerprint; contracted 0 when a symbol does not fit the contract (the face then offers none)
+    omx_clap_param_contract_entry_t *contract;
+    uint32_t n_contract;
+    char fingerprint[65];
+    int contracted;
 };
 
 
@@ -403,6 +416,31 @@ static void apply_events(struct shim *s, const clap_input_events_t *events)
     }
 }
 
+/* pprops:trigger: a trigger is set for one block, then back at its default before the next; the host reads it back
+ * through a CLAP_EVENT_PARAM_VALUE at the block's last frame */
+static void triggers_reset(struct shim *s, const clap_output_events_t *out)
+{
+    for (uint32_t k = 0; k < s->lv2->n_controls; k++)
+    {
+        const struct lv2_control *c = &s->lv2->controls[k];
+        clap_event_param_value_t e;
+
+        if (c->kind != LV2_CONTROL_INPUT || !(c->props & LV2_PROP_TRIGGER) || lv2_instance_control_get(s->in, k) == c->def)
+            continue;
+        lv2_instance_control_set(s->in, k, c->def);
+        if (!out)
+            continue;
+        memset(&e, 0, sizeof(e));
+        e.header.size = sizeof(e);
+        e.header.time = s->frames ? s->frames - 1u : 0u;
+        e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+        e.header.type = CLAP_EVENT_PARAM_VALUE;
+        e.param_id = c->port;
+        e.value = (double)c->def;
+        out->try_push(out, &e.header);
+    }
+}
+
 /* every patch:Set or patch:Put the last run's output carried, as a CLAP_EVENT_PARAM_VALUE at time 0 */
 static void emit_patch_changes(struct shim *s, const clap_output_events_t *out)
 {
@@ -629,6 +667,133 @@ static void midi_out_event(void *ctx, int64_t frame, const uint8_t *data, uint32
 ************************************************************************************************************************
 */
 
+/* the console's code of an LV2 unit, by its local name: LV2's 24 units are codes 1 to 24 (omx_clap_ext.h); 0 for none */
+static uint32_t unit_code(const char *name)
+{
+#define UNIT_ROW(code, word) { code, word },
+    static const struct { uint32_t code; const char *word; } units[] = { OMX_CLAP_PARAM_UNITS(UNIT_ROW) };
+#undef UNIT_ROW
+
+    for (size_t i = 0; name && i < sizeof(units) / sizeof(units[0]); i++)
+        if (units[i].code >= 1u && units[i].code <= 24u && strcmp(units[i].word, name) == 0)
+            return units[i].code;
+    return 0;
+}
+
+/* a contract symbol: the port's or the property's symbol as it is, when it is one (LV2 symbols are C identifiers, and a
+ * port's are unique in its plugin); 0, or -1 for one longer than the contract holds, which leaves the face with no
+ * contract rather than one the host would refuse */
+static int contract_symbol(char out[OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE], const char *from)
+{
+    if (!from || strlen(from) >= OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE)
+        return -1;
+    snprintf(out, OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE, "%s", from);
+    return pc_symbol_ok(out) ? 0 : -1;
+}
+
+/*
+ * The contract the TTL states: a control port's symbol, its units:unit as the console's code, a scale stepped for a
+ * stepped parameter, log for pprops:logarithmic over a positive travel, linear otherwise, and a step of 1 when stepped,
+ * (max - min) / (pprops:rangeSteps - 1) when the port names its steps, 0 when continuous. A patch parameter takes its
+ * symbol (lv2:symbol, else the property URI's last part) and no unit. The fingerprint is the library's canonical one over get_info and these entries.
+ */
+static void contract_make(struct shim *s)
+{
+    const uint32_t n = params_count(&s->plugin);
+    struct pc_param *p;
+    uint32_t i;
+
+    s->contracted = 0;
+    if (n == 0 || !(s->contract = calloc(n, sizeof(*s->contract))) || !(p = calloc(n, sizeof(*p))))
+        return;
+    for (i = 0; i < n; i++)
+    {
+        omx_clap_param_contract_entry_t *e = &s->contract[i];
+        clap_param_info_t info;
+        const char *from;
+
+        if (!params_get_info(&s->plugin, i, &info))
+            break;
+        e->param_id = info.id;
+        if (i < s->lv2->n_controls)
+        {
+            const struct lv2_control *c = &s->lv2->controls[i];
+
+            from = c->symbol;
+            e->unit = unit_code(c->unit);
+            if (info.flags & CLAP_PARAM_IS_STEPPED)
+                e->scale = 2;
+            else if ((c->props & LV2_PROP_LOGARITHMIC) && info.min_value > 0 && info.max_value > 0)
+                e->scale = 1;
+            if (e->scale == 2)
+                e->step = 1.0;
+            else if (c->range_steps >= 2 && info.max_value > info.min_value)
+                e->step = (info.max_value - info.min_value) / (double)(c->range_steps - 1u);
+        }
+        else
+        {
+            from = s->lv2->patches[i - s->lv2->n_controls].symbol;
+            if (info.flags & CLAP_PARAM_IS_STEPPED)
+            {
+                e->scale = 2;
+                e->step = 1.0;
+            }
+        }
+        if (contract_symbol(e->symbol, from) != 0)
+            break;
+        p[i].info = info;
+        p[i].entry = *e;
+    }
+    if (i == n)
+    {
+        qsort(p, n, sizeof(*p), pc_by_id);
+        s->contracted = pc_fingerprint(p, n, s->fingerprint) == 0;
+    }
+    s->n_contract = n;
+    free(p);
+}
+
+static uint32_t contract_version(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 1;
+}
+
+static const char *contract_fingerprint(const clap_plugin_t *plugin)
+{
+    return SHIM_OF(plugin)->fingerprint;
+}
+
+static bool contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param_contract_entry_t *entry)
+{
+    const struct shim *s = SHIM_OF(plugin);
+
+    for (uint32_t i = 0; i < s->n_contract; i++)
+        if (s->contract[i].param_id == id)
+        {
+            *entry = s->contract[i];
+            return true;
+        }
+    return false;
+}
+
+static uint32_t contract_migration_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 0;
+}
+
+static bool contract_get_migration(const clap_plugin_t *plugin, uint32_t index, omx_clap_param_contract_step_t *step)
+{
+    (void)plugin;
+    (void)index;
+    (void)step;
+    return false;
+}
+
+static const omx_clap_plugin_param_contract_ext_t g_contract = { contract_version, contract_fingerprint, contract_get,
+                                                                  contract_migration_count, contract_get_migration };
+
 static bool plugin_init(const clap_plugin_t *plugin)
 {
     struct shim *s = SHIM_OF(plugin);
@@ -655,6 +820,7 @@ static bool plugin_init(const clap_plugin_t *plugin)
     s->host_thread = s->host->get_extension ? s->host->get_extension(s->host, CLAP_EXT_THREAD_CHECK) : NULL;
     if (s->host_thread && s->host_thread->is_audio_thread)
         lv2_instance_set_role(s->in, shim_is_audio, s);
+    contract_make(s);
     return true;
 }
 
@@ -665,6 +831,7 @@ static void plugin_destroy(const clap_plugin_t *plugin)
     lv2_instance_free(s->in);
     lv2_plugin_close(s->lv2);
     free(s->control_of_port);
+    free(s->contract);
     free(s->name);
     free(s);
 }
@@ -860,6 +1027,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         midi_in_events(s, process->in_events);
     lv2_instance_run(s->in, n, write_controls, s);
     s->events = NULL;
+    triggers_reset(s, process->out_events);
     emit_patch_changes(s, process->out_events);
     if (s->lv2->midi_out_port >= 0 && s->out_events)
         lv2_instance_midi_out_each(s->in, midi_out_event, s);
@@ -986,6 +1154,12 @@ static bool state_load(const clap_plugin_t *plugin, const clap_istream_t *stream
         host_log(s->host, CLAP_LOG_ERROR, LV2_CODE_STATE_UNREADABLE);
         return false;
     }
+    // a plugin that declares state:threadSafeRestore takes it while it runs: no restart
+    if (s->active && lv2_instance_state_restore_live(s->in, text, why) == 0)
+    {
+        free(text);
+        return true;
+    }
     ok = lv2_instance_state_load(s->in, text, why) == 0;
     free(text);
     if (!ok)
@@ -1026,7 +1200,8 @@ static const clap_plugin_preset_load_t g_preset_load = { preset_from_location };
 
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
-    (void)plugin;
+    if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT))
+        return SHIM_OF(plugin)->contracted ? &g_contract : NULL;
     if (!strcmp(id, CLAP_EXT_PARAMS))
         return &g_params;
     if (!strcmp(id, CLAP_EXT_LATENCY))
