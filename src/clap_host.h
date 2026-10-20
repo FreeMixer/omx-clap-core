@@ -107,7 +107,6 @@
 #define CLAP_HOST_CODE_TOO_MANY_PORTS       OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS  ///< more than the limit of auxiliary ports on one side, or more than one main port on a side
 #define CLAP_HOST_CODE_PORT_TOO_WIDE        OMX_HOSTING_TOPOLOGY_PORT_TOO_WIDE  ///< a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²
 #define CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS OMX_HOSTING_TOPOLOGY_PORT_WITHOUT_CHANNELS  ///< a port of zero channels
-#define CLAP_HOST_CODE_EXTRA_INPUTS         OMX_HOSTING_TOPOLOGY_EXTRA_INPUTS_FED_SILENCE  ///< extra inputs, fed silence
 #define CLAP_HOST_CODE_CRASHED_LIVE         OMX_HOSTING_STABILITY_CRASHED_LIVE_ON_THIS_RIG  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE    OMX_HOSTING_OUTPUT_NON_FINITE  ///< the plugin produced non-finite output
 
