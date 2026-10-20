@@ -610,7 +610,9 @@ OMX_CLAP_EXPORT void omx_clap_host_deactivate(struct omx_clap_instance *in);
 /** A rate change, off the RT: the instance must be unpublished; deactivate, activate at the new rate, re-read the latency.
  * 0, or -1 with `why`; OMX_CLAP_RESTART_RESCANNED when the plugin said its ports changed in that deactivate: inactive
  * with the rescan reported, and the caller reads the description again (omx_clap_host_request_layout, `n` 0 allowed)
- * before omx_clap_host_activate at the new rate, as after omx_clap_host_restart. */
+ * before omx_clap_host_activate at the new rate, as after omx_clap_host_restart. A rescan already pending when the call
+ * is made (raised by an earlier activate, not yet reported by the tick) is answered the same way: the call reports it and
+ * does not activate. */
 OMX_CLAP_EXPORT int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX]);
 
 /** Destroy the instance (deactivating first if needed) and drop its binary reference. */
@@ -946,7 +948,8 @@ OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, u
  * are bound, and its scratch otherwise. `bufs` NULL unbinds it; a NULL `bufs[c]` leaves that channel on its scratch.
  * The same rules as omx_clap_host_bind_aux_input, the activation of a port included: the caller reads them on the
  * audio role after each block that runs the instance. Returns 0, or -1 when `port` is not an auxiliary output, `channels` is not the port's, `frames` is
- * shorter than the active instance's largest block, or the instance is running; OMX_CLAP_RESTART_RESCANNED as there.
+ * shorter than the active instance's largest block, or the instance is running; OMX_CLAP_RESTART_RESCANNED as there,
+ * a rescan already pending at the call included.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs,
                                                   uint32_t channels, uint32_t frames);
