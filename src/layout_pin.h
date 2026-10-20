@@ -25,6 +25,9 @@
 * hidden, read-only and bypass included, filled into pin.h's records. The bytes and the digest are pin.h's; nothing
 * here serialises. Called on the main thread of an instance that is initialised and not yet activated.
 *
+* Beside it, the JACK name of each audio channel of that plugin: what omx-clap-host registers, and what omx-clap-scan
+* and the audio_ports verb print, so a controller connects by the names the description gives.
+*
 ************************************************************************************************************************
 */
 
@@ -38,6 +41,9 @@
 ************************************************************************************************************************
 */
 
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <clap/clap.h>
 #include <plugin-hostd/pin.h>
@@ -50,6 +56,22 @@
 *           INLINE FUNCTIONS
 ************************************************************************************************************************
 */
+
+/* the auxiliary index that names a side's main port */
+#define LAYOUT_PORT_MAIN        UINT32_MAX
+/* a JACK port name of layout_port_name with its terminator: aux_out_ and two 32-bit numbers */
+#define LAYOUT_PORT_NAME_SIZE   32
+
+/* the JACK name of channel `k` (0-based) of a port: the main input's in_<k+1> and the main output's out_<k+1> (`aux`
+ * LAYOUT_PORT_MAIN), auxiliary port `aux`'s (0-based, in the plugin's order of that side's non-main ports)
+ * aux_in_<aux+1>_<k+1> and aux_out_<aux+1>_<k+1> */
+static inline void layout_port_name(char buf[LAYOUT_PORT_NAME_SIZE], bool is_input, uint32_t aux, uint32_t k)
+{
+    if (aux == LAYOUT_PORT_MAIN)
+        snprintf(buf, LAYOUT_PORT_NAME_SIZE, "%s_%u", is_input ? "in" : "out", k + 1);
+    else
+        snprintf(buf, LAYOUT_PORT_NAME_SIZE, "%s_%u_%u", is_input ? "aux_in" : "aux_out", aux + 1, k + 1);
+}
 
 typedef void (*layout_pin_sink_t)(void *ctx, const char *data, size_t size);
 

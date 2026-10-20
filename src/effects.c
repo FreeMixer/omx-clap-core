@@ -134,6 +134,17 @@ typedef struct EFFECT_T {
     jack_port_t *input_ports[CLAP_HOST_PORT_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_PORT_CHANNELS];
     uint32_t in_ports, out_ports;           // the main ports registered at add: what each cycle reads and writes
+    /* a JACK port per auxiliary channel, registered at add in the description's order (port by port, channel by
+     * channel), and the block each is bound to: one aux_frames long per channel, the JACK buffer size, made again when
+     * that changes. Each cycle copies an input's JACK buffer into its block and a block onto an output's JACK buffer:
+     * JACK's buffers move, a binding does not. */
+    jack_port_t **aux_in_ports, **aux_out_ports;
+    float **aux_in_bufs, **aux_out_bufs;
+    float *aux_in_buf, *aux_out_buf;
+    uint32_t aux_in_count, aux_out_count;   // the auxiliary channels registered, each side
+    uint32_t *aux_in_widths, *aux_out_widths;   // each auxiliary port's channels as registered
+    uint32_t aux_in_n, aux_out_n;           // the auxiliary ports registered, each side
+    uint32_t aux_frames;                    // the frames of each block: 0 is none made
     int relayout_pending;                   // a reported ports rescan not yet answered (ports_relayout)
     uint32_t relayout_tick;                 // the idle tick of the last relayout
     uint32_t relayouts_unchanged;           // relayouts on consecutive ticks that found the main layout unchanged
@@ -394,7 +405,7 @@ static int process(jack_nframes_t nframes, void *arg)
     // a cycle while the instance is deactivated (buffer_size re-activating it, JACK stopping this client's cycle for
     // the callback but this thread waiting on nothing of it; a relayout): the audio passes dry, a source's output
     // silent, and the plugin is not run
-    if (!effect->clap->active)
+    if (!effect->clap->active || ((effect->aux_in_count || effect->aux_out_count) && nframes > effect->aux_frames))
     {
         for (c = 0; c < effect->out_ports; c++)
         {
@@ -403,13 +414,19 @@ static int process(jack_nframes_t nframes, void *arg)
             else if (outputs[c] != inputs[c < effect->in_ports ? c : effect->in_ports - 1])
                 memcpy(outputs[c], inputs[c < effect->in_ports ? c : effect->in_ports - 1], nframes * sizeof(float));
         }
+        for (c = 0; c < effect->aux_out_count; c++)
+            memset(jack_port_get_buffer(effect->aux_out_ports[c], nframes), 0, nframes * sizeof(float));
         return 0;
     }
+    for (c = 0; c < effect->aux_in_count; c++)
+        memcpy(effect->aux_in_bufs[c], jack_port_get_buffer(effect->aux_in_ports[c], nframes), nframes * sizeof(float));
 
     if (effect->gain_adjustment)
         runs = atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed);
     transport_block(effect);
     omx_clap_host_run_ports(effect->clap, inputs, outputs, nframes);
+    for (c = 0; c < effect->aux_out_count; c++)
+        memcpy(jack_port_get_buffer(effect->aux_out_ports[c], nframes), effect->aux_out_bufs[c], nframes * sizeof(float));
     if (effect->gain_adjustment)
         publish_gain_adjustment(effect, runs);
     if (effect->midi_out_port)
@@ -470,29 +487,178 @@ static void publish_latency(effect_t *effect)
     jack_recompute_total_latencies(effect->jack_client);
 }
 
+/* one side's auxiliary ports bound to its blocks, `frames` long each, or unbound with `frames` 0: 0, or -1 when a
+ * binding is refused, the side then unbound (its ports read silence and write their scratch). Nothing is allocated or
+ * freed. Control thread or the buffer-size callback, the instance not running. */
+static int aux_side_bind(effect_t *effect, bool is_input, uint32_t frames)
+{
+    struct omx_clap_instance *clap = effect->clap;
+    const uint32_t ports = is_input ? effect->aux_in_n : effect->aux_out_n;
+    const uint32_t *widths = is_input ? effect->aux_in_widths : effect->aux_out_widths;
+    float **bufs = is_input ? effect->aux_in_bufs : effect->aux_out_bufs;
+    uint32_t p, base;
+
+    for (p = 0, base = 0; p < ports; base += widths[p], p++)
+    {
+        float *const *b = frames ? &bufs[base] : NULL;
+        const int bound = is_input ? omx_clap_host_bind_aux_input(clap, p, b, widths[p], frames)
+                                   : omx_clap_host_bind_aux_output(clap, p, b, widths[p], frames);
+
+        if (bound != 0)
+        {
+            if (frames)
+                aux_side_bind(effect, is_input, 0);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* one side's blocks made again `frames` long each and bound to its auxiliary ports, the old ones unbound and freed
+ * first: 0, or -1 when memory runs out or a binding is refused, the side then unbound and holding no block */
+static int aux_side_blocks(effect_t *effect, bool is_input, uint32_t frames)
+{
+    const uint32_t count = is_input ? effect->aux_in_count : effect->aux_out_count;
+    float **bufs = is_input ? effect->aux_in_bufs : effect->aux_out_bufs;
+    float **block = is_input ? &effect->aux_in_buf : &effect->aux_out_buf;
+    uint32_t c;
+
+    aux_side_bind(effect, is_input, 0);
+    free(*block);
+    *block = NULL;
+    if (count == 0 || frames == 0)
+        return 0;
+    *block = calloc((size_t)count * frames, sizeof(float));
+    if (!*block)
+        return -1;
+    for (c = 0; c < count; c++)
+        bufs[c] = *block + (size_t)c * frames;
+    if (aux_side_bind(effect, is_input, frames) != 0)
+    {
+        free(*block);
+        *block = NULL;
+        return -1;
+    }
+    return 0;
+}
+
+/* both sides' blocks `frames` long, bound (aux_side_blocks); aux_frames is `frames` when both are, 0 otherwise, and a
+ * cycle longer than aux_frames passes dry */
+static int aux_blocks(effect_t *effect, uint32_t frames)
+{
+    effect->aux_frames = 0;
+    if (aux_side_blocks(effect, true, frames) != 0 || aux_side_blocks(effect, false, frames) != 0)
+    {
+        aux_side_blocks(effect, true, 0);
+        aux_side_blocks(effect, false, 0);
+        return -1;
+    }
+    effect->aux_frames = frames;
+    return 0;
+}
+
+/* one side's auxiliary ports of the description registered, a JACK port per channel named by layout_port_name, their
+ * widths kept: SUCCESS, ERR_MEMORY_ALLOCATION or ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle runs. */
+static int aux_register(effect_t *effect, bool is_input)
+{
+    const struct omx_clap_instance *clap = effect->clap;
+    const uint32_t n = is_input ? clap->aux_inputs : clap->aux_outputs;
+    const struct omx_clap_port *ports = is_input ? clap->aux_in : clap->aux_out;
+    jack_port_t **jack;
+    uint32_t *widths;
+    uint32_t p, k, c = 0, count = 0;
+    char name[LAYOUT_PORT_NAME_SIZE];
+
+    for (p = 0; p < n; p++)
+        count += ports[p].channels;
+    jack = calloc(count ? count : 1, sizeof(*jack));
+    widths = calloc(n ? n : 1, sizeof(*widths));
+    if (is_input)
+    {
+        effect->aux_in_ports = jack;
+        effect->aux_in_widths = widths;
+        effect->aux_in_bufs = calloc(count ? count : 1, sizeof(float *));
+    }
+    else
+    {
+        effect->aux_out_ports = jack;
+        effect->aux_out_widths = widths;
+        effect->aux_out_bufs = calloc(count ? count : 1, sizeof(float *));
+    }
+    if (!jack || !widths || !(is_input ? effect->aux_in_bufs : effect->aux_out_bufs))
+        return ERR_MEMORY_ALLOCATION;
+    for (p = 0; p < n; p++)
+    {
+        for (k = 0; k < ports[p].channels; k++)
+        {
+            layout_port_name(name, is_input, p, k);
+            jack[c] = jack_port_register(effect->jack_client, name, JACK_DEFAULT_AUDIO_TYPE,
+                                         is_input ? JackPortIsInput : JackPortIsOutput, 0);
+            if (!jack[c++])
+                return ERR_JACK_PORT_REGISTER;
+        }
+        widths[p] = ports[p].channels;
+    }
+    if (is_input)
+        effect->aux_in_count = count, effect->aux_in_n = n;
+    else
+        effect->aux_out_count = count, effect->aux_out_n = n;
+    return SUCCESS;
+}
+
+/* whether the description's auxiliary ports are still the ones registered at add, port by port and width by width */
+static int aux_carried(const effect_t *effect)
+{
+    const struct omx_clap_instance *clap = effect->clap;
+    uint32_t p;
+
+    if (clap->aux_inputs != effect->aux_in_n || clap->aux_outputs != effect->aux_out_n)
+        return 0;
+    for (p = 0; p < effect->aux_in_n; p++)
+        if (clap->aux_in[p].channels != effect->aux_in_widths[p])
+            return 0;
+    for (p = 0; p < effect->aux_out_n; p++)
+        if (clap->aux_out[p].channels != effect->aux_out_widths[p])
+            return 0;
+    return 1;
+}
+
 /* One effect is one JACK client, so a change of the buffer size calls this on as many client threads at once as there
  * are effects. A re-activation is a main-thread call of the plugin (CLAP's own rule) and, for an LV2 plugin, a lilv call
  * on the adapter's one world (the default state is loaded at activate), and neither bears two threads at a time: two
  * effects re-activating together crashed in sord's node table (jack_lv2_e2e, the shrink). One lock serialises them. */
 static pthread_mutex_t g_reactivate = PTHREAD_MUTEX_INITIALIZER;
 
-/* jack stops this client's process cycle while this runs, so this thread can take the audio thread's place */
+/* jack stops this client's process cycle while this runs, so this thread can take the audio thread's place: the
+ * auxiliary blocks are made again at the new size and bound, and an active instance re-activated at it */
 static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
+    int active, reactivate, reblock;
 
+    if (!effect || !effect->clap)
+        return 0;
     // any change, a shrink too: the adapter promised the plugin the activation's length (bufsz:fixedBlockLength) and
     // refuses a cycle of another one, so an instance left at the old size would run no block at all
-    if (effect && effect->clap && effect->clap->active && nframes != effect->clap->max_block)
+    active = effect->clap->active;
+    reactivate = active && nframes != effect->clap->max_block;
+    reblock = (effect->aux_in_count || effect->aux_out_count) && nframes != effect->aux_frames;
+    if (reactivate || reblock)
     {
         // stop takes the audio role for this thread and releases it: the process thread's is given back after
         const pthread_t thread = effect->clap->audio_thread;
         const int held = effect->clap->audio_role_held;
 
         pthread_mutex_lock(&g_reactivate);
-        omx_clap_host_stop(effect->clap);
-        omx_clap_host_deactivate(effect->clap);
-        if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes, NULL) == 0)
+        if (active)
+        {
+            omx_clap_host_stop(effect->clap);
+            omx_clap_host_deactivate(effect->clap);
+        }
+        // a block that cannot be made leaves the ports unbound and every longer cycle dry (process)
+        if (reblock)
+            aux_blocks(effect, nframes);
+        if (active && omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes, NULL) == 0)
         {
             if (held)
                 omx_clap_host_set_audio_thread(effect->clap, thread);
@@ -516,6 +682,14 @@ static void instance_free(effect_t *effect)
     // the entry outlives the plugin made from it
     if (effect->lv2_entry)
         omx_clap_lv2_entry_release(effect->lv2_entry);
+    free(effect->aux_in_ports);
+    free(effect->aux_out_ports);
+    free(effect->aux_in_bufs);
+    free(effect->aux_out_bufs);
+    free(effect->aux_in_buf);
+    free(effect->aux_out_buf);
+    free(effect->aux_in_widths);
+    free(effect->aux_out_widths);
     free(effect->outputs);
     free(effect->lv2_params);
     free(effect->gestures_open);
@@ -879,6 +1053,12 @@ static void ports_relayout(effect_t *effect)
     else if (clap->in_channels != effect->in_ports || clap->channels != effect->out_ports)
         fprintf(stderr, "%s: its main ports are now %u in and %u out, not the %u and %u it was added with; it passes dry until it "
                 "is added again\n", clap->desc->id, clap->in_channels, clap->channels, effect->in_ports, effect->out_ports);
+    else if (!aux_carried(effect))
+        fprintf(stderr, "%s: its auxiliary ports are now %u in and %u out, not the ones it was added with; it passes dry until "
+                "it is added again\n", clap->desc->id, clap->aux_inputs, clap->aux_outputs);
+    // a description read again drops the bindings of a side whose auxiliary ports moved: the blocks are bound again
+    else if (aux_side_bind(effect, true, effect->aux_frames) != 0 || aux_side_bind(effect, false, effect->aux_frames) != 0)
+        fprintf(stderr, "%s: its auxiliary ports refuse their blocks after the ports rescan; it passes dry\n", clap->desc->id);
     else if (omx_clap_host_activate(clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
         fprintf(stderr, "%s: it does not activate again after the ports rescan: %s; it passes dry\n", clap->desc->id, why);
     else
@@ -1453,7 +1633,7 @@ const char *effects_add_reason(void)
 int effects_add(const char *uri, int instance, const char *client_name)
 {
     char path[PATH_MAX];
-    char port_name[32];
+    char port_name[LAYOUT_PORT_NAME_SIZE];
     char why[OMX_CLAP_WHY_MAX];
     char pin[PHD_SHA256_HEX_LEN + 1];
     const char *id, *lv2_uri;
@@ -1522,7 +1702,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
 
     for (c = 0; c < effect->clap->in_channels; c++)
     {
-        snprintf(port_name, sizeof(port_name), "in_%u", c + 1);
+        layout_port_name(port_name, true, LAYOUT_PORT_MAIN, c);
         effect->input_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
         if (!effect->input_ports[c])
         {
@@ -1533,7 +1713,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
     effect->in_ports = effect->clap->in_channels;
     for (c = 0; c < effect->clap->channels; c++)
     {
-        snprintf(port_name, sizeof(port_name), "out_%u", c + 1);
+        layout_port_name(port_name, false, LAYOUT_PORT_MAIN, c);
         effect->output_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
         if (!effect->output_ports[c])
         {
@@ -1542,6 +1722,13 @@ int effects_add(const char *uri, int instance, const char *client_name)
         }
     }
     effect->out_ports = effect->clap->channels;
+    if ((error = aux_register(effect, true)) != SUCCESS || (error = aux_register(effect, false)) != SUCCESS)
+        goto error;
+    if (aux_blocks(effect, jack_get_buffer_size(effect->jack_client)) != 0)
+    {
+        error = ERR_MEMORY_ALLOCATION;
+        goto error;
+    }
 
     if (effect->clap->note_inputs)
     {

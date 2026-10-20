@@ -234,6 +234,35 @@ w=$(level effect_5:out_1); near "${w%% *}" 0.5 0.0001; step $? "and effect_5 pas
 w=$(level effect_5:out_2); near "${w%% *}" 0.25 0.0001; step $? "out_2 is in_2 ($w)"
 r=$(send "param_get 5 1"); [ "${r%% *}" = resp ] && [ "$(echo "$r" | cut -d' ' -f2)" = 0 ]; step $? "the host still answers for effect_5 ($r)"
 expect "remove 5" "resp 0"
+
+# ---- auxiliary ports (#92): a JACK port per auxiliary channel, aux_in_<p>_<k> and aux_out_<p>_<k>, bound to the plugin ----
+expect "add clap:$fake#org.omx-clap-host.test.sidechain 6" "resp 6"
+graph_has effect_6:aux_in_1_1 && ! graph_has effect_6:aux_in_1_2 && ! graph_has effect_6:aux_in_2_1 && ! graph_has effect_6:aux_out_1_1
+step $? "the sidechain plugin's mono side chain is effect_6:aux_in_1_1, its one auxiliary port"
+w=$(level effect_6:out_1); near "${w%% *}" 0 0.000001; step $? "nothing into it: effect_6:out_1 is silent ($w)"
+run pw-link jack_meter_source:out_l effect_6:aux_in_1_1; step $? "the source's 0.5 into effect_6:aux_in_1_1, nothing on the mains"
+sleep 0.3
+# the fake adds its side chain onto out_1: a dry pass or an unbound side chain reads silence
+w=$(level effect_6:out_1); near "${w%% *}" 0.5 0.0001 && near "${w##* }" 0.5 0.0001; step $? "effect_6:out_1 is the side chain the plugin added, 0.5 ($w)"
+w=$(level effect_6:out_2); near "${w%% *}" 0 0.000001; step $? "effect_6:out_2 stays silent ($w)"
+expect "add clap:$fake#org.omx-clap-host.test.auxout 7" "resp 7"
+graph_has effect_7:aux_out_1_1 && graph_has effect_7:aux_out_1_2 && ! graph_has effect_7:aux_out_1_3 && ! graph_has effect_7:aux_in_1_1
+step $? "the auxout plugin's stereo auxiliary output is effect_7:aux_out_1_1 and aux_out_1_2"
+# the fake writes 0.125 / k on channel k of its auxiliary output: an unbound one writes its scratch, JACK reads nothing
+w=$(level effect_7:aux_out_1_1); near "${w%% *}" 0.125 0.0001 && near "${w##* }" 0.125 0.0001; step $? "effect_7:aux_out_1_1 carries the plugin's 0.125 ($w)"
+w=$(level effect_7:aux_out_1_2); near "${w%% *}" 0.0625 0.0001; step $? "effect_7:aux_out_1_2 carries its 0.0625 ($w)"
+# a growth past the size the blocks were made for, then a shrink: the blocks follow and stay bound
+for q in 2048 128; do
+    pw-metadata -n settings 0 clock.force-quantum "$q" >/dev/null 2>&1; step $? "the quantum forced to $q"
+    sleep 0.5
+    w=$(level effect_6:out_1); near "${w%% *}" 0.5 0.0001; step $? "at $q, effect_6:out_1 still carries the side chain ($w)"
+    w=$(level effect_7:aux_out_1_1); near "${w%% *}" 0.125 0.0001; step $? "at $q, effect_7:aux_out_1_1 still carries 0.125 ($w)"
+done
+pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1; step $? "and unforced"
+sleep 0.5
+expect "remove 7" "resp 0"
+expect "remove 6" "resp 0"
+! graph_has effect_6:aux_in_1_1 && ! graph_has effect_7:aux_out_1_1; step $? "no auxiliary port after remove"
 kill "$source_pid" 2>/dev/null
 wait "$source_pid" 2>/dev/null
 expect "remove 4" "resp 0"
