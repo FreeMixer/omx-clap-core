@@ -94,9 +94,6 @@
 /* the longest string or path property value, with its NUL, the patch port carries either way */
 #define LV2_CORE_TEXT_MAX               4096u
 
-/* the CV ports a plugin may have each way (lv2:CVPort): one mono CLAP audio port each; one more is refused */
-#define LV2_CORE_CV_PORTS               8
-
 /* the library the first bundle loads unless the configuration names another */
 #define LV2_CORE_LILV_SONAME            "liblilv-0.so.0"
 
@@ -110,7 +107,6 @@
 #define LV2_CODE_NO_REALISATION         OMX_HOSTING_NO_REALISATION
 #define LV2_CODE_MIDI_IN                OMX_HOSTING_FEATURES_MIDI_IN_FED_EMPTY
 #define LV2_CODE_ATOM_IN                OMX_HOSTING_FEATURES_ATOM_IN_UNFED  // a non-MIDI atom input no buffer here can feed
-#define LV2_CODE_CV_PORTS               OMX_HOSTING_FEATURES_CV_PORTS
 #define LV2_CODE_FEATURES_MISSING       OMX_HOSTING_FEATURES_MISSING
 #define LV2_CODE_NO_AUDIO_OUTPUT        OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT
 #define LV2_CODE_TOO_MANY_PORTS         OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS
@@ -226,9 +222,10 @@ struct lv2_plugin
     uint32_t n_aux_in, n_aux_out;   // the auxiliary ports of each side, after the main one: side chains, the other groups,
                                     // ungrouped ports outside the main one
     struct lv2_audio_port *aux_in, *aux_out;        // LV2_CORE_AUX_PORTS each, the first n_aux_in and n_aux_out used
-    uint32_t n_cv_in, n_cv_out;     // the CV inputs and outputs, in port index order
-    uint32_t cv_in[LV2_CORE_CV_PORTS], cv_out[LV2_CORE_CV_PORTS];          // the plugin's port index of each
-    char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
+    uint32_t n_cv_in, n_cv_out;     // the CV inputs and outputs (lv2:CVPort), in port index order: one mono CLAP audio
+                                    // port each, counted with the side's auxiliary ports against LV2_CORE_AUX_PORTS
+    uint32_t cv_in[LV2_CORE_AUX_PORTS], cv_out[LV2_CORE_AUX_PORTS];          // the plugin's port index of each
+    char *cv_in_name[LV2_CORE_AUX_PORTS], *cv_out_name[LV2_CORE_AUX_PORTS];  // lv2:name, else lv2:symbol
     int32_t latency_port;           // -1: none
     float latency_def;              // where its buffer starts: lv2:default, else lv2:minimum, else 0, as every control's
     int32_t midi_in_port;           // the one MIDI input port (an atom:Sequence or an ev:EventPort supporting

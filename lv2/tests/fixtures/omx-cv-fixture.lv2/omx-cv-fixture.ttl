@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
-# lv2_cv_fixture.c's ports: one audio input and output, one CV input and one CV output. The #many twin has nine CV
-# inputs and the #many-out twin nine CV outputs, one more than the adapter carries each way; both are refused from this
-# TTL before the binary is opened.
+# lv2_cv_fixture.c's ports: one audio input and output, one CV input and one CV output. The #many twin has sixteen CV
+# inputs and the #many-out twin sixteen CV outputs (ams-lv2's multiphase_lfo has sixteen, omx-clap-core #268); every
+# CV port counts against the auxiliary limit of 64 a side and nothing else.
 @prefix doap: <http://usefulinc.com/ns/doap#> .
 @prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
 
@@ -22,7 +22,7 @@
 
 <urn:openmixer:test:cv-fixture#many>
     a lv2:Plugin ;
-    doap:name "openmixer cv fixture (nine CV inputs twin)" ;
+    doap:name "openmixer cv fixture (sixteen CV inputs twin)" ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
     ] , [
@@ -45,11 +45,25 @@
         a lv2:CVPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "cv7" ; lv2:name "CV 7"
     ] , [
         a lv2:CVPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "cv8" ; lv2:name "CV 8"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 11 ; lv2:symbol "cv9" ; lv2:name "CV 9"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 12 ; lv2:symbol "cv10" ; lv2:name "CV 10"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 13 ; lv2:symbol "cv11" ; lv2:name "CV 11"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 14 ; lv2:symbol "cv12" ; lv2:name "CV 12"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 15 ; lv2:symbol "cv13" ; lv2:name "CV 13"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 16 ; lv2:symbol "cv14" ; lv2:name "CV 14"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 17 ; lv2:symbol "cv15" ; lv2:name "CV 15"
     ] .
 
 <urn:openmixer:test:cv-fixture#many-out>
     a lv2:Plugin ;
-    doap:name "openmixer cv fixture (nine CV outputs twin)" ;
+    doap:name "openmixer cv fixture (sixteen CV outputs twin)" ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
     ] , [
@@ -72,4 +86,18 @@
         a lv2:CVPort , lv2:OutputPort ; lv2:index 9 ; lv2:symbol "cv7" ; lv2:name "CV 7"
     ] , [
         a lv2:CVPort , lv2:OutputPort ; lv2:index 10 ; lv2:symbol "cv8" ; lv2:name "CV 8"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 11 ; lv2:symbol "cv9" ; lv2:name "CV 9"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 12 ; lv2:symbol "cv10" ; lv2:name "CV 10"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 13 ; lv2:symbol "cv11" ; lv2:name "CV 11"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 14 ; lv2:symbol "cv12" ; lv2:name "CV 12"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 15 ; lv2:symbol "cv13" ; lv2:name "CV 13"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 16 ; lv2:symbol "cv14" ; lv2:name "CV 14"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 17 ; lv2:symbol "cv15" ; lv2:name "CV 15"
     ] .
