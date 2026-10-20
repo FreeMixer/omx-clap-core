@@ -26,11 +26,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <lv2/atom/atom.h>
+#include <lv2/atom/util.h>
 #include <lv2/core/lv2.h>
 #include <lv2/event/event-helpers.h>
 #include <lv2/event/event.h>
 #include <lv2/midi/midi.h>
 #include <lv2/uri-map/uri-map.h>
+#include <lv2/urid/urid.h>
 
 #include "lv2_event_fixture.h"
 
@@ -197,6 +200,108 @@ static void two_run(LV2_Handle h, uint32_t n)
     }
 }
 
+/* #mixed-atom-first (atom ports at 2 and 4, event ports at 3 and 5) and #mixed-ev-first (the other way): every MIDI
+ * event of either input written to both outputs, each in its own format */
+struct mixed
+{
+    const float *in;
+    float *out;
+    const LV2_Atom_Sequence *atom_in;
+    LV2_Atom_Sequence *atom_out;
+    LV2_Event_Buffer *ev_in, *ev_out;
+    LV2_URID urid_midi;
+    uint16_t ev_midi;
+    int ev_first;
+};
+
+static LV2_Handle mixed_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    struct mixed *m = calloc(1, sizeof(*m));
+    int i;
+
+    (void)rate;
+    (void)path;
+    for (i = 0; m && f && f[i]; i++)
+    {
+        if (!strcmp(f[i]->URI, LV2_URID__map))
+        {
+            const LV2_URID_Map *map = f[i]->data;
+
+            m->urid_midi = map->map(map->handle, LV2_MIDI__MidiEvent);
+        }
+        else if (!strcmp(f[i]->URI, LV2_URI_MAP_URI))
+        {
+            const LV2_URI_Map_Feature *map = f[i]->data;
+
+            m->ev_midi = (uint16_t)map->uri_to_id(map->callback_data, LV2_EVENT_URI, LV2_MIDI__MidiEvent);
+        }
+    }
+    if (m)
+        m->ev_first = strstr(d->URI, "#mixed-ev-first") != NULL;
+    lv2_event_fixture.instantiated++;
+    return m;
+}
+
+static void mixed_connect(LV2_Handle h, uint32_t port, void *data)
+{
+    struct mixed *m = h;
+    const int ev = (port == 3 || port == 5) != m->ev_first;
+
+    switch (port)
+    {
+    case 0: m->in = data; break;
+    case 1: m->out = data; break;
+    case 2: case 3: if (ev) m->ev_in = data; else m->atom_in = data; break;
+    case 4: case 5: if (ev) m->ev_out = data; else m->atom_out = data; break;
+    default: break;
+    }
+}
+
+/* one MIDI message to both outputs */
+static void mixed_write(struct mixed *m, LV2_Event_Iterator *out, uint32_t cap, uint32_t frame, const uint8_t *data,
+                        uint32_t size)
+{
+    struct { LV2_Atom_Event ev; uint8_t data[8]; } raw;
+
+    lv2_event_write(out, frame, 0, m->ev_midi, (uint16_t)size, data);
+    if (size > sizeof(raw.data))
+        return;
+    memset(&raw, 0, sizeof(raw));
+    raw.ev.time.frames = frame;
+    raw.ev.body.type = m->urid_midi;
+    raw.ev.body.size = size;
+    memcpy(raw.data, data, size);
+    lv2_atom_sequence_append_event(m->atom_out, cap, &raw.ev);
+}
+
+static void mixed_run(LV2_Handle h, uint32_t n)
+{
+    struct mixed *m = h;
+    const uint32_t cap = m->atom_out->atom.size;
+    LV2_Event_Iterator in, out;
+
+    lv2_event_fixture.runs++;
+    lv2_event_fixture.atom_in = lv2_event_fixture.ev_in = 0;
+    memcpy(m->out, m->in, n * sizeof(float));
+    lv2_atom_sequence_clear(m->atom_out);
+    lv2_event_begin(&out, m->ev_out);
+    LV2_ATOM_SEQUENCE_FOREACH(m->atom_in, ev)
+    {
+        lv2_event_fixture.atom_in++;
+        if (ev->body.type == m->urid_midi)
+            mixed_write(m, &out, cap, (uint32_t)ev->time.frames, LV2_ATOM_BODY_CONST(&ev->body), ev->body.size);
+    }
+    for (lv2_event_begin(&in, m->ev_in); lv2_event_is_valid(&in); lv2_event_increment(&in))
+    {
+        uint8_t *data;
+        const LV2_Event *ev = lv2_event_get(&in, &data);
+
+        lv2_event_fixture.ev_in++;
+        if (ev->type == m->ev_midi)
+            mixed_write(m, &out, cap, ev->frames, data, ev->size);
+    }
+}
+
 static void cleanup(LV2_Handle h)
 {
     free(h);
@@ -212,9 +317,21 @@ static const LV2_Descriptor TWO =
     LV2_EVENT_FIXTURE_URI "#two", instantiate, two_connect, NULL, two_run, NULL, cleanup, NULL
 };
 
+static const LV2_Descriptor MIXED_ATOM_FIRST =
+{
+    LV2_EVENT_FIXTURE_URI "#mixed-atom-first", mixed_instantiate, mixed_connect, NULL, mixed_run, NULL, cleanup, NULL
+};
+
+static const LV2_Descriptor MIXED_EV_FIRST =
+{
+    LV2_EVENT_FIXTURE_URI "#mixed-ev-first", mixed_instantiate, mixed_connect, NULL, mixed_run, NULL, cleanup, NULL
+};
+
 EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &ECHO : index == 1 ? &TWO : NULL;
+    static const LV2_Descriptor *const all[] = { &ECHO, &TWO, &MIXED_ATOM_FIRST, &MIXED_EV_FIRST };
+
+    return index < sizeof(all) / sizeof(all[0]) ? all[index] : NULL;
 }
 
 LV2_RESTORE_WARNINGS

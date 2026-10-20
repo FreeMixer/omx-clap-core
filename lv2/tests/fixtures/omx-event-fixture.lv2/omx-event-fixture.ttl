@@ -3,13 +3,16 @@
 # lv2_event_fixture.c's ports: MIDI through ev:EventPort, the event extension's port (atom's predecessor), each
 # supporting midi:MidiEvent through ev:supportsEvent. #echo: a stereo pair in and out, one MIDI input and one MIDI
 # output. #two: a mono pair, two MIDI inputs (the first the note path's, the second fed empty) and two MIDI outputs (the
-# first the note output's, the second never read). #other-type: an ev:EventPort that supports an event type of its own
-# and no MIDI, refused.
+# first the note output's, the second never read). #mixed-atom-first and #mixed-ev-first: an atom MIDI port and an
+# ev:EventPort MIDI port each way, in the two index orders; the first each way is the note path's. #other-type: an
+# ev:EventPort that supports an event type of its own and no MIDI, refused.
+@prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
 @prefix doap:  <http://usefulinc.com/ns/doap#> .
 @prefix ev:    <http://lv2plug.in/ns/ext/event#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
 @prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
 @prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix urid:  <http://lv2plug.in/ns/ext/urid#> .
 
 <urn:openmixer:test:event-fixture#echo>
     a lv2:Plugin , lv2:UtilityPlugin ;
@@ -78,3 +81,49 @@
     a rdfs:Class ;
     rdfs:subClassOf ev:Event ;
     rdfs:label "an event type of the twin's own, no MIDI" .
+
+<urn:openmixer:test:event-fixture#mixed-atom-first>
+    a lv2:Plugin ;
+    doap:name "openmixer event echo (atom MIDI ports first twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature urid:map , <http://lv2plug.in/ns/ext/uri-map> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 2 ; lv2:symbol "atom_in" ; lv2:name "atom_in"
+    ] , [
+        a ev:EventPort , lv2:InputPort ; ev:supportsEvent midi:MidiEvent ;
+        lv2:index 3 ; lv2:symbol "ev_in" ; lv2:name "ev_in"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 4 ; lv2:symbol "atom_out" ; lv2:name "atom_out"
+    ] , [
+        a ev:EventPort , lv2:OutputPort ; ev:supportsEvent midi:MidiEvent ;
+        lv2:index 5 ; lv2:symbol "ev_out" ; lv2:name "ev_out"
+    ] .
+
+<urn:openmixer:test:event-fixture#mixed-ev-first>
+    a lv2:Plugin ;
+    doap:name "openmixer event echo (event ports first twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature urid:map , <http://lv2plug.in/ns/ext/uri-map> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a ev:EventPort , lv2:InputPort ; ev:supportsEvent midi:MidiEvent ;
+        lv2:index 2 ; lv2:symbol "ev_in" ; lv2:name "ev_in"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 3 ; lv2:symbol "atom_in" ; lv2:name "atom_in"
+    ] , [
+        a ev:EventPort , lv2:OutputPort ; ev:supportsEvent midi:MidiEvent ;
+        lv2:index 4 ; lv2:symbol "ev_out" ; lv2:name "ev_out"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 5 ; lv2:symbol "atom_out" ; lv2:name "atom_out"
+    ] .

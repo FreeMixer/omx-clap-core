@@ -46,7 +46,8 @@
  *             way at a time (data moved, an event past the buffer, stamps not frames, a short count) read only as far
  *             as it is sound; through a 128 KiB buffer a 65516-byte message kept and read back, 65517 refused; a table
  *             past 16 bits answers 0 under the event map and refuses the plugin before instantiate, and one that maps
- *             midi:MidiEvent to 0 refuses it too.
+ *             midi:MidiEvent to 0 refuses it too; an atom MIDI port and an event port each way, in both orders, the
+ *             first the note path's.
  *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
  *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
@@ -973,6 +974,52 @@ static void t_event_run(void)
     lv2_plugin_close(p);
 }
 
+/* an atom MIDI port and an ev:EventPort MIDI port each way, in both index orders: the first each way is the note path's,
+ * the second input fed empty and the second output never read */
+static void t_event_mixed(void)
+{
+    static const uint8_t on[3] = { 0x90, 0x3c, 0x64 };
+    static const struct { const char *frag; int ev_first; } twins[2] = { { "#mixed-atom-first", 0 }, { "#mixed-ev-first", 1 } };
+    char why[LV2_CORE_WHY_MAX] = "", uri[96];
+    struct lv2_event_fixture *seen;
+    struct lv2_plugin *p;
+    struct lv2_instance *in;
+    struct got g;
+    uint32_t t;
+
+    for (t = 0; t < 2; t++)
+    {
+        const int ev = twins[t].ev_first;
+
+        snprintf(uri, sizeof(uri), "%s%s", EV_URI, twins[t].frag);
+        p = open_plugin(g_ev, uri, why);
+        CHECK(p && p->midi_in_port == 2 && p->midi_in_event == ev && p->midi_out_port == 4 && p->midi_out_event == ev
+                  && (ev ? p->n_atom_in == 1 && p->atom_in[0] == 3 && p->n_notify == 1 && p->notify_out[0] == 5 && p->n_event_in == 0
+                         && p->n_event_out == 0
+                         : p->n_event_in == 1 && p->event_in[0] == 3 && p->n_event_out == 1 && p->event_out[0] == 5 && p->n_atom_in == 0
+                           && p->n_notify == 0),
+              "event mixed %s: the first port each way (2 in, 4 out) is the note path's, the second (3, 5) fed empty or never read (%s)",
+              twins[t].frag, why);
+        in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+        seen = ev_seen();
+        CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "event mixed %s: activates (%s)", twins[t].frag, why);
+        if (in && seen)
+        {
+            lv2_instance_midi_in_add(in, 3, on, 3);
+            memset(&g, 0, sizeof(g));
+            lv2_instance_run(in, BLOCK, NULL, NULL);
+            lv2_instance_midi_out_each(in, collect, &g);
+            CHECK((ev ? seen->ev_in == 1 && seen->atom_in == 0 : seen->atom_in == 1 && seen->ev_in == 0),
+                  "event mixed %s: the note reached the first input alone (atom %u, event %u)", twins[t].frag, seen->atom_in, seen->ev_in);
+            CHECK(g.n == 1 && same_message(&g, 0, 3, on, 3),
+                  "event mixed %s: written to both outputs, read once, from the first, at its frame (%u)", twins[t].frag, g.n);
+            lv2_instance_deactivate(in);
+        }
+        lv2_instance_free(in);
+        lv2_plugin_close(p);
+    }
+}
+
 /* a table that cannot map midi:MidiEvent (its copy refused): the id is 0, the event extension's reference-counted type,
  * and an ev:EventPort plugin is refused hosting.no-realisation before it is instantiated. A child: the table is the
  * process's */
@@ -1523,6 +1570,7 @@ int main(int argc, char **argv)
     t_midi_run();
     t_event_ports();
     t_event_run();
+    t_event_mixed();
     t_sidechains();
     t_sidechain_names_oom();
     t_cv();
