@@ -118,7 +118,7 @@ LV2_VERSION = $(VERSION)
 LV2_CORE_LIB = build/lv2/liblv2core.a
 LV2_HEADERS = lv2/clap/omx_clap_lv2.h lv2/core/omx_lv2_features.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
-LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c
+LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c lv2/core/lv2_rtmempool.c
 LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o)
 LV2_CLAP_SRC = lv2/clap/lv2_clap.c
 LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)

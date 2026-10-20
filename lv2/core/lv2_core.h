@@ -62,6 +62,12 @@
 #include <omxcontract/omx_vocabulary.h>
 
 #include "omx_lv2_features.h"
+#include "lv2_rtmempool.h"
+
+/* The pool's URI as the specification spells it: the header's LV2_RTSAFE_MEMORY_POOL__Pool macro drops the '#'
+ * ("…/rtmempoolPool"), and that is what a plugin compiled against it asks for, while a description written by hand
+ * says "…/rtmempool#Pool". The host serves both, and the deprecated URI, over the one pool. */
+#define LV2_RTMEMPOOL_POOL_SPELLED_URI  LV2_RTSAFE_MEMORY_POOL_PREFIX "Pool"
 
 
 /*
@@ -100,8 +106,8 @@
 /* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
 #define LV2_CORE_PROVIDED_INIT \
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
-      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, \
-      LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
+      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_RTSAFE_MEMORY_POOL__Pool, LV2_RTMEMPOOL_POOL_SPELLED_URI, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, \
+      LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
 
 /* the refusals, the verdict's spelling: each the code omx-contract declares, from its omx_vocabulary.h */
 #define LV2_CODE_NO_REALISATION         OMX_HOSTING_NO_REALISATION
