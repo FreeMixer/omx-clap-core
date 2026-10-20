@@ -262,7 +262,7 @@ struct omx_clap_stage
     uint32_t wide;                                      ///< 1 while the wide bounce is bound: the main buffers are wide_in and wide_out
     // ABI 14: the auxiliary output channels bound to the caller's buffers (omx_clap_set_aux_out); 0 spares a block every
     // per-channel test of the auxiliary outputs' guard and silence
-    uint32_t aux_bound_channels;
+    uint32_t aux_bound_channels;                        ///< auxiliary output channels bound to the caller's buffers; 0 spares the guard
 };
 
 /**
