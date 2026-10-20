@@ -59,7 +59,7 @@
         lv2:portProperty lv2:isSideChain
     ] .
 
-# a side chain of three channels: refused as wider than the strip
+# a side chain of three channels: one auxiliary port of three channels
 <urn:openmixer:test:sidechain-fixture#wide>
     a lv2:Plugin ;
     doap:name "openmixer sidechain fixture (three-channel twin)" ;
@@ -95,7 +95,7 @@
     rdfs:label "Wide sidechain" ;
     pg:sideChainOf <urn:openmixer:test:sidechain-fixture#wide-main> .
 
-# a third ungrouped input, not in the main group and not a side chain: refused as extra
+# a third ungrouped input, not in the main group and not a side chain: one mono auxiliary port beside the main pair
 <urn:openmixer:test:sidechain-fixture#extra>
     a lv2:Plugin ;
     doap:name "openmixer sidechain fixture (extra-input twin)" ;
@@ -152,3 +152,444 @@
         a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "side_b" ; lv2:name "Side B" ;
         lv2:portProperty lv2:isSideChain
     ] .
+
+# 64 ungrouped mono side chains beside the ungrouped main pair: the core's limit of auxiliary ports, admitted
+<urn:openmixer:test:sidechain-fixture#sixty-four>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (64 side chains twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "side_1" ; lv2:name "Side 1" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "side_2" ; lv2:name "Side 2" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 6 ; lv2:symbol "side_3" ; lv2:name "Side 3" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 7 ; lv2:symbol "side_4" ; lv2:name "Side 4" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 8 ; lv2:symbol "side_5" ; lv2:name "Side 5" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "side_6" ; lv2:name "Side 6" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "side_7" ; lv2:name "Side 7" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 11 ; lv2:symbol "side_8" ; lv2:name "Side 8" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 12 ; lv2:symbol "side_9" ; lv2:name "Side 9" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 13 ; lv2:symbol "side_10" ; lv2:name "Side 10" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 14 ; lv2:symbol "side_11" ; lv2:name "Side 11" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 15 ; lv2:symbol "side_12" ; lv2:name "Side 12" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 16 ; lv2:symbol "side_13" ; lv2:name "Side 13" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 17 ; lv2:symbol "side_14" ; lv2:name "Side 14" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 18 ; lv2:symbol "side_15" ; lv2:name "Side 15" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 19 ; lv2:symbol "side_16" ; lv2:name "Side 16" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 20 ; lv2:symbol "side_17" ; lv2:name "Side 17" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 21 ; lv2:symbol "side_18" ; lv2:name "Side 18" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 22 ; lv2:symbol "side_19" ; lv2:name "Side 19" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 23 ; lv2:symbol "side_20" ; lv2:name "Side 20" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 24 ; lv2:symbol "side_21" ; lv2:name "Side 21" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 25 ; lv2:symbol "side_22" ; lv2:name "Side 22" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 26 ; lv2:symbol "side_23" ; lv2:name "Side 23" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 27 ; lv2:symbol "side_24" ; lv2:name "Side 24" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 28 ; lv2:symbol "side_25" ; lv2:name "Side 25" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 29 ; lv2:symbol "side_26" ; lv2:name "Side 26" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 30 ; lv2:symbol "side_27" ; lv2:name "Side 27" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 31 ; lv2:symbol "side_28" ; lv2:name "Side 28" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 32 ; lv2:symbol "side_29" ; lv2:name "Side 29" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 33 ; lv2:symbol "side_30" ; lv2:name "Side 30" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 34 ; lv2:symbol "side_31" ; lv2:name "Side 31" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 35 ; lv2:symbol "side_32" ; lv2:name "Side 32" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 36 ; lv2:symbol "side_33" ; lv2:name "Side 33" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 37 ; lv2:symbol "side_34" ; lv2:name "Side 34" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 38 ; lv2:symbol "side_35" ; lv2:name "Side 35" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 39 ; lv2:symbol "side_36" ; lv2:name "Side 36" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 40 ; lv2:symbol "side_37" ; lv2:name "Side 37" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 41 ; lv2:symbol "side_38" ; lv2:name "Side 38" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 42 ; lv2:symbol "side_39" ; lv2:name "Side 39" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 43 ; lv2:symbol "side_40" ; lv2:name "Side 40" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 44 ; lv2:symbol "side_41" ; lv2:name "Side 41" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 45 ; lv2:symbol "side_42" ; lv2:name "Side 42" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 46 ; lv2:symbol "side_43" ; lv2:name "Side 43" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 47 ; lv2:symbol "side_44" ; lv2:name "Side 44" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 48 ; lv2:symbol "side_45" ; lv2:name "Side 45" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 49 ; lv2:symbol "side_46" ; lv2:name "Side 46" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 50 ; lv2:symbol "side_47" ; lv2:name "Side 47" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 51 ; lv2:symbol "side_48" ; lv2:name "Side 48" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 52 ; lv2:symbol "side_49" ; lv2:name "Side 49" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 53 ; lv2:symbol "side_50" ; lv2:name "Side 50" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 54 ; lv2:symbol "side_51" ; lv2:name "Side 51" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 55 ; lv2:symbol "side_52" ; lv2:name "Side 52" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 56 ; lv2:symbol "side_53" ; lv2:name "Side 53" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 57 ; lv2:symbol "side_54" ; lv2:name "Side 54" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 58 ; lv2:symbol "side_55" ; lv2:name "Side 55" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 59 ; lv2:symbol "side_56" ; lv2:name "Side 56" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 60 ; lv2:symbol "side_57" ; lv2:name "Side 57" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 61 ; lv2:symbol "side_58" ; lv2:name "Side 58" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 62 ; lv2:symbol "side_59" ; lv2:name "Side 59" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 63 ; lv2:symbol "side_60" ; lv2:name "Side 60" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 64 ; lv2:symbol "side_61" ; lv2:name "Side 61" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 65 ; lv2:symbol "side_62" ; lv2:name "Side 62" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 66 ; lv2:symbol "side_63" ; lv2:name "Side 63" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 67 ; lv2:symbol "side_64" ; lv2:name "Side 64" ;
+        lv2:portProperty lv2:isSideChain
+    ] .
+
+# 65 ungrouped mono side chains beside the ungrouped main pair: the core's limit of auxiliary ports and one past it, refused
+<urn:openmixer:test:sidechain-fixture#sixty-five>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (65 side chains twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "side_1" ; lv2:name "Side 1" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "side_2" ; lv2:name "Side 2" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 6 ; lv2:symbol "side_3" ; lv2:name "Side 3" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 7 ; lv2:symbol "side_4" ; lv2:name "Side 4" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 8 ; lv2:symbol "side_5" ; lv2:name "Side 5" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "side_6" ; lv2:name "Side 6" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "side_7" ; lv2:name "Side 7" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 11 ; lv2:symbol "side_8" ; lv2:name "Side 8" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 12 ; lv2:symbol "side_9" ; lv2:name "Side 9" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 13 ; lv2:symbol "side_10" ; lv2:name "Side 10" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 14 ; lv2:symbol "side_11" ; lv2:name "Side 11" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 15 ; lv2:symbol "side_12" ; lv2:name "Side 12" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 16 ; lv2:symbol "side_13" ; lv2:name "Side 13" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 17 ; lv2:symbol "side_14" ; lv2:name "Side 14" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 18 ; lv2:symbol "side_15" ; lv2:name "Side 15" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 19 ; lv2:symbol "side_16" ; lv2:name "Side 16" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 20 ; lv2:symbol "side_17" ; lv2:name "Side 17" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 21 ; lv2:symbol "side_18" ; lv2:name "Side 18" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 22 ; lv2:symbol "side_19" ; lv2:name "Side 19" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 23 ; lv2:symbol "side_20" ; lv2:name "Side 20" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 24 ; lv2:symbol "side_21" ; lv2:name "Side 21" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 25 ; lv2:symbol "side_22" ; lv2:name "Side 22" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 26 ; lv2:symbol "side_23" ; lv2:name "Side 23" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 27 ; lv2:symbol "side_24" ; lv2:name "Side 24" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 28 ; lv2:symbol "side_25" ; lv2:name "Side 25" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 29 ; lv2:symbol "side_26" ; lv2:name "Side 26" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 30 ; lv2:symbol "side_27" ; lv2:name "Side 27" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 31 ; lv2:symbol "side_28" ; lv2:name "Side 28" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 32 ; lv2:symbol "side_29" ; lv2:name "Side 29" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 33 ; lv2:symbol "side_30" ; lv2:name "Side 30" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 34 ; lv2:symbol "side_31" ; lv2:name "Side 31" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 35 ; lv2:symbol "side_32" ; lv2:name "Side 32" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 36 ; lv2:symbol "side_33" ; lv2:name "Side 33" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 37 ; lv2:symbol "side_34" ; lv2:name "Side 34" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 38 ; lv2:symbol "side_35" ; lv2:name "Side 35" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 39 ; lv2:symbol "side_36" ; lv2:name "Side 36" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 40 ; lv2:symbol "side_37" ; lv2:name "Side 37" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 41 ; lv2:symbol "side_38" ; lv2:name "Side 38" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 42 ; lv2:symbol "side_39" ; lv2:name "Side 39" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 43 ; lv2:symbol "side_40" ; lv2:name "Side 40" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 44 ; lv2:symbol "side_41" ; lv2:name "Side 41" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 45 ; lv2:symbol "side_42" ; lv2:name "Side 42" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 46 ; lv2:symbol "side_43" ; lv2:name "Side 43" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 47 ; lv2:symbol "side_44" ; lv2:name "Side 44" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 48 ; lv2:symbol "side_45" ; lv2:name "Side 45" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 49 ; lv2:symbol "side_46" ; lv2:name "Side 46" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 50 ; lv2:symbol "side_47" ; lv2:name "Side 47" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 51 ; lv2:symbol "side_48" ; lv2:name "Side 48" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 52 ; lv2:symbol "side_49" ; lv2:name "Side 49" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 53 ; lv2:symbol "side_50" ; lv2:name "Side 50" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 54 ; lv2:symbol "side_51" ; lv2:name "Side 51" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 55 ; lv2:symbol "side_52" ; lv2:name "Side 52" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 56 ; lv2:symbol "side_53" ; lv2:name "Side 53" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 57 ; lv2:symbol "side_54" ; lv2:name "Side 54" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 58 ; lv2:symbol "side_55" ; lv2:name "Side 55" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 59 ; lv2:symbol "side_56" ; lv2:name "Side 56" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 60 ; lv2:symbol "side_57" ; lv2:name "Side 57" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 61 ; lv2:symbol "side_58" ; lv2:name "Side 58" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 62 ; lv2:symbol "side_59" ; lv2:name "Side 59" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 63 ; lv2:symbol "side_60" ; lv2:name "Side 60" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 64 ; lv2:symbol "side_61" ; lv2:name "Side 61" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 65 ; lv2:symbol "side_62" ; lv2:name "Side 62" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 66 ; lv2:symbol "side_63" ; lv2:name "Side 63" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 67 ; lv2:symbol "side_64" ; lv2:name "Side 64" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 68 ; lv2:symbol "side_65" ; lv2:name "Side 65" ;
+        lv2:portProperty lv2:isSideChain
+    ] .
+
+# pg:mainInput names the main group and a third input stands outside it, ungrouped and no side chain: a main group
+# declared makes every other input of the side an auxiliary port, so this is admitted, the third input one mono
+# auxiliary port, never a second main port
+<urn:openmixer:test:sidechain-fixture#main-extra>
+    a lv2:Plugin ;
+    doap:name "openmixer sidechain fixture (main group and an input outside it twin)" ;
+    pg:mainInput <urn:openmixer:test:sidechain-fixture#main-extra-main> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#main-extra-main>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R" ;
+        pg:group <urn:openmixer:test:sidechain-fixture#main-extra-main>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "extra" ; lv2:name "Extra"
+    ] .
+
+<urn:openmixer:test:sidechain-fixture#main-extra-main>
+    a pg:Group , pg:InputGroup ;
+    lv2:symbol "main_extra_main" ;
+    rdfs:label "Main" .
