@@ -260,7 +260,7 @@ static void t_fixture(void)
         needs_map |= strcmp(p->required[i], LV2_URID__map) == 0;
         needs_state |= strcmp(p->required[i], LV2_STATE__loadDefaultState) == 0;
     }
-    CHECK(p->legs == 1 && p->in_ports[0] == 0 && p->out_ports[0] == 1 && p->latency_port == 5, "fixture: one leg 0->1, latency port 5");
+    CHECK(p->legs == 1 && p->main_in.port[0] == 0 && p->main_out.port[0] == 1 && p->latency_port == 5, "fixture: one leg 0->1, latency port 5");
     CHECK(p->n_controls == 3 && p->controls[0].port == 2 && p->controls[0].kind == LV2_CONTROL_BYPASS && p->controls[0].def == 1.0f,
           "fixture: lv2:enabled is its own bypass, held at 1");
     gain = control_of(p, "gain_db");
@@ -317,12 +317,13 @@ static void t_sidechains(void)
     CHECK(p != NULL, "side chain: the grouped stereo effect is admitted (%s)", why);
     if (p)
     {
-        CHECK(p->legs == 2 && p->in_ports[0] == 0 && p->in_ports[1] == 1 && p->out_ports[0] == 2 && p->out_ports[1] == 3,
-              "side chain: the main pair is the pg:mainInput group, 0 and 1 (legs %u)", p->legs);
-        CHECK(p->n_side == 1 && p->n_side_legs == 2 && p->side_channels[0] == 2 && p->side_base[0] == 0,
-              "side chain: one side chain of two legs (%u chains, %u legs)", p->n_side, p->n_side_legs);
-        CHECK(p->side_in[0][0] == 4 && p->side_in[0][1] == 5, "side chain: its legs are ports 4 and 5, in order (%u, %u)", p->side_in[0][0], p->side_in[0][1]);
-        CHECK(p->side_name[0] && strcmp(p->side_name[0], "Sidechain") == 0, "side chain: named by its group's label (%s)", p->side_name[0] ? p->side_name[0] : "-");
+        CHECK(p->main_in.n == 2 && p->main_in.port[0] == 0 && p->main_in.port[1] == 1 && p->main_out.n == 2
+              && p->main_out.port[0] == 2 && p->main_out.port[1] == 3 && p->legs == 2 && p->in_legs == 2,
+              "side chain: the main pair is the pg:mainInput group, 0 and 1 (main in %u)", p->main_in.n);
+        CHECK(p->n_aux_in == 1 && p->aux_in[0].n == 2 && p->n_aux_out == 0,
+              "side chain: one auxiliary input of two channels (%u ports, %u channels)", p->n_aux_in, p->aux_in[0].n);
+        CHECK(p->aux_in[0].port[0] == 4 && p->aux_in[0].port[1] == 5, "side chain: its channels are ports 4 and 5, in order (%u, %u)", p->aux_in[0].port[0], p->aux_in[0].port[1]);
+        CHECK(p->aux_in[0].name && strcmp(p->aux_in[0].name, "Sidechain") == 0, "side chain: named by its group's label (%s)", p->aux_in[0].name ? p->aux_in[0].name : "-");
     }
     lv2_plugin_close(p);
 
@@ -330,43 +331,43 @@ static void t_sidechains(void)
     CHECK(p != NULL, "side chain: a mono side chain by lv2:isSideChain alone is admitted (%s)", why);
     if (p)
     {
-        CHECK(p->legs == 2 && p->n_side == 1 && p->n_side_legs == 1 && p->side_channels[0] == 1 && p->side_in[0][0] == 4,
-              "side chain: one leg, port 4, beside the ungrouped main pair (%u chains, %u legs)", p->n_side, p->n_side_legs);
-        CHECK(p->side_name[0] && strcmp(p->side_name[0], "Side") == 0, "side chain: an ungrouped one is named by its port (%s)", p->side_name[0] ? p->side_name[0] : "-");
+        CHECK(p->main_in.n == 2 && p->n_aux_in == 1 && p->aux_in[0].n == 1 && p->aux_in[0].port[0] == 4,
+              "side chain: one channel, port 4, beside the ungrouped main pair (%u ports, %u channels)", p->n_aux_in, p->aux_in[0].n);
+        CHECK(p->aux_in[0].name && strcmp(p->aux_in[0].name, "Side") == 0, "side chain: an ungrouped one is named by its port (%s)", p->aux_in[0].name ? p->aux_in[0].name : "-");
     }
     lv2_plugin_close(p);
 
     p = open_plugin(g_sc, SC_URI "#port-of", why);
-    CHECK(p != NULL && p->n_side == 1 && p->side_in[0][0] == 4 && p->legs == 2,
+    CHECK(p != NULL && p->n_aux_in == 1 && p->aux_in[0].port[0] == 4 && p->main_in.n == 2,
           "side chain: pg:sideChainOf on the port alone makes it a side chain (%s)", why);
     lv2_plugin_close(p);
 
     p = open_plugin(g_fixture, FIXTURE_URI, why);
-    CHECK(p != NULL && p->n_side == 0 && p->n_side_legs == 0, "side chain: a plugin with no side chain has none");
+    CHECK(p != NULL && p->n_aux_in == 0 && p->n_aux_out == 0, "side chain: a plugin with no side chain has none");
     lv2_plugin_close(p);
 
     // three channels in one side chain: one auxiliary port of three channels
     p = open_plugin(g_sc, SC_URI "#wide", why);
-    CHECK(p != NULL && p->legs == 2 && p->n_side == 1 && p->side_channels[0] == 3 && p->side_in[0][0] == 4 && p->side_in[0][2] == 6,
+    CHECK(p != NULL && p->main_in.n == 2 && p->n_aux_in == 1 && p->aux_in[0].n == 3 && p->aux_in[0].port[0] == 4 && p->aux_in[0].port[2] == 6,
           "side chain: a three-channel side chain is admitted, ports 4 to 6 (%s)", why);
     lv2_plugin_close(p);
 
     // a third ungrouped input that is no side chain: the first two are the main pair, the third one mono auxiliary port
     p = open_plugin(g_sc, SC_URI "#extra", why);
-    CHECK(p != NULL && p->legs == 2 && p->in_ports[1] == 1 && p->n_side == 1 && p->side_channels[0] == 1 && p->side_in[0][0] == 4,
+    CHECK(p != NULL && p->main_in.n == 2 && p->main_in.port[1] == 1 && p->n_aux_in == 1 && p->aux_in[0].n == 1 && p->aux_in[0].port[0] == 4,
           "side chain: an extra ungrouped input is admitted as one mono auxiliary port (%s)", why);
     lv2_plugin_close(p);
 
     // two mains on a side cannot be declared in LV2: pg:mainInput names one group, and an ungrouped input outside it is
     // an auxiliary port, never a second main one, so there is nothing to refuse
     p = open_plugin(g_sc, SC_URI "#main-extra", why);
-    CHECK(p != NULL && p->legs == 2 && p->in_ports[0] == 0 && p->in_ports[1] == 1 && p->n_side == 1 && p->side_in[0][0] == 4,
+    CHECK(p != NULL && p->main_in.n == 2 && p->main_in.port[0] == 0 && p->main_in.port[1] == 1 && p->n_aux_in == 1 && p->aux_in[0].port[0] == 4,
           "side chain: an input outside the main group is one mono auxiliary port (%s)", why);
     lv2_plugin_close(p);
 
     // the core's limit of auxiliary ports, exactly
     p = open_plugin(g_sc, SC_URI "#sixty-four", why);
-    CHECK(p != NULL && p->n_side == LV2_CORE_AUX_PORTS && p->n_side_legs == LV2_CORE_AUX_PORTS && p->side_in[63][0] == 67,
+    CHECK(p != NULL && p->n_aux_in == LV2_CORE_AUX_PORTS && p->aux_in[63].n == 1 && p->aux_in[63].port[0] == 67,
           "side chain: %u mono side chains are admitted (%s)", LV2_CORE_AUX_PORTS, why);
     lv2_plugin_close(p);
 
@@ -390,7 +391,7 @@ static void t_sidechain_names_oom(void)
     int base = g_live_n;
 
     p = open_plugin(g_sc, SC_URI "#two", why);
-    CHECK(p != NULL && p->n_side == 2 && strcmp(p->side_name[0], "Side A") == 0 && strcmp(p->side_name[1], "Side B") == 0,
+    CHECK(p != NULL && p->n_aux_in == 2 && strcmp(p->aux_in[0].name, "Side A") == 0 && strcmp(p->aux_in[1].name, "Side B") == 0,
           "side chain names: two side chains are named by their ports (%s)", why);
     lv2_plugin_close(p);
     CHECK(g_live_n == base, "side chain names: a closed plugin holds no duplicated string (%d held)", g_live_n - base);
@@ -588,8 +589,8 @@ static void t_cv(void)
     CHECK(p != NULL, "cv: the CV fixture is admitted (%s)", why);
     if (p)
     {
-        CHECK(p->legs == 1 && p->in_ports[0] == 0 && p->out_ports[0] == 1 && p->n_side == 0,
-              "cv: its audio is one mono pair, 0 -> 1, and no CV port is read as a side chain (%u side chains)", p->n_side);
+        CHECK(p->legs == 1 && p->main_in.port[0] == 0 && p->main_out.port[0] == 1 && p->n_aux_in == 0,
+              "cv: its audio is one mono pair, 0 -> 1, and no CV port is read as an auxiliary port (%u)", p->n_aux_in);
         CHECK(p->n_cv_in == 1 && p->cv_in[0] == 2 && p->cv_in_name[0] && strcmp(p->cv_in_name[0], "Mod") == 0,
               "cv: one CV input, port 2, named Mod (%u, %s)", p->n_cv_in, p->cv_in_name[0] ? p->cv_in_name[0] : "-");
         CHECK(p->n_cv_out == 1 && p->cv_out[0] == 3 && p->cv_out_name[0] && strcmp(p->cv_out_name[0], "Env") == 0,
@@ -670,7 +671,7 @@ static void t_sources(void)
     char why[LV2_CORE_WHY_MAX] = "";
     struct lv2_plugin *p = open_plugin(g_fixture, FIXTURE_URI "#gen", why);
 
-    CHECK(p && p->in_legs == 0 && p->legs == 2 && p->midi_in_port < 0 && p->out_ports[0] == 0 && p->out_ports[1] == 1 && !p->passthrough,
+    CHECK(p && p->in_legs == 0 && p->legs == 2 && p->midi_in_port < 0 && p->main_out.port[0] == 0 && p->main_out.port[1] == 1 && !p->passthrough,
           "sources: a generator, a stereo output and no input of any kind, is admitted as a source, its outputs 0 and 1 (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#source", why);
@@ -692,7 +693,7 @@ static void t_midi_ports(void)
     CHECK(!p && strcmp(why, "hosting.features.atom-in-unfed") == 0, "midi: an atom input that is no MIDI port is not refused as MIDI (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#synth", why);
-    CHECK(p && p->midi_in_port == 0 && p->in_legs == 0 && p->legs == 2 && p->out_ports[0] == 1 && p->out_ports[1] == 2,
+    CHECK(p && p->midi_in_port == 0 && p->in_legs == 0 && p->legs == 2 && p->main_out.port[0] == 1 && p->main_out.port[1] == 2,
           "midi: an instrument, a MIDI input and a stereo output with no audio input, is admitted as a source (%s)", why);
     lv2_plugin_close(p);
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#two-in", why);
