@@ -57,6 +57,11 @@
  *                    when it carries CLAP_TRANSPORT_HAS_TEMPO, and SILENT when the transport is NULL
  *                    — the tempo the host gave it, reported as a level:
  *                    120 bpm is 0.12 (−18.42 dB), 60 bpm 0.06 (−24.44 dB)
+ *  17 no-ports       NOT a fault: no audio port at all (no clap.audio-ports), a note input and a
+ *                    note output — a note tool, hosted as a pass-through tool: the strip's pair
+ *                    passes through it untouched, the plugin handed no audio (#270). Param 1
+ *                    (read-only) counts the note-ons process() was handed, the witness that the
+ *                    notes reach a plugin the host feeds no audio
  */
 #include <math.h>
 #include <stdio.h>
@@ -87,6 +92,7 @@ typedef struct {
   clap_plugin_t plugin;
   const clap_host_t *host;
   uint32_t calls;
+  uint32_t notes; /* mode 17: the note-ons process() was handed */
   double gain; /* mode 14's param 0 */
 #if OMX_FAULT_MODE == 15
   uint32_t lat;  /* the latency activate took, which latency.get reports and process applies */
@@ -167,6 +173,13 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
   F *f = (F *)p->plugin_data;
   f->calls++;
   const uint32_t n = pr->frames_count;
+#if OMX_FAULT_MODE == 17
+  if (pr->in_events)
+    for (uint32_t i = 0, count = pr->in_events->size(pr->in_events); i < count; i++) {
+      const clap_event_header_t *h = pr->in_events->get(pr->in_events, i);
+      if (h->space_id == CLAP_CORE_EVENT_SPACE_ID && h->type == CLAP_EVENT_NOTE_ON) f->notes++;
+    }
+#endif
   if (pr->audio_outputs_count < 1) return CLAP_PROCESS_CONTINUE;
   const clap_audio_buffer_t *ai = pr->audio_inputs_count ? &pr->audio_inputs[0] : NULL;
   const clap_audio_buffer_t *ao = &pr->audio_outputs[0];
@@ -221,7 +234,8 @@ static clap_process_status p_process(const clap_plugin_t *p, const clap_process_
   return CLAP_PROCESS_CONTINUE;
 }
 
-/* ---- audio ports ---- */
+/* ---- audio ports (mode 17 declares none) ---- */
+#if OMX_FAULT_MODE != 17
 static uint32_t ap_count(const clap_plugin_t *p, bool is_input) {
   (void)p;
 #if OMX_FAULT_MODE == 4
@@ -251,6 +265,7 @@ static bool ap_get(const clap_plugin_t *p, uint32_t index, bool is_input, clap_a
   return true;
 }
 static const clap_plugin_audio_ports_t AUDIO_PORTS = {ap_count, ap_get};
+#endif
 
 /* ---- latency ---- */
 static uint32_t lat_get(const clap_plugin_t *p) {
@@ -266,8 +281,8 @@ static uint32_t lat_get(const clap_plugin_t *p) {
 static const clap_plugin_latency_t LATENCY = {lat_get};
 
 /* ---- one parameter, so the sweep has something to sweep ---- */
-#if OMX_FAULT_MODE == 14
-#define PARAM_COUNT 2 /* + param 1, read-only: the process() calls so far */
+#if OMX_FAULT_MODE == 14 || OMX_FAULT_MODE == 17
+#define PARAM_COUNT 2 /* + param 1, read-only: the process() calls so far (14), the note-ons handed (17) */
 #else
 #define PARAM_COUNT 1
 #endif
@@ -279,7 +294,7 @@ static bool pa_info(const clap_plugin_t *p, uint32_t i, clap_param_info_t *info)
   if (i == 1) {
     info->id = 1;
     info->flags = CLAP_PARAM_IS_READONLY;
-    snprintf(info->name, sizeof info->name, "Calls");
+    snprintf(info->name, sizeof info->name, OMX_FAULT_MODE == 17 ? "Notes" : "Calls");
     info->max_value = 4294967295.0;
     return true;
   }
@@ -304,7 +319,8 @@ static bool pa_value(const clap_plugin_t *p, clap_id id, double *v) {
 #if OMX_FAULT_MODE == 15
   *v = (double)((const F *)p->plugin_data)->want;
 #else
-  *v = id == 1 ? (double)((const F *)p->plugin_data)->calls : ((const F *)p->plugin_data)->gain;
+  *v = id == 1 ? (double)(OMX_FAULT_MODE == 17 ? ((const F *)p->plugin_data)->notes : ((const F *)p->plugin_data)->calls)
+               : ((const F *)p->plugin_data)->gain;
 #endif
   return true;
 }
@@ -320,15 +336,16 @@ static void pa_flush(const clap_plugin_t *p, const clap_input_events_t *in, cons
 }
 static const clap_plugin_params_t PARAMS = {pa_count, pa_info, pa_value, pa_to_text, pa_from_text, pa_flush};
 
-#if OMX_FAULT_MODE == 12
-static uint32_t np_count(const clap_plugin_t *p, bool is_input) { (void)p; return is_input ? 1 : 0; }
+#if OMX_FAULT_MODE == 12 || OMX_FAULT_MODE == 17
+/* mode 12: a note input; mode 17: a note input and a note output */
+static uint32_t np_count(const clap_plugin_t *p, bool is_input) { (void)p; return is_input || OMX_FAULT_MODE == 17 ? 1 : 0; }
 static bool np_get(const clap_plugin_t *p, uint32_t i, bool is_input, clap_note_port_info_t *info) {
   (void)p;
-  if (!is_input || i != 0) return false;
+  if (i >= np_count(p, is_input)) return false;
   memset(info, 0, sizeof *info);
   info->id = 0;
   info->supported_dialects = info->preferred_dialect = CLAP_NOTE_DIALECT_CLAP;
-  snprintf(info->name, sizeof info->name, "notes");
+  snprintf(info->name, sizeof info->name, is_input ? "notes" : "notes out");
   return true;
 }
 static const clap_plugin_note_ports_t NOTE_PORTS = {np_count, np_get};
@@ -336,10 +353,12 @@ static const clap_plugin_note_ports_t NOTE_PORTS = {np_count, np_get};
 
 static const void *p_get_extension(const clap_plugin_t *p, const char *id) {
   (void)p;
+#if OMX_FAULT_MODE != 17
   if (!strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &AUDIO_PORTS;
+#endif
   if (!strcmp(id, CLAP_EXT_LATENCY)) return &LATENCY;
   if (!strcmp(id, CLAP_EXT_PARAMS)) return &PARAMS;
-#if OMX_FAULT_MODE == 12
+#if OMX_FAULT_MODE == 12 || OMX_FAULT_MODE == 17
   if (!strcmp(id, CLAP_EXT_NOTE_PORTS)) return &NOTE_PORTS;
 #endif
   return NULL;

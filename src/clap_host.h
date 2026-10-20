@@ -108,7 +108,7 @@
  * its omxcontract/omx_vocabulary.h. A code is never reworded. */
 #define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
 #define CLAP_HOST_CODE_NOTE_INPUT           OMX_HOSTING_CLAP_NOTE_INPUT  ///< the plugin declares a note input the configuration refuses
-#define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< nothing to carry and nothing to pass through
+#define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< an audio input or an auxiliary port but no main output: nothing to carry (a plugin with no audio port at all passes the strip through instead, #270)
 #define CLAP_HOST_CODE_WIDER_THAN_STRIP     OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP  ///< a main port is wider than the lane the caller runs the plugin on
 #define CLAP_HOST_CODE_TOO_MANY_PORTS       OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS  ///< more than the limit of auxiliary ports on one side, or more than one main port on a side
 #define CLAP_HOST_CODE_PORT_TOO_WIDE        OMX_HOSTING_TOPOLOGY_PORT_TOO_WIDE  ///< a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²
@@ -510,6 +510,12 @@ struct omx_clap_instance
     const clap_plugin_configurable_audio_ports_t *configurable_audio_ports;  ///< the plugin's clap.configurable-audio-ports/1
                                                                              ///< (or its draft id), NULL for none
     const clap_plugin_audio_ports_config_t *audio_ports_config;  ///< the plugin's clap.audio-ports-config, NULL for none
+
+    // ABI 15: the pass-through placement (#270)
+    uint32_t passthrough;       ///< 1: the plugin declares no audio port at all (a note tool, a controller). The main pair is
+                                ///< the host's placement, stereo and named `in (passthrough: host)` / `out (passthrough: host)`:
+                                ///< the strip's audio passes through the stage untouched, the plugin is handed no audio and
+                                ///< runs for its notes and parameters alone, and its latency reads 0
 };
 
 
@@ -633,7 +639,8 @@ OMX_CLAP_EXPORT int omx_clap_host_set_rate(struct omx_clap_instance *in, double 
 /** Destroy the instance (deactivating first if needed) and drop its binary reference. */
 OMX_CLAP_EXPORT void omx_clap_host_close(struct omx_clap_instance *in);
 
-/** The declared latency.get() as last published, in frames. */
+/** The declared latency.get() as last published, in frames; 0 for a pass-through tool, whose latency applies to its notes
+ * alone (the audio it does not touch has none). */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_latency(const struct omx_clap_instance *in);
 
 /** The control thread takes the audio role from whoever holds it: a cycle that arrives meanwhile passes the lane through,
