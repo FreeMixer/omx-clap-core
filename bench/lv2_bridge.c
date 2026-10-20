@@ -67,7 +67,7 @@ static const clap_plugin_factory_t factory = {count, descriptor, create};
 
 static bool entry_init(const char *path)
 {
-    static const omx_clap_lv2_config_t config = {omx_clap_lv2_provided, 1000u, 4096u, 0u, 100u, NULL};
+    static const omx_clap_lv2_config_t config = {omx_clap_lv2_provided, 1000u, 4096u, 0u, 100u, NULL, NULL};
     char why[OMX_CLAP_LV2_WHY_MAX];
     const char *list = getenv("OMX_BENCH_LV2_BUNDLES");
     char *copy, *save = NULL;

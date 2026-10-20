@@ -140,7 +140,7 @@ static struct port *add_port(struct pw_filter *f, enum spa_direction dir, const 
 static int lv2_configure(char why[OMX_CLAP_LV2_WHY_MAX])
 {
     /* the numbers the adapter's own tests run with */
-    static const omx_clap_lv2_config_t config = {omx_clap_lv2_provided, 1000u, 4096u, 0u, 100u, NULL};
+    static const omx_clap_lv2_config_t config = {omx_clap_lv2_provided, 1000u, 4096u, 0u, 100u, NULL, NULL};
 
     if (lv2_configured)
         return 0;
