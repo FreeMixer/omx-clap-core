@@ -881,18 +881,20 @@ def inside_run(a):
     if os.getpid() != 1:
         raise SystemExit('run: not pid 1 of a private namespace, refusing')
     subprocess.run(['ip', 'link', 'set', 'lo', 'up'], check=False)
-    # a tmpfs of the namespace's own at /tmp: PipeWire's socket path must fit in 108 bytes, and the recordings of a
-    # plugin live there until they are compared; nothing of it is seen outside, and it goes with the namespace
-    subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=512m,mode=0700', 'lv2-parity', '/tmp'], check=True)
-    # the user's own runtime dir, where the live PipeWire's socket is: a filesystem socket is not netns-scoped, so the
-    # environment alone would keep a host or a plugin that hard-codes the path out. An empty tmpfs over it, seen only
-    # in this namespace, and the run refused when the live socket still shows
+    # a tmpfs of the namespace's own, seen nowhere else and gone with it, for the PipeWire runtime dirs (a socket path
+    # must fit in 108 bytes) and a plugin's recordings until they are compared. It goes over the user's own runtime
+    # dir, where the live PipeWire's socket is: a filesystem socket is not netns-scoped, so the environment alone
+    # would keep a host or a plugin that hard-codes the path out. Without one (a container), over a short dir of its
+    # own under /tmp, so that /tmp itself (the caller's results may be there) stays visible
     outer = os.environ.get('LV2_PARITY_OUTER_RUNTIME', '')
-    if outer and os.path.isdir(outer):
-        subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=1m,mode=0700', 'lv2-parity-run', outer], check=True)
+    base = outer if outer and os.path.isdir(outer) else tempfile.mkdtemp(prefix='lvp.', dir='/tmp')
+    subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=512m,mode=0700', 'lv2-parity', base], check=True)
+    if not os.path.ismount(base):
+        raise SystemExit(f'run: no tmpfs over {base}, refusing')
     for sock in ('pipewire-0', 'pipewire-0-manager', 'pulse/native'):
-        if outer and os.path.exists(os.path.join(outer, sock)):
-            raise SystemExit(f'run: the live {sock} is still reachable at {outer}, refusing')
+        if os.path.exists(os.path.join(base, sock)):
+            raise SystemExit(f'run: the live {sock} is still reachable at {base}, refusing')
+    a.rt_base = base
     plugins = read_tsv(a.plugins)
     if a.limit:
         plugins = plugins[:a.limit]
@@ -903,7 +905,7 @@ def inside_run(a):
         if os.path.exists(rawp):
             done = {json.loads(l)['uri'] for l in open(rawp) if l.strip()}
         todo = [e for e in plugins if e['uri'] not in done]
-        rt = tempfile.mkdtemp(prefix=f'pw{rate}.', dir='/tmp')
+        rt = tempfile.mkdtemp(prefix=f'pw{rate}.', dir=a.rt_base)
         logdir = os.path.join(a.work, str(rate))
         os.makedirs(logdir, exist_ok=True)
         pw, env = start_pipewire(rt, rate, QUANTUM)
