@@ -210,10 +210,12 @@ The extensions are counted for the hosted plugins only: a refused plugin ends be
 |---|---|---|
 | `hosting.topology.no-audio-output` | 2 | `com.madskjeldgaard.birdhouse`, `studio.kx.distrho.ildaeil#midi` |
 
-The two are note tools with no audio port at all: a note input, a note output, nothing to carry.
-The 23 that main refused on their feature list alone (analysers with audio in and only a display,
-plugins whose feature list is empty or odd although their ports are a plain effect) are hosted: the
-feature list refuses nothing, the ports decide (#257).
+The two are note tools with no audio port at all: a note input, a note output, nothing to carry
+(#270). They were among the 23 that main refused on their feature list alone; the other 21
+(analysers with audio in and only a display, plugins whose feature list is empty or odd although
+their ports are a plain effect) are hosted: the feature list refuses nothing, the ports decide
+(#257). The installed set changed since the `07d70a1` run: QPitch, NoiseRF and ChowKick were
+removed from msi, so their crash and scan-failure rows are not measured here, not fixed.
 
 | did not scan | why |
 |---|---|
@@ -256,5 +258,6 @@ In the order #196 gives them, with what the desk measured and where each stands 
    largest unanswered ask after `clap.gui`: #263.
 
 What the probe found beyond those, each filed: #257 (23 plugins refused on their feature list
-alone; admitted by ports now), #258 (QPitch aborted at `add` and took the host with it; hosted
-now), #259 (a bundle directory whose shared object has another name lists no plugin).
+alone; admitted by ports now), #258 (QPitch aborted at `add` and took the host with it; no longer
+installed, so not measured), #259 (a bundle directory whose shared object has another name lists no
+plugin).

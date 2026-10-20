@@ -93,6 +93,7 @@ int main(int argc, char **argv)
         omx_clap_host_close(instance);
         instance = NULL;
     }
+    CHECK(omx_clap_host_binaries_open() == 0, "nothing stays loaded after it is closed (%u open)", omx_clap_host_binaries_open());
     omx_clap_host_config_default(&config);
     CHECK(omx_clap_host_configure(&config) == -1, "and the process cannot be configured once a binary was opened");
 

@@ -347,8 +347,8 @@ silence until its buffers are bound. The library's caller binds a buffer to it w
 `omx_clap_host_bind_aux_input`, one buffer per channel. An extra audio output (of up
 to 64 channels, up to 64 of them) is admitted and left unconnected: the plugin is
 handed a scratch buffer per channel, and the library's caller hands it buffers of
-its own with `omx_clap_host_bind_aux_output`. A plugin is admitted with the
-`audio-effect` or the `instrument` feature and refused with neither.
+its own with `omx_clap_host_bind_aux_output`. The descriptor's feature list
+decides nothing: a plugin is admitted by what its ports declare.
 
 omx-clap-host binds every auxiliary port to JACK: its client registers a port
 per channel of each, `aux_in_<p>_<k>` and `aux_out_<p>_<k>`, `p` the port's
