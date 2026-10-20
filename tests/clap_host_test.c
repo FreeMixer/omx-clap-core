@@ -1016,6 +1016,20 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // a match select refuses is passed over: the next matching config is selected
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_TWIN", &in), "%s opens with a second stereo config, select refusing the first",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 3") == 0,
+              "%s: config 2's select refused, config 3 is selected (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // configurable-audio-ports: applied
     CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
     if (in)
