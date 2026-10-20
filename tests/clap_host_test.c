@@ -326,6 +326,29 @@ static void t_surround_ambisonic(const char *path)
         omx_clap_host_close(in);
         in = NULL;
     }
+    // with no clap.surround the index-order map names ids 0 to channels - 1: past CLAP_SURROUND_TSR it names none
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "21", 1);   // ids 0 to 20, one past TSR (19)
+    check_refused(path, FAKE_SURROUND_PLAIN, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN);
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "20", 1);
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s, twenty channels: ids 0 to TSR", FAKE_SURROUND_PLAIN);
+    if (in)
+    {
+        CHECK(in->main_out.channels == 20 && in->main_out.map[19] == CLAP_SURROUND_TSR, "%s: the twentieth channel is TSR (%u)",
+              FAKE_SURROUND_PLAIN, in->main_out.map[19]);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "6", 1);
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s, six channels set by the knob", FAKE_SURROUND_PLAIN);
+    unsetenv("FAKE_SURROUND_PLAIN_CHANNELS");
+    if (in)
+    {
+        for (same = 1, c = 0; c < 6; c++)
+            same = same && in->main_in.map[c] == c && in->main_out.map[c] == c;
+        CHECK(in->main_out.channels == 6 && same, "%s: six channels, admitted, both maps in index order", FAKE_SURROUND_PLAIN);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
 
     CHECK(open_ok(path, FAKE_AMBISONIC, &in), "open %s", FAKE_AMBISONIC);
     if (in)
@@ -902,8 +925,8 @@ static void t_request_layout(const char *path)
     if (in)
     {
         strcpy(why, "untouched");
-        CHECK(omx_clap_host_request_layout(in, NULL, 1, why) == -1 && strcmp(why, "untouched") == 0 && in->in_channels == 1,
-              "request_layout: requests counted but none given is -1, why untouched, nothing applied");
+        CHECK(omx_clap_host_request_layout(in, NULL, 1, why) == -1 && why[0] == '\0' && in->in_channels == 1,
+              "request_layout: requests counted but none given is -1, why emptied, nothing applied");
         omx_clap_host_close(in);
         in = NULL;
     }
@@ -993,6 +1016,63 @@ static void t_request_layout(const char *path)
         CHECK(ret == 0 && in->in_channels == 0 && strcmp(in->main_out.name, "out 0 config 1") == 0,
               "%s: the output-only request selects the source config (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels,
               in->main_out.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a refused request still reads the description again: a plugin whose deactivate switched it to the stereo pair
+    // (a restart answered RESCANNED, the report taken) asked for a map it cannot name is -1 with the map's code, and
+    // the description is the new one, never the old one left to activate on
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_SWITCH_ON_DEACTIVATE", &in), "%s opens, switching to config 2 in every deactivate",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        static const uint8_t past_tsr[2] = { CLAP_SURROUND_FL, 25 };
+
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0 && in->in_channels == 1, "%s activates, one channel in (%s)",
+              FAKE_CONFIGS, why);
+        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && omx_clap_host_ports_rescanned(in) == 1,
+              "%s: its restart stops on the rescan, reported", FAKE_CONFIGS);
+        reqs[0] = main_request(true, 2, CLAP_PORT_SURROUND, past_tsr);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == -1 && strcmp(why, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN) == 0, "%s: a map past TSR is refused with its code (%d, %s)",
+              FAKE_CONFIGS, ret, why);
+        CHECK(in->in_channels == 2 && in->main_in.channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: and the description is read again all the same: the stereo pair (%u in, \"%s\")", FAKE_CONFIGS, in->in_channels,
+              in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a rate change whose deactivate raised a rescan stops there as a restart does: inactive, reported once, and the
+    // caller re-describes and activates at the new rate
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_SWITCH_ON_DEACTIVATE", &in), "%s opens for a rate change", FAKE_CONFIGS);
+    if (in)
+    {
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates (%s)", FAKE_CONFIGS, why);
+        ret = omx_clap_host_set_rate(in, 2 * SAMPLE_RATE, BLOCK, why);
+        CHECK(ret == OMX_CLAP_RESTART_RESCANNED && !in->active && in->in_channels == 1,
+              "%s: a rate change whose deactivate rescanned answers RESCANNED, inactive, the description not yet read (%d)", FAKE_CONFIGS,
+              ret);
+        CHECK(omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0, "%s: the rescan is reported once",
+              FAKE_CONFIGS);
+        CHECK(omx_clap_host_request_layout(in, NULL, 0, why) >= 0 && in->in_channels == 2
+                  && omx_clap_host_activate(in, 2 * SAMPLE_RATE, BLOCK, why) == 0 && in->rate == 2 * SAMPLE_RATE,
+              "%s: re-described, the stereo pair activates at the new rate (%s)", FAKE_CONFIGS, why);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a match select refuses is passed over: the next matching config is selected
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_TWIN", &in), "%s opens with a second stereo config, select refusing the first",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 3") == 0,
+              "%s: config 2's select refused, config 3 is selected (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
         omx_clap_host_close(in);
         in = NULL;
     }
@@ -1130,9 +1210,11 @@ static void t_request_layout(const char *path)
     {
         reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
         reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        strcpy(why, "stale");
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
-        CHECK(ret == -1 && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
-              "%s: asked while active, -1 and nothing applied (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels, in->main_in.name);
+        CHECK(ret == -1 && why[0] == '\0' && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
+              "%s: asked while active, -1 with why emptied and nothing applied (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels,
+              in->main_in.name);
         omx_clap_host_deactivate(in);
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
         CHECK(ret == 0 && in->in_channels == 2, "%s: deactivated, the same request is applied (%d)", FAKE_CONFIGS, ret);

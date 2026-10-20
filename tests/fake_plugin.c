@@ -47,6 +47,7 @@
  *   org.omx-clap-host.test.surround-bad the same, the map's last id 25, past CLAP_SURROUND_TSR
  *   org.omx-clap-host.test.surround-short the same, the map five ids long for six channels
  *   org.omx-clap-host.test.surround-plain a 6-channel main pair of port type surround and no clap.surround
+ *                                      (with FAKE_SURROUND_PLAIN_CHANNELS set, the pair is that many channels wide)
  *   org.omx-clap-host.test.ambisonic   a first-order main pair, 4 channels of port type ambisonic, and clap.ambisonic:
  *                                      ACN, SN3D, that configuration supported; deactivate calls the host's
  *                                      ambisonic.changed (with FAKE_AMBISONIC_SILENT set, get_config answers false:
@@ -64,7 +65,9 @@
  *                                      with FAKE_CONFIGS_SIDE each config carries a mono side-chain input beside its
  *                                      main, which select declares; with FAKE_CONFIGS_NO_MAIN_IN config 1 is a
  *                                      source, no main input flagged (its stale mono input fields a host must
- *                                      ignore) and none declared once selected)
+ *                                      ignore) and none declared once selected; with FAKE_SWITCH_ON_DEACTIVATE every
+ *                                      deactivate switches to config 2 and rescans the list, as 101 does once; with
+ *                                      FAKE_CONFIGS_TWIN a config 3, the stereo pair again, and select refuses 2)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
  *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
@@ -154,6 +157,8 @@ typedef struct FAKE_T {
                                     // activate only: FAKE_RESCAN_ON_FIRST_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
     uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
+    uint32_t switch_always;     // configs: every deactivate does (FAKE_SWITCH_ON_DEACTIVATE)
+    uint32_t configs_twin;      // configs: a config 3 like 2, and select refuses 2 (FAKE_CONFIGS_TWIN)
     uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
     uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
     const clap_host_thread_check_t *thread_check;  // the host's, read at init
@@ -374,17 +379,21 @@ static const clap_plugin_ambisonic_t g_ambisonic = { ambisonic_is_config_support
 static uint32_t configs_count(const clap_plugin_t *plugin)
 {
     main_thread_only(plugin, "audio_ports_config.count");
-    return 2;
+    return ((const fake_t *)plugin->plugin_data)->configs_twin ? 3 : 2;
 }
 
 static bool configs_get(const clap_plugin_t *plugin, uint32_t index, clap_audio_ports_config_t *config)
 {
+    const uint32_t twin = index == 2 && ((const fake_t *)plugin->plugin_data)->configs_twin;
+
     main_thread_only(plugin, "audio_ports_config.get");
-    if (index > 1)
+    if (index > 1 && !twin)
         return false;
     memset(config, 0, sizeof(*config));
     config->id = index + 1;
-    snprintf(config->name, sizeof(config->name), index == 0 ? "mono to stereo" : "stereo");
+    snprintf(config->name, sizeof(config->name), index == 0 ? "mono to stereo" : twin ? "stereo again" : "stereo");
+    if (twin)
+        index = 1;  // the stereo pair's ports
     config->input_port_count = ((const fake_t *)plugin->plugin_data)->configs_side ? 2 : 1;
     config->output_port_count = 1;
     config->has_main_input = true;
@@ -413,9 +422,9 @@ static bool configs_select(const clap_plugin_t *plugin, clap_id config_id)
     char line[32];
 
     main_thread_only(plugin, "audio_ports_config.select");
-    if (config_id != 1 && config_id != 2)
+    if ((config_id != 1 && config_id != 2 && !(config_id == 3 && fake->configs_twin)) || (config_id == 2 && fake->configs_twin))
         return false;
-    fake->main_channels = config_id;
+    fake->main_channels = config_id == 1 ? 1 : 2;
     fake->out_channels = 2;
     if (fake->configs_side)
     {
@@ -780,6 +789,8 @@ static void plugin_deactivate(const clap_plugin_t *plugin)
 {
     fake_t *fake = plugin->plugin_data;
 
+    if (fake->switch_always)
+        fake->switch_on_deactivate = 1;
     if (fake->switch_on_deactivate || fake->input_lost == 2)
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
@@ -1017,9 +1028,13 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configs_untyped = getenv("FAKE_CONFIGS_UNTYPED") != NULL;
     fake->configs_side = getenv("FAKE_CONFIGS_SIDE") != NULL;
     fake->configs_no_main_in = getenv("FAKE_CONFIGS_NO_MAIN_IN") != NULL;
+    fake->switch_always = getenv("FAKE_SWITCH_ON_DEACTIVATE") != NULL && (fake->offers & FAKE_OFFERS_CONFIGS);
+    fake->configs_twin = getenv("FAKE_CONFIGS_TWIN") != NULL;
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     fake->says_sleep = getenv("FAKE_PROCESS_SLEEP") != NULL;
+    if (fake->type == FAKE_TYPE_SURROUND_PLAIN && getenv("FAKE_SURROUND_PLAIN_CHANNELS"))
+        fake->main_channels = fake->out_channels = (uint32_t)atoi(getenv("FAKE_SURROUND_PLAIN_CHANNELS"));
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
     fake->latency_param = LATENCY_DEFAULT;
