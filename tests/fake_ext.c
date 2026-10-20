@@ -74,6 +74,7 @@ typedef struct FAKE_EXT_STATS_T {
     uint32_t ring;              ///< process() calls left that add 0.25 to the output, as a voice or a tail still sounding
     uint32_t while_processing;  ///< what can_activate_while_processing answers (the test sets it)
     uint32_t activations;       ///< activate calls
+    uint32_t rescan_on_deactivate;  ///< deactivate calls the host's audio-ports rescan (the test sets it)
 } fake_ext_stats_t;
 
 static fake_ext_stats_t g_stats;
@@ -151,7 +152,14 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     return true;
 }
 
-static void plugin_deactivate(const clap_plugin_t *plugin) { (void)plugin; }
+static void plugin_deactivate(const clap_plugin_t *plugin)
+{
+    const clap_host_audio_ports_t *ports = g_host && g_stats.rescan_on_deactivate ? g_host->get_extension(g_host, CLAP_EXT_AUDIO_PORTS) : NULL;
+
+    (void)plugin;
+    if (ports)
+        ports->rescan(g_host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+}
 static bool plugin_start_processing(const clap_plugin_t *plugin) { (void)plugin; return true; }
 static void plugin_stop_processing(const clap_plugin_t *plugin) { (void)plugin; }
 static void plugin_reset(const clap_plugin_t *plugin) { (void)plugin; }

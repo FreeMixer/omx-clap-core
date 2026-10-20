@@ -74,11 +74,12 @@
 /* the smallest atom buffer an instance gets, whatever the configuration says: bytes, a multiple of 8 */
 #define LV2_CORE_ATOM_BYTES_MIN         1024u
 
-/* the auxiliary input ports (side chains) a plugin may have, the core's CLAP_HOST_AUX_INPUTS; one more is refused */
-#define LV2_CORE_AUX_PORTS              64
+/* the channels one audio port may have, the core's CLAP_HOST_PORT_CHANNELS; one more is refused */
+#define LV2_CORE_PORT_CHANNELS          64
 
-/* the channels one side chain may have, the core's CLAP_HOST_PORT_CHANNELS; one more is refused */
-#define LV2_CORE_SIDE_CHANNELS          64
+/* the auxiliary audio ports a side may have, the core's CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS, the CV ports of
+ * that side counted with them (each is one more auxiliary port to the core); one more is refused */
+#define LV2_CORE_AUX_PORTS              64
 
 /* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
  * may have: each gets a sequence buffer of its own, emptied before every block; one more is refused */
@@ -111,7 +112,6 @@
 #define LV2_CODE_NO_AUDIO_OUTPUT        OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT
 #define LV2_CODE_TOO_MANY_PORTS         OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS
 #define LV2_CODE_PORT_TOO_WIDE          OMX_HOSTING_TOPOLOGY_PORT_TOO_WIDE
-#define LV2_CODE_WIDER_THAN_STRIP       OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP
 #define LV2_CODE_STATE_UNREADABLE       OMX_HOSTING_STATE_UNREADABLE
 #define LV2_CODE_PRESET_NOT_FOUND       OMX_HOSTING_PRESET_NOT_FOUND
 #define LV2_CODE_PATH_OUTSIDE           OMX_HOSTING_STATE_PATH_OUTSIDE     // makePath: empty, absolute, or a `..` component
@@ -185,6 +185,31 @@ struct lv2_control
 /* One loaded bundle, reference-counted. */
 struct lv2_bundle;
 
+/* the map entry of a mid-side group's side channel (pg:side), which no CLAP surround id names */
+#define LV2_CORE_MAP_SIDE               0xfeu
+
+/* What an audio port carries, as its group's type says. */
+enum lv2_port_kind
+{
+    LV2_PORT_UNKNOWN = 0,
+    LV2_PORT_MONO,
+    LV2_PORT_STEREO,
+    LV2_PORT_SURROUND,
+    LV2_PORT_AMBISONIC,
+};
+
+/* One audio port as the host sees it: a port group's members, or one ungrouped port. */
+struct lv2_audio_port
+{
+    uint32_t n;                                     // channels, 0 for an absent main
+    uint32_t port[LV2_CORE_PORT_CHANNELS];          // the plugin's port index of each channel, in map order
+    char *name;                                     // the group's label or name, else the port's name
+    uint32_t kind;                                  // an lv2_port_kind
+    uint8_t map[LV2_CORE_PORT_CHANNELS];            // CLAP surround ids for a surround kind; ACN indices for ambisonic and
+                                                    // a mixed-order ambisonic group (kind unknown); all 0 for a port no
+                                                    // group type orders
+};
+
 /* One plugin read from its bundle: its ports and required features, read before its binary is opened. */
 struct lv2_plugin
 {
@@ -192,15 +217,12 @@ struct lv2_plugin
     char *uri;
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
-    uint32_t legs;                  // the main channels: 1 or 2, the output's and, for an effect, the input's
-    uint32_t in_legs;               // the main input's channels: legs, or 0 for a source (an instrument or a generator: no audio input)
-    uint32_t in_ports[2], out_ports[2];
-    uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of 1 to LV2_CORE_SIDE_CHANNELS legs
-    uint32_t n_side_legs;           // the legs of all of them
-    uint32_t side_channels[LV2_CORE_AUX_PORTS];     // the legs of each side chain
-    uint32_t side_base[LV2_CORE_AUX_PORTS];         // the first leg of each side chain, counting every side chain's legs
-    uint32_t side_in[LV2_CORE_AUX_PORTS][LV2_CORE_SIDE_CHANNELS];  // the plugin's port index of each leg of each side chain
-    char *side_name[LV2_CORE_AUX_PORTS];            // the name of each side chain: its group's label, else its port's name
+    uint32_t legs;                  // the main output's channels, main_out.n (the input's for a pass-through tool)
+    uint32_t in_legs;               // the main input's channels, main_in.n: 0 for a source (an instrument or a generator)
+    struct lv2_audio_port main_in, main_out;        // the main port of each side; n 0: none
+    uint32_t n_aux_in, n_aux_out;   // the auxiliary ports of each side, after the main one: side chains, the other groups,
+                                    // ungrouped ports outside the main one
+    struct lv2_audio_port *aux_in, *aux_out;        // LV2_CORE_AUX_PORTS each, the first n_aux_in and n_aux_out used
     uint32_t n_cv_in, n_cv_out;     // the CV inputs and outputs, in port index order
     uint32_t cv_in[LV2_CORE_CV_PORTS], cv_out[LV2_CORE_CV_PORTS];          // the plugin's port index of each
     char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
@@ -386,9 +408,12 @@ int lv2_instance_reset(struct lv2_instance *in);
 void lv2_instance_free(struct lv2_instance *in);
 
 /* The audio buffers the plugin's ports are connected to, `max_frames` each, valid from the activate that sized them. */
-float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg);
-float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t leg);
-float *lv2_instance_side_in(struct lv2_instance *in, uint32_t leg);
+float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t c);   // c < main_in.n
+float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t c);  // c < main_out.n
+
+/* The buffer channel `c` of auxiliary port `port` (in plugin->aux_in and aux_out order) is connected to, as above. */
+float *lv2_instance_aux_in(struct lv2_instance *in, uint32_t port, uint32_t c);
+float *lv2_instance_aux_out(struct lv2_instance *in, uint32_t port, uint32_t c);
 
 /* The buffers CV input `k` and CV output `k` (in plugin->cv_in and cv_out order) are connected to, `max_frames` each, as
  * the audio buffers are: the host writes an input before the run and reads an output after it. */

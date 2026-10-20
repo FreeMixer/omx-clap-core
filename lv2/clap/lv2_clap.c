@@ -99,9 +99,10 @@
 #include "param_contract.h"
 #pragma GCC diagnostic pop
 
-// a side chain is one CLAP auxiliary input: the adapter admits exactly what the core's limits admit
-_Static_assert(LV2_CORE_AUX_PORTS == CLAP_HOST_AUX_INPUTS, "the side chains are the core's auxiliary inputs");
-_Static_assert(LV2_CORE_SIDE_CHANNELS == CLAP_HOST_PORT_CHANNELS, "a side chain's channels are a port's");
+// an adapter's auxiliary port is one CLAP auxiliary port: the adapter admits exactly what the core's limits admit
+_Static_assert(LV2_CORE_AUX_PORTS == CLAP_HOST_AUX_INPUTS, "the auxiliary inputs are the core's");
+_Static_assert(LV2_CORE_AUX_PORTS == CLAP_HOST_AUX_OUTPUTS, "the auxiliary outputs are the core's");
+_Static_assert(LV2_CORE_PORT_CHANNELS == CLAP_HOST_PORT_CHANNELS, "an adapter's port has a core port's channels");
 
 
 /*
@@ -499,56 +500,84 @@ static uint32_t latency_get(const clap_plugin_t *plugin)
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
-/* the inputs before the side chains and the CV inputs: the main one, none for a source (an instrument or a generator) */
+/* the inputs before the auxiliary and the CV inputs: the main one, none for a source (an instrument or a generator) */
 static uint32_t main_inputs(const struct lv2_plugin *l)
 {
     return l->in_legs || l->passthrough ? 1u : 0u;
 }
 
-/* the main pair's width as the host sees it: a pass-through tool with no audio of its own carries the strip's stereo pair */
-static uint32_t shim_legs(const struct lv2_plugin *l)
+/* the width of a main port as the host sees it: a pass-through tool carries the strip's audio on both, its input's
+ * width, or the strip's stereo pair when it has no audio of its own */
+static uint32_t shim_main_width(const struct lv2_plugin *l, bool is_input)
 {
-    return l->passthrough ? (l->in_legs ? l->in_legs : 2u) : l->legs;
+    if (l->passthrough)
+        return l->in_legs ? l->in_legs : 2u;
+    return is_input ? l->main_in.n : l->main_out.n;
 }
 
-/* the main pair (none in for a source), then one input per side chain (LV2 port groups and lv2:isSideChain,
- * lv2/core), then one per CV input; the output is the main pair, then one per CV output */
+/* the CLAP port type of an adapter's port kind; NULL for one CLAP has no name for */
+static const char *port_type_of(uint32_t kind)
+{
+    switch (kind)
+    {
+    case LV2_PORT_MONO:
+        return CLAP_PORT_MONO;
+    case LV2_PORT_STEREO:
+        return CLAP_PORT_STEREO;
+    case LV2_PORT_SURROUND:
+        return CLAP_PORT_SURROUND;
+    case LV2_PORT_AMBISONIC:
+        return CLAP_PORT_AMBISONIC;
+    default:
+        return NULL;
+    }
+}
+
+/* the main port each side (none in for a source), then its auxiliary ports (lv2/core's description: side chains, other
+ * port groups, ungrouped ports outside the main one), then one mono port per CV port */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const struct lv2_plugin *l = SHIM_OF(plugin)->lv2;
 
-    return is_input ? main_inputs(l) + l->n_side + l->n_cv_in : 1u + l->n_cv_out;
+    return is_input ? main_inputs(l) + l->n_aux_in + l->n_cv_in : 1u + l->n_aux_out + l->n_cv_out;
 }
 
 static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input, clap_audio_port_info_t *info)
 {
     const struct shim *s = SHIM_OF(plugin);
+    const struct lv2_plugin *l = s->lv2;
+    const uint32_t n_aux = is_input ? l->n_aux_in : l->n_aux_out;
 
     if (index >= ports_count(plugin, is_input))
         return false;
     memset(info, 0, sizeof(*info));
     info->id = index;
     if (is_input)
-        index += 1u - main_inputs(s->lv2);     // a source's first input is a side chain's or a CV input's
+        index += 1u - main_inputs(l);     // a source's first input is an auxiliary or a CV input
     if (index == 0)
     {
+        const uint32_t width = shim_main_width(l, is_input);
+
         // a pass-through plugin's main pair is the host's placement, said in the port's own name
-        snprintf(info->name, sizeof(info->name), "%s%s", is_input ? "in" : "out", s->lv2->passthrough ? " (passthrough: host)" : "");
+        snprintf(info->name, sizeof(info->name), "%s%s", is_input ? "in" : "out", l->passthrough ? " (passthrough: host)" : "");
         info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-        info->channel_count = shim_legs(s->lv2);
-        info->port_type = shim_legs(s->lv2) == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+        info->channel_count = width;
+        info->port_type = l->passthrough ? (width == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO)
+                                         : port_type_of((is_input ? &l->main_in : &l->main_out)->kind);
     }
-    else if (is_input && index - 1 < s->lv2->n_side)
+    else if (index - 1 < n_aux)
     {
-        snprintf(info->name, sizeof(info->name), "%s", s->lv2->side_name[index - 1]);
-        info->channel_count = s->lv2->side_channels[index - 1];
-        info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : info->channel_count == 1 ? CLAP_PORT_MONO : NULL;
+        const struct lv2_audio_port *a = is_input ? &l->aux_in[index - 1] : &l->aux_out[index - 1];
+
+        snprintf(info->name, sizeof(info->name), "%s", a->name);
+        info->channel_count = a->n;
+        info->port_type = port_type_of(a->kind);
     }
     else
     {
-        const uint32_t k = is_input ? index - 1 - s->lv2->n_side : index - 1;
+        const uint32_t k = index - 1 - n_aux;
 
-        snprintf(info->name, sizeof(info->name), "%s", is_input ? s->lv2->cv_in_name[k] : s->lv2->cv_out_name[k]);
+        snprintf(info->name, sizeof(info->name), "%s", is_input ? l->cv_in_name[k] : l->cv_out_name[k]);
         info->channel_count = 1;
         info->port_type = CLAP_PORT_MONO;
     }
@@ -557,6 +586,111 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
 }
 
 static const clap_plugin_audio_ports_t g_audio_ports = { ports_count, ports_get };
+
+/* the adapter's port behind CLAP audio port `index` of a side, as ports_get counts them: NULL for a pass-through main
+ * pair (the host's placement, mono or stereo), a CV port or an index past the ports */
+static const struct lv2_audio_port *audio_port_at(const struct lv2_plugin *l, bool is_input, uint32_t index)
+{
+    const uint32_t n_aux = is_input ? l->n_aux_in : l->n_aux_out;
+
+    if (is_input)
+        index += 1u - main_inputs(l);
+    if (index == 0)
+        return l->passthrough ? NULL : (is_input ? &l->main_in : &l->main_out);
+    return index - 1 < n_aux ? (is_input ? &l->aux_in[index - 1] : &l->aux_out[index - 1]) : NULL;
+}
+
+/* whether any audio port, main or auxiliary, either side, is of `kind` */
+static int any_port_of(const struct lv2_plugin *l, uint32_t kind)
+{
+    uint32_t i;
+
+    if (!l->passthrough && ((l->in_legs && l->main_in.kind == kind) || l->main_out.kind == kind))
+        return 1;
+    for (i = 0; i < l->n_aux_in; i++)
+        if (l->aux_in[i].kind == kind)
+            return 1;
+    for (i = 0; i < l->n_aux_out; i++)
+        if (l->aux_out[i].kind == kind)
+            return 1;
+    return 0;
+}
+
+
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: clap.surround, clap.ambisonic
+************************************************************************************************************************
+*/
+
+/* a surround port's CLAP channel mask: one bit per surround id its map names; an id past CLAP_SURROUND_TSR has no bit
+ * (lv2/core's table names none, and a shift past 63 is undefined) */
+static uint64_t surround_mask_of(const struct lv2_audio_port *a)
+{
+    uint64_t mask = 0;
+
+    for (uint32_t c = 0; c < a->n; c++)
+        if (a->map[c] <= CLAP_SURROUND_TSR)
+            mask |= 1ull << a->map[c];
+    return mask;
+}
+
+/* a mask is supported when it is the one of a surround port the plugin has: an LV2 group's layout is fixed */
+static bool surround_is_channel_mask_supported(const clap_plugin_t *plugin, uint64_t channel_mask)
+{
+    const struct lv2_plugin *l = SHIM_OF(plugin)->lv2;
+    uint32_t i;
+
+    if (!l->passthrough && l->in_legs && l->main_in.kind == LV2_PORT_SURROUND && surround_mask_of(&l->main_in) == channel_mask)
+        return true;
+    if (!l->passthrough && l->main_out.kind == LV2_PORT_SURROUND && surround_mask_of(&l->main_out) == channel_mask)
+        return true;
+    for (i = 0; i < l->n_aux_in; i++)
+        if (l->aux_in[i].kind == LV2_PORT_SURROUND && surround_mask_of(&l->aux_in[i]) == channel_mask)
+            return true;
+    for (i = 0; i < l->n_aux_out; i++)
+        if (l->aux_out[i].kind == LV2_PORT_SURROUND && surround_mask_of(&l->aux_out[i]) == channel_mask)
+            return true;
+    return false;
+}
+
+/* a surround port's map, the CLAP surround ids lv2/core read from the group's designations, in channel order; 0 for a
+ * port that is not surround (its map, if any, is not of surround ids) */
+static uint32_t surround_get_channel_map(const clap_plugin_t *plugin, bool is_input, uint32_t port_index, uint8_t *channel_map,
+                                         uint32_t channel_map_capacity)
+{
+    const struct lv2_audio_port *a = audio_port_at(SHIM_OF(plugin)->lv2, is_input, port_index);
+    uint32_t c;
+
+    if (!a || a->kind != LV2_PORT_SURROUND)
+        return 0;
+    for (c = 0; c < a->n && c < channel_map_capacity; c++)
+        channel_map[c] = a->map[c];
+    return c;
+}
+
+static const clap_plugin_surround_t g_surround = { surround_is_channel_mask_supported, surround_get_channel_map };
+
+/* LV2 port groups declare no normalisation: a full-order ambisonic group is ACN by its elements' order, and its
+ * normalisation is unknown (docs/lv2-compatibility.md). get_config answers false, so the shim claims nothing it does not
+ * know and the core reads ACN/SN3D with the port marked ambisonic_assumed; is_config_supported accepts ACN with SN3D
+ * only, the one configuration the adapter carries. */
+static bool ambisonic_is_config_supported(const clap_plugin_t *plugin, const clap_ambisonic_config_t *config)
+{
+    (void)plugin;
+    return config && config->ordering == CLAP_AMBISONIC_ORDERING_ACN && config->normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D;
+}
+
+static bool ambisonic_get_config(const clap_plugin_t *plugin, bool is_input, uint32_t port_index, clap_ambisonic_config_t *config)
+{
+    (void)plugin;
+    (void)is_input;
+    (void)port_index;
+    (void)config;
+    return false;
+}
+
+static const clap_plugin_ambisonic_t g_ambisonic = { ambisonic_is_config_supported, ambisonic_get_config };
 
 
 /*
@@ -1009,19 +1143,24 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         float *dst = lv2_instance_audio_in(s->in, leg);
         const clap_audio_buffer_t *b = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
 
-        if (b && b->data32 && b->channel_count)
-            memcpy(dst, b->data32[leg < b->channel_count ? leg : 0], n * sizeof(float));
+        // a channel the host does not hand reads silence, except a mono buffer on a main pair, which feeds both legs
+        const float *src = !b || !b->data32 || !b->channel_count ? NULL
+                         : leg < b->channel_count ? b->data32[leg]
+                         : s->lv2->in_legs <= 2 ? b->data32[0] : NULL;
+
+        if (src)
+            memcpy(dst, src, n * sizeof(float));
         else
             memset(dst, 0, n * sizeof(float));
     }
-    for (leg = 0; leg < s->lv2->n_side; leg++)
+    for (leg = 0; leg < s->lv2->n_aux_in; leg++)
     {
         const clap_audio_buffer_t *b = process->audio_inputs_count > m + leg ? &process->audio_inputs[m + leg] : NULL;
         uint32_t c;
 
-        for (c = 0; c < s->lv2->side_channels[leg]; c++)
+        for (c = 0; c < s->lv2->aux_in[leg].n; c++)
         {
-            float *dst = lv2_instance_side_in(s->in, s->lv2->side_base[leg] + c);
+            float *dst = lv2_instance_aux_in(s->in, leg, c);
 
             if (b && b->data32 && c < b->channel_count && b->data32[c])
                 memcpy(dst, b->data32[c], n * sizeof(float));
@@ -1031,7 +1170,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     }
     for (leg = 0; leg < s->lv2->n_cv_in; leg++)
     {
-        const uint32_t port = m + s->lv2->n_side + leg;
+        const uint32_t port = m + s->lv2->n_aux_in + leg;
         const clap_audio_buffer_t *b = process->audio_inputs_count > port ? &process->audio_inputs[port] : NULL;
         float *dst = lv2_instance_cv_in(s->in, leg);
 
@@ -1081,9 +1220,26 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         for (leg = 0; leg < b->channel_count; leg++)
             memcpy(b->data32[leg], lv2_instance_audio_out(s->in, leg < legs ? leg : 0), n * sizeof(float));
     }
-    for (leg = 0; leg < s->lv2->n_cv_out; leg++)
+    for (leg = 0; leg < s->lv2->n_aux_out; leg++)
     {
         const clap_audio_buffer_t *b = process->audio_outputs_count > 1u + leg ? &process->audio_outputs[1u + leg] : NULL;
+        uint32_t c;
+
+        // a channel past the plugin's own is silence
+        for (c = 0; b && b->data32 && c < b->channel_count; c++)
+        {
+            if (!b->data32[c])
+                continue;
+            if (c < s->lv2->aux_out[leg].n)
+                memcpy(b->data32[c], lv2_instance_aux_out(s->in, leg, c), n * sizeof(float));
+            else
+                memset(b->data32[c], 0, n * sizeof(float));
+        }
+    }
+    for (leg = 0; leg < s->lv2->n_cv_out; leg++)
+    {
+        const uint32_t port = 1u + s->lv2->n_aux_out + leg;
+        const clap_audio_buffer_t *b = process->audio_outputs_count > port ? &process->audio_outputs[port] : NULL;
 
         if (b && b->data32 && b->channel_count && b->data32[0])
             memcpy(b->data32[0], lv2_instance_cv_out(s->in, leg), n * sizeof(float));
@@ -1240,6 +1396,11 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_preset_load;
     if (!strcmp(id, CLAP_EXT_NOTE_PORTS))
         return &g_note_ports;
+    // the layout extensions only where a port is of their kind: a plugin of none offers neither
+    if ((!strcmp(id, CLAP_EXT_SURROUND) || !strcmp(id, CLAP_EXT_SURROUND_COMPAT)) && any_port_of(SHIM_OF(plugin)->lv2, LV2_PORT_SURROUND))
+        return &g_surround;
+    if ((!strcmp(id, CLAP_EXT_AMBISONIC) || !strcmp(id, CLAP_EXT_AMBISONIC_COMPAT)) && any_port_of(SHIM_OF(plugin)->lv2, LV2_PORT_AMBISONIC))
+        return &g_ambisonic;
     return NULL;
 }
 
