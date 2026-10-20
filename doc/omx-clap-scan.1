@@ -17,7 +17,8 @@ files, in name order) and lists every plugin of its factory: id, name, vendor,
 version, description, url and features, then, from an initialised instance
 that is destroyed again and never activated, every parameter (id, name,
 module, min, max, default, flags by name), the audio ports (main or aux,
-channels, kind), the note port counts and the latency.
+channels, kind, and a surround port's map or an ambisonic port's ordering and
+normalisation), the note port counts and the latency.
 .PP
 The latency is left out when the plugin reports 0 before it is activated,
 since that answer is not a measurement.

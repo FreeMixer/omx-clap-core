@@ -292,6 +292,59 @@ static const char *kind_name(const char *port_type)
     return "unknown";
 }
 
+/* an ambisonic ordering and normalisation by name, as clap/ext/ambisonic.h spells them, lower case */
+static const char *ordering_name(uint32_t ordering)
+{
+    return ordering == CLAP_AMBISONIC_ORDERING_FUMA ? "fuma" : ordering == CLAP_AMBISONIC_ORDERING_ACN ? "acn" : "unknown";
+}
+
+static const char *normalization_name(uint32_t normalization)
+{
+    static const char *const names[] = { "maxn", "sn3d", "n3d", "sn2d", "n2d" };
+
+    return normalization < sizeof(names) / sizeof(names[0]) ? names[normalization] : "unknown";
+}
+
+/*
+ * What a surround or an ambisonic port's channels are, as the description reads them: a surround port's map from
+ * clap.surround (the ids as the plugin names them, as many as it stores), in index order without it; an ambisonic
+ * port's ordering and normalisation from clap.ambisonic, ACN and SN3D without it. Nothing for any other port, or a
+ * surround port wider than a map holds.
+ */
+static void put_layout(FILE *out, const struct omx_clap_instance *instance, const clap_audio_port_info_t *info, bool is_input,
+                       uint32_t index)
+{
+    const char *kind = kind_name(info->port_type);
+
+    if (!strcmp(kind, CLAP_PORT_SURROUND) && info->channel_count <= CLAP_HOST_PORT_CHANNELS)
+    {
+        uint8_t map[CLAP_HOST_PORT_CHANNELS];
+        uint32_t n = info->channel_count, c;
+
+        if (instance->surround && instance->surround->get_channel_map)
+            n = instance->surround->get_channel_map(instance->plugin, is_input, index, map, CLAP_HOST_PORT_CHANNELS);
+        else
+            for (c = 0; c < n; c++)
+                map[c] = (uint8_t)c;
+        if (n > CLAP_HOST_PORT_CHANNELS)
+            n = CLAP_HOST_PORT_CHANNELS;
+        fputs(g_json ? ",\"map\":[" : " map", out);
+        for (c = 0; c < n; c++)
+            fprintf(out, "%s%u", g_json ? (c ? "," : "") : " ", map[c]);
+        if (g_json)
+            fputc(']', out);
+    }
+    else if (!strcmp(kind, CLAP_PORT_AMBISONIC))
+    {
+        clap_ambisonic_config_t config = { CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
+
+        if (instance->ambisonic && instance->ambisonic->get_config && !instance->ambisonic->get_config(instance->plugin, is_input, index, &config))
+            config = (clap_ambisonic_config_t){ CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
+        fprintf(out, g_json ? ",\"ordering\":\"%s\",\"normalization\":\"%s\"" : " %s %s", ordering_name(config.ordering),
+                normalization_name(config.normalization));
+    }
+}
+
 static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
@@ -319,15 +372,19 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
             {
                 fprintf(out, "%s{\"id\":%u,\"name\":", first ? "" : ",", info.id);
                 put_string(out, info.name);
-                fprintf(out, ",\"role\":\"%s\",\"channels\":%u,\"kind\":\"%s\"}", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
+                fprintf(out, ",\"role\":\"%s\",\"channels\":%u,\"kind\":\"%s\"", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
                         info.channel_count, kind_name(info.port_type));
+                put_layout(out, instance, &info, is_input, i);
+                fputc('}', out);
             }
             else
             {
                 fprintf(out, "    %s %u ", is_input ? "in " : "out", info.id);
                 put_string(out, info.name);
-                fprintf(out, " %s %u channels %s\n", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux", info.channel_count,
+                fprintf(out, " %s %u channels %s", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux", info.channel_count,
                         kind_name(info.port_type));
+                put_layout(out, instance, &info, is_input, i);
+                fputc('\n', out);
             }
             first = 0;
         }
