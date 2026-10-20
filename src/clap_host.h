@@ -831,8 +831,8 @@ OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
  * otherwise), which answers every ports rescan the plugin made up to then: `n` 0 asks nothing and only reads it again,
  * the answer to a reported rescan (omx_clap_host_ports_rescanned, omx_clap_host_restart). A description open would
  * refuse is -1 with that code, the instance left with no main output: omx_clap_host_activate refuses it
- * (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes it. -1 with nothing asked and `why` untouched on an active
- * instance, or for `n` above 0 with `reqs` NULL. Control thread, never the RT.
+ * (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes it. -1 with nothing asked and `why` empty (no hosting code
+ * names it) for no instance, an active one, or `n` above 0 with `reqs` NULL. Control thread, never the RT.
  */
 OMX_CLAP_EXPORT int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_port_configuration_request_t *reqs,
                                                  uint32_t n, char why[OMX_CLAP_WHY_MAX]);

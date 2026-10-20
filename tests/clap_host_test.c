@@ -878,8 +878,8 @@ static void t_request_layout(const char *path)
     if (in)
     {
         strcpy(why, "untouched");
-        CHECK(omx_clap_host_request_layout(in, NULL, 1, why) == -1 && strcmp(why, "untouched") == 0 && in->in_channels == 1,
-              "request_layout: requests counted but none given is -1, why untouched, nothing applied");
+        CHECK(omx_clap_host_request_layout(in, NULL, 1, why) == -1 && why[0] == '\0' && in->in_channels == 1,
+              "request_layout: requests counted but none given is -1, why emptied, nothing applied");
         omx_clap_host_close(in);
         in = NULL;
     }
@@ -1149,9 +1149,11 @@ static void t_request_layout(const char *path)
     {
         reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
         reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        strcpy(why, "stale");
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
-        CHECK(ret == -1 && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
-              "%s: asked while active, -1 and nothing applied (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels, in->main_in.name);
+        CHECK(ret == -1 && why[0] == '\0' && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
+              "%s: asked while active, -1 with why emptied and nothing applied (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels,
+              in->main_in.name);
         omx_clap_host_deactivate(in);
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
         CHECK(ret == 0 && in->in_channels == 2, "%s: deactivated, the same request is applied (%d)", FAKE_CONFIGS, ret);
