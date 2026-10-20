@@ -2191,7 +2191,7 @@ static inline void omx_clap_run_ports(struct omx_clap_stage *s, const float *con
 static inline int omx_clap_prime_block(void *ctx, uint32_t n)
 {
     struct omx_clap_stage *s = (struct omx_clap_stage *)ctx;
-    const uint32_t n_in = s->h.n_in ? s->proc.audio_inputs[0].channel_count : 0;
+    const uint32_t n_in = omx_clap_main_in_channels(s);     // a pass-through stage hands the plugin no buffer: not read through proc
 
     // the warm-up signal the legs carry, on every channel of a wide main input (a leg that is the bounce has it already)
     for (uint32_t c = 0; s->wide && c < n_in; c++)

@@ -59,7 +59,8 @@
  *                    120 bpm is 0.12 (−18.42 dB), 60 bpm 0.06 (−24.44 dB)
  *  17 no-ports       NOT a fault: no audio port at all (no clap.audio-ports), a note input and a
  *                    note output — a note tool, hosted as a pass-through tool: the strip's pair
- *                    passes through it untouched, the plugin handed no audio (#270). Param 1
+ *                    passes through it untouched, the plugin handed no audio (#270); it declares
+ *                    64 frames of latency, which the host reads as 0 (they apply to its notes). Param 1
  *                    (read-only) counts the note-ons process() was handed, the witness that the
  *                    notes reach a plugin the host feeds no audio
  */
@@ -270,8 +271,8 @@ static const clap_plugin_audio_ports_t AUDIO_PORTS = {ap_count, ap_get};
 /* ---- latency ---- */
 static uint32_t lat_get(const clap_plugin_t *p) {
   (void)p;
-#if OMX_FAULT_MODE == 5
-  return 64;
+#if OMX_FAULT_MODE == 5 || OMX_FAULT_MODE == 17
+  return 64; /* 17: a latency the host must read as 0, the audio untouched */
 #elif OMX_FAULT_MODE == 15
   return ((const F *)p->plugin_data)->lat;
 #else

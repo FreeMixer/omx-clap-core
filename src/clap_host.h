@@ -85,8 +85,8 @@
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               14u
-#define OMX_CLAP_CORE_ABI_OLDEST        14u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               15u
+#define OMX_CLAP_CORE_ABI_OLDEST        15u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
