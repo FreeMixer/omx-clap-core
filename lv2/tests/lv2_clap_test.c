@@ -2544,6 +2544,7 @@ static void t_sidechain_core(double rate)
     const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_sc, why);
     struct omx_clap_instance *in = NULL;
     static float l[BLOCK], r[BLOCK], sl[MAXB], sr[MAXB];
+    float *side[2] = { sl, sr };
     uint32_t i;
     int same;
 
@@ -2556,10 +2557,10 @@ static void t_sidechain_core(double rate)
     CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f, sl[i] = 0.25f, sr[i] = 0.125f;
-    CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, side, 2, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
     CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "core %.0f: activate (%s)", rate, cwhy);
     omx_clap_host_publish(in, pthread_self());
-    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == -1, "core %.0f: a binding while the instance runs is refused", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, 2, 0) == -1, "core %.0f: a binding while the instance runs is refused", rate);
     core_run(in, l, r, BLOCK);          /* the first cycle after arming is the warm-up's: its output is not checked */
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f;
@@ -2573,7 +2574,7 @@ static void t_sidechain_core(double rate)
         l[i] = 0.5f, r[i] = -0.25f;
     core_run(in, l, r, BLOCK);
     CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish", rate);
-    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "core %.0f: unbind the side chain", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, 2, 0) == 0, "core %.0f: unbind the side chain", rate);
     omx_clap_host_publish(in, pthread_self());
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f;
@@ -2719,6 +2720,7 @@ static void t_cv_core(double rate)
     const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_cv, why);
     struct omx_clap_instance *in = NULL;
     static float l[BLOCK], r[BLOCK], cv[MAXB];
+    float *cvs[1] = { cv };
     uint32_t i;
     int same;
 
@@ -2732,7 +2734,7 @@ static void t_cv_core(double rate)
           "cv core %.0f: one mono auxiliary input and one mono auxiliary output (%u, %u)", rate, in->aux_inputs, in->aux_outputs);
     for (i = 0; i < MAXB; i++)
         cv[i] = 0.25f;
-    CHECK(omx_clap_host_bind_aux_input(in, 0, cv, NULL, MAXB) == 0, "cv core %.0f: bind the CV input", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, cvs, 1, MAXB) == 0, "cv core %.0f: bind the CV input", rate);
     CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "cv core %.0f: activate (%s)", rate, cwhy);
     omx_clap_host_publish(in, pthread_self());
     for (i = 0; i < BLOCK; i++)

@@ -69,8 +69,8 @@ int main(int argc, char **argv)
 
     CHECK(omx_clap_core_version() == OMX_EXPECT_VERSION_NUM, "the library says the version of the tree (%u, expected %u)", omx_clap_core_version(), (unsigned)OMX_EXPECT_VERSION_NUM);
     omx_clap_host_config_default(&config);
-    CHECK(config.clamp && config.nonfinite && config.warmup && !config.note_inputs && !config.preset_load,
-          "the defaults: clamp, scan and warm-up on, note inputs refused, no preset-load");
+    CHECK(config.clamp && config.nonfinite && config.warmup && !config.note_inputs && !config.preset_load && config.lane_channels == 2,
+          "the defaults: clamp, scan and warm-up on, note inputs refused, no preset-load, a lane of two channels");
     CHECK(config.abi == OMX_CLAP_CORE_ABI && config.size == sizeof(config), "and they say which ABI and how large they are (%u, %u)", config.abi, config.size);
     config.abi++;
     CHECK(omx_clap_host_configure(&config) == -1, "a configuration made for another ABI is refused");
@@ -81,7 +81,6 @@ int main(int argc, char **argv)
     // the defaults refuse what the isolated host admits
     check_refused(argv[1], FAKE_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
     check_refused(argv[2], SYNTH, CLAP_HOST_CODE_NOT_AUDIO_EFFECT);
-    check_refused(argv[1], FAKE_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     CHECK(omx_clap_host_binaries_open() == 0, "nothing stays loaded after the refusals (%u open)", omx_clap_host_binaries_open());
     omx_clap_host_config_default(&config);
     CHECK(omx_clap_host_configure(&config) == -1, "and the process cannot be configured once a binary was opened");
@@ -90,6 +89,15 @@ int main(int argc, char **argv)
     if (instance)
     {
         CHECK(instance->aux_inputs == 1, "one auxiliary input (%u)", instance->aux_inputs);
+        omx_clap_host_close(instance);
+        instance = NULL;
+    }
+
+    CHECK(open_ok(argv[1], FAKE_WIDE, &instance, why), "open %s: its six channels are described", FAKE_WIDE);
+    if (instance)
+    {
+        CHECK(omx_clap_host_activate(instance, SAMPLE_RATE, BLOCK, why) == -1 && strcmp(why, CLAP_HOST_CODE_WIDER_THAN_STRIP) == 0,
+              "and the default lane of two refuses them at activation (%s)", why);
         omx_clap_host_close(instance);
         instance = NULL;
     }
