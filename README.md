@@ -44,7 +44,7 @@ Version 0.11.0 ships these packages, all from the same release:
 | What | Fedora | Debian |
 |---|---|---|
 | The host and the scanner: `omx-clap-host`, `omx-clap-scan`, their manual pages | `omx-clap-host` | `omx-clap-host` |
-| The hosting core, a shared library | `omx-clap-core` | `libomx-clap-core0` |
+| The hosting core, a shared library | `omx-clap-core` | `libomx-clap-core1` |
 | Headers, pkg-config file and ABI baseline to build a program on the core | `omx-clap-core-devel` | `libomx-clap-core-dev` |
 | Headers, pkg-config file and static library to run LV2 plugins in a CLAP host | `omx-clap-lv2-devel` | `libomx-clap-lv2-dev` |
 

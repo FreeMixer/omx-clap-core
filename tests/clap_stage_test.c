@@ -56,6 +56,9 @@
  * 13. RT: no allocation inside omx_clap_run across every arm above, and the witness: a fake that allocates inside
  *     process() is seen by the same counter.
  * 14. XFADE: omx_wetdry_xfade_block against (1 - i/n)·from + (i/n)·to to < 1e-7; identical bodies bit-exact.
+ * 15. WIDE AUXILIARY PORTS: three outputs of 1, 6 and 2 channels over nine scratch blocks, each channel its own block
+ *     in port order, a bound output writing the caller's buffers; two inputs of 4 and 1 channels reading the silence
+ *     until a port is bound, then the caller's buffers channel by channel, the other port still the silence.
  * 15. NOTE OUTPUT: what a plugin pushes on its note output, through omx_clap_note_out_push as the instance's sink calls
  *     it, comes out of omx_clap_note_out_take as MIDI at its frames: a note on, a program change of two bytes, a choke
  *     and a note off; a NOTE_END and a parameter's event are no note output; a note expression, a sysex, a note with no
@@ -1590,6 +1593,46 @@ static void t_sysex_pool_resets(void) {
         "and a sysex lands in slot 0 again");
 }
 
+/* ---- 15. WIDE AUXILIARY PORTS: every channel of every port its own block ---- */
+static void t_aux_bind_wide(void) {
+  static struct rig g;
+  static struct omx_clap_aux_in a;
+  static float blocks[9][MAXB], silence[MAXB], side[6][MAXB];
+  float *scratch[9], *bufs[6];
+  const struct omx_clap_port outs[3] = {{.channels = 1}, {.channels = 6}, {.channels = 2}};
+  const struct omx_clap_port ins[2] = {{.channels = 4}, {.channels = 1}};
+
+  memset(&g, 0, sizeof g);
+  memset(&a, 0, sizeof a);
+  CHECK(omx_clap_stage_init(&g.st, &(struct omx_hosted_bounce){g.in_l, g.in_r, g.out_l, g.out_r, MAXB}, g.recs, QCAP) == 0, "aux: stage_init");
+  for (uint32_t k = 0; k < 9; k++) scratch[k] = blocks[k];
+  for (uint32_t k = 0; k < 6; k++) bufs[k] = side[k];  /* six: the 6-channel output reads them all */
+  CHECK(omx_clap_bind_aux(&g.st, scratch, 3, outs) == 0, "aux: three outputs of 1, 6 and 2 channels over nine blocks");
+  CHECK(g.st.n_aux == 3 && g.st.aout[1].channel_count == 1 && g.st.aout[2].channel_count == 6 && g.st.aout[3].channel_count == 2,
+        "aux: the outputs keep their widths (%u, %u, %u)", g.st.aout[1].channel_count, g.st.aout[2].channel_count, g.st.aout[3].channel_count);
+  CHECK(g.st.aout[1].data32[0] == scratch[0] && g.st.aout[2].data32[0] == scratch[1] && g.st.aout[2].data32[5] == scratch[6] &&
+            g.st.aout[3].data32[0] == scratch[7] && g.st.aout[3].data32[1] == scratch[8],
+        "aux: each output channel is its own scratch block, in port order");
+  const struct omx_clap_port too_wide = {.channels = CLAP_HOST_PORT_CHANNELS + 1};
+  CHECK(omx_clap_bind_aux(&g.st, scratch, 1, &too_wide) == -1, "aux: an output wider than the limit is refused");
+
+  static float *bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];
+  const uint32_t base[2] = {0, 4};
+  CHECK(omx_clap_bind_aux_in(&a, silence, 2, ins, bound, base) == 0, "aux: two inputs of 4 and 1 channels, none bound");
+  CHECK(a.n_aux_in == 2 && a.ains[1].channel_count == 4 && a.ains[2].channel_count == 1, "aux: the inputs keep their widths");
+  CHECK(a.ains[1].data32[3] == silence && a.ains[2].data32[0] == silence, "aux: an unbound channel reads the silence");
+  omx_clap_set_aux_in(&a, 0, 4, bufs);
+  CHECK(a.ains[1].data32[0] == bufs[0] && a.ains[1].data32[3] == bufs[3], "aux: a bound port reads the caller's buffers, channel by channel");
+  CHECK(a.ains[2].data32[0] == silence, "aux: and the other port still reads the silence");
+  omx_clap_set_aux_in(&a, 0, 4, NULL);
+  CHECK(a.ains[1].data32[3] == silence, "aux: unbound again, back to the silence");
+
+  omx_clap_set_aux_out(&g.st, 1, 6, bufs);
+  CHECK(g.st.aout[2].data32[3] == bufs[3], "aux: a bound output writes the caller's buffers");
+  omx_clap_set_aux_out(&g.st, 1, 6, NULL);
+  CHECK(g.st.aout[2].data32[3] == scratch[4], "aux: unbound, back to its scratch");
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -1615,6 +1658,7 @@ int main(void) {
     t_stale_events();
     t_sysex_pool_resets();
     t_notes_out();
+    t_aux_bind_wide();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

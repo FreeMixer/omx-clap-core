@@ -321,8 +321,7 @@ static void t_sidechains(void)
     char why[LV2_CORE_WHY_MAX] = "";
     struct lv2_plugin *p = open_plugin(g_sc, SC_URI, why);
     static const struct { const char *uri, *code; } refused[] = {
-        { SC_URI "#wide", "hosting.topology.wider-than-strip" },
-        { SC_URI "#extra", "hosting.topology.extra-inputs-fed-silence" },
+        { SC_URI "#sixty-five", "hosting.topology.too-many-ports" },
     };
     size_t i;
 
@@ -333,7 +332,7 @@ static void t_sidechains(void)
               "side chain: the main pair is the pg:mainInput group, 0 and 1 (legs %u)", p->legs);
         CHECK(p->n_side == 1 && p->n_side_legs == 2 && p->side_channels[0] == 2 && p->side_base[0] == 0,
               "side chain: one side chain of two legs (%u chains, %u legs)", p->n_side, p->n_side_legs);
-        CHECK(p->side_in[0] == 4 && p->side_in[1] == 5, "side chain: its legs are ports 4 and 5, in order (%u, %u)", p->side_in[0], p->side_in[1]);
+        CHECK(p->side_in[0][0] == 4 && p->side_in[0][1] == 5, "side chain: its legs are ports 4 and 5, in order (%u, %u)", p->side_in[0][0], p->side_in[0][1]);
         CHECK(p->side_name[0] && strcmp(p->side_name[0], "Sidechain") == 0, "side chain: named by its group's label (%s)", p->side_name[0] ? p->side_name[0] : "-");
     }
     lv2_plugin_close(p);
@@ -342,19 +341,44 @@ static void t_sidechains(void)
     CHECK(p != NULL, "side chain: a mono side chain by lv2:isSideChain alone is admitted (%s)", why);
     if (p)
     {
-        CHECK(p->legs == 2 && p->n_side == 1 && p->n_side_legs == 1 && p->side_channels[0] == 1 && p->side_in[0] == 4,
+        CHECK(p->legs == 2 && p->n_side == 1 && p->n_side_legs == 1 && p->side_channels[0] == 1 && p->side_in[0][0] == 4,
               "side chain: one leg, port 4, beside the ungrouped main pair (%u chains, %u legs)", p->n_side, p->n_side_legs);
         CHECK(p->side_name[0] && strcmp(p->side_name[0], "Side") == 0, "side chain: an ungrouped one is named by its port (%s)", p->side_name[0] ? p->side_name[0] : "-");
     }
     lv2_plugin_close(p);
 
     p = open_plugin(g_sc, SC_URI "#port-of", why);
-    CHECK(p != NULL && p->n_side == 1 && p->side_in[0] == 4 && p->legs == 2,
+    CHECK(p != NULL && p->n_side == 1 && p->side_in[0][0] == 4 && p->legs == 2,
           "side chain: pg:sideChainOf on the port alone makes it a side chain (%s)", why);
     lv2_plugin_close(p);
 
     p = open_plugin(g_fixture, FIXTURE_URI, why);
     CHECK(p != NULL && p->n_side == 0 && p->n_side_legs == 0, "side chain: a plugin with no side chain has none");
+    lv2_plugin_close(p);
+
+    // three channels in one side chain: one auxiliary port of three channels
+    p = open_plugin(g_sc, SC_URI "#wide", why);
+    CHECK(p != NULL && p->legs == 2 && p->n_side == 1 && p->side_channels[0] == 3 && p->side_in[0][0] == 4 && p->side_in[0][2] == 6,
+          "side chain: a three-channel side chain is admitted, ports 4 to 6 (%s)", why);
+    lv2_plugin_close(p);
+
+    // a third ungrouped input that is no side chain: the first two are the main pair, the third one mono auxiliary port
+    p = open_plugin(g_sc, SC_URI "#extra", why);
+    CHECK(p != NULL && p->legs == 2 && p->in_ports[1] == 1 && p->n_side == 1 && p->side_channels[0] == 1 && p->side_in[0][0] == 4,
+          "side chain: an extra ungrouped input is admitted as one mono auxiliary port (%s)", why);
+    lv2_plugin_close(p);
+
+    // two mains on a side cannot be declared in LV2: pg:mainInput names one group, and an ungrouped input outside it is
+    // an auxiliary port, never a second main one, so there is nothing to refuse
+    p = open_plugin(g_sc, SC_URI "#main-extra", why);
+    CHECK(p != NULL && p->legs == 2 && p->in_ports[0] == 0 && p->in_ports[1] == 1 && p->n_side == 1 && p->side_in[0][0] == 4,
+          "side chain: an input outside the main group is one mono auxiliary port (%s)", why);
+    lv2_plugin_close(p);
+
+    // the core's limit of auxiliary ports, exactly
+    p = open_plugin(g_sc, SC_URI "#sixty-four", why);
+    CHECK(p != NULL && p->n_side == LV2_CORE_AUX_PORTS && p->n_side_legs == LV2_CORE_AUX_PORTS && p->side_in[63][0] == 67,
+          "side chain: %u mono side chains are admitted (%s)", LV2_CORE_AUX_PORTS, why);
     lv2_plugin_close(p);
 
     for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
@@ -399,7 +423,7 @@ static void t_refusals(void)
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
+        { FIXTURE_URI "#three-in", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
     };
