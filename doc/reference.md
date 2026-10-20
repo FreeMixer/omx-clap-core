@@ -176,7 +176,7 @@ side allocates or locks.
 
 Replies are mod-host's: `resp <code>`, with mod-host's error codes. A refused
 `add` that has a `hosting.*` code says it after the error code, `resp -102
-hosting.topology.wider-than-strip`, and on stderr as `<plugin id>: <code>`.
+hosting.topology.too-many-ports`, and on stderr as `<plugin id>: <code>`.
 
 Port layout
 -----------
