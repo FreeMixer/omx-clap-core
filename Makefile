@@ -151,6 +151,10 @@ $(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
 	$(CC) $(SCAN_OBJ) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
+# the objects that embed the version: a move of VERSION rebuilds them, or the library keeps answering the old number
+# from an object made before the move (the staged consumer of test-core caught it once, 2026-10-20)
+src/clap_host.o src/main.o src/scan.o: VERSION
+
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 
