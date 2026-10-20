@@ -26,5 +26,17 @@ export const HOSTED_STAGE_LIMITS = {
   "rolePollUs": 1000,
   "roleTimeoutUs": 200000,
   "paramCountMax": 2048,
-  "latencyHoldMs": 250
+  "latencyHoldMs": 250,
+  "idleHoldUs": 10
+};
+
+/**
+ * The hosting codes of the idle dimension, hosting.idle.*: what libomx-clap-core answers about its hold of the CPU idle states (/dev/cpu_dma_latency) while a plugin is active. The dimension is this library's: the hold lives in it, for every host that links it (#296).
+ * @see data/hosting.json
+ */
+export const HOSTING_IDLE_CODES = {
+  "idleHoldRefused": {
+    "code": "hosting.idle.hold-refused",
+    "doc": "the device could not be opened for writing (no permission, or no such device): the host runs with no hold"
+  }
 };
