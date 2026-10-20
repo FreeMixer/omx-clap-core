@@ -1553,6 +1553,9 @@ static void t_ll_midi(double rate)
         int got6 = 0, got7 = 0;
         double v = -1.0;
 
+        memset(&pi6, 0, sizeof(pi6));       // read only once found; zeroed for the compilers that cannot see that
+        memset(&pi7, 0, sizeof(pi7));
+
         for (i = 0; i < g.params->count(g.plugin); i++)
         {
             clap_param_info_t pi;
