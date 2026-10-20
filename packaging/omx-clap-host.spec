@@ -21,6 +21,8 @@ BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
 BuildRequires: libasan
+# make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
+BuildRequires: perl-interpreter
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 # LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add

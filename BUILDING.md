@@ -264,7 +264,11 @@ changes a symbol (`follow`, refused under R3).
 
 The hosting limits are declared in `data/hosting.json`, in omx-contract's
 schema; every hosting code the sources write is omx-contract's own, an
-`OMX_HOSTING_*` macro of its `omxcontract/omx_vocabulary.h`. `make install` puts them into omx-contract's contract
+`OMX_HOSTING_*` macro of its `omxcontract/omx_vocabulary.h`, and
+`make test-codes` (in `make test` and `make test-fake`, `tests/hosting-codes-check.sh`)
+fails on a `"hosting.` literal in `src/` or `lv2/` and on an `OMX_HOSTING_*`
+name that header lacks; its `--self-test` breaks the sources each way and
+requires each to fail. `make install` puts them into omx-contract's contract
 directory, `$(pkg-config --variable=contractdir omx-contract)/2/omx-clap-core/`,
 with a `MANIFEST.json` naming this version, using the install script
 omx-contract-devel 2.15.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
