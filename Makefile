@@ -281,7 +281,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self
+test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -612,6 +612,13 @@ test-parity-self:
 # the CLAP coverage probe's rules: scan parsing, the host loop against a fake host, classify, each broken once and seen red
 test-clap-coverage-self:
 	python3 -I tests/clap_coverage.py --self-test
+
+# docs/clap-compatibility.md against the installed CLAP headers and this tree: every id they spell a row, every cell that
+# says supported naming a test that exists (tests/clap_doc_check.sh, with its sabotage arms)
+.PHONY: test-clap-doc-check
+test-clap-doc-check:
+	bash tests/clap_doc_check.sh
+	bash tests/clap_doc_check.sh --self-test
 
 # every CLAP plugin installed on this machine added on this tree's omx-clap-host, in a private namespace with a PipeWire
 # of its own: the answer per plugin and the extensions it asked for that the host did not offer. Desk only, never in CI
