@@ -19,7 +19,7 @@ run     per rate, one private PipeWire in its own user, net, pid and mount names
         the feeder's clock (tests/jack_parity): nothing runs until it triggers a cycle, so every instance gets
         its first run() in the same cycle, and the cycles run back to back, as fast as the graph completes
         them (--paced: one quantum of wall time apart). Per plugin, a fresh mod-host and a fresh omx-clap-host each add the
-        plugin twice (instances 0, 1 and 2, 3), default parameters; the feeder runs 0.3 s of silence (past
+        plugin twice (instances 0, 1 and 2, 3), default parameters; the feeder runs 0.25 s of silence (to
         the adapter's latency hold of 250 ms of blocks), stops the graph for --hold-ms of wall time (the
         host's restart for that latency, a worker's first answer), runs 16 blocks more (the restart's fade),
         then plays --seconds of noise + sine + impulse (and a fixed note sequence to a MIDI input) and
@@ -189,8 +189,44 @@ def ports_of(rec):
     return out
 
 
+KNOWN_FILE = os.environ.get('LV2_PARITY_KNOWN', os.path.join(HERE, 'lv2_parity_known.tsv'))
+_KNOWN = {}
+# what a known cause may stand in for: a measurement that is not a pass, not a fault of the run, not a port difference
+_KNOWN_OVER = ('DIFFERS', 'NONDETERMINISTIC')
+_PORT_CAUSES = ('output count', 'MIDI input count')
+
+
+def known_causes():
+    """{uri: (cause, evidence)} from the known-causes file: plugins whose own fault explains what they do through any
+    host (data, not code; one row per plugin)."""
+    if 'k' not in _KNOWN:
+        _KNOWN['k'] = {}
+        if os.path.exists(KNOWN_FILE):
+            for r in read_tsv(KNOWN_FILE):
+                if r.get('uri') and not r['uri'].startswith('#'):
+                    _KNOWN['k'][r['uri']] = (r.get('cause', ''), r.get('evidence', ''))
+    return _KNOWN['k']
+
+
+def _known(rec, verdict):
+    cls, cause, detail = verdict
+    k = known_causes().get(rec.get('uri', ''))
+    if k and cls in _KNOWN_OVER and cause not in _PORT_CAUSES and SABOTAGE != 'known-blind':
+        return 'PLUGIN-FAULT', k[0], f"measured {cls}: {cause}; {detail}; evidence: {k[1]}"
+    return verdict
+
+
 def classify(rec):
     """(class, cause, detail) of one raw record."""
+    return _known(rec, _classify(rec, ports=True))
+
+
+def audio_verdict(rec):
+    """(class, cause, detail) of the audio alone, the port layout aside: what a port-difference row would be without it."""
+    return _known(rec, _classify(rec, ports=False))
+
+
+def _classify(rec, ports):
     tol = 1e-2 if SABOTAGE == 'tolerance' else TOL
     st = rec.get('status', 'ok')
     if st in ('skipped',):
@@ -206,7 +242,7 @@ def classify(rec):
     m = rec['m']
     audio = 'the audio bit-identical' if m.get('equal') else 'the audio differs too'
     # the port layout first: a port one host has and the other has not is a difference whatever the audio says
-    po = ports_of(rec)
+    po = ports_of(rec) if ports else None
     if po and po['mod'][0] != po['omx'][0]:
         return 'DIFFERS', 'output count', f"mod-host {po['mod'][0]} audio outputs, omx-clap-host {po['omx'][0]}; {audio}"
     if m['ch_mod'] != m['ch_omx']:
@@ -999,7 +1035,7 @@ def cmd_run(a):
 
 # ---------------------------------------------------------------- classify and report
 
-ROW_COLS = ['rate', 'uri', 'class', 'cause', 'detail', 'note', 'stratum', 'max_diff', 'first_diff', 'lag', 'peak_mod',
+ROW_COLS = ['rate', 'uri', 'class', 'cause', 'detail', 'audio_class', 'audio_cause', 'note', 'stratum', 'max_diff', 'first_diff', 'lag', 'peak_mod',
             'peak_omx', 'latency_mod', 'latency_omx', 'latency_log_omx', 'cpu_ms_mod', 'cpu_ms_omx', 'wall_s',
             'add_s_mod', 'add_s_omx']
 
@@ -1015,10 +1051,11 @@ def load_raw(out):
 
 def row_of(rec):
     cls, cause, detail = classify(rec)
+    acls, acause, _ = audio_verdict(rec) if rec.get('status', 'ok') == 'ok' else (cls, cause, detail)
     m = rec.get('m', {})
     lj = rec.get('latency_jack', {})
     return dict(rate=rec['rate'], uri=rec['uri'], stratum=rec.get('stratum', ''), **{'class': cls}, cause=cause,
-                detail=detail, note=rec.get('note', ''), max_diff=m.get('max_diff', ''), first_diff=m.get('first_over_tol', ''),
+                detail=detail, audio_class=acls, audio_cause=acause, note=rec.get('note', ''), max_diff=m.get('max_diff', ''), first_diff=m.get('first_over_tol', ''),
                 lag=m.get('lag', ''), peak_mod=m.get('peak_mod', ''), peak_omx=m.get('peak_omx', ''),
                 latency_mod=lj.get('effect_0', ''), latency_omx=lj.get('effect_2', ''),
                 latency_log_omx=' / '.join(l.split(': ', 1)[-1] for l in rec.get('latency_log_omx', [])),
@@ -1039,7 +1076,7 @@ def cmd_classify(a):
     return 0
 
 
-CLASSES = ['IDENTICAL', 'WITHIN-TOLERANCE', 'SILENT', 'DIFFERS', 'NONDETERMINISTIC', 'CRASH', 'HANG', 'REFUSED', 'ERROR']
+CLASSES = ['IDENTICAL', 'WITHIN-TOLERANCE', 'SILENT', 'DIFFERS', 'PLUGIN-FAULT', 'NONDETERMINISTIC', 'CRASH', 'HANG', 'REFUSED', 'ERROR']
 
 
 def report_text(rows, skipped, meta):
@@ -1070,6 +1107,22 @@ def report_text(rows, skipped, meta):
         if any(cells):
             L.append(f'| {c} | ' + ' | '.join(str(x) for x in cells) + ' |')
     L.append('| total | ' + ' | '.join(str(sum(1 for r in rows if int(r['rate']) == rt)) for rt in rates) + ' |')
+    if any(r.get('audio_class') for r in rows):
+        L += ['', '### The audio alone (the port layout aside)', '',
+              'The same measurements classed by their audio only: a row DIFFERS for its port layout (an output or MIDI '
+              'input count) counts here as what its audio is.', '',
+              '| class | ' + ' | '.join(f'{r // 1000 if r % 1000 == 0 else r / 1000} kHz' for r in rates) + ' |',
+              '|---|' + '---:|' * len(rates)]
+        for c in CLASSES:
+            cells = [sum(1 for r in rows if r.get('audio_class') == c and int(r['rate']) == rt) for rt in rates]
+            if any(cells):
+                L.append(f'| {c} | ' + ' | '.join(str(x) for x in cells) + ' |')
+        port = [r for r in rows if r['cause'] in _PORT_CAUSES]
+        if port:
+            by = {}
+            for r in port:
+                by[r['audio_class']] = by.get(r['audio_class'], 0) + 1
+            L += ['', f"Of the {len(port)} port-layout DIFFERS, the audio: " + ', '.join(f'{c} {by[c]}' for c in CLASSES if c in by) + '.']
     L += ['', 'IDENTICAL counts only sound compared: a plugin silent through both hosts with its defaults is SILENT, '
           'which proves nothing; a port one host has and the other lacks (an output, a MIDI input) is DIFFERS whatever '
           'the audio; a host that is random where the other is not is DIFFERS.']
@@ -1124,6 +1177,7 @@ def report_text(rows, skipped, meta):
     table('DIFFERS', 'DIFFERS, by cause')
     table('WITHIN-TOLERANCE', 'WITHIN-TOLERANCE, by reason')
     table('NONDETERMINISTIC', 'NONDETERMINISTIC')
+    table('PLUGIN-FAULT', "PLUGIN-FAULT (a known fault of the plugin itself, from tests/lv2_parity_known.tsv)")
     table('CRASH', 'CRASH')
     table('HANG', 'HANG')
     table('REFUSED', 'REFUSED this time')
@@ -1325,6 +1379,26 @@ def self_test():
         return r
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (2, 1), (2, 0)))
     t('a MIDI input through mod-host only, the audio bit-identical: DIFFERS, MIDI input count', c[:2] == ('DIFFERS', 'MIDI input count') and 'bit-identical' in c[2])
+    r = with_ports(rec_of(sig, sig, sig, sig), (2, 1), (2, 0))
+    t('... and its audio verdict, the port layout aside: IDENTICAL', audio_verdict(r)[0] == 'IDENTICAL')
+    r = with_ports(rec_of(sig, other, sig, other), (2, 1), (2, 0))
+    t('a MIDI-count row whose audio is random per instance: the audio verdict NONDETERMINISTIC', audio_verdict(r)[0] == 'NONDETERMINISTIC')
+    # the known causes, from a file of fake rows
+    kf = os.path.join(tempfile.mkdtemp(), 'known.tsv')
+    write_tsv(kf, [dict(uri='urn:known', cause='plugin reads uninitialised memory (valgrind-confirmable)', evidence='fixture')], ['uri', 'cause', 'evidence'])
+    global KNOWN_FILE
+    saved, KNOWN_FILE = KNOWN_FILE, kf
+    _KNOWN.clear()
+    r = dict(rec_of(sig, sig, sig, other), uri='urn:known')
+    c = classify(r)
+    t('a known plugin random through one host: PLUGIN-FAULT with the file\'s cause, the measured class kept in the detail',
+      c[0] == 'PLUGIN-FAULT' and c[1].startswith('plugin reads uninitialised memory') and 'measured DIFFERS: nondeterministic in omx-clap-host only' in c[2])
+    t('a plugin not in the file: the measured class', classify(dict(r, uri='urn:other'))[0] == 'DIFFERS')
+    t('a known plugin that came out IDENTICAL stays IDENTICAL', classify(dict(rec_of(sig, sig, sig, sig), uri='urn:known'))[0] == 'IDENTICAL')
+    t('a known plugin with a port difference keeps the port difference',
+      classify(with_ports(dict(r, uri='urn:known'), (2, 1), (2, 0)))[:2] == ('DIFFERS', 'MIDI input count'))
+    KNOWN_FILE = saved
+    _KNOWN.clear()
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (2, 2), (2, 1)))
     t('two MIDI inputs against one: DIFFERS, MIDI input count, both numbers named', c[:2] == ('DIFFERS', 'MIDI input count') and 'mod-host 2, omx-clap-host 1' in c[2])
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (4, 0), (2, 0)))
@@ -1413,7 +1487,8 @@ def self_test_with_sabotage():
     if SABOTAGE:
         return rc
     red = 0
-    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind']
+    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind',
+                 'known-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, os.path.abspath(__file__), '--self-test'], env=dict(os.environ, LV2_PARITY_SABOTAGE=s),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -1450,8 +1525,10 @@ def main():
     p.add_argument('--limit', type=int, default=0)
     p.add_argument('--seconds', type=float, default=3.0)
     p.add_argument('--warm-blocks', type=int, default=16)
-    p.add_argument('--warm-seconds', type=float, default=0.3, help='the first warm, at least this much audio')
-    p.add_argument('--hold-ms', type=int, default=400)
+    p.add_argument('--warm-seconds', type=float, default=0.25, help='the first warm, at least this much audio')
+    # a full second: each instance's latency restart takes up to 200 ms of the host's control thread, and the second
+    # instance's must have landed before the cycles run again (400 ms let it land in the warm, its two instances apart)
+    p.add_argument('--hold-ms', type=int, default=1000)
     p.add_argument('--add-timeout', type=float, default=30)
     p.add_argument('--warm-timeout', type=float, default=20)
     p.add_argument('--run-timeout', type=float, default=120)
