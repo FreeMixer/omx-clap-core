@@ -3150,6 +3150,9 @@ static void t_core(double rate)
     CHECK(f->runs == CLAP_HOST_WARMUP_BLOCKS && atomic_load(&in->stage.h.runs) == 0, "core %.0f: the warm-up ran %u blocks, the live counters untouched", rate, f->runs);
     CHECK(in->stage.h.in_l[0] == 0.0f, "core %.0f: the warm-up ends silent", rate);
     CHECK(omx_clap_host_latency(in) == pad_latency_frames(rate), "core %.0f: the latency the restart after the warm-up took: %u frames", rate, omx_clap_host_latency(in));
+    CHECK(f->activations == 3 && f->deactivations == 2,
+          "core %.0f: the warm-up's reset and the restart after it are both LV2's, whether or not the latency hold ran out inside the warm-up (%u activations, %u deactivations)",
+          rate, f->activations, f->deactivations);
     tone(x, 64, 0.5f, 0);
     memcpy(l, x, sizeof(l));
     core_run(in, l, NULL, 64);
