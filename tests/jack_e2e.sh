@@ -336,8 +336,20 @@ case $idle_arm in
         expect "idle_hold" "resp 0 10 off $before 0 -"
         expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
         [ "$(device_reads)" = 10 ]; step $? "added again: held at 10 ($(device_reads))"
-        kill -9 "$host9"
-        wait "$host9" 2>/dev/null
+        expect "quit" "resp 0"
+        sleep 0.3
+        [ "$(device_reads)" = "$before" ]; step $? "stopped with a plugin active: the device reads $before again ($(device_reads))"
+        exec 3>&-
+        "$host" -n -p "$((port + 3))" >"$runtime/host10.log" 2>&1 &
+        host10=$!
+        pids+=("$host10")
+        for _ in $(seq 50); do grep -q "ready!" "$runtime/host10.log" && break; sleep 0.1; done
+        grep -q "ready!" "$runtime/host10.log"; step $? "a fourth host, ready on port $((port + 3))"
+        exec 3<>"/dev/tcp/127.0.0.1/$((port + 3))"
+        expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
+        [ "$(device_reads)" = 10 ]; step $? "the fourth host holds at 10 ($(device_reads))"
+        kill -9 "$host10"
+        wait "$host10" 2>/dev/null
         sleep 0.2
         [ "$(device_reads)" = "$before" ]; step $? "SIGKILLed: the device reads $before again, the kernel dropped the request ($(device_reads))" ;;
     refused)
