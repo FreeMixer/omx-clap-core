@@ -756,7 +756,8 @@ static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *in
 /*
  * What a surround or an ambisonic port's channels are, from the plugin's extension, at open. A surround port's map is
  * clap.surround's get_channel_map: a count other than the port's channels, or an id past CLAP_SURROUND_TSR, refuses it
- * (channel-map-unknown); with no clap.surround the channels are mapped in index order, 0 to channels - 1. An ambisonic
+ * (channel-map-unknown); with no clap.surround the channels are mapped in index order, 0 to channels - 1, and a port of
+ * more than CLAP_SURROUND_TSR + 1 channels, whose index order would name ids the map cannot, is refused the same. An ambisonic
  * port must hold a full order, (order+1)² channels, or it is refused (port-too-wide); its ordering and normalisation
  * are clap.ambisonic's get_config, and without the extension, or when get_config fails, ACN and SN3D (AmbiX) with
  * ambisonic_assumed set: the core read a convention the plugin did not state. Returns the hosting code that refuses, or NULL.
@@ -769,6 +770,8 @@ static const char *read_layout(const struct omx_clap_instance *in, struct omx_cl
 
         if (!in->surround || !in->surround->get_channel_map)
         {
+            if (port->channels > CLAP_SURROUND_TSR + 1u)    // index order names ids up to channels - 1
+                return CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN;
             for (c = 0; c < port->channels; c++)
                 port->map[c] = (uint8_t)c;
             return NULL;
@@ -1030,15 +1033,24 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
     const char *code;
     uint32_t i;
 
-    // both extensions are [main-thread & !active]: an active plugin is asked nothing
+    // both extensions are [main-thread & !active]: an active plugin is asked nothing. No hosting code names a caller's
+    // mistake, so `why` is emptied rather than left holding an older answer
     if (!in || in->active || (n && !reqs))
+    {
+        why_set(why, "");
         return -1;
+    }
     for (i = 0; i < n; i++)
     {
-        code = request_supported(in, &reqs[i]);
-        if (code)
+        const char *refused = request_supported(in, &reqs[i]);
+
+        if (refused)
         {
-            why_set(why, code);
+            // nothing applied, but the description is read again all the same: a rescan the caller is answering here
+            // (omx_clap_host_ports_rescanned, a restart's RESCANNED) must not leave the old one to activate on. Its own
+            // refusal's code wins only when the re-read fails
+            code = ports_describe_again(in);
+            why_set(why, code ? code : refused);
             return -1;
         }
     }
@@ -1058,9 +1070,10 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
             clap_audio_ports_config_t config;
 
             memset(&config, 0, sizeof(config));
-            if (!configs->get(in->plugin, i, &config) || !config_matches(&config, reqs, n))
+            // a match the plugin refuses to select is passed over for the next one; none selected is DECLARED
+            if (!configs->get(in->plugin, i, &config) || !config_matches(&config, reqs, n) || !configs->select(in->plugin, config.id))
                 continue;
-            ret = configs->select(in->plugin, config.id) ? 0 : OMX_CLAP_LAYOUT_DECLARED;
+            ret = 0;
             break;
         }
     }
@@ -2758,8 +2771,24 @@ void omx_clap_host_stop(struct omx_clap_instance *in)
     atomic_store(&in->stage.state, OMX_CLAP_IDLE);
 }
 
+/* After a deactivate of the host's own (a restart, a rate change, an auxiliary port's activation): when the plugin said
+ * its ports changed in it (CLAP's request_restart, deactivate, rescan), the description is the caller's to read again
+ * before an activate, so the instance stays inactive with the rescan reported and this answers
+ * OMX_CLAP_RESTART_RESCANNED; otherwise activate at `rate` and `max_block`, 0 or -1 with `why`. */
+static int activate_after_deactivate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
+{
+    if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
+    {
+        atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
+        return OMX_CLAP_RESTART_RESCANNED;
+    }
+    return omx_clap_host_activate(in, rate, max_block, why) == 0 ? 0 : -1;
+}
+
 int omx_clap_host_restart(struct omx_clap_instance *in)
 {
+    int ret;
+
     const double rate = in->rate;
     const uint32_t max_block = in->max_block;
     const pthread_t thread = in->audio_thread;
@@ -2772,21 +2801,15 @@ int omx_clap_host_restart(struct omx_clap_instance *in)
         return -1;
     omx_clap_host_stop(in);
     omx_clap_host_deactivate(in);
-    // the plugin said its ports changed (in its deactivate, as CLAP has it after request_restart): the description is
-    // the caller's to read again before an activate, so the instance stays inactive with the rescan reported
-    if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
-    {
-        atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
-        in->audio_thread = thread;
-        in->audio_role_held = held;
-        return OMX_CLAP_RESTART_RESCANNED;
-    }
-    if (omx_clap_host_activate(in, rate, max_block, NULL) != 0)
+    // a rescan in that deactivate leaves it inactive, its audio role kept for the activate after the re-read
+    ret = activate_after_deactivate(in, rate, max_block, NULL);
+    if (ret < 0)
         return -1;
     in->audio_thread = thread;
     in->audio_role_held = held;
-    omx_clap_arm(&in->stage);
-    return 0;
+    if (ret == 0)
+        omx_clap_arm(&in->stage);
+    return ret;
 }
 
 void omx_clap_host_deactivate(struct omx_clap_instance *in)
@@ -2811,7 +2834,7 @@ int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t m
     if (in->active && !omx_clap_stopped(&in->stage))
         return -1;      // unpublish first
     omx_clap_host_deactivate(in);
-    return omx_clap_host_activate(in, rate, max_block, why);
+    return activate_after_deactivate(in, rate, max_block, why);
 }
 
 uint32_t omx_clap_host_latency(const struct omx_clap_instance *in)
@@ -2900,7 +2923,7 @@ static int aux_activation_refresh(struct omx_clap_instance *in, bool is_input, u
             return 0;
     }
     omx_clap_host_deactivate(in);
-    return omx_clap_host_activate(in, rate, max_block, NULL);
+    return activate_after_deactivate(in, rate, max_block, NULL);
 }
 
 int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
