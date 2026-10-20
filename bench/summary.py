@@ -40,7 +40,7 @@ def spread(xs, fmt="%.1f"):
     if not xs:
         return "NA"
     m = statistics.median(xs)
-    if len(xs) == 1:
+    if len(xs) == 1 or min(xs) == max(xs):
         return fmt % m
     return (fmt + " (" + fmt + "..." + fmt + ")") % (m, min(xs), max(xs))
 
@@ -59,11 +59,12 @@ def idle_hold_table(runs, power):
     print("### The CPU idle hold: the whole graph per hold\n")
     print("Hold = what /dev/cpu_dma_latency was held at during the run (default: the library's own 10 us; off: "
           "nothing, the machine's resting policy); device = its own answer with every plugin active, the kernel's "
-          "limit across every requester; watts = the whole run's mean package power where an energy counter was "
-          "readable, set-up and window together. Cycle end as above. Median of the repetitions (min...max).\n")
+          "limit across every requester; RSS = the host's processes with every plugin loaded; watts = the mean "
+          "package power over the run's measured window where an energy counter was readable. Cycle end as above. "
+          "Median of the repetitions (min...max).\n")
     print("| rate | quantum | path | hold | device us | cycle end p50 us | cycle end p99 us | overruns | late | "
-          "host CPU % | watts |")
-    print("|---|---|---|---|---|---|---|---|---|---|---|")
+          "host CPU % | RSS loaded MiB | watts |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
     groups = defaultdict(list)
     for r in runs:
         groups[(int(r["rate"]), int(r["quantum"]), r["path"], r.get("idle_hold", "default"))].append(r)
@@ -73,7 +74,7 @@ def idle_hold_table(runs, power):
     for key in sorted(groups, key=lambda k: (k[0], k[1], pidx(k[2]), hidx(k[3]))):
         g = groups[key]
         watts = spread([num(p["watts"]) for p in pg.get(key, [])], "%.1f") if pg.get(key) else "-"
-        print("| %d | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+        print("| %d | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
             key[0], key[1], key[2], key[3],
             "/".join(sorted({r.get("cpu_latency_us", "-") for r in g})),
             spread([num(r["cycle_end_p50_us"]) for r in g]),
@@ -81,6 +82,7 @@ def idle_hold_table(runs, power):
             spread([num(r["overruns"]) for r in g], "%.0f"),
             spread([num(r["probe_late"]) for r in g], "%.0f"),
             spread([num(r["host_cpu_pct"]) for r in g]),
+            spread([num(r["rss_loaded_kb"]) / 1024 for r in g if num(r["rss_loaded_kb"]) is not None]),
             watts))
     print()
 
@@ -162,14 +164,15 @@ def main(d):
         rs = [r for r in runs if r["path"] == path]
         if not ps:
             continue
+        # a path with no host before its first add (jalv) rests at 0 RSS: a real figure, not an absent one
         per_plugin = [(num(r["rss_loaded_kb"]) - num(r["rss_empty_kb"])) / 1024 / (int(r["plugins"]) + 1)
-                      for r in rs if num(r["rss_loaded_kb"]) and num(r["rss_empty_kb"])]
+                      for r in rs if num(r["rss_loaded_kb"]) is not None and num(r["rss_empty_kb"]) is not None]
         inline = med([num(p["run_p50_us"]) for p in ps])
-        print("| %s | %.1f | %s | %.1f | %.1f | %.1f | %.1f | %.2f |" % (
-            path, med([num(p["dur_p50_us"]) for p in ps]), "%.1f" % inline if inline is not None else "-",
-            med([num(p["add_ms"]) for p in ps]), med([num(p["first_audio_ms"]) for p in ps]),
-            med([num(r["host_ready_ms"]) for r in rs]), med([num(r["rss_empty_kb"]) / 1024 for r in rs]),
-            med(per_plugin)))
+        print("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            path, spread([num(p["dur_p50_us"]) for p in ps]), "%.1f" % inline if inline is not None else "-",
+            spread([num(p["add_ms"]) for p in ps]), spread([num(p["first_audio_ms"]) for p in ps]),
+            spread([num(r["host_ready_ms"]) for r in rs]), spread([num(r["rss_empty_kb"]) / 1024 for r in rs]),
+            spread(per_plugin, "%.2f")))
 
     try:
         crash = load(d + "/crash.csv")

@@ -26,7 +26,7 @@ reps=${BENCH_REPS:-3}
 rep_from=${BENCH_REP_FROM:-1}   # the first repetition's number: a driver that interleaves arms runs one rep per call
 seconds=${BENCH_SECONDS:-60}
 
-[ -f "$out/plugins.csv" ] || echo "path,rate,quantum,rep,plugin,add_ms,link_ms,first_audio_ms,cycles,dur_p50_us,dur_p99_us,dur_max_us,sched_p50_us,sched_p99_us,node_xruns,silent_blocks,run_p50_us,run_p99_us,run_max_us" >"$out/plugins.csv"
+[ -f "$out/plugins.csv" ] || echo "path,rate,quantum,rep,plugin,add_ms,link_ms,first_audio_ms,cycles,dur_p50_us,dur_p99_us,dur_max_us,sched_p50_us,sched_p99_us,node_xruns,silent_blocks,run_p50_us,run_p99_us,run_max_us,idle_hold" >"$out/plugins.csv"
 [ -f "$out/runs.csv" ] || echo "path,rate,quantum,rep,plugins,host_ready_ms,rss_empty_kb,rss_loaded_kb,host_cpu_pct,pipewire_cpu_pct,cycles,cycle_end_p50_us,cycle_end_p99_us,cycle_end_max_us,driver_xruns,overruns,probe_late,probe_xruns,probe_max_gap_us,ref_lat_min,ref_lat_max,pad_lat_min,pad_lat_max,impulses,idle_hold,cpu_latency_us" >"$out/runs.csv"
 suffix=
 [ "${BENCH_IDLE_HOLD:-default}" = default ] || suffix=-hold-$BENCH_IDLE_HOLD

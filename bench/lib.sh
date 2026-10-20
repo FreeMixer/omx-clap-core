@@ -241,12 +241,12 @@ send() {
     echo "$reply"
 }
 
-# what the host's threads run at: name, policy (0 other, 1 fifo, 2 rr), rt priority
+# what the host's threads run at: name, policy (0 other, 1 fifo, 2 rr), rt priority, the CPU it last ran on
 host_threads() {
     local p
     for p in $(host_pids); do
         for t in /proc/"$p"/task/*; do
-            echo "$(cat "$t/comm") policy=$(awk '{ print $41 }' "$t/stat") rtprio=$(awk '{ print $40 }' "$t/stat")"
+            echo "$(cat "$t/comm") policy=$(awk '{ print $41 }' "$t/stat") rtprio=$(awk '{ print $40 }' "$t/stat") cpu=$(awk '{ print $39 }' "$t/stat")"
         done
     done
 }
