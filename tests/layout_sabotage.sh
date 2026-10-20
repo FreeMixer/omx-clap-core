@@ -76,6 +76,12 @@ arm aux-out-silence src/clap_stage.h \
     'bypassed, the plugin idles and its auxiliary outputs are silent' \
     sh -c "make -j$jobs tests/clap_stage_test && ./tests/clap_stage_test"
 
+# 5. a bound auxiliary output is scanned: without the scan a NaN on it reaches the carrier, unstruck
+arm aux-out-nonfinite src/clap_stage.h \
+    's/ \&\& !omx_block_finite(s->aout\[1 + i\]\.data32\[c\], n))/ \&\& 0)/' \
+    'a NaN on an auxiliary output' \
+    sh -c "make -j$jobs tests/clap_stage_test && ./tests/clap_stage_test"
+
 if [ "$failures" -eq 0 ]; then
     echo "layout sabotage ok"
     exit 0
