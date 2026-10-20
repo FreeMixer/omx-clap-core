@@ -115,6 +115,7 @@ struct fake {
   double rate;
   uint32_t runs, starts, stops, resets;
   float saw_in_r0;      /* the first sample the R input carried on the last process */
+  float peak_last_in;   /* the largest first sample the last main input channel carried on any process */
   int nan_on, error_on; /* K_NAN / K_ERROR: misbehave while set */
   int ftz_inside;       /* K_CLOBBER: whether FTZ was set when process() began */
   /* K_TALK: every param event seen, in order, with the fields §4.2 fixes */
@@ -204,6 +205,7 @@ static clap_process_status f_process(const clap_plugin_t *p, const clap_process_
   clap_audio_buffer_t *ao = &pr->audio_outputs[0];
   const uint32_t n = pr->frames_count;
   if (f->channels == 2) f->saw_in_r0 = ai->data32[1][0];
+  if (f->channels && ai->data32[f->channels - 1][0] > f->peak_last_in) f->peak_last_in = ai->data32[f->channels - 1][0];
   /* the transport, as delivered: what a tempo-synced plugin reads */
   f->saw_transport = pr->transport != NULL;
   f->saw_tempo = pr->transport && (pr->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) ? pr->transport->tempo : 0.0;
@@ -572,6 +574,52 @@ static void t_prime(void) {
   b.f.plugin.activate(&b.f.plugin, (double)g_rate, 1, MAXB);
   omx_clap_bind(&b.st, &b.f.plugin, 2);
   CHECK(omx_clap_prime(&b.st, 128) == CLAP_HOST_WARMUP_BLOCKS, "a non-finite plugin refuses publish");
+}
+
+/* the warm-up on a wide stage: every channel of the 6/6 main pair and every auxiliary block is written, a full
+ * max_block of it, so no page past the legs is first touched by a live block; a caller's auxiliary input is kept */
+static void t_prime_wide(void) {
+  static struct rig g;
+  static struct omx_clap_aux_in a;
+  static float win[6][MAXB], wout[6][MAXB], aux_scratch[2][MAXB], aux_silence[MAXB], side[MAXB];
+  float *wi[6], *wo[6], *scratch[2] = {aux_scratch[0], aux_scratch[1]}, *sidep[1] = {side};
+  static float *bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];
+  const struct omx_clap_port aux_out = {.channels = 2}, aux_in = {.channels = 1};
+  const uint32_t base[1] = {0};
+  const float SENTINEL = 7.0f;
+
+  memset(&g, 0, sizeof g);
+  memset(&a, 0, sizeof a);
+  fake_up(&g.f, K_PAD, 6);
+  omx_clap_stage_init(&g.st, &(struct omx_hosted_bounce){g.in_l, g.in_r, g.out_l, g.out_r, MAXB}, g.recs, QCAP);
+  g.f.plugin.activate(&g.f.plugin, (double)g_rate, 1, MAXB);
+  for (uint32_t c = 0; c < 6; c++) {
+    wi[c] = win[c];
+    wo[c] = wout[c];
+  }
+  CHECK(omx_clap_bind_aux(&g.st, scratch, 1, &aux_out) == 0 && omx_clap_bind_aux_in(&a, aux_silence, 1, &aux_in, bound, base) == 0 &&
+            omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == 0,
+        "prime wide: one auxiliary output of 2, one auxiliary input of 1, six wide blocks a side");
+  omx_clap_set_aux_in(&a, 0, 1, sidep);
+  CHECK(omx_clap_bind_ports_aux(&g.st, &g.f.plugin, 6, 6, &a) == 0, "prime wide: bind the 6/6 pair with its auxiliary input");
+  for (uint32_t c = 0; c < 6; c++) {
+    win[c][0] = win[c][MAXB - 1] = SENTINEL;
+    wout[c][0] = wout[c][MAXB - 1] = SENTINEL;
+  }
+  for (uint32_t c = 0; c < 2; c++) aux_scratch[c][0] = aux_scratch[c][MAXB - 1] = SENTINEL;
+  side[0] = side[MAXB - 1] = SENTINEL;
+  /* half a max_block: a frame past the warm-up's own blocks is written by the warm-up's touch alone */
+  CHECK(omx_clap_prime(&g.st, MAXB / 2) == 0, "prime wide: the warm-up runs clean");
+  int wide = 1;
+  for (uint32_t c = 0; c < 6; c++)
+    wide = wide && win[c][0] == 0.0f && win[c][MAXB - 1] == 0.0f && wout[c][0] == 0.0f && wout[c][MAXB - 1] == 0.0f;
+  CHECK(wide, "prime wide: every wide block's first and last frame were written (channel 5: in %g %g, out %g %g)", (double)win[5][0],
+        (double)win[5][MAXB - 1], (double)wout[5][0], (double)wout[5][MAXB - 1]);
+  CHECK(aux_scratch[0][0] == 0.0f && aux_scratch[0][MAXB - 1] == 0.0f && aux_scratch[1][0] == 0.0f && aux_scratch[1][MAXB - 1] == 0.0f,
+        "prime wide: every auxiliary output block's first and last frame were written");
+  CHECK(side[0] == SENTINEL && side[MAXB - 1] == SENTINEL, "prime wide: the caller's auxiliary input is read, its samples kept");
+  CHECK(g.f.peak_last_in == omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS), "prime wide: channel 5 carried the warm-up level (%g)",
+        (double)g.f.peak_last_in);
 }
 
 /* ---- 11. STATE: stop request honoured by the RT ---- */
@@ -1438,13 +1486,17 @@ static void t_note_priority(void) {
   const size_t align = _Alignof(struct omx_clap_stage);
   const size_t before = offsetof(struct omx_clap_stage, start_refused) + sizeof NS.start_refused;
 
-  /* releases_dropped (ABI 5) sits in the tail padding on the 64-bit targets the library ships for: the stage is the size
-   * it was without it, every offset unchanged.
-   * The ABI check cannot see it (libabigail leaves _Atomic members out), so this is the check. */
-  CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before &&
-        sizeof(struct omx_clap_stage) == (before + align - 1) / align * align,
-        "releases_dropped is in the stage's tail padding: size %zu, the end of start_refused rounded to %zu is %zu",
-        sizeof(struct omx_clap_stage), align, (before + align - 1) / align * align);
+  const size_t ptr_align = _Alignof(float *);
+  const size_t wide_at = (before + sizeof NS.releases_dropped + ptr_align - 1) / ptr_align * ptr_align;
+  const size_t wide_end = offsetof(struct omx_clap_stage, wide) + sizeof NS.wide;
+
+  /* releases_dropped (ABI 5) follows start_refused with no gap, and the wide bounce (ABI 13) follows it: every member
+   * before them keeps its offset. The ABI check cannot see the atomic ones (libabigail leaves _Atomic members out), so
+   * this is the check. */
+  CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before && offsetof(struct omx_clap_stage, wide_in) == wide_at &&
+        sizeof(struct omx_clap_stage) == (wide_end + align - 1) / align * align,
+        "releases_dropped follows start_refused (%zu) and the wide bounce follows it (%zu): size %zu",
+        offsetof(struct omx_clap_stage, releases_dropped), offsetof(struct omx_clap_stage, wide_in), sizeof(struct omx_clap_stage));
 
   for (d = 0; d < 3; d++) {
     const char *what = NAMES[d];
@@ -1633,6 +1685,121 @@ static void t_aux_bind_wide(void) {
   CHECK(g.st.aout[2].data32[3] == scratch[4], "aux: unbound, back to its scratch");
 }
 
+/* ---- the wide path: a 6-channel main pair over blocks of its own, every channel carried, bypass switched hard ---- */
+static int wide_wet(float (*outs)[MAXB], float (*ins)[MAXB], float gain) {
+  for (uint32_t c = 0; c < 6; c++)
+    for (uint32_t i = 0; i < MAXB; i++)
+      if (outs[c][i] != ins[c][i] * gain) return 0;
+  return 1;
+}
+
+static void t_run_ports_wide(void) {
+  static struct rig g;
+  static float win[6][MAXB], wout[6][MAXB], ins[6][MAXB], outs[6][MAXB];
+  float *wi[6], *wo[6], *op[6];
+  const float *ip[6];
+
+  memset(&g, 0, sizeof g);
+  fake_up(&g.f, K_PAD, 6);
+  CHECK(omx_clap_stage_init(&g.st, &(struct omx_hosted_bounce){g.in_l, g.in_r, g.out_l, g.out_r, MAXB}, g.recs, QCAP) == 0, "wide: stage_init");
+  CHECK(g.f.plugin.init(&g.f.plugin) && g.f.plugin.activate(&g.f.plugin, (double)g_rate, 1, MAXB), "wide: init, activate");
+  for (uint32_t c = 0; c < 6; c++) {
+    wi[c] = win[c];
+    wo[c] = wout[c];
+    ip[c] = ins[c];
+    op[c] = outs[c];
+    fill(ins[c], MAXB, (float)c * 0.1f);
+  }
+  CHECK(omx_clap_bind_wide(&g.st, wi, CLAP_HOST_PORT_CHANNELS + 1, wo, 6) == -1, "wide: an input wider than the limit is refused");
+  wi[5] = NULL;
+  CHECK(omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == -1, "wide: a channel with no block is refused");
+  wi[5] = win[5];
+  CHECK(g.st.wide == 0, "wide: nothing bound by a refusal");
+  CHECK(omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == 0 && g.st.wide == 1, "wide: six blocks a side bind the wide bounce");
+  CHECK(omx_clap_bind_ports(&g.st, &g.f.plugin, 6, 6) == 0, "wide: bind the 6-channel pair");
+  CHECK(g.st.ain.data32 == g.st.wide_in && g.st.aout[0].data32 == g.st.wide_out && g.st.wide_in[5] == win[5] && g.st.wide_out[5] == wout[5],
+        "wide: the main buffers are the wide blocks");
+  omx_clap_arm(&g.st);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, PAD_GAIN), "wide: every output channel is the gain times its input from the first block (%g, %g)",
+        (double)outs[5][0], (double)ins[5][0]);
+  omx_clap_set_bypass(&g.st, 1);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, 1.0f), "wide: bypass is dry on the next block, no fade (%g, %g)", (double)outs[5][0], (double)ins[5][0]);
+  CHECK(g.f.runs == 1 && atomic_load(&g.st.h.runs) == 1, "wide: the plugin idles bypassed (%u runs)", g.f.runs);
+  omx_clap_set_bypass(&g.st, 0);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, PAD_GAIN), "wide: back to wet on the next block, no fade");
+
+  /* the guards, per channel: a hot block clamped on every channel past the ceiling, a non-finite one delivered dry and struck */
+  g.f.kind = K_HOT;
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(atomic_load(&g.st.h.clamped_samples) == 4 * MAXB, "wide: every sample of the four channels past +24 dBFS clamped (%u)",
+        atomic_load(&g.st.h.clamped_samples));
+  CHECK(outs[5][0] == omx_db_to_lin(CLAP_HOST_CLAMP_DBFS), "wide: the sixth channel at the ceiling (%g)", (double)outs[5][0]);
+  g.f.kind = K_NAN;
+  g.f.nan_on = 1;
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, 1.0f) && atomic_load(&g.st.h.nonfinite_blocks) == 1, "wide: a non-finite block delivers dry and strikes (%u)",
+        atomic_load(&g.st.h.nonfinite_blocks));
+
+  /* not yet armed, the wide path carries dry: 2 to 6 copies the second input past it, 0 to 4 (a source) is silent */
+  static struct rig d;
+  memset(&d, 0, sizeof d);
+  fake_up(&d.f, K_PAD, 6);
+  CHECK(omx_clap_stage_init(&d.st, &(struct omx_hosted_bounce){d.in_l, d.in_r, d.out_l, d.out_r, MAXB}, d.recs, QCAP) == 0,
+        "wide dry: stage_init");
+  CHECK(omx_clap_bind_wide(&d.st, wi, 2, wo, 6) == 0 && omx_clap_bind_ports(&d.st, &d.f.plugin, 2, 6) == 0, "wide dry: bind 2 to 6");
+  for (uint32_t c = 0; c < 6; c++) fill(outs[c], MAXB, 9.0f);
+  in_rt = 1;
+  omx_clap_run_ports(&d.st, ip, op, MAXB);
+  in_rt = 0;
+  int dry = bytes_equal(outs[0], ins[0], MAXB);
+  for (uint32_t c = 1; c < 6; c++) dry = dry && bytes_equal(outs[c], ins[1], MAXB);
+  CHECK(dry && d.f.runs == 0, "wide dry: 2 to 6 before arm, out 0 is in 0 and every later output in 1 (%g, %g)", (double)outs[0][0],
+        (double)outs[5][0]);
+  memset(&d, 0, sizeof d);
+  fake_up(&d.f, K_PAD, 4);
+  CHECK(omx_clap_stage_init(&d.st, &(struct omx_hosted_bounce){d.in_l, d.in_r, d.out_l, d.out_r, MAXB}, d.recs, QCAP) == 0,
+        "wide dry: stage_init for a source");
+  CHECK(omx_clap_bind_wide(&d.st, NULL, 0, wo, 4) == 0 && omx_clap_bind_ports(&d.st, &d.f.plugin, 0, 4) == 0, "wide dry: bind 0 to 4");
+  for (uint32_t c = 0; c < 6; c++) fill(outs[c], MAXB, 9.0f);
+  in_rt = 1;
+  omx_clap_run_ports(&d.st, NULL, op, MAXB);
+  in_rt = 0;
+  dry = 1;
+  for (uint32_t c = 0; c < 4; c++)
+    for (uint32_t i = 0; i < MAXB; i++) dry = dry && outs[c][i] == 0.0f;
+  CHECK(dry && outs[4][0] == 9.0f && d.f.runs == 0, "wide dry: a source of four before arm writes silence on its four outputs only");
+
+  /* a stage that is not wide runs the two-leg path, bit for bit as omx_clap_run_io */
+  static struct rig a, b;
+  static float l[MAXB], r[MAXB], la[MAXB], ra[MAXB], lb[MAXB], rb[MAXB];
+  const float *two_in[2] = {l, r};
+  float *oa[2] = {la, ra}, *ob[2] = {lb, rb};
+  rig_up(&a, K_PAD, 2, QCAP);
+  rig_up(&b, K_PAD, 2, QCAP);
+  for (int k = 0; k < 3; k++) {
+    ramp(l, MAXB);
+    fill(r, MAXB, 0.25f);
+    in_rt = 1;
+    omx_clap_run_ports(&a.st, two_in, oa, MAXB);
+    omx_clap_run_io(&b.st, two_in, ob, MAXB);
+    in_rt = 0;
+    CHECK(a.st.wide == 0 && bytes_equal(la, lb, MAXB) && bytes_equal(ra, rb, MAXB), "wide: a two-leg stage through run_ports is run_io (block %d)", k);
+  }
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -1646,6 +1813,7 @@ int main(void) {
     t_discard(K_NAN);
     t_clamp();
     t_prime();
+    t_prime_wide();
     t_state();
     t_out_events();
     t_xfade();
@@ -1659,6 +1827,7 @@ int main(void) {
     t_sysex_pool_resets();
     t_notes_out();
     t_aux_bind_wide();
+    t_run_ports_wide();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

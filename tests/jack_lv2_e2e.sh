@@ -167,7 +167,7 @@ expect "add lv2:not-a-uri 2" "resp -101"
 # found through a prefixed name in its manifest, refused at init: the binary is not there
 expect "add lv2:urn:openmixer:test:nobin 2" "resp -102 hosting.no-realisation"
 # a CLAP plugin's refusal carries its code the same way
-expect "add clap:$fake#org.omx-clap-host.test.wide 2" "resp -102 hosting.topology.wider-than-strip"
+expect "add clap:$fake#org.omx-clap-host.test.too-wide 2" "resp -102 hosting.topology.port-too-wide"
 # a refusal names no later add
 expect "add lv2:$fixture 2" "resp 2"
 expect "remove 2" "resp 0"

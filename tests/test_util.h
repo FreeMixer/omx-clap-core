@@ -46,6 +46,8 @@
 #define FAKE_MANY_AUX       "org.omx-clap-host.test.many-aux"
 #define FAKE_AUX_WIDE       "org.omx-clap-host.test.aux-wide"
 #define FAKE_AUX_MAX        "org.omx-clap-host.test.aux-max"
+#define FAKE_MONO_STEREO    "org.omx-clap-host.test.mono-stereo"
+#define FAKE_STEREO_MONO    "org.omx-clap-host.test.stereo-mono"
 #define SYNTH               "org.omx-clap-host.test.synth"
 #define SYNTH_MIDI          "org.omx-clap-host.test.synth-midi"
 #define SYNTH_AUX           "org.omx-clap-host.test.synth-aux"
