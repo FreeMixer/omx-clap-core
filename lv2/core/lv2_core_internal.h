@@ -40,6 +40,7 @@ enum lv2_feature_kind
     F_WORKER = OMX_LV2_F_WORKER,
     F_DEFAULT_STATE = OMX_LV2_F_DEFAULT_STATE,
     F_LOG = OMX_LV2_F_LOG,
+    F_RTMEMPOOL = OMX_LV2_F_RTMEMPOOL,
     LV2_FEATURE_KINDS = OMX_LV2_FEATURE_KINDS,
     // state:makePath: the console's instances only, offered by the configuration (its list and a state root) and never by
     // the feature options, which name the public kinds; a host of its own serves it itself
@@ -54,9 +55,15 @@ enum lv2_feature_kind
     LV2_INSTANCE_KINDS
 };
 
-/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, the three state path
- * features, uri-map and event */
+/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, the pool's deprecated URI,
+ * the three state path features, uri-map and event */
 #define LV2_FEATURE_SLOTS               (OMX_LV2_FEATURE_SLOTS + 5)
+
+/* rtmempool#Pool's provider (lv2_rtmempool.c), the one pool for the process, and the deprecated struct over it */
+struct _LV2_RtMemPool_Pool;
+struct _LV2_RtMemPool_Pool_Deprecated;
+const struct _LV2_RtMemPool_Pool *lv2_rtmempool_feature(void);
+const struct _LV2_RtMemPool_Pool_Deprecated *lv2_rtmempool_feature_v1(void);
 
 /* the URI of a provider */
 extern const char *const lv2_feature_uri[LV2_FEATURE_KINDS];

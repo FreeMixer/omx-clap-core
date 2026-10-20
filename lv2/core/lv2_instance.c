@@ -1233,6 +1233,7 @@ static void features_build(struct lv2_instance *in)
     data[F_OPTIONS] = in->options.opts;
     data[F_WORKER] = &in->schedule;
     data[F_LOG] = &in->log;
+    data[F_RTMEMPOOL] = (void *)lv2_rtmempool_feature();
     data[F_MAKE_PATH] = in->dir ? &in->make_path : NULL;
     data[F_MAP_PATH] = &in->map_path;
     data[F_FREE_PATH] = &in->free_path;
