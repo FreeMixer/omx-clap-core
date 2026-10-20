@@ -1145,7 +1145,11 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         if (!input && p->latency_port < 0
             && (port_designated(pl, port, N_LATENCY) || L.lilv_port_has_property(pl, port, g.node[N_REPORTS_LATENCY])))
         {
+            struct lv2_control range;
+
             p->latency_port = (int32_t)i;
+            port_range(pl, port, &range);
+            p->latency_def = range.def;
             continue;
         }
         c = &p->controls[p->n_controls++];
