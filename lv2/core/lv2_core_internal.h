@@ -43,11 +43,16 @@ enum lv2_feature_kind
     LV2_FEATURE_KINDS = OMX_LV2_FEATURE_KINDS,
     // state:makePath: the console's instances only, offered by the configuration (its list and a state root) and never by
     // the feature options, which name the public kinds; a host of its own serves it itself
-    F_MAKE_PATH = OMX_LV2_FEATURE_KINDS
+    F_MAKE_PATH = OMX_LV2_FEATURE_KINDS,
+    // state:mapPath and state:freePath: the same, offered by the configuration's list alone (no root needed)
+    F_MAP_PATH,
+    F_FREE_PATH,
+    LV2_INSTANCE_KINDS
 };
 
-/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, and state:makePath */
-#define LV2_FEATURE_SLOTS               (OMX_LV2_FEATURE_SLOTS + 1)
+/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, and the three state path
+ * features */
+#define LV2_FEATURE_SLOTS               (OMX_LV2_FEATURE_SLOTS + 3)
 
 /* the URI of a provider */
 extern const char *const lv2_feature_uri[LV2_FEATURE_KINDS];
@@ -68,11 +73,11 @@ uint32_t lv2_features_configured(void);
 int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t allowed, const char *uri);
 
 /* `features` and the NULL-terminated `ptrs` filled with what `o` offers among the kinds `allowed`, in the kinds' order,
- * the buf-size declarations after them, then state:makePath when `allowed` holds F_MAKE_PATH, kind k carrying data[k]:
- * the count. `features` holds LV2_FEATURE_SLOTS (OMX_LV2_FEATURE_SLOTS when `allowed` has no F_MAKE_PATH), `ptrs` one
- * more. */
+ * the buf-size declarations after them, then state:makePath, state:mapPath and state:freePath where `allowed` holds
+ * their kind and data[] carries them, kind k carrying data[k]: the count. `features` holds LV2_FEATURE_SLOTS
+ * (OMX_LV2_FEATURE_SLOTS when `allowed` has none of the three), `ptrs` one more. */
 uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, const struct omx_lv2_feature_options *o,
-                           uint32_t allowed, void *const data[LV2_FEATURE_KINDS + 1]);
+                           uint32_t allowed, void *const data[LV2_INSTANCE_KINDS]);
 
 /* the block lengths the options report for an activation of `min_frames` to `max_frames`: 0, or -1 when the minimum is
  * above the maximum or a length does not fit an Int */
