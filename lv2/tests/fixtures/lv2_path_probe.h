@@ -21,6 +21,9 @@ struct lv2_path_probe
     int escape_null;            /* #escape: makePath answered NULL for "../outside.txt" */
     int absolute_null;          /* #escape: makePath answered NULL for an absolute path */
     void *make_path;            /* #escape: the LV2_State_Make_Path it was handed, for a test to call */
+    int had_map_path;           /* #mappath: instantiate was handed state:mapPath */
+    int had_free_path;          /* #mappath: instantiate was handed state:freePath */
+    int freed_by_host;          /* #mappath: paths handed back through freePath */
 };
 
 #endif

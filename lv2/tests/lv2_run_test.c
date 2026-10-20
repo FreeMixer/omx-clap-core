@@ -293,6 +293,33 @@ static void worker_full_ring(void)
     rig_down(&g);
 }
 
+/* the worker is woken, not polled: with a poll of ten seconds, a request the RT schedules is worked at once (well inside
+ * one second), and its response is in the very next block */
+static void worker_woken(void)
+{
+    static const struct lv2_core_config config = { lv2_core_provided, 10000000u, 64u, 0u, NULL, NULL };
+    char why[LV2_CORE_WHY_MAX];
+    struct rig g;
+    float l[32] = { 0 };
+    int ms;
+
+    g_rate = 48000.0;
+    CHECK(lv2_core_configure(&config, why) == 0, "configure a worker that polls every ten seconds (%s)", why);
+    if (rig_up(&g, FAKE_WORKER, MAXB) != 0)
+        return;
+    trace_clear();
+    nanosleep(&(const struct timespec){ 0, 20000000L }, NULL);  // the worker is asleep on its ten-second wait
+    run_rt(&g, l, NULL, 32);
+    for (ms = 0; ms < 1000 && worker_entered() == 0; ms++)
+        nanosleep(&(const struct timespec){ 0, 1000000L }, NULL);
+    CHECK(worker_entered() == 1 && ms < 1000, "the request is worked at once: woken, not polled (%d ms)", ms);
+    for (ms = 0; ms < 1000 && !strstr(trace(), "work0"); ms++)
+        nanosleep(&(const struct timespec){ 0, 1000000L }, NULL);
+    run_rt(&g, l, NULL, 32);
+    CHECK(strstr(trace(), "resp0") != NULL, "its response is in the next block (%s)", trace());
+    rig_down(&g);
+}
+
 int main(int argc, char **argv)
 {
     static const struct lv2_core_config config = { lv2_core_provided, 1000u, 64u, 0u, NULL, NULL };
@@ -315,6 +342,7 @@ int main(int argc, char **argv)
     rt_allocs = 0;
 
     in_child("worker full ring", worker_full_ring);
+    in_child("worker woken", worker_woken);
     CHECK(lv2_core_configure(&config, why) == 0, "configure every provider, a 64-byte ring (%s)", why);
     for (r = 0; r < N_RATES; r++)
     {
