@@ -37,8 +37,9 @@
  *                                      and -in[0] to out[1]
  *   org.omx-clap-host.test.stereo-mono a stereo main input and a mono main output; process() writes in[0] + in[1]
  *                                      to out[0]
- *   org.omx-clap-host.test.surround    a 5.1 main pair, port type surround, and clap.surround: the map FL FR FC LFE BL
- *                                      BR on both, its own mask supported; deactivate calls the host's surround.changed
+ *   org.omx-clap-host.test.surround    a 5.1 main pair, port type surround, and clap.surround: the map FL FR FC LFE SL
+ *                                      SR (0 1 2 3 9 10, not index order) on both, its own mask supported; deactivate
+ *                                      calls the host's surround.changed
  *   org.omx-clap-host.test.surround-bad the same, the map's last id 25, past CLAP_SURROUND_TSR
  *   org.omx-clap-host.test.surround-short the same, the map five ids long for six channels
  *   org.omx-clap-host.test.surround-plain a 6-channel main pair of port type surround and no clap.surround
@@ -235,11 +236,12 @@ static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is
 
 static const clap_plugin_audio_ports_t g_audio_ports = { audio_ports_count, audio_ports_get };
 
-/* the 5.1 map of both main ports; surround-bad names id 25 for its last channel */
-static const uint8_t g_five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_BL,
-                                       CLAP_SURROUND_BR };
+/* the 5.1 map of both main ports, its surrounds at the sides so it is not index order; surround-bad names id 25 for its
+ * last channel */
+static const uint8_t g_five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL,
+                                       CLAP_SURROUND_SR };
 #define FIVE_ONE_MASK ((1u << CLAP_SURROUND_FL) | (1u << CLAP_SURROUND_FR) | (1u << CLAP_SURROUND_FC) | (1u << CLAP_SURROUND_LFE) \
-                       | (1u << CLAP_SURROUND_BL) | (1u << CLAP_SURROUND_BR))
+                       | (1u << CLAP_SURROUND_SL) | (1u << CLAP_SURROUND_SR))
 
 static bool surround_is_channel_mask_supported(const clap_plugin_t *plugin, uint64_t channel_mask)
 {
