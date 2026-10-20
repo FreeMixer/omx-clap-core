@@ -46,17 +46,23 @@ static int g_failures;
 /* run a command, its stdout in out, its exit status returned */
 static int run(char *out, const char *format, ...) __attribute__((format(printf, 2, 3)));
 
+/* every scanner runs from a scratch directory: a plugin the walk of the installed directories loads may write into
+ * its host's working directory (clap-protoplug drops "protoplug last compile.lua" there, #300), and that must never
+ * be the tree */
+static char g_scratch[PATH_MAX];
+
 static int run(char *out, const char *format, ...)
 {
-    char command[4096], rest[4096];
+    char command[4096 + PATH_MAX + 16], rest[4096], inner[4096];
     va_list args;
     FILE *pipe;
     size_t n;
     int status;
 
     va_start(args, format);
-    vsnprintf(command, sizeof(command), format, args);
+    vsnprintf(inner, sizeof(inner), format, args);
     va_end(args);
+    snprintf(command, sizeof(command), "cd '%s' && %s", g_scratch, inner);
     pipe = popen(command, "r");
     if (!pipe)
         return -1;
@@ -365,6 +371,12 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s: no scanner at %s\n", argv[0], argv[1]);
         return 2;
     }
+    snprintf(g_scratch, sizeof(g_scratch), "/tmp/clap_scan_cwd_XXXXXX");
+    if (!mkdtemp(g_scratch))
+    {
+        fprintf(stderr, "%s: no scratch directory\n", argv[0]);
+        return 2;
+    }
     out = malloc(BUFFER_SIZE);
 
     fake_checks(scan, argv[2], out);
@@ -379,5 +391,12 @@ int main(int argc, char **argv)
 
     printf("%s\n", g_failures == 0 ? "clap scan test ok" : "clap scan test FAILED");
     free(out);
+    {
+        /* the scratch directory and whatever a plugin left in it */
+        char command[PATH_MAX + 32];
+        snprintf(command, sizeof(command), "rm -rf '%s'", g_scratch);
+        if (system(command) != 0)
+            fprintf(stderr, "%s: the scratch directory %s stays\n", argv[0], g_scratch);
+    }
     return g_failures == 0 ? 0 : 1;
 }

@@ -103,7 +103,7 @@ LDFLAGS += -Wl,--no-undefined
 # source and object files
 SRC = src/main.c src/effects.c src/lv2_locate.c
 OBJ = $(SRC:.c=.o)
-CORE_SRC = src/clap_host.c
+CORE_SRC = src/clap_host.c src/idle_hold.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
 # the scanner shares the plugin loading with the host through the core and needs neither jack nor the protocol library
@@ -151,6 +151,10 @@ $(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
 	$(CC) $(SCAN_OBJ) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
+# the objects that embed the version: a move of VERSION rebuilds them, or the library keeps answering the old number
+# from an object made before the move (the staged consumer of test-core caught it once, 2026-10-20)
+src/clap_host.o src/main.o src/scan.o: VERSION
+
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 
@@ -185,6 +189,7 @@ INCLUDEDIR = $(PREFIX)/include
 DATADIR = $(PREFIX)/share
 MANDIR = $(DATADIR)/man/man1
 LIBEXECDIR = $(PREFIX)/libexec
+UDEVDIR = $(PREFIX)/lib/udev/rules.d
 # the test fixtures, in a directory of their own so no plugin scanner finds them
 TESTDIR = $(LIBEXECDIR)/$(PROG)/tests
 TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_source tests/socket_conformance.py
@@ -244,8 +249,9 @@ test-contract:
 	node tests/hosting-values-check.mjs --self-test build/contract/json/omx-contract.json src
 
 install: install-lib install-lv2 install-tests install_man install-contract
-	install -d $(DESTDIR)$(BINDIR)
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(UDEVDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
+	install -m 644 packaging/udev/60-omx-clap-host.rules $(DESTDIR)$(UDEVDIR)/
 
 install_man:
 	install -d $(DESTDIR)$(MANDIR)
@@ -311,9 +317,10 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
+test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
+	./tests/idle_hold_test $(abspath tests/fake.clap)
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap) $(abspath tests/fault-17.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
@@ -452,6 +459,9 @@ tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADER
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
+tests/idle_hold_test: tests/idle_hold_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
 tests/clap_ext_test: tests/clap_ext_test.c $(CORE_SO)
@@ -879,6 +889,8 @@ BENCH_QUANTA ?= 64 128 256 512
 BENCH_REPS ?= 3
 BENCH_SECONDS ?= 60
 BENCH_OUT ?= build/bench/results
+BENCH_IDLE_HOLD ?= default
+BENCH_CRASH ?= 1
 bench: bench-tools
 	BENCH_PATHS="$(BENCH_PATHS)" BENCH_RATES="$(BENCH_RATES)" BENCH_QUANTA="$(BENCH_QUANTA)" BENCH_REPS=$(BENCH_REPS) \
-	    BENCH_SECONDS=$(BENCH_SECONDS) ./bench/bench.sh $(BENCH_OUT)
+	    BENCH_SECONDS=$(BENCH_SECONDS) BENCH_IDLE_HOLD=$(BENCH_IDLE_HOLD) BENCH_CRASH=$(BENCH_CRASH) ./bench/bench.sh $(BENCH_OUT)

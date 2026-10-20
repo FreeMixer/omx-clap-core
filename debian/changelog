@@ -1,3 +1,17 @@
+omx-clap-host (0.14.0) unstable; urgency=medium
+
+  * libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is
+    active, at 10 us by default (C1 only), 0 for no idle state, or off: one
+    descriptor per process, opened at the first activate and closed at the
+    last, so a crash restores the machine's default. A device that cannot be
+    opened is reported by code, hosting.idle.hold-refused, declared in this
+    tree's data/hosting.json, and the host runs on. omx-clap-host takes
+    --idle-hold and an idle_hold command; its packages ship a udev rule
+    giving the audio group the device. The calls are in the version node
+    OMX_CLAP_CORE_0.14. The library ABI is 16.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 20 Oct 2026 20:30:00 +0200
+
 omx-clap-host (0.13.0) unstable; urgency=medium
 
   * Every audio port a plugin declares is described, main and auxiliary, up

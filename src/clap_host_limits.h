@@ -22,14 +22,15 @@
 #define CLAP_HOST_LIMITS_H
 /*
  * GENERATED — DO NOT EDIT BY HAND.
- * Rendered from HOSTED_STAGE_LIMITS of data/hosting.json, where this library declares its stage limits.
- * The rendered file is kept in this repository so the library builds on its own; the numbers are changed
- * where they are declared and the file is re-rendered, never edited here. The refusal codes are
- * omx-contract's, from its omxcontract/omx_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*).
+ * Rendered from HOSTED_STAGE_LIMITS and HOSTING_IDLE_CODES of data/hosting.json, where this library declares
+ * its stage limits and the codes of the dimension it owns. The rendered file is kept in this repository so the
+ * library builds on its own; the numbers and codes are changed where they are declared and the file is
+ * re-rendered, never edited here. Every other refusal code is omx-contract's, from its
+ * omxcontract/omx_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*).
  */
 
 /** @file
- * @brief The limits of the hosting code. */
+ * @brief The limits of the hosting code, and the codes of the idle dimension. */
 
 #include <stddef.h>
 
@@ -52,5 +53,9 @@
 #define CLAP_HOST_ROLE_TIMEOUT_US 200000u  ///< the longest the audio role is waited for, in microseconds
 #define CLAP_HOST_PARAM_COUNT_MAX 2048u  ///< the widest parameter count the core trusts
 #define CLAP_HOST_LATENCY_HOLD_MS 250u  ///< the hold before a hosted stage's new latency takes effect, in milliseconds
+#define CLAP_HOST_IDLE_HOLD_US 10u  ///< the latency the library holds /dev/cpu_dma_latency at while an instance is active, in microseconds: 10 keeps the cores in C1
+
+/** the idle dimension: what the library answers about its hold of /dev/cpu_dma_latency (#296) */
+#define CLAP_HOST_CODE_IDLE_HOLD_REFUSED "hosting.idle.hold-refused"  ///< the device could not be opened for writing (no permission, or no such device): the host runs with no hold
 
 #endif /* CLAP_HOST_LIMITS_H */

@@ -1,3 +1,4 @@
 usr/bin/omx-clap-host
 usr/bin/omx-clap-scan
 usr/share/man/man1/*
+usr/lib/udev/rules.d/60-omx-clap-host.rules

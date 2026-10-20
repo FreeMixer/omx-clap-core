@@ -10,7 +10,16 @@ import statistics
 import sys
 from collections import defaultdict
 
-PATHS = ["modhost", "clap", "adapter", "inproc-clap", "inproc-lv2"]
+PATHS = ["modhost", "clap", "adapter", "inproc-clap", "inproc-lv2", "hostd", "jalv"]
+HOLDS = ["default", "off", "1000", "10", "0"]
+
+
+def pidx(path):
+    return PATHS.index(path) if path in PATHS else len(PATHS)
+
+
+def hidx(hold):
+    return HOLDS.index(hold) if hold in HOLDS else len(HOLDS)
 
 
 def num(x):
@@ -31,7 +40,7 @@ def spread(xs, fmt="%.1f"):
     if not xs:
         return "NA"
     m = statistics.median(xs)
-    if len(xs) == 1:
+    if len(xs) == 1 or min(xs) == max(xs):
         return fmt % m
     return (fmt + " (" + fmt + "..." + fmt + ")") % (m, min(xs), max(xs))
 
@@ -41,9 +50,52 @@ def load(path):
         return list(csv.DictReader(f))
 
 
+def idle_hold_table(runs, power):
+    """The idle-state arm (#105, #296): per rate, quantum and path, one column group per hold the runs carry; the
+    device's own answer and the whole run's mean package power beside the cycle end."""
+    holds = sorted({r.get("idle_hold", "default") for r in runs}, key=hidx)
+    if len(holds) < 2:
+        return
+    print("### The CPU idle hold: the whole graph per hold\n")
+    print("Hold = what /dev/cpu_dma_latency was held at during the run (default: the library's own 10 us; off: "
+          "nothing, the machine's resting policy); device = its own answer with every plugin active, the kernel's "
+          "limit across every requester; RSS = the host's processes with every plugin loaded; watts = the mean "
+          "package power over the run's measured window where an energy counter was readable. Cycle end as above. "
+          "Median of the repetitions (min...max).\n")
+    print("| rate | quantum | path | hold | device us | cycle end p50 us | cycle end p99 us | overruns | late | "
+          "host CPU % | RSS loaded MiB | watts |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    groups = defaultdict(list)
+    for r in runs:
+        groups[(int(r["rate"]), int(r["quantum"]), r["path"], r.get("idle_hold", "default"))].append(r)
+    pg = defaultdict(list)
+    for p in power:
+        pg[(int(p["rate"]), int(p["quantum"]), p["path"], p.get("idle_hold", "default"))].append(p)
+    for key in sorted(groups, key=lambda k: (k[0], k[1], pidx(k[2]), hidx(k[3]))):
+        g = groups[key]
+        watts = spread([num(p["watts"]) for p in pg.get(key, [])], "%.1f") if pg.get(key) else "-"
+        print("| %d | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            key[0], key[1], key[2], key[3],
+            "/".join(sorted({r.get("cpu_latency_us", "-") for r in g})),
+            spread([num(r["cycle_end_p50_us"]) for r in g]),
+            spread([num(r["cycle_end_p99_us"]) for r in g]),
+            spread([num(r["overruns"]) for r in g], "%.0f"),
+            spread([num(r["probe_late"]) for r in g], "%.0f"),
+            spread([num(r["host_cpu_pct"]) for r in g]),
+            spread([num(r["rss_loaded_kb"]) / 1024 for r in g if num(r["rss_loaded_kb"]) is not None]),
+            watts))
+    print()
+
+
 def main(d):
     runs = load(d + "/runs.csv")
     plugins = load(d + "/plugins.csv")
+    try:
+        power = load(d + "/power.csv")
+    except FileNotFoundError:
+        power = []
+
+    idle_hold_table(runs, power)
 
     print("### Per run: the whole graph\n")
     print("Cycle end = the driver's time from wake-up to the last node finished (pw-profiler), median of the run; "
@@ -56,7 +108,7 @@ def main(d):
     groups = defaultdict(list)
     for r in runs:
         groups[(int(r["rate"]), int(r["quantum"]), r["path"])].append(r)
-    for (rate, q, path) in sorted(groups, key=lambda k: (k[0], k[1], PATHS.index(k[2]))):
+    for (rate, q, path) in sorted(groups, key=lambda k: (k[0], k[1], pidx(k[2]))):
         g = groups[(rate, q, path)]
         lat = sorted({(r["pad_lat_min"], r["pad_lat_max"]) for r in g})
         print("| %d | %d | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
@@ -112,14 +164,15 @@ def main(d):
         rs = [r for r in runs if r["path"] == path]
         if not ps:
             continue
+        # a path with no host before its first add (jalv) rests at 0 RSS: a real figure, not an absent one
         per_plugin = [(num(r["rss_loaded_kb"]) - num(r["rss_empty_kb"])) / 1024 / (int(r["plugins"]) + 1)
-                      for r in rs if num(r["rss_loaded_kb"]) and num(r["rss_empty_kb"])]
+                      for r in rs if num(r["rss_loaded_kb"]) is not None and num(r["rss_empty_kb"]) is not None]
         inline = med([num(p["run_p50_us"]) for p in ps])
-        print("| %s | %.1f | %s | %.1f | %.1f | %.1f | %.1f | %.2f |" % (
-            path, med([num(p["dur_p50_us"]) for p in ps]), "%.1f" % inline if inline is not None else "-",
-            med([num(p["add_ms"]) for p in ps]), med([num(p["first_audio_ms"]) for p in ps]),
-            med([num(r["host_ready_ms"]) for r in rs]), med([num(r["rss_empty_kb"]) / 1024 for r in rs]),
-            med(per_plugin)))
+        print("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            path, spread([num(p["dur_p50_us"]) for p in ps]), "%.1f" % inline if inline is not None else "-",
+            spread([num(p["add_ms"]) for p in ps]), spread([num(p["first_audio_ms"]) for p in ps]),
+            spread([num(r["host_ready_ms"]) for r in rs]), spread([num(r["rss_empty_kb"]) / 1024 for r in rs]),
+            spread(per_plugin, "%.2f")))
 
     try:
         crash = load(d + "/crash.csv")
@@ -133,7 +186,7 @@ def main(d):
     for c in crash:
         if c.get("event") in ("kill", "crash"):
             cg[(c["path"], c["event"])].append(c)
-    for (path, ev) in sorted(cg, key=lambda k: (PATHS.index(k[0]), k[1] != "kill")):
+    for (path, ev) in sorted(cg, key=lambda k: (pidx(k[0]), k[1] != "kill")):
         g = cg[(path, ev)]
         print("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
             path, ev, "/".join(sorted({c["host_died"] for c in g})),

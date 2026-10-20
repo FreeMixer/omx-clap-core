@@ -199,6 +199,8 @@ static struct host_transport g_transport;
 static int g_follow_jack;
 /* -c: the lane's width, 1 or 2, asked of a plugin whose main ports differ */
 static uint32_t g_lane_channels = 2;
+static int32_t g_idle_hold = INT32_MIN;      // --idle-hold; INT32_MIN until given, the core's default then
+static int g_idle_hold_said;                 // the refusal, said on stderr once
 /* the control thread's idle ticks, counted by effects_idle */
 static uint32_t g_idle_ticks;
 
@@ -1554,6 +1556,8 @@ static int configure_core(void)
     config.track_info = 1;
     config.remote_controls = 1;
     config.lane_channels = 0;   // a JACK port per main channel: any width is carried (omx_clap_host_run_ports)
+    if (g_idle_hold != INT32_MIN)
+        config.idle_hold_us = g_idle_hold;
     config.name = "omx-clap-host";
     config.vendor = "Pau Aliagas";
     config.url = "";
@@ -1695,6 +1699,29 @@ static const char *lv2_uri_of(const char *uri)
 const char *effects_add_reason(void)
 {
     return g_add_reason;
+}
+
+/* a device the core could not open is said once, after the add that found it; the plugin runs with no hold */
+static void idle_hold_say_once(void)
+{
+    struct omx_clap_idle_hold hold;
+
+    if (g_idle_hold_said)
+        return;
+    omx_clap_host_idle_hold(&hold);
+    if (hold.code[0] == '\0')
+        return;
+    fprintf(stderr, "idle hold: %s: /dev/cpu_dma_latency cannot be opened for writing; the plugins run with no hold\n", hold.code);
+    g_idle_hold_said = 1;
+}
+
+/* a word of the hold: "off", or a non-negative integer, microseconds */
+static const char *idle_hold_word_of(int32_t target_us, char *buf, size_t size)
+{
+    if (target_us == OMX_CLAP_IDLE_HOLD_OFF)
+        return "off";
+    snprintf(buf, size, "%d", target_us);
+    return buf;
 }
 
 int effects_add(const char *uri, int instance, const char *client_name)
@@ -1849,6 +1876,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
         goto error;
     }
     publish_latency(effect);
+    idle_hold_say_once();
 
     return instance;
 
@@ -2172,6 +2200,57 @@ void effects_follow_jack_transport(int on)
 void effects_set_lane_channels(uint32_t channels)
 {
     g_lane_channels = channels == 1 ? 1 : 2;
+}
+
+int effects_idle_hold_word(const char *word, int32_t *target_us)
+{
+    char *end;
+    long value;
+
+    if (!word || !*word)
+        return 0;
+    if (strcmp(word, "off") == 0)
+    {
+        *target_us = OMX_CLAP_IDLE_HOLD_OFF;
+        return 1;
+    }
+    if (!isdigit((unsigned char)word[0]))
+        return 0;
+    value = strtol(word, &end, 10);
+    if (*end != '\0' || value < 0 || value > INT32_MAX)
+        return 0;
+    *target_us = (int32_t)value;
+    return 1;
+}
+
+void effects_set_idle_hold(int32_t target_us)
+{
+    g_idle_hold = target_us;
+}
+
+int effects_idle_hold_set(const char *word)
+{
+    int32_t target;
+
+    if (!effects_idle_hold_word(word, &target) || omx_clap_host_idle_hold_set(target) != 0)
+        return ERR_INVALID_OPERATION;
+    idle_hold_say_once();
+    return SUCCESS;
+}
+
+int effects_idle_hold(char *reply, size_t size)
+{
+    struct omx_clap_idle_hold hold;
+    char target[16], held[16], aggregate[16];
+
+    omx_clap_host_idle_hold(&hold);
+    if (hold.aggregate_us < 0)
+        snprintf(aggregate, sizeof(aggregate), "-");
+    else
+        snprintf(aggregate, sizeof(aggregate), "%d", hold.aggregate_us);
+    snprintf(reply, size, "resp 0 %s %s %s %u %s", idle_hold_word_of(hold.target_us, target, sizeof(target)),
+             idle_hold_word_of(hold.held_us, held, sizeof(held)), aggregate, hold.active, hold.code[0] ? hold.code : "-");
+    return SUCCESS;
 }
 
 /* note_out_drops: the plugin's note output counters, read relaxed as the audio thread leaves them: the events the

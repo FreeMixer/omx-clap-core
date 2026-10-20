@@ -97,6 +97,16 @@ int effects_transport_sync(const char *mode);
 void effects_follow_jack_transport(int on);
 /* -c, before the first add: the lane's width, 1 or 2, asked of a plugin whose main ports differ (request_layout) */
 void effects_set_lane_channels(uint32_t channels);
+/* the CPU idle hold's word, as --idle-hold and the idle_hold command take it: "off", or a latency in microseconds, 0 for
+ * no idle state; 0 for a word that is neither */
+int effects_idle_hold_word(const char *word, int32_t *target_us);
+/* --idle-hold, before the first add: what /dev/cpu_dma_latency is held at while a plugin is active (#296) */
+void effects_set_idle_hold(int32_t target_us);
+/* idle_hold <word>: the target changed at once, ERR_INVALID_OPERATION for a word effects_idle_hold_word refuses */
+int effects_idle_hold_set(const char *word);
+/* idle_hold: "resp 0 <target> <held> <aggregate> <active> <code>", target and held "off" or microseconds, aggregate the
+ * device's own answer or "-", active the plugins active, code the refusal or "-" */
+int effects_idle_hold(char *reply, size_t size);
 /* note_out_drops: "resp 0 <dropped> <unmapped> <port_full>", the instance's note output counters since add */
 int effects_note_out_drops(int effect_id, char *reply, size_t size);
 /* note_input: "resp 0 midi_in" or "resp 0 -", whether the instance takes notes */

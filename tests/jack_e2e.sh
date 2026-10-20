@@ -258,7 +258,7 @@ sleep 0.3
 # ---- -c 1: a mono lane asked; the configs plugin offers no mono pair, its declared layout stands ----
 run "$host" -n -c 3 -p "$((port + 1))" >"$runtime/host3.log" 2>&1
 [ $? -ne 0 ] && grep -q -- "-c" "$runtime/host3.log"; step $? "-c 3 is refused: the lane is one or two channels ($(head -1 "$runtime/host3.log"))"
-"$host" -n -c 1 -p "$((port + 1))" >"$runtime/host1.log" 2>&1 &
+"$host" -n -c 1 --idle-hold=off -p "$((port + 1))" >"$runtime/host1.log" 2>&1 &
 pids+=($!)
 for _ in $(seq 50); do grep -q "ready!" "$runtime/host1.log" && break; sleep 0.1; done
 grep -q "ready!" "$runtime/host1.log"; step $? "omx-clap-host -c 1 ready on port $((port + 1))"
@@ -267,6 +267,15 @@ exec 3<>"/dev/tcp/127.0.0.1/$((port + 1))"
 expect "add clap:$fake#org.omx-clap-host.test.configs 0" "resp 0"
 graph_has effect_0:in_1 && ! graph_has effect_0:in_2 && graph_has effect_0:out_1 && graph_has effect_0:out_2
 step $? "under -c 1 the mono pair is asked, no config offers it: the declared in_1, out_1 and out_2 stand"
+# the CPU idle hold (#296), as the option set it: off holds nothing, whatever the device allows
+device=${OMX_CLAP_IDLE_HOLD_DEVICE:-/dev/cpu_dma_latency}
+device_reads() { od -An -td4 "$device" 2>/dev/null | tr -d ' '; }
+if [ -w "$device" ]; then idle_arm=held; before=$(device_reads); else idle_arm=refused; before=-; fi
+# the device answers the kernel's limit across every holder: what this host's hold makes it read is its target, or
+# the lower value someone else holds (the resting policy here, tuned's 4000, is above both targets this script sets)
+held_reads() { if [ "$before" != - ] && [ "$before" -lt "$1" ]; then echo "$before"; else echo "$1"; fi; }
+expect "idle_hold" "resp 0 off off $before 1 -"
+[ "$idle_arm" = refused ] || [ "$(device_reads)" = "$before" ]; step $? "--idle-hold=off: an active plugin holds nothing ($(device_reads))"
 expect "add clap:$fake#org.omx-clap-host.test.configurable 1" "resp 1"
 graph_has effect_1:in_1 && ! graph_has effect_1:in_2 && graph_has effect_1:out_1 && ! graph_has effect_1:out_2
 step $? "the configurable plugin, declared stereo, applies the mono pair asked: in_1 and out_1"
@@ -292,6 +301,73 @@ wait "$source_pid" 2>/dev/null
 expect "quit" "resp 0"
 sleep 0.3
 [ "$(nodes effect_0)" -eq 0 ]; step $? "the -c 1 host left no node"
+
+# ---- the CPU idle hold (#296): /dev/cpu_dma_latency, as this namespace may open it ----
+# with the udev rule (the audio group, mode 0660) the host holds the device while a plugin is active, the device reads
+# the target, the idle_hold command changes it at once, and the hold dies with the process: a SIGKILLed host leaves
+# the device at its previous value. Without the rule the host starts, adds and runs, and names the refusal by code,
+# on stderr once and in every idle_hold answer.
+echo "     idle hold arm: $idle_arm (the device $device $([ "$idle_arm" = held ] && echo "reads $before with no plugin held" || echo "is not writable here"))"
+"$host" -n -p "$((port + 2))" >"$runtime/host9.log" 2>&1 &
+host9=$!
+pids+=("$host9")
+for _ in $(seq 50); do grep -q "ready!" "$runtime/host9.log" && break; sleep 0.1; done
+grep -q "ready!" "$runtime/host9.log"; step $? "a third host, the default hold (10 us), ready on port $((port + 2))"
+exec 3>&-
+exec 3<>"/dev/tcp/127.0.0.1/$((port + 2))"
+expect "idle_hold" "resp 0 10 off $before 0 -"
+expect "idle_hold -5" "resp -902"
+expect "idle_hold soon" "resp -902"
+expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
+case $idle_arm in
+    held)
+        expect "idle_hold" "resp 0 10 10 $(held_reads 10) 1 -"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "the device reads $(held_reads 10) while effect_0 is active ($(device_reads))"
+        expect "idle_hold 0" "resp 0"
+        [ "$(device_reads)" = "$(held_reads 0)" ]; step $? "idle_hold 0: the device reads 0, no idle state ($(device_reads))"
+        expect "idle_hold off" "resp 0"
+        [ "$(device_reads)" = "$before" ]; step $? "idle_hold off: the device reads $before again ($(device_reads))"
+        expect "idle_hold" "resp 0 off off $before 1 -"
+        expect "idle_hold 10" "resp 0"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "idle_hold 10: held again ($(device_reads))"
+        expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 1" "resp 1"
+        expect "remove 0" "resp 0"
+        expect "idle_hold" "resp 0 10 10 $(held_reads 10) 1 -"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "one of two removed: still held for the other ($(device_reads))"
+        expect "remove 1" "resp 0"
+        [ "$(device_reads)" = "$before" ]; step $? "every plugin removed: the device reads $before again ($(device_reads))"
+        expect "idle_hold" "resp 0 10 off $before 0 -"
+        expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "added again: held at 10 ($(device_reads))"
+        expect "quit" "resp 0"
+        sleep 0.3
+        [ "$(device_reads)" = "$before" ]; step $? "stopped with a plugin active: the device reads $before again ($(device_reads))"
+        exec 3>&-
+        "$host" -n -p "$((port + 3))" >"$runtime/host10.log" 2>&1 &
+        host10=$!
+        pids+=("$host10")
+        for _ in $(seq 50); do grep -q "ready!" "$runtime/host10.log" && break; sleep 0.1; done
+        grep -q "ready!" "$runtime/host10.log"; step $? "a fourth host, ready on port $((port + 3))"
+        exec 3<>"/dev/tcp/127.0.0.1/$((port + 3))"
+        expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "the fourth host holds at 10 ($(device_reads))"
+        kill -9 "$host10"
+        wait "$host10" 2>/dev/null
+        sleep 0.2
+        [ "$(device_reads)" = "$before" ]; step $? "SIGKILLed: the device reads $before again, the kernel dropped the request ($(device_reads))" ;;
+    refused)
+        expect "idle_hold" "resp 0 10 off - 1 hosting.idle.hold-refused"
+        [ "$(grep -c 'hosting.idle.hold-refused' "$runtime/host9.log")" = 1 ]; step $? "the refusal is said on stderr once ($(grep -c 'hosting.idle.hold-refused' "$runtime/host9.log"))"
+        expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 1" "resp 1"
+        expect "idle_hold" "resp 0 10 off - 2 hosting.idle.hold-refused"
+        [ "$(grep -c 'hosting.idle.hold-refused' "$runtime/host9.log")" = 1 ]; step $? "still said once after a second add"
+        expect "idle_hold 0" "resp 0"
+        expect "idle_hold" "resp 0 0 off - 2 hosting.idle.hold-refused"
+        expect "remove 0" "resp 0"
+        expect "remove 1" "resp 0"
+        expect "idle_hold" "resp 0 0 off - 0 hosting.idle.hold-refused"
+        expect "quit" "resp 0" ;;
+esac
 
 if [ "$failures" -eq 0 ]; then
     echo "jack e2e ok"
