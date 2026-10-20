@@ -20,10 +20,6 @@
       "clapLatencyMismatch": {
         "code": "hosting.clap.latency-mismatch"
       },
-      "clapNotAudioEffect": {
-        "code": "hosting.clap.not-audio-effect",
-        "doc": "the plugin is not an audio effect"
-      },
       "clapNoteInput": {
         "code": "hosting.clap.note-input",
         "doc": "the plugin declares a note input the configuration refuses"
