@@ -654,6 +654,14 @@ static void t_sources(void)
     lv2_plugin_close(p);
 }
 
+/* one block of a pass-through plugin under the allocation guard: nothing of its own to feed or read but the controls */
+static void run_ctl(struct lv2_instance *in)
+{
+    g_in_run = 1;
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    g_in_run = 0;
+}
+
 /* #253: a control-only plugin (control ports alone) and a MIDI sink (a MIDI input and control ports, nothing out) are hosted
  * as pass-through tools: no leg of their own, every port connected (the fixtures dereference each one), run() every
  * block and the control outputs read after it */
@@ -674,13 +682,11 @@ static void t_control_only(void)
     if (amount >= 0 && twice >= 0 && lv2_plugin_load(p, why) == 0 && (in = lv2_instance_new(p)) && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0)
     {
         lv2_instance_control_set(in, (uint32_t)amount, 0.25f);
-        g_in_run = 1;
-        lv2_instance_run(in, BLOCK, NULL, NULL);
-        g_in_run = 0;
+        run_ctl(in);
         CHECK(lv2_instance_control_get(in, (uint32_t)twice) == 0.5f, "control only: a block with `amount` 0.25 reads `twice` 0.5 after it (%g)",
               lv2_instance_control_get(in, (uint32_t)twice));
         lv2_instance_control_set(in, (uint32_t)amount, 0.75f);
-        lv2_instance_run(in, BLOCK, NULL, NULL);
+        run_ctl(in);
         CHECK(lv2_instance_control_get(in, (uint32_t)twice) == 1.5f, "control only: the next block with `amount` 0.75 reads 1.5 (%g)",
               lv2_instance_control_get(in, (uint32_t)twice));
     }
@@ -699,10 +705,10 @@ static void t_control_only(void)
         lv2_instance_midi_in_add(in, 0, note, 3);
         lv2_instance_midi_in_add(in, 7, cc, 3);
         lv2_instance_midi_in_add(in, 40, off, 3);
-        lv2_instance_run(in, BLOCK, NULL, NULL);
+        run_ctl(in);
         CHECK(lv2_instance_control_get(in, (uint32_t)notes) == 3.0f, "midi sink: a block with 3 MIDI events reads `notes` 3 (%g)",
               lv2_instance_control_get(in, (uint32_t)notes));
-        lv2_instance_run(in, BLOCK, NULL, NULL);
+        run_ctl(in);
         CHECK(lv2_instance_control_get(in, (uint32_t)notes) == 0.0f, "midi sink: the next block, with none, reads 0 (%g)",
               lv2_instance_control_get(in, (uint32_t)notes));
     }
