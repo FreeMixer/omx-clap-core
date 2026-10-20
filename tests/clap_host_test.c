@@ -210,10 +210,12 @@ static void t_run_ports(const char *path)
 }
 
 /*
- * A plugin whose deactivate says its layout changed (`what`, the host's surround or ambisonic changed): activated, a
- * restart around a deactivate and the first tick after it read no restart and no rescan (activate answers what its own
- * deactivate raised); a plain deactivate's changed is reported once by the tick, then cleared, and asks for no restart;
- * the host's clap.audio-ports rescan, by names while active and of the list while inactive, is reported the same way.
+ * A plugin whose deactivate says its layout changed (`what`, the host's surround or ambisonic changed), CLAP's sequence
+ * for a layout change: a restart leaves it inactive with the rescan reported once and its audio role kept, and
+ * request_layout (nothing asked) reads the description again and answers it, so after the activate the next tick shows
+ * none; a plain deactivate's changed is reported once by the tick, then cleared, and asks for no restart, and one
+ * request_layout answered before the tick is not reported at all; the host's clap.audio-ports rescan, by names while
+ * active and of the list while inactive, is reported the same way.
  */
 static void rescan_checks(struct omx_clap_instance *in, const char *id, const char *what)
 {
@@ -222,10 +224,21 @@ static void rescan_checks(struct omx_clap_instance *in, const char *id, const ch
 
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", id, why);
     CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: the first tick after activate: no restart, no rescan", id);
-    CHECK(omx_clap_host_restart(in) == 0, "%s restarts: its deactivate calls %s", id, what);
-    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0,
-          "%s: the first tick after the restart: no restart, no rescan (activate answered its deactivate's %s)", id, what);
-    CHECK(omx_clap_host_tick(in) == 0, "%s: and none on the next tick either: no restart loop", id);
+    {
+        const pthread_t thread = in->audio_thread;
+        const int held = in->audio_role_held;
+
+        CHECK(omx_clap_host_restart(in) == -1 && !in->active, "%s: a restart whose deactivate calls %s leaves it inactive", id, what);
+        CHECK(pthread_equal(in->audio_thread, thread) && in->audio_role_held == held, "%s: with its audio role as it was", id);
+    }
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: the rescan its deactivate made is reported once, no restart", id);
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates again", id);
+    CHECK(omx_clap_host_restart(in) == -1 && !in->active, "%s: restarted again, inactive again", id);
+    CHECK(omx_clap_host_request_layout(in, NULL, 0, why) == OMX_CLAP_LAYOUT_DECLARED && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: request_layout, nothing asked, reads the description again and answers the reported rescan", id);
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s: and it activates (%s)", id, why);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: the next tick shows no rescan, no restart", id);
     CHECK(ports != NULL, "the host offers clap.audio-ports");
     if (ports)
     {
@@ -237,6 +250,11 @@ static void rescan_checks(struct omx_clap_instance *in, const char *id, const ch
     CHECK(omx_clap_host_tick(in) == 0, "%s: %s after a plain deactivate asks for no restart", id, what);
     CHECK(omx_clap_host_ports_rescanned(in) == 1, "%s: the tick reports %s as a ports rescan", id, what);
     CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: reported once, then cleared", id);
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates once more", id);
+    omx_clap_host_deactivate(in);
+    CHECK(omx_clap_host_request_layout(in, NULL, 0, why) == OMX_CLAP_LAYOUT_DECLARED, "%s: deactivated, the description read again", id);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: the %s of that deactivate, answered by the read before the tick, is not reported", id, what);
     if (ports)
     {
         ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
@@ -841,6 +859,15 @@ static void t_request_layout(const char *path)
     int ret;
 
     CHECK(omx_clap_host_request_layout(NULL, reqs, 0, why) == -1, "request_layout: no instance is -1");
+    CHECK(open_ok(path, FAKE_CONFIGS, &in), "open %s", FAKE_CONFIGS);
+    if (in)
+    {
+        strcpy(why, "untouched");
+        CHECK(omx_clap_host_request_layout(in, NULL, 1, why) == -1 && strcmp(why, "untouched") == 0 && in->in_channels == 1,
+              "request_layout: requests counted but none given is -1, why untouched, nothing applied");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
 
     // audio-ports-config: the stereo pair selected, a layout no config offers left as it is
     CHECK(open_ok(path, FAKE_CONFIGS, &in) && in->in_channels == 1 && in->channels == 2, "%s opens as it declares: one channel in, two out",
