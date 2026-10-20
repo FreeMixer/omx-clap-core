@@ -88,6 +88,7 @@
 #include <clap/factory/preset-discovery.h>
 #include <clap/ext/note-ports.h>
 
+#include "clap_host_limits.h"
 #include "lv2_core.h"
 #include "omx_clap_midi.h"
 #include "omx_clap_lv2.h"
@@ -97,6 +98,10 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "param_contract.h"
 #pragma GCC diagnostic pop
+
+// a side chain is one CLAP auxiliary input: the adapter admits exactly what the core's limits admit
+_Static_assert(LV2_CORE_AUX_PORTS == CLAP_HOST_AUX_INPUTS, "the side chains are the core's auxiliary inputs");
+_Static_assert(LV2_CORE_SIDE_CHANNELS == CLAP_HOST_PORT_CHANNELS, "a side chain's channels are a port's");
 
 
 /*
@@ -537,7 +542,7 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
     {
         snprintf(info->name, sizeof(info->name), "%s", s->lv2->side_name[index - 1]);
         info->channel_count = s->lv2->side_channels[index - 1];
-        info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+        info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : info->channel_count == 1 ? CLAP_PORT_MONO : NULL;
     }
     else
     {

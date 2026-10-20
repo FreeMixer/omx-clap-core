@@ -19,7 +19,7 @@ binary's rpath; `JACK_DIR` defaults to `../jack-dev`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
-builds `libomx-clap-core.so.0`, checks its exports and the libraries it needs
+builds `libomx-clap-core.so.1`, checks its exports and the libraries it needs
 (`tests/exports.sh`), links `tests/core_link_test.c` to the installed library
 and runs it with the defaults, and runs the lifecycle test against a plugin without jack, and against
 `tests/fake.clap`, a plugin built for the test that carries the port
@@ -146,7 +146,7 @@ The core library
 ----------------
 
 The CLAP hosting core, everything that runs a plugin except the jack plumbing and
-the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.0`, so that
+the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.1`, so that
 a program that hosts CLAP plugins in its own process runs the same core. omx-clap-host
 and omx-clap-scan link it; a program that hosts plugins in its own process links the same file.
 
@@ -163,7 +163,7 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number the core reads, rendered from
   `data/hosting.json` and committed here; never edited by hand. The refusal codes
-  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.18.0 or later):
+  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.19.0 or later):
   `clap_host.h` names the core's as `CLAP_HOST_CODE_*`.
 - `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
   worker's two included, for a host that reads those names; rendered from the same
@@ -216,22 +216,23 @@ What a host differs in is a configuration, set once per process with
 | note inputs and instruments | refused | admitted |
 | `clap.preset-load` host extension | not offered | offered |
 | `clap.track-info` and `clap.remote-controls` host extensions | not offered | offered |
+| widest main port activation admits (`lane_channels`; 0 any) | 2 | 2 |
 | host name, vendor, url | omx-clap-core, Pau Aliagas | omx-clap-host, Pau Aliagas |
 
-The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core0`
+The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core1`
 and `libomx-clap-core-dev` (deb), built from the same tag as omx-clap-host, which
 depends on the library.
 
 The version rule: a field is only ever appended to a structure and a function only
 added, and that is a new minor (`0.1.0` to `0.2.0`, the soname unchanged); a field or a
 function removed, moved or changed is a new soname major (`libomx-clap-core.so.1`, a new
-package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.0.abi`,
+package name). `make abi-check` compares a build with `abi/libomx-clap-core.so.1.abi`,
 the baseline of the last release, with libabigail's `abidiff`, and CI runs it on every
 push and before every release. `abidw` leaves `_Atomic` members out of its dump, so
 `make abi-check` also runs `tests/abi-layout.sh`: it reads every public structure,
 member by member (offset, size and type, atomics included), with `pahole` (the
 dwarves package) from an object built from the installed headers, and holds them to
-`abi/libomx-clap-core.so.0.layout` under the same rule. A release commit records both
+`abi/libomx-clap-core.so.1.layout` under the same rule. A release commit records both
 baselines with `make abi-baseline` and commits `abi/`.
 
 The message ring
