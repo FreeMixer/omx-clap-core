@@ -458,12 +458,12 @@ abi-check: abi-stage
 
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
-test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap $(CORE_SO)
+test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/fault-1.clap $(CORE_SO)
 	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
-	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
+	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fault-1.clap)
 
 tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	rm -rf build/stage

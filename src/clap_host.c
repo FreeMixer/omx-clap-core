@@ -1446,7 +1446,7 @@ static void contract_recheck(struct omx_clap_instance *in)
     log_to_ring(in, text);
 }
 
-/* The one judgment every door shares: descriptor, feature, create and init, extensions, ports. Takes over the caller's
+/* The one judgment every door shares: descriptor, create and init, extensions, ports. Takes over the caller's
  * reference on `bin`. */
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
 {
@@ -1472,13 +1472,8 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
         return -1;
     }
-    if (!omx_clap_host_has_feature(desc, CLAP_PLUGIN_FEATURE_AUDIO_EFFECT)
-        && !(g_config.note_inputs && omx_clap_host_has_feature(desc, CLAP_PLUGIN_FEATURE_INSTRUMENT)))
-    {
-        binary_unref(bin);
-        why_set(why, CLAP_HOST_CODE_NOT_AUDIO_EFFECT);
-        return -1;
-    }
+    // the feature list is a label and refuses nothing (#257): what the plugin declares on its ports decides, in
+    // describe_ports, as the LV2 adapter decides by a plugin's ports
     if (instance_create(bin, desc, &in) != 0)
     {
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
