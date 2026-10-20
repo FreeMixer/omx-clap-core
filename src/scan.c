@@ -308,7 +308,8 @@ static const char *normalization_name(uint32_t normalization)
 /*
  * What a surround or an ambisonic port's channels are, as the description reads them: a surround port's map from
  * clap.surround (the ids as the plugin names them, as many as it stores), in index order without it; an ambisonic
- * port's ordering and normalisation from clap.ambisonic, ACN and SN3D without it. Nothing for any other port, nor for
+ * port's ordering and normalisation from clap.ambisonic, ACN and SN3D marked assumed without it or when its get_config
+ * answers false (the core's ambisonic_assumed). Nothing for any other port, nor for
  * a surround port of more than CLAP_HOST_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is printed
  * as long as the plugin says it is, up to CLAP_HOST_PORT_CHANNELS ids.
  */
@@ -339,10 +340,15 @@ static void put_layout(FILE *out, const struct omx_clap_instance *instance, cons
     {
         clap_ambisonic_config_t config = { CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
 
-        if (instance->ambisonic && instance->ambisonic->get_config && !instance->ambisonic->get_config(instance->plugin, is_input, index, &config))
+        bool assumed = !(instance->ambisonic && instance->ambisonic->get_config
+                         && instance->ambisonic->get_config(instance->plugin, is_input, index, &config));
+
+        if (assumed)
             config = (clap_ambisonic_config_t){ CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
         fprintf(out, g_json ? ",\"ordering\":\"%s\",\"normalization\":\"%s\"" : " %s %s", ordering_name(config.ordering),
                 normalization_name(config.normalization));
+        if (assumed)
+            fputs(g_json ? ",\"assumed\":true" : " assumed", out);
     }
 }
 
