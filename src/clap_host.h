@@ -546,8 +546,8 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
 
 /**
  * Load the .clap at `path`, create the plugin `id` (NULL: the factory's first descriptor), init it and read its
- * extensions, each step judged: the descriptor must carry audio-effect (or, where the configuration admits note inputs,
- * instrument), init must succeed headless with only the declared host extensions offered, the audio ports must declare
+ * extensions, each step judged: the descriptor's feature list is not read (a plugin is admitted by its ports, #257),
+ * init must succeed headless with only the declared host extensions offered, the audio ports must declare
  * one main output and at most one main input (none for a source), the two of any widths, every port of 1 to
  * CLAP_HOST_PORT_CHANNELS channels and at most CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS auxiliary ports, and no
  * note input unless the configuration admits one; every port is described in the instance (main_in, main_out, aux_in,
