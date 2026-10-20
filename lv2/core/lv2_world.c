@@ -109,7 +109,7 @@ enum
     N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
     N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
-    N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_COUNT
+    N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -159,6 +159,8 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_PG_SIDECHAIN_OF] = LV2_PORT_GROUPS__sideChainOf,
     [N_PG_MAIN_INPUT] = LV2_PORT_GROUPS__mainInput,
     [N_LABEL] = LV2_RDFS_LABEL,
+    [N_PSET_PRESET] = "http://lv2plug.in/ns/ext/presets#Preset",
+    [N_APPLIES_TO] = LV2_CORE__appliesTo,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -1532,4 +1534,55 @@ int lv2_plugin_state_check(const char *text, LV2_URID_Map *map)
         return -1;
     L.lilv_state_free(state);
     return 0;
+}
+
+/* the presets of one plugin of the bundle: every pset:Preset that lv2:appliesTo it, in the world's order, with its
+ * rdfs:label (the preset's resource is loaded for the label, as for its state, then unloaded; a preset with no label
+ * is named by its URI) */
+static int plugin_presets(const struct lv2_bundle *b, uint32_t index, lv2_preset_fn fn, void *ctx, int *stopped)
+{
+    LilvNode *plugin = L.lilv_new_uri(g.world, b->uris[index]);
+    LilvNodes *presets;
+    LilvIter *it;
+    int listed = 0;
+
+    if (!plugin)
+        return 0;
+    presets = L.lilv_world_find_nodes(g.world, NULL, g.node[N_APPLIES_TO], plugin);
+    for (it = presets ? L.lilv_nodes_begin(presets) : NULL; it && !L.lilv_nodes_is_end(presets, it) && !*stopped;
+         it = L.lilv_nodes_next(presets, it))
+    {
+        const LilvNode *preset = L.lilv_nodes_get(presets, it);
+        LilvNodes *labels;
+        char *label;
+
+        if (!L.lilv_world_ask(g.world, preset, g.node[N_RDF_TYPE], g.node[N_PSET_PRESET]))
+            continue;
+        L.lilv_world_load_resource(g.world, preset);
+        labels = L.lilv_world_find_nodes(g.world, preset, g.node[N_RDFS_LABEL], NULL);
+        label = first_string(labels);
+        if (labels)
+            L.lilv_nodes_free(labels);
+        L.lilv_world_unload_resource(g.world, preset);
+        listed++;
+        if (fn && fn(ctx, b->uris[index], L.lilv_node_as_uri(preset), label ? label : L.lilv_node_as_uri(preset)) != 0)
+            *stopped = 1;
+        free(label);
+    }
+    if (presets)
+        L.lilv_nodes_free(presets);
+    L.lilv_node_free(plugin);
+    return listed;
+}
+
+int lv2_bundle_presets(const struct lv2_bundle *b, lv2_preset_fn fn, void *ctx)
+{
+    uint32_t i;
+    int listed = 0, stopped = 0;
+
+    if (!b || !g.world)
+        return -1;
+    for (i = 0; i < b->count && !stopped; i++)
+        listed += plugin_presets(b, i, fn, ctx, &stopped);
+    return listed;
 }

@@ -103,6 +103,7 @@ static void fake_checks(const char *scan, const char *fake, char *out)
           "the wide plugin's 4-channel main input");
     CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":1}"), "the sidechain plugin's aux input");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
+    CHECK(!has(out, "\"presets\""), "fake.clap has no preset-discovery factory: no presets key");
     CHECK(count(out, "\"latency\":64") == 6, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
     CHECK(!has(out, "\"error\""), "no error on a clean file");
 }
@@ -235,7 +236,17 @@ static void synth_checks(const char *scan, const char *synth, char *out)
     CHECK(count(out, "\"note_names\":") == 1, "only synth-poly lists note names (%i)", count(out, "\"note_names\":"));
     CHECK(has(out, "\"voice_info\":{\"count\":4,\"capacity\":8,\"overlapping_notes\":true}") && count(out, "\"voice_info\":") == 1,
           "synth-poly's voice info, 4 of 8 voices with overlapping notes, and no other plugin's (%i)", count(out, "\"voice_info\":"));
+    // the file's preset-discovery factory: its PLUGIN location's two presets, with name, location and load key
+    CHECK(has(out, "\"presets\":[\n{\"name\":\"Init\",\"location_kind\":\"plugin\",\"location\":null,\"load_key\":\"init\","
+                   "\"provider\":\"org.omx-clap-host.test.presets\",\"plugins\":[\"org.omx-clap-host.test.synth-poly\"],\"flags\":[\"factory\"]},\n"
+                   "{\"name\":\"Bright \\\"pad\\\"\",\"location_kind\":\"plugin\",\"location\":null,\"load_key\":\"bright\","
+                   "\"provider\":\"org.omx-clap-host.test.presets\",\"plugins\":[\"org.omx-clap-host.test.synth-poly\"],"
+                   "\"flags\":[\"factory\",\"favorite\"]}\n]}"),
+          "the file's two presets: name, location kind and location, load key, provider, plugin and flags");
+    CHECK(count(out, "\"presets\":") == 1, "listed once, for the file (%i)", count(out, "\"presets\":"));
     status = run(out, "%s %s", scan, synth);
+    CHECK(status == 0 && has(out, "  preset \"Init\" plugin - key init for org.omx-clap-host.test.synth-poly\n"),
+          "the presets in the listing for a person");
     CHECK(status == 0 && has(out, "    note name \"Kick\" port -1 key 36 channel -1\n") && has(out, "    voices 4 of 8, overlapping notes\n"),
           "and in the listing for a person (%i)", status);
 }
