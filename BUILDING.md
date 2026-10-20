@@ -330,7 +330,7 @@ are the whole public surface:
     omx_clap_lv2_entry_release(entry);
 
 A plugin the adapter cannot run is refused by `create_plugin`, which writes the
-reason (the verdict's code, such as `hosting.features.cv-ports`) to the host's
+reason (the verdict's code, such as `hosting.topology.too-many-ports`) to the host's
 `clap.log`.
 
 The feature options are one struct, `omx_lv2_feature_options`, which

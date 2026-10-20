@@ -26,8 +26,14 @@
  *   e      = e + 0.125 * (|out[i]| - e),   env[i] = e
  *
  * so the audio output follows the CV input frame by frame, and the CV output carries a state that runs on across run()
- * calls (reset by activate). The #many twin declares nine CV inputs and has no descriptor: the host refuses it from the
- * TTL. Nothing is allocated or locked in run().
+ * calls (reset by activate). The #many twin has sixteen CV inputs at ports 2 to 17 and the #many-out twin sixteen CV
+ * outputs there (ams-lv2's multiphase_lfo has sixteen, #268); each port carries a weight of its own, so a value read
+ * proves which of the sixteen reached run():
+ *
+ *   many:      out[i] = in[i] + sum over k of (k + 1) * cv_k[i]
+ *   many-out:  out[i] = in[i],  cv_k[i] = (k + 1) * in[i]
+ *
+ * Nothing is allocated or locked in run().
  */
 
 #include <math.h>
@@ -36,27 +42,46 @@
 #include <lv2/core/lv2.h>
 
 #define CV_FIXTURE_URI "urn:openmixer:test:cv-fixture"
+#define MANY 16u
+
+enum twin { BASE, MANY_IN, MANY_OUT, N_TWINS };
 
 struct cv_fixture
 {
+    enum twin twin;
     const float *in, *mod;
     float *out, *env;
+    const float *cv[MANY];  // many: the sixteen CV inputs
+    float *cvo[MANY];       // many-out: the sixteen CV outputs
     float e;
 };
 
+static const LV2_Descriptor descriptors[N_TWINS];
+
 static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features)
 {
-    (void)d;
+    struct cv_fixture *s = calloc(1, sizeof(*s));
+
     (void)rate;
     (void)path;
     (void)features;
-    return calloc(1, sizeof(struct cv_fixture));
+    if (s)
+        s->twin = (enum twin)(d - descriptors);
+    return s;
 }
 
 static void connect_port(LV2_Handle handle, uint32_t port, void *data)
 {
     struct cv_fixture *s = handle;
 
+    if (s->twin != BASE && port >= 2 && port < 2 + MANY)
+    {
+        if (s->twin == MANY_IN)
+            s->cv[port - 2] = data;
+        else
+            s->cvo[port - 2] = data;
+        return;
+    }
     switch (port)
     {
     case 0: s->in = data; break;
@@ -76,8 +101,30 @@ static void run(LV2_Handle handle, uint32_t n)
 {
     struct cv_fixture *s = handle;
     float e = s->e;
-    uint32_t i;
+    uint32_t i, k;
 
+    if (s->twin == MANY_IN)
+    {
+        for (i = 0; i < n; i++)
+        {
+            float v = s->in[i];
+
+            for (k = 0; k < MANY; k++)
+                v += (float)(k + 1) * s->cv[k][i];
+            s->out[i] = v;
+        }
+        return;
+    }
+    if (s->twin == MANY_OUT)
+    {
+        for (i = 0; i < n; i++)
+        {
+            s->out[i] = s->in[i];
+            for (k = 0; k < MANY; k++)
+                s->cvo[k][i] = (float)(k + 1) * s->in[i];
+        }
+        return;
+    }
     for (i = 0; i < n; i++)
     {
         const float y = s->in[i] * s->mod[i];
@@ -99,11 +146,12 @@ static void cleanup(LV2_Handle handle)
     free(handle);
 }
 
-static const LV2_Descriptor g_descriptor = {
-    CV_FIXTURE_URI, instantiate, connect_port, activate, run, deactivate, cleanup, NULL
+#define TWIN(name) { CV_FIXTURE_URI name, instantiate, connect_port, activate, run, deactivate, cleanup, NULL }
+static const LV2_Descriptor descriptors[N_TWINS] = {
+    [BASE] = TWIN(""), [MANY_IN] = TWIN("#many"), [MANY_OUT] = TWIN("#many-out")
 };
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &g_descriptor : NULL;
+    return index < N_TWINS ? &descriptors[index] : NULL;
 }
