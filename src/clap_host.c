@@ -167,12 +167,78 @@ static struct omx_clap_binary *binary_adopt(const char *path, void *so, const cl
     return binary;
 }
 
-/* A foreign .clap: one dlopen per path. */
+int omx_clap_host_bundle_object(const char *dir, char *object, size_t cap, char *reason, size_t reason_size)
+{
+    DIR *handle = opendir(dir);
+    struct dirent *entry;
+    char clap_one[PATH_MAX] = "", so_one[PATH_MAX] = "";
+    unsigned n_clap = 0, n_so = 0;
+
+    if (!handle)
+    {
+        snprintf(reason, reason_size, "can't read %s: %s", dir, strerror(errno));
+        return 0;
+    }
+    while ((entry = readdir(handle)) != NULL)
+    {
+        const size_t n = strlen(entry->d_name);
+        char path[PATH_MAX];
+        struct stat st;
+        int is_clap = n > 5 && strcmp(entry->d_name + n - 5, ".clap") == 0;
+        int is_so = n > 3 && strcmp(entry->d_name + n - 3, ".so") == 0;
+
+        if (!is_clap && !is_so)
+            continue;
+        if (snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name) >= (int)sizeof(path))
+            continue;
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
+            continue;
+        if (is_clap)
+        {
+            if (n_clap++ == 0)
+                snprintf(clap_one, sizeof(clap_one), "%s", path);
+        }
+        else if (n_so++ == 0)
+            snprintf(so_one, sizeof(so_one), "%s", path);
+    }
+    closedir(handle);
+    if (n_clap == 1 || (n_clap == 0 && n_so == 1))
+    {
+        if (snprintf(object, cap, "%s", n_clap ? clap_one : so_one) >= (int)cap)
+        {
+            snprintf(reason, reason_size, "the object's path does not fit %zu bytes", cap);
+            return 0;
+        }
+        return 1;
+    }
+    if (n_clap > 1)
+    {
+        snprintf(reason, reason_size, "%u .clap files, one expected", n_clap);
+        return (int)n_clap;
+    }
+    if (n_so > 1)
+    {
+        snprintf(reason, reason_size, "%u shared objects, one expected", n_so);
+        return (int)n_so;
+    }
+    snprintf(reason, reason_size, "no shared object in %s", dir);
+    return 0;
+}
+
+/* A foreign .clap: one dlopen per path. A bundle directory is its one object, keyed by the object's path. */
 static struct omx_clap_binary *binary_ref(const char *path, char *reason, size_t reason_size)
 {
     struct omx_clap_binary *binary;
     void *so;
+    struct stat st;
+    char object[PATH_MAX];
 
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
+    {
+        if (omx_clap_host_bundle_object(path, object, sizeof(object), reason, reason_size) != 1)
+            return NULL;
+        path = object;
+    }
     for (binary = g_binaries; binary; binary = binary->next)
     {
         if (binary->so && strcmp(binary->path, path) == 0)
