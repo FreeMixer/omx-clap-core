@@ -46,7 +46,8 @@
  *   org.omx-clap-host.test.surround-plain a 6-channel main pair of port type surround and no clap.surround
  *   org.omx-clap-host.test.ambisonic   a first-order main pair, 4 channels of port type ambisonic, and clap.ambisonic:
  *                                      ACN, SN3D, that configuration supported; deactivate calls the host's
- *                                      ambisonic.changed
+ *                                      ambisonic.changed (with FAKE_AMBISONIC_SILENT set, get_config answers false:
+ *                                      the plugin states no configuration)
  *   org.omx-clap-host.test.ambisonic-bad the same of 5 channels, no (order+1)²
  *   org.omx-clap-host.test.configs     a mono main input and a stereo main output, and clap.audio-ports-config: config
  *                                      1 that layout, config 2 a stereo main pair; select names the main ports "in 0
@@ -351,7 +352,7 @@ static bool ambisonic_get_config(const clap_plugin_t *plugin, bool is_input, uin
 {
     (void)is_input;
     main_thread_only(plugin, "ambisonic.get_config");
-    if (port_index != 0)
+    if (port_index != 0 || getenv("FAKE_AMBISONIC_SILENT"))
         return false;
     config->ordering = CLAP_AMBISONIC_ORDERING_ACN;
     config->normalization = CLAP_AMBISONIC_NORMALIZATION_SN3D;
