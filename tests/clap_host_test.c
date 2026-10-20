@@ -894,6 +894,23 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // a config naming no port type: a stereo request of two channels matches it
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_UNTYPED", &in), "%s opens, its configs naming no port type", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: an untyped config of two channels matches a stereo request (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        reqs[0] = main_request(true, 2, CLAP_PORT_SURROUND, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_SURROUND, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED, "%s: but not a surround request of two (%d)", FAKE_CONFIGS, ret);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // configurable-audio-ports: applied
     CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
     if (in)

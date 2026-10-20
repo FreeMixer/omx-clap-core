@@ -974,15 +974,21 @@ static const char *request_supported(const struct omx_clap_instance *in, const c
     return NULL;
 }
 
-/* two port types the same: both none, or the same id */
-static bool same_port_type(const char *a, const char *b)
+/* A config's main port type against a request's: the same id, or both none; and a config naming none (unspecified,
+ * as audio-ports.h allows) matches a mono request of one channel or a stereo request of two, the types those widths
+ * mean. */
+static bool config_type_matches(const char *config_type, const clap_audio_port_configuration_request_t *r)
 {
-    return a == b || (a && b && !strcmp(a, b));
+    if (config_type == r->port_type || (config_type && r->port_type && !strcmp(config_type, r->port_type)))
+        return true;
+    return !config_type && r->port_type
+           && ((r->channel_count == 1 && !strcmp(r->port_type, CLAP_PORT_MONO))
+               || (r->channel_count == 2 && !strcmp(r->port_type, CLAP_PORT_STEREO)));
 }
 
 /* Whether an audio-ports-config is the requests: only main ports asked (index 0, one per side at most), the config's
  * port counts one for each side asked and none for a side not asked, and the main channels and port types the asked
- * ones. A config says nothing of an auxiliary port's width, so a request past the main ports
+ * ones (config_type_matches). A config says nothing of an auxiliary port's width, so a request past the main ports
  * matches none. */
 static bool config_matches(const clap_audio_ports_config_t *config, const clap_audio_port_configuration_request_t *reqs, uint32_t n)
 {
@@ -1000,10 +1006,10 @@ static bool config_matches(const clap_audio_ports_config_t *config, const clap_a
     if (config->input_port_count != (in_req ? 1u : 0u) || config->output_port_count != (out_req ? 1u : 0u))
         return false;
     if (in_req && (!config->has_main_input || config->main_input_channel_count != in_req->channel_count
-                   || !same_port_type(config->main_input_port_type, in_req->port_type)))
+                   || !config_type_matches(config->main_input_port_type, in_req)))
         return false;
     if (out_req && (!config->has_main_output || config->main_output_channel_count != out_req->channel_count
-                    || !same_port_type(config->main_output_port_type, out_req->port_type)))
+                    || !config_type_matches(config->main_output_port_type, out_req)))
         return false;
     return true;
 }

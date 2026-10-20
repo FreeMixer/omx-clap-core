@@ -811,15 +811,16 @@ OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
  * CLAP_HOST_CODE_AMBISONIC_CONFIG and nothing applied. Then clap.configurable-audio-ports (can_apply_configuration,
  * apply_configuration), then the clap.audio-ports-config list: a config matches when its input and output port counts
  * are the sides' requests (one main each, none for a side not asked), its main channels and its main port types the
- * requests' (requests past the main ports are configurable-audio-ports' only), and the first match is selected.
- * Returns 0 once one applied; OMX_CLAP_LAYOUT_DECLARED when neither extension offers the layout, or
- * apply_configuration or select answered false: the plugin keeps its layout and the carrier judges it. Either way the
- * description is read again, as open reads it (a side's auxiliary bindings kept while its auxiliary ports keep their
- * count and widths, all of that side's dropped otherwise), which answers every ports rescan the plugin made up to
- * then: `n` 0 asks nothing and only reads it again, the answer to a reported rescan (omx_clap_host_ports_rescanned,
- * omx_clap_host_restart). A description open would refuse is -1 with that code, the instance left with no main output:
- * omx_clap_host_activate refuses it (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes it. -1 with nothing asked
- * and `why` untouched on an active instance, or for `n` above 0 with `reqs` NULL. Control thread, never the RT.
+ * requests' (a config naming no type matches a mono request of one channel or a stereo one of two; requests past the
+ * main ports are configurable-audio-ports' only), and the first match is selected. Returns 0 once one applied;
+ * OMX_CLAP_LAYOUT_DECLARED when neither extension offers the layout, or apply_configuration or select answered false:
+ * the plugin keeps its layout and the carrier judges it. Either way the description is read again, as open reads it (a
+ * side's auxiliary bindings kept while its auxiliary ports keep their count and widths, all of that side's dropped
+ * otherwise), which answers every ports rescan the plugin made up to then: `n` 0 asks nothing and only reads it again,
+ * the answer to a reported rescan (omx_clap_host_ports_rescanned, omx_clap_host_restart). A description open would
+ * refuse is -1 with that code, the instance left with no main output: omx_clap_host_activate refuses it
+ * (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes it. -1 with nothing asked and `why` untouched on an active
+ * instance, or for `n` above 0 with `reqs` NULL. Control thread, never the RT.
  */
 OMX_CLAP_EXPORT int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_port_configuration_request_t *reqs,
                                                  uint32_t n, char why[OMX_CLAP_WHY_MAX]);
