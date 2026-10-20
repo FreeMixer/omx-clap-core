@@ -607,8 +607,12 @@ static void entry_deinit(void)
 {
 }
 
+/* with FAKE_ANY_FACTORY set, the plugin factory answers every factory id, as a plugin that misreads get_factory does
+ * (SpectMorph 0.6.1 answers the preset-discovery id with it): a host must not take it for another factory */
 static const void *entry_get_factory(const char *factory_id)
 {
+    if (getenv("FAKE_ANY_FACTORY"))
+        return &g_factory;
     return !strcmp(factory_id, CLAP_PLUGIN_FACTORY_ID) ? &g_factory : NULL;
 }
 

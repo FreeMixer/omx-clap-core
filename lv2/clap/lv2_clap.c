@@ -119,6 +119,7 @@ struct slot
 {
     clap_plugin_entry_t entry;
     clap_plugin_factory_t factory;
+    clap_preset_discovery_factory_t presets;    ///< the bundle's pset:Preset, through one provider
     struct lv2_bundle *bundle;
     unsigned refs;
     clap_plugin_descriptor_t *descs;
@@ -1165,6 +1166,104 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *factory,
     return &s->plugin;
 }
 
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: THE PRESET-DISCOVERY FACTORY
+************************************************************************************************************************
+*/
+
+/*
+ * A bundle's presets as CLAP lists them: one provider whose one location is the bundle itself (a PLUGIN location, so
+ * nothing is read from a path), and each pset:Preset applying to one of the bundle's plugins a preset of it, named by
+ * its rdfs:label, its URI the load key clap.preset-load takes (preset_from_location), for the plugin whose descriptor id
+ * is the plugin's URI.
+ */
+#define LV2_PRESET_PROVIDER "org.openmixer.lv2.pset"
+
+static const clap_preset_discovery_provider_descriptor_t g_presets_desc = { CLAP_VERSION_INIT, LV2_PRESET_PROVIDER, "LV2 presets",
+                                                                            "omx-clap-host" };
+
+struct preset_provider
+{
+    clap_preset_discovery_provider_t provider;
+    const clap_preset_discovery_indexer_t *indexer;
+    struct slot *slot;
+};
+
+static struct slot *slot_of_presets(const clap_preset_discovery_factory_t *factory)
+{
+    return (struct slot *)((const char *)factory - offsetof(struct slot, presets));
+}
+
+static bool provider_init(const clap_preset_discovery_provider_t *provider)
+{
+    const struct preset_provider *p = provider->provider_data;
+    const clap_preset_discovery_location_t bundle = { CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "bundle",
+                                                      CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL };
+
+    return p->indexer->declare_location(p->indexer, &bundle);
+}
+
+static void provider_destroy(const clap_preset_discovery_provider_t *provider)
+{
+    free(provider->provider_data);
+}
+
+static int provider_preset(void *ctx, const char *plugin_uri, const char *preset_uri, const char *label)
+{
+    const clap_preset_discovery_metadata_receiver_t *r = ctx;
+    const clap_universal_plugin_id_t id = { "clap", plugin_uri };
+
+    if (!r->begin_preset(r, label, preset_uri))
+        return 1;
+    r->add_plugin_id(r, &id);
+    return 0;
+}
+
+static bool provider_get_metadata(const clap_preset_discovery_provider_t *provider, uint32_t kind, const char *location,
+                                  const clap_preset_discovery_metadata_receiver_t *receiver)
+{
+    const struct preset_provider *p = provider->provider_data;
+
+    (void)location;
+    if (kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN || !receiver)
+        return false;
+    return lv2_bundle_presets(p->slot->bundle, provider_preset, (void *)receiver) >= 0;
+}
+
+static const void *provider_get_extension(const clap_preset_discovery_provider_t *provider, const char *id)
+{
+    (void)provider;
+    (void)id;
+    return NULL;
+}
+
+static uint32_t presets_count(const clap_preset_discovery_factory_t *factory)
+{
+    (void)factory;
+    return 1;
+}
+
+static const clap_preset_discovery_provider_descriptor_t *presets_descriptor(const clap_preset_discovery_factory_t *factory, uint32_t index)
+{
+    (void)factory;
+    return index == 0 ? &g_presets_desc : NULL;
+}
+
+static const clap_preset_discovery_provider_t *presets_create(const clap_preset_discovery_factory_t *factory,
+                                                              const clap_preset_discovery_indexer_t *indexer, const char *id)
+{
+    struct preset_provider *p;
+
+    if (!indexer || !id || strcmp(id, LV2_PRESET_PROVIDER) != 0 || !(p = calloc(1, sizeof(*p))))
+        return NULL;
+    p->indexer = indexer;
+    p->slot = slot_of_presets(factory);
+    p->provider = (clap_preset_discovery_provider_t){ &g_presets_desc, p, provider_init, provider_destroy, provider_get_metadata,
+                                                      provider_get_extension };
+    return &p->provider;
+}
+
 static bool entry_init(const char *path)
 {
     (void)path;
@@ -1177,7 +1276,11 @@ static void entry_deinit(void)
 
 static const void *slot_factory(uint32_t index, const char *id)
 {
-    if (index >= OMX_CLAP_LV2_BUNDLES || !g_slots[index].refs || !id || strcmp(id, CLAP_PLUGIN_FACTORY_ID) != 0)
+    if (index >= OMX_CLAP_LV2_BUNDLES || !g_slots[index].refs || !id)
+        return NULL;
+    if (!strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID))
+        return &g_slots[index].presets;
+    if (strcmp(id, CLAP_PLUGIN_FACTORY_ID) != 0)
         return NULL;
     return &g_slots[index].factory;
 }
@@ -1299,6 +1402,9 @@ const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[
     slot->factory.get_plugin_count = factory_count;
     slot->factory.get_plugin_descriptor = factory_descriptor;
     slot->factory.create_plugin = factory_create;
+    slot->presets.count = presets_count;
+    slot->presets.get_descriptor = presets_descriptor;
+    slot->presets.create = presets_create;
     why_set(why, "");
     return &slot->entry;
 }
