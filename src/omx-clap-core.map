@@ -1,4 +1,4 @@
-/* the exports of libomx-clap-core.so.0: everything else is hidden */
+/* the exports of libomx-clap-core.so.1: everything else is hidden */
 OMX_CLAP_CORE_0
 {
   global:

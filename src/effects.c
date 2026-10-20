@@ -130,8 +130,8 @@ typedef struct LV2_PARAM_T {
 typedef struct EFFECT_T {
     int instance;
     jack_client_t *jack_client;
-    jack_port_t *input_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
-    jack_port_t *output_ports[CLAP_HOST_MAIN_PORT_CHANNELS];
+    jack_port_t *input_ports[CLAP_HOST_PORT_CHANNELS];
+    jack_port_t *output_ports[CLAP_HOST_PORT_CHANNELS];
     jack_port_t *midi_port;
     struct omx_msgring note_ring;           // control thread -> audio thread: the note verbs' MIDI messages
     void *note_ring_buf;                    // its NOTE_RING_BYTES, NULL for a plugin that takes no notes
@@ -345,8 +345,8 @@ static void notes_out(effect_t *effect, jack_nframes_t nframes)
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
-    const float *inputs[CLAP_HOST_MAIN_PORT_CHANNELS];
-    float *outputs[CLAP_HOST_MAIN_PORT_CHANNELS];
+    const float *inputs[CLAP_HOST_PORT_CHANNELS];
+    float *outputs[CLAP_HOST_PORT_CHANNELS];
     uint32_t c, runs = 0;
 
     if (!effect || !effect->clap)

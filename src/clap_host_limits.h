@@ -43,9 +43,9 @@
 #define CLAP_HOST_UNPUBLISH_POLL_US 100u  ///< the poll interval while an unpublish waits for the audio thread, in microseconds
 #define CLAP_HOST_UNPUBLISH_TIMEOUT_US 2000000u  ///< the longest an unpublish waits for the audio thread, in microseconds
 #define CLAP_HOST_NOTES_PER_BLOCK 256u  ///< the note events delivered in one block
-#define CLAP_HOST_MAIN_PORT_CHANNELS 2u  ///< the channels the main port is limited to
-#define CLAP_HOST_AUX_OUTPUTS 8u  ///< the auxiliary output ports the core accepts
-#define CLAP_HOST_AUX_INPUTS 8u  ///< the auxiliary input ports (side chains) the core accepts
+#define CLAP_HOST_PORT_CHANNELS 64u  ///< the channels a port is limited to, main or auxiliary
+#define CLAP_HOST_AUX_OUTPUTS 64u  ///< the auxiliary output ports the core accepts beyond the main one
+#define CLAP_HOST_AUX_INPUTS 64u  ///< the auxiliary input ports the core accepts beyond the main one
 #define CLAP_HOST_STATE_MAX_BYTES 1048576u  ///< the largest plugin state the core saves or loads, in bytes
 #define CLAP_HOST_LOG_BYTES 256u  ///< the size of a plugin log message, in bytes
 #define CLAP_HOST_ROLE_POLL_US 1000u  ///< the poll interval while the audio role is taken, in microseconds
@@ -58,8 +58,10 @@
 #define CLAP_HOST_CODE_NOT_AUDIO_EFFECT "hosting.clap.not-audio-effect"  ///< the plugin is not an audio effect
 #define CLAP_HOST_CODE_NOTE_INPUT "hosting.clap.note-input"  ///< the plugin declares a note input the configuration refuses
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT "hosting.topology.no-audio-output"  ///< the plugin has no audio output, no MIDI output and no audio input: nothing to carry and nothing to pass through
-#define CLAP_HOST_CODE_WIDER_THAN_STRIP "hosting.topology.wider-than-strip"  ///< the plugin is wider than the strip
-#define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has extra inputs, fed silence
+#define CLAP_HOST_CODE_WIDER_THAN_STRIP "hosting.topology.wider-than-strip"  ///< a main port is wider than the lane the caller runs the plugin on
+#define CLAP_HOST_CODE_TOO_MANY_PORTS "hosting.topology.too-many-ports"  ///< more than the limit of auxiliary ports on one side, or more than one main port on a side
+#define CLAP_HOST_CODE_PORT_TOO_WIDE "hosting.topology.port-too-wide"  ///< a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²
+#define CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS "hosting.topology.port-without-channels"  ///< a port of zero channels
 #define CLAP_HOST_CODE_CRASHED_LIVE "hosting.stability.crashed-live-on-this-rig"  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE "hosting.output.non-finite"  ///< the plugin produced non-finite output
 

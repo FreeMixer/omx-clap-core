@@ -97,6 +97,29 @@ enum omx_clap_state
     OMX_CLAP_HELD               ///< the control thread stands in for the audio thread; a block passes the lane through
 };
 
+/** What a port's channels mean, from clap_audio_port_info.port_type: a type the core does not know, or none, is unknown. */
+enum omx_clap_port_kind
+{
+    OMX_CLAP_PORT_UNKNOWN = 0,  ///< no port_type, or one the core does not know: discrete channels
+    OMX_CLAP_PORT_MONO,         ///< CLAP_PORT_MONO
+    OMX_CLAP_PORT_STEREO,       ///< CLAP_PORT_STEREO
+    OMX_CLAP_PORT_SURROUND,     ///< CLAP_PORT_SURROUND: `map` names each channel
+    OMX_CLAP_PORT_AMBISONIC     ///< CLAP_PORT_AMBISONIC: the ordering and the normalization name the channels
+};
+
+/** One audio port of a plugin as the core describes it, main or auxiliary, on either side. */
+struct omx_clap_port
+{
+    clap_id id;                             ///< clap_audio_port_info.id
+    char name[CLAP_NAME_SIZE];              ///< clap_audio_port_info.name, terminated
+    uint32_t channels;                      ///< 1..CLAP_HOST_PORT_CHANNELS; 0 is no port
+    uint32_t kind;                          ///< an omx_clap_port_kind
+    uint8_t map[CLAP_HOST_PORT_CHANNELS];   ///< the CLAP surround ids, `channels` of them, for a surround port
+    uint32_t ambisonic_ordering,            ///< clap_ambisonic_config_t.ordering, for an ambisonic port
+             ambisonic_normalization;       ///< clap_ambisonic_config_t.normalization, for an ambisonic port
+    clap_id in_place_pair;                  ///< clap_audio_port_info.in_place_pair: CLAP_INVALID_ID for none
+};
+
 /** the parameter ring is the hosted stage's; a record's id is the clap_id, its cookie what get_info returned */
 #define omx_clap_param_record omx_hosted_param_record
 #define omx_clap_param_queue omx_hosted_param_queue  ///< the parameter queue of the hosted core
@@ -182,12 +205,15 @@ struct omx_clap_stage
 
     // bound by the control thread before publish (omx_clap_stage_init, omx_clap_bind)
     const clap_plugin_t *plugin;                        ///< the hosted plugin
-    float *in_ptrs[2],                                  ///< what the input buffer's data32 points at
-          *out_ptrs[2];                                 ///< what the output buffer's data32 points at
+    float *in_ptrs[CLAP_HOST_PORT_CHANNELS],            ///< what the main input buffer's data32 points at: the legs, then the rest
+          *out_ptrs[CLAP_HOST_PORT_CHANNELS];           ///< what the main output buffer's data32 points at: the legs, then the rest
     clap_audio_buffer_t ain;                            ///< distinct from the outputs, over the bounce
-    clap_audio_buffer_t aout[1 + CLAP_HOST_AUX_OUTPUTS];///< the main output, then one scratch-backed buffer per auxiliary output
+    clap_audio_buffer_t aout[1 + CLAP_HOST_AUX_OUTPUTS];///< the main output, then one buffer per auxiliary output
     uint32_t n_aux;                                     ///< auxiliary output ports, after aout[0]
-    float *aux_ptrs[2];                                 ///< the scratch pair every auxiliary output's data32 points at
+    float *aux_ptrs[CLAP_HOST_AUX_OUTPUTS * CLAP_HOST_PORT_CHANNELS];  ///< what each auxiliary output channel writes: the caller's
+                                                        ///< buffer or its scratch block, port i's from aux_base[i]
+    uint32_t aux_base[CLAP_HOST_AUX_OUTPUTS];           ///< where each auxiliary output's channels start in aux_ptrs
+    float *aux_scratch[CLAP_HOST_AUX_OUTPUTS * CLAP_HOST_PORT_CHANNELS];  ///< each auxiliary output channel's own scratch block
     clap_event_param_value_t events[CLAP_HOST_EVENTS_PER_BLOCK];   ///< this block's parameter events
     uint32_t n_events;                                  ///< the events in `events`
     union omx_clap_note notes[CLAP_HOST_NOTES_PER_BLOCK];  ///< this block's notes, written ahead of it by the RT thread
@@ -324,11 +350,14 @@ struct omx_clap_aux_in
 {
     clap_audio_buffer_t ains[1 + CLAP_HOST_AUX_INPUTS]; ///< the main input (when there is one), then one per auxiliary input
     uint32_t n_aux_in;                                  ///< auxiliary input ports, after the main one
-    float *aux_in_ptrs[CLAP_HOST_AUX_INPUTS][2];        ///< what each auxiliary input's data32 points at: the caller's pair or the silence
-    float *aux_silence[2];                              ///< the zeroed pair every unbound auxiliary input reads
+    float *aux_in_ptrs[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];  ///< what each auxiliary input channel reads: the caller's
+                                                        ///< buffer or the silence, port i's from aux_in_base[i]
+    uint32_t aux_in_base[CLAP_HOST_AUX_INPUTS];         ///< where each auxiliary input's channels start in aux_in_ptrs
+    float *aux_silence[2];                              ///< the zeroed block every unbound auxiliary input channel reads, twice
 };
 
 _Static_assert(offsetof(struct omx_clap_stage, h) == 0, "the hosted core heads the CLAP stage");
+_Static_assert(sizeof(struct omx_clap_stage) <= 1u << 17, "stage within 128 KiB");
 
 
 /*
@@ -643,26 +672,34 @@ static inline int omx_clap_stage_init(struct omx_clap_stage *s, const struct omx
 }
 
 /**
- * Control thread, after init: the plugin's auxiliary output ports, `channels[i]` wide (1 or 2 each, up to
- * CLAP_HOST_AUX_OUTPUTS of them), every one handed the same scratch pair: the plugin writes it and nothing reads it.
- * Returns -1 on a width or a count the stage cannot hold.
+ * Control thread, after init: the plugin's auxiliary output ports `ports` (up to CLAP_HOST_AUX_OUTPUTS of them, each
+ * 1..CLAP_HOST_PORT_CHANNELS channels), `scratch[k]` one block for each of their channels in port order: the plugin
+ * writes its scratch and nothing reads it until the caller hands a port its own buffers (omx_clap_set_aux_out). Returns
+ * -1 on a width or a count the stage cannot hold.
  */
-static inline int omx_clap_bind_aux(struct omx_clap_stage *s, float *scratch_l, float *scratch_r, uint32_t count,
-                                    const uint32_t *channels)
+static inline int omx_clap_bind_aux(struct omx_clap_stage *s, float *const *scratch, uint32_t count,
+                                    const struct omx_clap_port *ports)
 {
-    uint32_t i;
+    uint32_t i, c, k = 0;
 
-    if (count > CLAP_HOST_AUX_OUTPUTS || (count && (scratch_l == NULL || scratch_r == NULL || channels == NULL)))
+    if (count > CLAP_HOST_AUX_OUTPUTS || (count && (scratch == NULL || ports == NULL)))
         return -1;
-    s->aux_ptrs[0] = scratch_l;
-    s->aux_ptrs[1] = scratch_r;
     for (i = 0; i < count; i++)
     {
-        if (channels[i] == 0 || channels[i] > 2)
+        if (ports[i].channels == 0 || ports[i].channels > CLAP_HOST_PORT_CHANNELS
+            || k + ports[i].channels > CLAP_HOST_AUX_OUTPUTS * CLAP_HOST_PORT_CHANNELS)
             return -1;
-        s->aout[1 + i].data32 = s->aux_ptrs;
+        s->aux_base[i] = k;
+        for (c = 0; c < ports[i].channels; c++, k++)
+        {
+            if (scratch[k] == NULL)
+                return -1;
+            s->aux_scratch[k] = scratch[k];
+            s->aux_ptrs[k] = scratch[k];
+        }
+        s->aout[1 + i].data32 = &s->aux_ptrs[s->aux_base[i]];
         s->aout[1 + i].data64 = NULL;
-        s->aout[1 + i].channel_count = channels[i];
+        s->aout[1 + i].channel_count = ports[i].channels;
         s->aout[1 + i].latency = 0;
         s->aout[1 + i].constant_mask = 0;
     }
@@ -671,50 +708,72 @@ static inline int omx_clap_bind_aux(struct omx_clap_stage *s, float *scratch_l, 
 }
 
 /**
- * Control thread, with no cycle running: point auxiliary input `port` at the caller's pair `l` and `r`, or back at the
- * silence when `l` is NULL. A mono port reads `l` only.
+ * Control thread, with no cycle running: point auxiliary output `port`'s `channels` channels at the caller's buffers
+ * `bufs`, or back at its scratch when `bufs` is NULL. `port` and `channels` are the bound port's.
  */
-static inline void omx_clap_set_aux_in(struct omx_clap_aux_in *a, uint32_t port, float *l, float *r)
+static inline void omx_clap_set_aux_out(struct omx_clap_stage *s, uint32_t port, uint32_t channels, float *const *bufs)
 {
-    a->aux_in_ptrs[port][0] = l ? l : a->aux_silence[0];
-    a->aux_in_ptrs[port][1] = r ? r : a->aux_silence[1];
+    const uint32_t base = s->aux_base[port];
+    uint32_t c;
+
+    for (c = 0; c < channels; c++)
+        s->aux_ptrs[base + c] = bufs && bufs[c] ? bufs[c] : s->aux_scratch[base + c];
 }
 
 /**
- * Control thread, after init and before the first block: the plugin's auxiliary input ports, `channels[i]` wide (1 or 2
- * each, up to CLAP_HOST_AUX_INPUTS of them). `silence_l` and `silence_r` are a zeroed pair every port reads until the
- * caller binds its own; `bound[i]` is the caller's pair for port i, NULL for none. Returns -1 on a width or a count the
- * stage cannot hold.
+ * Control thread, with no cycle running: point auxiliary input `port`'s `channels` channels at the caller's buffers
+ * `bufs`, or back at the silence when `bufs` is NULL. `port` and `channels` are the bound port's.
  */
-static inline int omx_clap_bind_aux_in(struct omx_clap_aux_in *a, float *silence_l, float *silence_r, uint32_t count,
-                                       const uint32_t *channels, float *(*bound)[2])
+static inline void omx_clap_set_aux_in(struct omx_clap_aux_in *a, uint32_t port, uint32_t channels, float *const *bufs)
 {
-    uint32_t i;
+    const uint32_t base = a->aux_in_base[port];
+    uint32_t c;
 
-    if (count > CLAP_HOST_AUX_INPUTS || (count && channels == NULL) || silence_l == NULL || silence_r == NULL)
+    for (c = 0; c < channels; c++)
+        a->aux_in_ptrs[base + c] = bufs && bufs[c] ? bufs[c] : a->aux_silence[0];
+}
+
+/**
+ * Control thread, after init and before the first block: the plugin's auxiliary input ports `ports` (up to
+ * CLAP_HOST_AUX_INPUTS of them, each 1..CLAP_HOST_PORT_CHANNELS channels). `silence` is a zeroed block every channel
+ * reads until the caller binds its own; `bound` holds the caller's buffers, port i's channels from `base[i]` (NULL: none
+ * bound, or a channel NULL: that one unbound), and `base` is NULL exactly when `bound` is. Returns -1 on a width or a
+ * count the stage cannot hold.
+ */
+static inline int omx_clap_bind_aux_in(struct omx_clap_aux_in *a, float *silence, uint32_t count,
+                                       const struct omx_clap_port *ports, float *const *bound, const uint32_t *base)
+{
+    uint32_t i, k = 0;
+
+    if (count > CLAP_HOST_AUX_INPUTS || (count && ports == NULL) || silence == NULL || (bound == NULL) != (base == NULL))
         return -1;
-    a->aux_silence[0] = silence_l;
-    a->aux_silence[1] = silence_r;
+    a->aux_silence[0] = silence;
+    a->aux_silence[1] = silence;
     for (i = 0; i < count; i++)
     {
-        if (channels[i] == 0 || channels[i] > 2)
+        if (ports[i].channels == 0 || ports[i].channels > CLAP_HOST_PORT_CHANNELS
+            || k + ports[i].channels > CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS)
             return -1;
-        omx_clap_set_aux_in(a, i, bound ? bound[i][0] : NULL, bound ? bound[i][1] : NULL);
-        a->ains[1 + i].data32 = a->aux_in_ptrs[i];
+        a->aux_in_base[i] = k;
+        omx_clap_set_aux_in(a, i, ports[i].channels, bound ? &bound[base[i]] : NULL);
+        a->ains[1 + i].data32 = &a->aux_in_ptrs[k];
         a->ains[1 + i].data64 = NULL;
-        a->ains[1 + i].channel_count = channels[i];
+        a->ains[1 + i].channel_count = ports[i].channels;
         a->ains[1 + i].latency = 0;
         a->ains[1 + i].constant_mask = 0;
+        k += ports[i].channels;
     }
     a->n_aux_in = count;
     return 0;
 }
 
 /**
- * Control thread, after init and activate: bind the plugin and its main port widths, `n_in` 0 (an instrument), 1 or 2
- * and `n_out` 1 or 2, and its auxiliary inputs `aux` as omx_clap_bind_aux_in bound them (NULL: none). The audio buffers
- * point at the bounce once, the addresses never move, and every fixed field of clap_process_t is set here, so the RT
- * writes only frames_count and steady_time.
+ * Control thread, after init and activate: bind the plugin and its main port widths, `n_in` 0 (a source) up to
+ * CLAP_HOST_PORT_CHANNELS and `n_out` 1 up to CLAP_HOST_PORT_CHANNELS, and its auxiliary inputs `aux` as
+ * omx_clap_bind_aux_in bound them (NULL: none). The first two channels of each side are the hosted core's legs, which
+ * carry at most two (h.n_in, h.n_out); a channel past them is the caller's to point in_ptrs and out_ptrs at before
+ * this call. The audio buffers point at the bounce once, the addresses never move, and every fixed field of
+ * clap_process_t is set here, so the RT writes only frames_count and steady_time.
  */
 static inline int omx_clap_bind_ports_aux(struct omx_clap_stage *s, const clap_plugin_t *plugin, uint32_t n_in, uint32_t n_out,
                                           struct omx_clap_aux_in *aux)
@@ -723,14 +782,20 @@ static inline int omx_clap_bind_ports_aux(struct omx_clap_stage *s, const clap_p
 
     if (s == NULL || plugin == NULL || plugin->process == NULL)
         return -1;
-    if (n_in > 2 || n_out < 1 || n_out > 2)
+    if (n_in > CLAP_HOST_PORT_CHANNELS || n_out < 1 || n_out > CLAP_HOST_PORT_CHANNELS)
         return -1;
+    for (uint32_t c = 2; c < n_in; c++)
+        if (s->in_ptrs[c] == NULL)
+            return -1;
+    for (uint32_t c = 2; c < n_out; c++)
+        if (s->out_ptrs[c] == NULL)
+            return -1;
     if (aux && aux->n_aux_in == 0)
         aux = NULL;
     main_in = aux ? &aux->ains[0] : &s->ain;
     s->plugin = plugin;
-    s->h.n_in = n_in;
-    s->h.n_out = n_out;
+    s->h.n_in = n_in < 2 ? n_in : 2;
+    s->h.n_out = n_out < 2 ? n_out : 2;
     main_in->data32 = s->in_ptrs;
     main_in->data64 = NULL;
     main_in->channel_count = n_in;

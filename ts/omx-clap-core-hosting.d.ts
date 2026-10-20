@@ -18,9 +18,9 @@ export declare const HOSTED_STAGE_LIMITS: {
   readonly workerPollUs: 1000;
   readonly workerRingBytes: 16384;
   readonly notesPerBlock: 256;
-  readonly mainPortChannels: 2;
-  readonly auxOutputs: 8;
-  readonly auxInputs: 8;
+  readonly portChannels: 64;
+  readonly auxOutputs: 64;
+  readonly auxInputs: 64;
   readonly stateMaxBytes: 1048576;
   readonly logBytes: 256;
   readonly rolePollUs: 1000;
@@ -51,11 +51,19 @@ export declare const HOSTING_CODES: {
   };
   readonly widerThanStrip: {
     readonly code: "hosting.topology.wider-than-strip";
-    readonly doc: "the plugin is wider than the strip";
+    readonly doc: "a main port is wider than the lane the caller runs the plugin on";
   };
-  readonly extraInputs: {
-    readonly code: "hosting.topology.extra-inputs-fed-silence";
-    readonly doc: "the plugin has extra inputs, fed silence";
+  readonly tooManyPorts: {
+    readonly code: "hosting.topology.too-many-ports";
+    readonly doc: "more than the limit of auxiliary ports on one side, or more than one main port on a side";
+  };
+  readonly portTooWide: {
+    readonly code: "hosting.topology.port-too-wide";
+    readonly doc: "a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²";
+  };
+  readonly portWithoutChannels: {
+    readonly code: "hosting.topology.port-without-channels";
+    readonly doc: "a port of zero channels";
   };
   readonly crashedLive: {
     readonly code: "hosting.stability.crashed-live-on-this-rig";

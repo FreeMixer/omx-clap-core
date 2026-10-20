@@ -72,12 +72,14 @@
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
  * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
  * instance's MPE zones, a lower and an upper, 0.11; 10: what the plugin tells the host's note-ports, note-name and
- * voice-info, 0.12).
+ * voice-info, 0.12; 11: libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to
+ * CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the
+ * configuration's lane_channels).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               10u
-#define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
+#define OMX_CLAP_CORE_ABI               11u
+#define OMX_CLAP_CORE_ABI_OLDEST        11u  ///< the oldest header ABI the library accepts: the first of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
 #define OMX_CLAP_METER_COUNT_MAX        16u
@@ -126,6 +128,8 @@ struct omx_clap_host_config
     const char *version;  ///< the host version the plugin is told
     int track_info;             ///< offer clap.track-info besides the declared list: get answers omx_clap_host_track_info_set
     int remote_controls;        ///< offer clap.remote-controls besides the declared list: see omx_clap_host_remote_controls_changed
+    uint32_t lane_channels;     ///< the widest main port the caller's lane carries, 2 by default; 0 carries any width
+                                ///< (activation refuses a wider main port with CLAP_HOST_CODE_WIDER_THAN_STRIP)
 };
 
 /** One parameter of a hosted plugin as a row: what a slot serves. A parameter that is not a row (hidden, read-only, the
@@ -267,18 +271,25 @@ struct omx_clap_instance
     clap_host_t host;           ///< this instance's host object; host_data is the instance
 
     struct omx_clap_stage stage;  ///< the RT stage the consumer's audio thread runs
-    uint32_t channels;          ///< the main output width the ports admitted (1 or 2); an effect's input has the same
-    uint32_t in_channels;       ///< the main input width: 0 for an instrument
-    uint32_t aux_outputs;       ///< auxiliary output ports, left unconnected
-    uint32_t aux_channels[CLAP_HOST_AUX_OUTPUTS];  ///< the channel count of each auxiliary output port
+    uint32_t channels;          ///< the main output width, main_out.channels
+    uint32_t in_channels;       ///< the main input width, main_in.channels: 0 for a source
+    struct omx_clap_port main_in,  ///< the main input port: channels 0 is none (a source)
+                         main_out; ///< the main output port
+    uint32_t aux_outputs;       ///< auxiliary output ports, after the main one
+    struct omx_clap_port aux_out[CLAP_HOST_AUX_OUTPUTS];  ///< each auxiliary output port, in the plugin's order
+    float *aux_out_bound[CLAP_HOST_AUX_OUTPUTS * CLAP_HOST_PORT_CHANNELS];  ///< the caller's buffers per output channel,
+                                ///< port i's from aux_out_base[i]; NULL: the plugin writes its scratch
+    uint32_t aux_out_base[CLAP_HOST_AUX_OUTPUTS];  ///< where each auxiliary output's channels start in aux_out_bound
+    uint32_t aux_out_frames[CLAP_HOST_AUX_OUTPUTS];  ///< the frames each bound output holds
     uint32_t note_inputs;       ///< 0 or 1; the dialect the host feeds it
     uint32_t note_dialect;  ///< the note dialect the host feeds the plugin
     uint32_t note_dialects;  ///< every dialect the note input's port declared, not just note_dialect
     double rate;  ///< the sample rate the instance is activated at
     uint32_t max_block;  ///< the largest block in frames
     int active;  ///< nonzero while the plugin is active
-    float *bounce_map;          ///< mmap: [guard][6 x max_block floats][guard]
+    float *bounce_map;          ///< mmap: [guard][bounce_blocks x max_block floats][guard]
     size_t bounce_map_len;  ///< the size of the bounce mapping in bytes
+    uint32_t bounce_blocks;     ///< the blocks of max_block floats the bounce holds, from the port description
     struct omx_clap_param_record *recs;  ///< the parameter write queue storage
     uint32_t rec_cap;  ///< the capacity of the write queue in records
 
@@ -332,12 +343,14 @@ struct omx_clap_instance
     const struct omx_clap_transport_src *transport_src;  ///< the published transport omx_clap_host_run reads, NULL for none
     struct omx_clap_transport transport_rec;  ///< the last whole record read from transport_src
 
-    // the auxiliary inputs (ABI 3): one port each, 1 or 2 channels, and the caller's pair bound to it (NULL: the silence)
+    // the auxiliary inputs: one port each, and the caller's buffers bound to it (NULL: the silence)
     uint32_t aux_inputs;  ///< auxiliary input ports, after the main one
-    uint32_t aux_in_channels[CLAP_HOST_AUX_INPUTS];  ///< the channel count of each auxiliary input port
-    float *aux_in_bound[CLAP_HOST_AUX_INPUTS][2];  ///< the caller's buffers per port and channel, NULL: silence
-    uint32_t aux_in_frames[CLAP_HOST_AUX_INPUTS];  ///< the frames each bound pair holds
-    struct omx_clap_aux_in aux_in;  ///< the auxiliary inputs' process list, after every field the stage had before ABI 3
+    struct omx_clap_port aux_in[CLAP_HOST_AUX_INPUTS];  ///< each auxiliary input port, in the plugin's order
+    float *aux_in_bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];  ///< the caller's buffers per input channel,
+                                ///< port i's from aux_in_base[i]; NULL: the silence
+    uint32_t aux_in_base[CLAP_HOST_AUX_INPUTS];  ///< where each auxiliary input's channels start in aux_in_bound
+    uint32_t aux_in_frames[CLAP_HOST_AUX_INPUTS];  ///< the frames each bound input holds
+    struct omx_clap_aux_in aux_list;  ///< the auxiliary inputs' process list
 
     // the plugin's clap.meters/1 (ABI 4): read once at open and fixed for the instance's life, so any thread reads them
     const struct clap_plugin_meters *meters;  ///< the plugin's clap.meters/1 extension, NULL when it has none read whole

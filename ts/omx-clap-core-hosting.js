@@ -18,9 +18,9 @@ export const HOSTED_STAGE_LIMITS = {
   "workerPollUs": 1000,
   "workerRingBytes": 16384,
   "notesPerBlock": 256,
-  "mainPortChannels": 2,
-  "auxOutputs": 8,
-  "auxInputs": 8,
+  "portChannels": 64,
+  "auxOutputs": 64,
+  "auxInputs": 64,
   "stateMaxBytes": 1048576,
   "logBytes": 256,
   "rolePollUs": 1000,
@@ -51,11 +51,19 @@ export const HOSTING_CODES = {
   },
   "widerThanStrip": {
     "code": "hosting.topology.wider-than-strip",
-    "doc": "the plugin is wider than the strip"
+    "doc": "a main port is wider than the lane the caller runs the plugin on"
   },
-  "extraInputs": {
-    "code": "hosting.topology.extra-inputs-fed-silence",
-    "doc": "the plugin has extra inputs, fed silence"
+  "tooManyPorts": {
+    "code": "hosting.topology.too-many-ports",
+    "doc": "more than the limit of auxiliary ports on one side, or more than one main port on a side"
+  },
+  "portTooWide": {
+    "code": "hosting.topology.port-too-wide",
+    "doc": "a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²"
+  },
+  "portWithoutChannels": {
+    "code": "hosting.topology.port-without-channels",
+    "doc": "a port of zero channels"
   },
   "crashedLive": {
     "code": "hosting.stability.crashed-live-on-this-rig",
