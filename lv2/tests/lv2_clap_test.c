@@ -29,7 +29,8 @@
  *             -26 dB with the default state, a parameter event read -16 dB from the block that carries it.
  *   latency   latency.get answers the figure of the last activate; a different reading is held for latency_hold_ms
  *             of blocks, then ONE request_restart, and the restart's activate takes it; a reading that moves and comes
- *             back inside the hold asks for nothing.
+ *             back inside the hold asks for nothing. The restart keeps the LV2 instance active, no LV2 deactivate or
+ *             activate between; a deactivate no restart asked for is LV2's as well.
  *   pad       the pad read through process(): exactly 0.1 x, the inPlaceBroken twin identical with the
  *             host's input and output the same buffer, MXCSR re-asserted.
  *   worker    the worker gain's -20 dB reaches the block after the one that carried the event, with the worker pinned
@@ -723,14 +724,15 @@ static const clap_plugin_state_t *state_of(struct rig *g)
     return g->plugin->get_extension(g->plugin, CLAP_EXT_STATE);
 }
 
-/* the state a rig is saved to, loaded before its activate, and loaded while active: the same blocks, the same bits */
+/* the state a rig is saved to, loaded before its activate, and loaded while active: the same blocks, the same bits; and
+ * loaded while a latency restart is pending: applied by it */
 static void t_state(double rate)
 {
     static float in[N_BLOCKS * BLOCK], a[N_BLOCKS * BLOCK], b[N_BLOCKS * BLOCK], c[N_BLOCKS * BLOCK];
     struct mem_out saved;
     struct mem_in given;
     struct evlist ev;
-    struct rig ra, rb, rc;
+    struct rig ra, rb, rc, rf;
     uint32_t blk;
 
     for (blk = 0; blk < N_BLOCKS; blk++)
@@ -791,6 +793,26 @@ static void t_state(double rate)
             CHECK(state_of(&rc)->load(rc.plugin, &long_in.stream), "state %.0f: A's state padded to 1 MiB loads", rate);
         }
         rig_down(&rc);
+    }
+
+    // F: the same state loaded while the fixture's latency restart is already asked for: that restart's activate is the
+    // full one, the LV2 instance activated again rather than kept, and it applies the state
+    if (rig_up(&rf, g_fixture, FIXTURE_URI, rate, BLOCK) == 0)
+    {
+        const uint32_t hold_blocks = (uint32_t)(((uint64_t)(rate * HOLD_MS / 1000.0) + BLOCK - 1) / BLOCK);
+
+        for (blk = 0; blk <= hold_blocks; blk++)
+            process(&rf, in, NULL, c, NULL, BLOCK, NULL);
+        CHECK(rf.host.restarts == 1, "state %.0f: F's latency asks for a restart (%d)", rate, rf.host.restarts);
+        mi_init(&given, saved.buf, saved.n);
+        CHECK(state_of(&rf)->load(rf.plugin, &given.stream), "state %.0f: F loads with that restart pending", rate);
+        restart(&rf, rate);
+        for (blk = 0; blk < N_BLOCKS; blk++)
+            process(&rf, in + blk * BLOCK, NULL, c + blk * BLOCK, NULL, BLOCK, NULL);
+        CHECK(fabs(gain_db(in, c, 0, N_BLOCKS) - -16.0) < 0.01 && param(&rf, 3) == -10.0,
+              "state %.0f: F runs at -16 dB after the restart, the state applied (%.3f, the gain at %.4f)", rate,
+              gain_db(in, c, 0, N_BLOCKS), param(&rf, 3));
+        rig_down(&rf);
     }
     rig_down(&ra);
 }
@@ -1802,6 +1824,9 @@ static void t_latency_hold(double rate)
     CHECK(g.host.restarts == 1 && g.latency->get(g.plugin) == 0, "latency %.0f: asked once, and latency.get still answers the old figure", rate);
     g.plugin->deactivate(g.plugin);
     CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && g.latency->get(g.plugin) == want, "latency %.0f: the restart takes %u frames (%u)", rate, want, g.latency->get(g.plugin));
+    CHECK(f->activations == 1 && f->deactivations == 0,
+          "latency %.0f: the restart is CLAP's only: the LV2 instance kept active, never LV2 deactivated or activated again (%u activations, %u deactivations)",
+          rate, f->activations, f->deactivations);
     f->latency_bias = 1;
     for (b = 0; b + 1 < blocks; b++)
         process(&g, l, NULL, l, NULL, BLOCK, NULL);
@@ -1815,6 +1840,12 @@ static void t_latency_hold(double rate)
     CHECK(g.host.restarts == 2, "latency %.0f: one that stayed asked again", rate);
     g.plugin->deactivate(g.plugin);
     CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && g.latency->get(g.plugin) == want + 1, "latency %.0f: and its restart takes %u (%u)", rate, want + 1, g.latency->get(g.plugin));
+    CHECK(f->activations == 1 && f->deactivations == 0, "latency %.0f: and keeps the LV2 instance too (%u activations, %u deactivations)",
+          rate, f->activations, f->deactivations);
+    g.plugin->deactivate(g.plugin);
+    CHECK(f->deactivations == 1, "latency %.0f: a deactivate no restart asked for is LV2's too (%u deactivations)", rate, f->deactivations);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && f->activations == 2 && f->deactivations == 1,
+          "latency %.0f: and its activate LV2 activates again (%u activations)", rate, f->activations);
     rig_down(&g);
 }
 
@@ -3160,6 +3191,9 @@ static void t_core(double rate)
     CHECK(f->runs == CLAP_HOST_WARMUP_BLOCKS && atomic_load(&in->stage.h.runs) == 0, "core %.0f: the warm-up ran %u blocks, the live counters untouched", rate, f->runs);
     CHECK(in->stage.h.in_l[0] == 0.0f, "core %.0f: the warm-up ends silent", rate);
     CHECK(omx_clap_host_latency(in) == pad_latency_frames(rate), "core %.0f: the latency the restart after the warm-up took: %u frames", rate, omx_clap_host_latency(in));
+    CHECK(f->activations == 3 && f->deactivations == 2,
+          "core %.0f: the warm-up's reset and the restart after it are both LV2's, whether or not the latency hold ran out inside the warm-up (%u activations, %u deactivations)",
+          rate, f->activations, f->deactivations);
     tone(x, 64, 0.5f, 0);
     memcpy(l, x, sizeof(l));
     core_run(in, l, NULL, 64);
