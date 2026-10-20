@@ -80,9 +80,9 @@ int effects_remote_pages(int effect_id);
 int effects_remote_page_get(int effect_id, int page, char *reply, size_t size);
 /* param_info: "resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>" from the plugin's parameter contract */
 int effects_param_info(int effect_id, const char *symbol, char *reply, size_t size);
-/* audio_ports: "resp 0" and a line per audio port, inputs first, each side's main port first: "<in|out> <main|aux>
- * <channels> channels <kind>[ map <ids>][ <ordering> <normalization>] \"<name>\" <jack ports>", into *reply, the caller's to
- * free; ERR_INSTANCE_NON_EXISTS, ERR_MEMORY_ALLOCATION */
+/* audio_ports: "resp 0", " dry" while the instance passes dry, and a record per registered audio port, inputs first and
+ * each side's main port first, each "side:role:index:channels:kind[:layout][:assumed]:\"name\":jack,jack" (layout_pin.h,
+ * layout_port_text), into *reply, the caller's to free; ERR_INSTANCE_NON_EXISTS, ERR_MEMORY_ALLOCATION */
 int effects_audio_ports(int effect_id, char **reply);
 float effects_jack_cpu_load(void);
 /* note_drops: "resp 0 <dropped> <releases> <sysex> <unmappable>", the instance's note counters since add */
