@@ -1,0 +1,326 @@
+# docs/adapter-seam.tsv: the class of every function of lv2/core, lv2/clap and the src/ headers they include, read from
+# its body (omx-clap-core#287). class: NEUTRAL (a VST3 adapter would use it unchanged), MIXED (neutral logic around a few
+# format calls: the hook it needs is in the reason), SPECIFIC (LV2 only). thread: AUDIO, WORKER, MAIN, or ANY.
+# tools/adapter-seam.sh joins it with lizard's function list and sums it; an unclassed function or a stale row fails.
+# file	function	class	area	thread	reason
+lv2/core/lv2_features.c	urid_slot	SPECIFIC	features/urid/options/log	ANY	URID segment-table addressing; URID is an LV2-only concept, no VST3 analog
+lv2/core/lv2_features.c	urid_find	SPECIFIC	features/urid/options/log	ANY	Linear scan for a URI among appended URIDs; URID-specific
+lv2/core/lv2_features.c	lv2_urid_lookup	SPECIFIC	features/urid/options/log	ANY	Lock-free URID intern/lookup; plugins may call from any thread
+lv2/core/lv2_features.c	lv2_urid_unlookup	SPECIFIC	features/urid/options/log	ANY	URID to URI reverse lookup; LV2-only concept, any thread
+lv2/core/lv2_features.c	provider_of	SPECIFIC	features/urid/options/log	MAIN	Maps a feature URI to the LV2 feature-kind enum
+lv2/core/lv2_features.c	instance_kind_of	SPECIFIC	features/urid/options/log	MAIN	Maps state/uri-map/event extension URIs to kinds; LV2 URIs
+lv2/core/lv2_features.c	same_text	NEUTRAL	other	MAIN	Plain nullable-string equality helper, no LV2 dependency
+lv2/core/lv2_features.c	same_config	SPECIFIC	other	MAIN	Repeat-config idempotency check generic; compared fields (lilv_soname, feature URIs) LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	lv2_mkdirs	NEUTRAL	state/presets/paths	MAIN	mkdir -p of an absolute path; plain POSIX utility
+lv2/core/lv2_features.c	state_root_make	NEUTRAL	state/presets/paths	MAIN	Validate absolute path, mkdir, realpath; no format dependency
+lv2/core/lv2_features.c	lv2_core_configure	SPECIFIC	features/urid/options/log	MAIN	Once-only config gate generic; feature-URI/lilv_soname/state-root validation LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	lv2_core_config	SPECIFIC	features/urid/options/log	MAIN	Accessor for lv2_core_config, which holds lilv_soname/feature URIs
+lv2/core/lv2_features.c	lv2_feature_on	SPECIFIC	features/urid/options/log	MAIN	Tests one LV2 feature-kind bit in the configured mask
+lv2/core/lv2_features.c	lv2_features_configured	SPECIFIC	features/urid/options/log	MAIN	Returns the configured LV2 feature bitmask
+lv2/core/lv2_features.c	lv2_core_feature_options_set	SPECIFIC	features/urid/options/log	MAIN	Set-or-reset-options pattern generic; struct holds LV2 feature/block/log bits; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	lv2_core_feature_options	SPECIFIC	features/urid/options/log	MAIN	Accessor for the LV2 feature-options struct
+lv2/core/lv2_features.c	lv2_feature_offered_within	SPECIFIC	features/urid/options/log	MAIN	Generic allowed-mask bit test wraps LV2 feature-URI and buf-size special cases; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	lv2_features_fill	SPECIFIC	features/urid/options/log	MAIN	Builds a raw LV2_Feature pointer array per the LV2 ABI; no VST3 analog
+lv2/core/lv2_features.c	lv2_block_lengths	SPECIFIC	instantiate/discovery	MAIN	Clamp/default min-max-nominal block length generic; LV2 buf-size declare bits specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	lv2_options_fill	SPECIFIC	features/urid/options/log	MAIN	Builds LV2_Options_Option array for options:options; LV2-only protocol
+lv2/core/lv2_features.c	lv2_log_emit	MIXED	features/urid/options/log	ANY	Format/route/capture a log line generic; LV2_URID type param specific, may run off audio thread
+lv2/core/lv2_features.c	omx_lv2_feature_options_init	SPECIFIC	features/urid/options/log	MAIN	Reset-to-default pattern generic; defaults are LV2 feature/block/log bits; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	omx_lv2_feature_options_check	SPECIFIC	features/urid/options/log	MAIN	Log-mode validation generic; feature/block bitmask range checks LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	omx_lv2_feature_kind	SPECIFIC	features/urid/options/log	MAIN	Thin wrapper over provider_of; LV2 feature URI lookup
+lv2/core/lv2_features.c	omx_lv2_feature_mask	SPECIFIC	features/urid/options/log	MAIN	Builds a bitmask of LV2 feature URIs from a list
+lv2/core/lv2_features.c	omx_lv2_feature_offered	SPECIFIC	features/urid/options/log	MAIN	Public query of whether an LV2 feature URI is offered
+lv2/core/lv2_features.c	omx_lv2_features_admit	SPECIFIC	features/urid/options/log	MAIN	Generic first-unmet-requirement-under-strict loop; offered-check is LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_features.c	omx_lv2_urid_map	SPECIFIC	features/urid/options/log	ANY	Public URID map entry point for a standalone host; any thread
+lv2/core/lv2_features.c	omx_lv2_urid_unmap	SPECIFIC	features/urid/options/log	ANY	Public URID unmap entry point; any thread
+lv2/core/lv2_features.c	block_map	SPECIFIC	features/urid/options/log	ANY	LV2_URID_Map_Handle callback adapter; any thread
+lv2/core/lv2_features.c	block_unmap	SPECIFIC	features/urid/options/log	ANY	LV2_URID_Unmap_Handle callback adapter; any thread
+lv2/core/lv2_features.c	block_log_vprintf	SPECIFIC	features/urid/options/log	ANY	LV2_Log_Log vprintf callback; audio thread may log
+lv2/core/lv2_features.c	block_log_printf	SPECIFIC	features/urid/options/log	ANY	LV2_Log_Log printf callback; audio thread may log
+lv2/core/lv2_features.c	omx_lv2_features_build	SPECIFIC	features/urid/options/log	MAIN	Assembles the full LV2_Feature array for a standalone host; pure LV2 ABI
+lv2/core/lv2_features.c	omx_lv2_open	SPECIFIC	instantiate/discovery	MAIN	dlopen-and-walk-factory-until-match generic shape; lv2_descriptor/URI match LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_instance.c	float_bits	NEUTRAL	other	AUDIO	Pure bit-cast float->uint32, no LV2 type; reusable anywhere.
+lv2/core/lv2_instance.c	bits_float	NEUTRAL	other	AUDIO	Pure bit-cast uint32->float, no LV2 type; reusable anywhere.
+lv2/core/lv2_instance.c	atom_bytes	NEUTRAL	midi/events/time	MAIN	Rounds a configured size to 8 bytes; no LV2 type used.
+lv2/core/lv2_instance.c	sequence_clear	SPECIFIC	midi/events/time	AUDIO	Writes LV2_Atom_Sequence header fields; VST3 has no atom type.
+lv2/core/lv2_instance.c	sequence_offer	SPECIFIC	midi/events/time	AUDIO	Same LV2_Atom_Sequence header, offered as capacity; atom-only concept.
+lv2/core/lv2_instance.c	sequence_append	SPECIFIC	midi/events/time	AUDIO	Encodes an LV2_Atom_Event into a sequence buffer; atom-specific layout.
+lv2/core/lv2_instance.c	event_reset	SPECIFIC	midi/events/time	AUDIO	Resets an LV2_Event_Buffer via lv2_event_buffer_reset; deprecated LV2 event ext.
+lv2/core/lv2_instance.c	event_append	SPECIFIC	midi/events/time	AUDIO	Writes via LV2_Event_Iterator/lv2_event_write; LV2 event extension only.
+lv2/core/lv2_instance.c	on_audio	NEUTRAL	worker/threading/rings	AUDIO	Generic role predicate over a function pointer+ctx; no LV2 type.
+lv2/core/lv2_instance.c	inst_map	SPECIFIC	other	MAIN	Implements LV2_URID_Map callback; VST3 has no URID table.
+lv2/core/lv2_instance.c	inst_unmap	SPECIFIC	other	MAIN	Implements LV2_URID_Unmap callback; URIDs are an LV2-only concept.
+lv2/core/lv2_instance.c	inst_uri_to_id	SPECIFIC	other	MAIN	Deprecated uri-map extension glue over URID map; LV2-only.
+lv2/core/lv2_instance.c	inst_event_ref	SPECIFIC	other	AUDIO	No-op LV2_Event_Callback_Data ref/unref; deprecated LV2 event extension.
+lv2/core/lv2_instance.c	inst_on	SPECIFIC	instantiate/discovery	MAIN	Checks enum lv2_feature_kind against a configured bitmask; LV2 feature model.
+lv2/core/lv2_instance.c	inst_log_vprintf	SPECIFIC	other	MAIN	Implements LV2_Log_Log vprintf with LV2_URID type; LV2 log extension.
+lv2/core/lv2_instance.c	inst_log_printf	SPECIFIC	other	MAIN	Varargs wrapper over inst_log_vprintf; same LV2 log extension glue.
+lv2/core/lv2_instance.c	path_inside	NEUTRAL	state/presets/paths	MAIN	Pure text containment check (no '..', not absolute); no LV2 type.
+lv2/core/lv2_instance.c	open_refusal	NEUTRAL	state/presets/paths	MAIN	POSIX symlink/errno classification helper; no LV2 type involved.
+lv2/core/lv2_instance.c	dirs_under	NEUTRAL	state/presets/paths	MAIN	Generic symlink-safe mkdir-chain under a root; reusable path-safety primitive.
+lv2/core/lv2_instance.c	make_path_refused	MIXED	state/presets/paths	MAIN	Generic counter+store; the make_path_why enum exists only for LV2 makePath.
+lv2/core/lv2_instance.c	inst_make_path	MIXED	state/presets/paths	MAIN	Neutral: path_inside/dirs_under; LV2-specific: Make_Path_Handle, dual dir/saved_dir trees.
+lv2/core/lv2_instance.c	dir_entry_remove	NEUTRAL	state/presets/paths	MAIN	Generic nftw callback: remove one path; no LV2 type.
+lv2/core/lv2_instance.c	dir_empty_remove	NEUTRAL	state/presets/paths	MAIN	Generic nftw callback: rmdir empty dirs; no LV2 type.
+lv2/core/lv2_instance.c	schedule_work	MIXED	worker/threading/rings	AUDIO	Neutral: omx_msgring_push+sem_post; specific: LV2_Worker_Schedule_Handle/status, no VST3 worker ext.
+lv2/core/lv2_instance.c	respond	MIXED	worker/threading/rings	WORKER	Neutral: omx_msgring_push; specific: LV2_Worker_Respond_Handle/status, g_in_work gate.
+lv2/core/lv2_instance.c	worker_service	MIXED	worker/threading/rings	WORKER	Neutral: generic ring-drain loop; specific: calls the plugin's LV2 work().
+lv2/core/lv2_instance.c	worker_main	NEUTRAL	worker/threading/rings	WORKER	Generic poll/sleep loop driving a ring-draining hook; no LV2 type.
+lv2/core/lv2_instance.c	worker_start	MIXED	worker/threading/rings	MAIN	Generic pthread_create; gated on in->worker, an LV2 worker-interface pointer.
+lv2/core/lv2_instance.c	worker_stop	MIXED	worker/threading/rings	MAIN	Generic pthread_join/quit-flag; gated on LV2 worker_running state.
+lv2/core/lv2_instance.c	put32	NEUTRAL	other	AUDIO	Plain memcpy of a uint32_t; no LV2 type.
+lv2/core/lv2_instance.c	put64	NEUTRAL	other	AUDIO	Plain memcpy of a uint64_t; no LV2 type.
+lv2/core/lv2_instance.c	get32	NEUTRAL	other	AUDIO	Plain memcpy read of a uint32_t; no LV2 type.
+lv2/core/lv2_instance.c	pad8	NEUTRAL	other	AUDIO	Plain 8-byte rounding arithmetic; no LV2 type.
+lv2/core/lv2_instance.c	put_prop	SPECIFIC	midi/events/time	AUDIO	Writes an LV2 atom object property (key/context/size/type); atom-only layout.
+lv2/core/lv2_instance.c	patch_value_bytes	SPECIFIC	params/contract	AUDIO	Converts float to atom:Float/Double/Int/Long/Bool per LV2 enum lv2_patch_type.
+lv2/core/lv2_instance.c	patch_forge_inputs	MIXED	params/contract	AUDIO	Neutral: loop over dirty params; specific: patch:Set/atom-object wire format.
+lv2/core/lv2_instance.c	patch_read_value	SPECIFIC	params/contract	AUDIO	Decodes an atom value by LV2 atom type code into float.
+lv2/core/lv2_instance.c	patch_object_props	SPECIFIC	params/contract	AUDIO	Parses an LV2 atom object's key/size/type property triples; atom-only.
+lv2/core/lv2_instance.c	text_report	NEUTRAL	params/contract	AUDIO	Seqlock byte-copy into a slot; no LV2 type, pure bytes+atomics.
+lv2/core/lv2_instance.c	patch_out_value	MIXED	params/contract	AUDIO	Neutral: find-by-id loop; specific: id is a URID, atom-typed match.
+lv2/core/lv2_instance.c	patch_read_outputs	SPECIFIC	params/contract	AUDIO	Parses output atom:Object/Blank patch:Set/Put sequence; wholly LV2 atom format.
+lv2/core/lv2_instance.c	patch_cap	SPECIFIC	params/contract	MAIN	Sizes an atom buffer from LV2 sequence/event-byte constants.
+lv2/core/lv2_instance.c	patch_buffers	MIXED	params/contract	MAIN	Neutral: calloc/free buffers; specific: gated on LV2 patch port presence.
+lv2/core/lv2_instance.c	patch_splice_into_midi	SPECIFIC	midi/events/time	AUDIO	Splices atom events into an LV2_Atom_Sequence body; atom-only mechanism.
+lv2/core/lv2_instance.c	options_build	SPECIFIC	latency/rate/activate	MAIN	Fills an LV2_Options_Option array (rate/block); options:options only.
+lv2/core/lv2_instance.c	options_tell	SPECIFIC	latency/rate/activate	MAIN	Calls LV2_Options_Interface->set; retell-without-reinstantiate is an LV2-only path.
+lv2/core/lv2_instance.c	inst_abstract_path	MIXED	state/presets/paths	MAIN	Neutral: strip root-prefix string op; specific: LV2_State_Map_Path_Handle signature.
+lv2/core/lv2_instance.c	inst_absolute_path	MIXED	state/presets/paths	MAIN	Neutral: prepend root string op; specific: LV2_State_Map_Path_Handle signature.
+lv2/core/lv2_instance.c	inst_free_path	SPECIFIC	state/presets/paths	MAIN	Trivial free(); only exists for LV2 state:freePath, no VST3 analog.
+lv2/core/lv2_instance.c	features_build	SPECIFIC	instantiate/discovery	MAIN	Builds LV2_Feature array via lv2_features_fill; LV2 feature-provider model.
+lv2/core/lv2_instance.c	time_map_fn	SPECIFIC	midi/events/time	MAIN	LV2_URID_Map_Handle callback for the time forge; URID-only.
+lv2/core/lv2_instance.c	time_make	SPECIFIC	midi/events/time	MAIN	Allocates time buffer, maps time: URIDs, inits LV2_Atom_Forge.
+lv2/core/lv2_instance.c	instance_drop	SPECIFIC	lifecycle	MAIN	Calls plugin's LV2_Descriptor cleanup(); LV2 instantiation-class call.
+lv2/core/lv2_instance.c	instance_make	SPECIFIC	ports/layouts/aux	MAIN	LV2 instantiate + per-port connect_port loop; VST3 has buses, not per-port connect.
+lv2/core/lv2_instance.c	lv2_instance_new	SPECIFIC	instantiate/discovery	MAIN	Allocates instance, wires every LV2 feature struct, maps URIDs, names makePath dir.
+lv2/core/lv2_instance.c	state_apply	SPECIFIC	state/presets/paths	MAIN	Calls lv2_plugin_state_restore (lilv Turtle); LV2-only state format.
+lv2/core/lv2_instance.c	lv2_instance_activate	MIXED	lifecycle	MAIN	Neutral: keep-vs-reinstantiate policy; specific: instance_make/desc->activate/worker_start calls.
+lv2/core/lv2_instance.c	lv2_instance_keep	NEUTRAL	lifecycle	MAIN	Pure rate/block/active/dirty comparison; same decision a VST3 adapter needs.
+lv2/core/lv2_instance.c	lv2_instance_deactivate	SPECIFIC	lifecycle	MAIN	Calls plugin's LV2_Descriptor deactivate(); worker_stop portion is shared.
+lv2/core/lv2_instance.c	lv2_instance_reset	MIXED	lifecycle	MAIN	Neutral: ring reinit; specific: LV2 deactivate/activate instantiation-class calls.
+lv2/core/lv2_instance.c	lv2_instance_free	MIXED	lifecycle	MAIN	Neutral: free()/nftw cleanup; specific: LV2-shaped buffers (atom/midi/patch).
+lv2/core/lv2_instance.c	lv2_instance_preset_load	SPECIFIC	state/presets/paths	MAIN	Reads a pset:Preset via lilv, then loads it as Turtle state.
+lv2/core/lv2_instance.c	lv2_instance_state_save	SPECIFIC	state/presets/paths	MAIN	Serializes lilv state to Turtle text; VST3 state is an IBStream blob.
+lv2/core/lv2_instance.c	lv2_instance_state_restore_live	SPECIFIC	state/presets/paths	MAIN	Live restore via state:threadSafeRestore+worker; no VST3 equivalent mechanism.
+lv2/core/lv2_instance.c	lv2_instance_options_told	SPECIFIC	latency/rate/activate	MAIN	Counts options:interface retells; LV2-only block-length-without-reinstantiate path.
+lv2/core/lv2_instance.c	lv2_instance_state_load	SPECIFIC	state/presets/paths	MAIN	Holds Turtle state text for next activate; lilv-format specific.
+lv2/core/lv2_instance.c	lv2_instance_audio_in	NEUTRAL	ports/layouts/aux	AUDIO	Pure offset+index pointer arithmetic into the instance audio buffer.
+lv2/core/lv2_instance.c	lv2_instance_audio_out	NEUTRAL	ports/layouts/aux	AUDIO	Same pointer arithmetic for the main output's buffer.
+lv2/core/lv2_instance.c	lv2_instance_aux_in	NEUTRAL	ports/layouts/aux	AUDIO	Same pointer arithmetic for an auxiliary input's channel.
+lv2/core/lv2_instance.c	lv2_instance_aux_out	NEUTRAL	ports/layouts/aux	AUDIO	Same pointer arithmetic for an auxiliary output's channel.
+lv2/core/lv2_instance.c	lv2_instance_cv_in	NEUTRAL	ports/layouts/aux	AUDIO	Same pointer arithmetic for a CV input's buffer.
+lv2/core/lv2_instance.c	lv2_instance_cv_out	NEUTRAL	ports/layouts/aux	AUDIO	Same pointer arithmetic for a CV output's buffer.
+lv2/core/lv2_instance.c	lv2_instance_control_set	MIXED	ports/layouts/aux	AUDIO	Neutral: write value+publish atomic; specific: enum lv2_control_kind guard.
+lv2/core/lv2_instance.c	lv2_instance_control_get	NEUTRAL	ports/layouts/aux	MAIN	Pure atomic load + bit-cast; no LV2 type.
+lv2/core/lv2_instance.c	lv2_instance_patch_write	MIXED	params/contract	AUDIO	Neutral: pending/dirty/shown update; specific: separate 'patch parameter' concept.
+lv2/core/lv2_instance.c	lv2_instance_patch_get	NEUTRAL	params/contract	MAIN	Pure atomic load + bit-cast; no LV2 type.
+lv2/core/lv2_instance.c	lv2_instance_patch_changed	NEUTRAL	params/contract	AUDIO	Pure array lookup of flag/value; no LV2 type.
+lv2/core/lv2_instance.c	time_same	NEUTRAL	midi/events/time	AUDIO	Compares host's own struct lv2_time fields; no LV2 type used.
+lv2/core/lv2_instance.c	time_object	SPECIFIC	midi/events/time	AUDIO	Forges an LV2 time:Position object via LV2_Atom_Forge; atom-only.
+lv2/core/lv2_instance.c	lv2_instance_time	MIXED	midi/events/time	AUDIO	Neutral: changed/playing re-forge policy; specific: atom forge + MIDI splice.
+lv2/core/lv2_instance.c	lv2_instance_run	SPECIFIC	process/run	AUDIO	Atom buffer resets + desc->run + worker response drain; LV2-bound skeleton.
+lv2/core/lv2_instance.c	lv2_instance_midi_in_add	SPECIFIC	midi/events/time	AUDIO	Appends into an LV2 event/atom sequence buffer; format-specific encoding.
+lv2/core/lv2_instance.c	event_out_each	SPECIFIC	midi/events/time	AUDIO	Iterates an LV2_Event_Buffer via LV2_Event_Iterator; deprecated event extension.
+lv2/core/lv2_instance.c	lv2_instance_midi_out_each	MIXED	midi/events/time	AUDIO	Neutral: per-event callback interface; specific: LV2 atom sequence parsing.
+lv2/core/lv2_instance.c	lv2_instance_latency	NEUTRAL	latency/rate/activate	MAIN	Pure atomic load getter; no LV2 type.
+lv2/core/lv2_instance.c	lv2_instance_counters	MIXED	refusal/errors	MAIN	Neutral: atomic-struct copy; some counters (makePath, schedule_off_audio) LV2-only.
+lv2/core/lv2_instance.c	lv2_instance_set_role	NEUTRAL	worker/threading/rings	MAIN	Stores a generic role-predicate fn+ctx; no LV2 type.
+lv2/core/lv2_instance.c	lv2_instance_worker_quiesce	SPECIFIC	worker/threading/rings	MAIN	Polls omx_msgring via in->worker_running, an LV2 worker-only concept.
+lv2/core/lv2_instance.c	lv2_instance_has_worker	SPECIFIC	worker/threading/rings	MAIN	Reports LV2 worker-interface presence; VST3 has no worker extension.
+lv2/core/lv2_instance.c	lv2_instance_make_path_why	SPECIFIC	state/presets/paths	MAIN	Maps makePath refusal enum to a code string; LV2-only feature.
+lv2/core/lv2_instance.c	lv2_instance_saved_dir	SPECIFIC	state/presets/paths	MAIN	Getter for the makePath save-copy directory; LV2-only field.
+lv2/core/lv2_instance.c	lv2_saved_drop	MIXED	state/presets/paths	MAIN	Neutral: nftw tree removal; specific: lv2-<pid>-<n>.saved naming validation.
+lv2/core/lv2_instance.c	lv2_plugin_text_limit	SPECIFIC	params/contract	MAIN	Derives text limit from LV2 atom sequence/event byte constants.
+lv2/core/lv2_instance.c	lv2_instance_text_set	MIXED	params/contract	MAIN	Neutral: pending/host buffer write+busy-check; specific: LV2 atom-capacity-derived limit.
+lv2/core/lv2_instance.c	lv2_instance_text_get	NEUTRAL	params/contract	MAIN	Seqlock-protected string read; no LV2 type, pure bytes+atomics.
+lv2/core/lv2_world.c	lv2_why_set	NEUTRAL	refusal/errors	MAIN	snprintf a code string into a fixed buffer; no format dependency
+lv2/core/lv2_world.c	lilv_load	SPECIFIC	instantiate/discovery	MAIN	dlopen liblilv, resolve its symbol table, create the lilv world
+lv2/core/lv2_world.c	lv2_core_lilv_loaded	SPECIFIC	instantiate/discovery	MAIN	Generic engine-loaded check; tests the lilv .so handle specifically; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	bundle_free	SPECIFIC	instantiate/discovery	MAIN	Generic array/struct teardown wraps one lilv_node_free call; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	bundle_list	SPECIFIC	instantiate/discovery	MAIN	List-this-bundle's-entries generic; filters lilv's global plugin list by bundle-URI equality; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_bundle_ref	MIXED	instantiate/discovery	MAIN	Path-normalize/refcount/cache-by-dir generic; lilv_new_file_uri/load_bundle/bundle_list are the hooks
+lv2/core/lv2_world.c	lv2_bundle_unref	MIXED	instantiate/discovery	MAIN	Refcount decrement generic; never-unload policy is an lilv/zix defect workaround
+lv2/core/lv2_world.c	lv2_bundle_count	NEUTRAL	instantiate/discovery	MAIN	Plain struct field accessor
+lv2/core/lv2_world.c	lv2_bundle_uri	NEUTRAL	instantiate/discovery	MAIN	Plain array accessor by index
+lv2/core/lv2_world.c	lv2_bundle_name	NEUTRAL	instantiate/discovery	MAIN	Plain array accessor by index
+lv2/core/lv2_world.c	port_designated	SPECIFIC	ports/layouts/aux	MAIN	Checks lv2:designation node via lilv_port_get_value/contains
+lv2/core/lv2_world.c	node_float	SPECIFIC	ports/layouts/aux	MAIN	Converts a LilvNode to float only if float/int typed
+lv2/core/lv2_world.c	port_range	SPECIFIC	params/contract	MAIN	Default-falls-to-minimum range rule generic; read via lilv_port_get_range (lv2:minimum/maximum/default); the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	port_props	SPECIFIC	params/contract	MAIN	Table-driven bit-OR aggregation generic; source predicates are LV2 property URIs via lilv; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	port_unit	SPECIFIC	params/contract	MAIN	Shorten-a-known-unit-URI-to-a-display-name generic; units:unit vocabulary LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	port_steps	SPECIFIC	params/contract	MAIN	Step-count concept maps to VST3 stepCount; source is pprops:rangeSteps via lilv; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	port_points	SPECIFIC	params/contract	MAIN	Sorted labeled-value enumeration generic (maps to VST3 string lists); source is lilv scale points; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	node_dup	SPECIFIC	ports/layouts/aux	MAIN	Dup a LilvNode's string with fallback, frees the node
+lv2/core/lv2_world.c	nodes_count	SPECIFIC	ports/layouts/aux	MAIN	Counts a LilvNodes iterator
+lv2/core/lv2_world.c	world_float	SPECIFIC	ports/layouts/aux	MAIN	First float value of a predicate on a subject via lilv_world_find_nodes
+lv2/core/lv2_world.c	world_string	SPECIFIC	ports/layouts/aux	MAIN	First string value of a predicate on a subject via lilv_world_find_nodes
+lv2/core/lv2_world.c	rsz_max	SPECIFIC	ports/layouts/aux	MAIN	rsz:minimumSize atom-buffer sizing; LV2 resize-port/atom concept only
+lv2/core/lv2_world.c	atom_port	SPECIFIC	ports/layouts/aux	MAIN	Classifies a non-MIDI atom port as patch/notify/plain via LV2 atom+patch vocabulary
+lv2/core/lv2_world.c	symbol_of_uri	NEUTRAL	other	MAIN	Pure string sanitize: URI tail to a valid C identifier, no LV2 API used
+lv2/core/lv2_world.c	patch_type_of	SPECIFIC	params/contract	MAIN	Numeric lv2:Parameter range typing via lilv_world_ask/find_nodes
+lv2/core/lv2_world.c	text_type_of	SPECIFIC	params/contract	MAIN	String/path lv2:Parameter range typing via lilv
+lv2/core/lv2_world.c	node_text_cmp	SPECIFIC	ports/layouts/aux	MAIN	qsort-by-text comparator generic; operand type is LilvNode; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	read_patches	SPECIFIC	params/contract	MAIN	Stable sorted-URI id-assignment is generic param-id design; property extraction is lilv/patch-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	port_takes_time	SPECIFIC	ports/layouts/aux	MAIN	Detects an LV2 time:Position atom input; no VST3 port analog
+lv2/core/lv2_world.c	first_string	SPECIFIC	ports/layouts/aux	MAIN	First string of a LilvNodes list
+lv2/core/lv2_world.c	audio_of	SPECIFIC	ports/layouts/aux	MAIN	Tests lv2:AudioPort plus direction via lilv_port_is_a
+lv2/core/lv2_world.c	port_group	SPECIFIC	ports/layouts/aux	MAIN	Reads a port's pg:group value via lilv
+lv2/core/lv2_world.c	port_has	SPECIFIC	ports/layouts/aux	MAIN	Tests whether a port carries a predicate with a value, via lilv
+lv2/core/lv2_world.c	group_has	SPECIFIC	ports/layouts/aux	MAIN	Tests whether a port's pg:group node carries a predicate, via lilv world
+lv2/core/lv2_world.c	port_name	SPECIFIC	ports/layouts/aux	MAIN	Name-fallback-chain concept generic; sources are pg:group/lv2:name/symbol via lilv; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	kind_of_count	NEUTRAL	ports/layouts/aux	MAIN	Channel count to mono/stereo/unknown kind; plain arithmetic rule
+lv2/core/lv2_world.c	group_kind	MIXED	ports/layouts/aux	MAIN	Table lookup of layout kind+channel order generic; table keyed on LV2 port-groups URIs
+lv2/core/lv2_world.c	designation_of	SPECIFIC	ports/layouts/aux	MAIN	Maps an lv2:designation URI to a channel code via lilv and a table
+lv2/core/lv2_world.c	group_order	SPECIFIC	ports/layouts/aux	MAIN	Reorder channels to a named layout generic; group type/designations read via lilv; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	side_main_width	MIXED	ports/layouts/aux	MAIN	Width-of-the-other-side's-main-bus generic rule; side-chain/group facts come from lilv
+lv2/core/lv2_world.c	describe	MIXED	ports/layouts/aux	MAIN	Width-refusal plus channel assembly generic (any format needs a width limit); calls LV2 group_order
+lv2/core/lv2_world.c	read_side	MIXED	ports/layouts/aux	MAIN	Main/aux bus classification rules generic (a VST3 adapter needs the same width policy); facts come from lilv
+lv2/core/lv2_world.c	read_ports	SPECIFIC	ports/layouts/aux	MAIN	Per-port dispatch to audio/control/atom/cv/midi is LV2-type-specific; bypass/latency/overflow refusal conventions are generic; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	read_required	SPECIFIC	instantiate/discovery	MAIN	Refuse-if-a-required-capability-is-unoffered-under-strict generic gate; features are LV2 URIs; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_plugin_close	SPECIFIC	instantiate/discovery	MAIN	Free-everything-allocated teardown generic; lilv_node_free/bundle unref are format-specific hooks; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_plugin_open	SPECIFIC	instantiate/discovery	MAIN	Look-up-class-in-module-then-read-ports/features-then-refuse shape generic; lilv lookup is the hook; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_plugin_load	SPECIFIC	instantiate/discovery	MAIN	dlopen-and-walk-factory-until-id-match shape generic; lv2_descriptor/URI matching LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	table_map	SPECIFIC	state/presets/paths	MAIN	LV2_URID_Map callback wrapping the process URID table
+lv2/core/lv2_world.c	lv2_plugin_default_state	SPECIFIC	state/presets/paths	MAIN	Loads the state:state default via lilv_state_new_from_world/restore
+lv2/core/lv2_world.c	state_get	SPECIFIC	state/presets/paths	MAIN	lilv state-save callback returning a control's float value by symbol
+lv2/core/lv2_world.c	state_set	SPECIFIC	state/presets/paths	MAIN	lilv state-restore callback writing a control's float value by symbol
+lv2/core/lv2_world.c	lv2_plugin_state_text	SPECIFIC	state/presets/paths	MAIN	Serialize-state-to-a-blob-and-copy-referenced-files-out concept generic; Turtle/lilv_state_to_string mechanism LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_plugin_state_restore	SPECIFIC	state/presets/paths	MAIN	Parse-blob-and-write-values-back concept generic; Turtle parse via lilv is the mechanism; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_plugin_preset_text	SPECIFIC	state/presets/paths	MAIN	Preset-scoped-to-this-plugin-serialized concept generic; pset:Preset/appliesTo/lilv mechanism specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_plugin_state_check	SPECIFIC	state/presets/paths	MAIN	Validate-a-state-blob-parses concept generic; lilv Turtle parse is the mechanism; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	plugin_presets	SPECIFIC	state/presets/paths	MAIN	List-presets-of-a-plugin-with-a-label concept generic; pset:Preset/appliesTo discovery LV2-specific; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_world.c	lv2_bundle_presets	SPECIFIC	state/presets/paths	MAIN	Generic for-each-plugin-in-bundle dispatch loop; calls LV2-specific plugin_presets; the body is LV2 calls, only the idea is shared
+lv2/clap/lv2_clap.c	why_set	NEUTRAL	refusal/errors	MAIN	plain snprintf of a code string; no format call
+lv2/clap/lv2_clap.c	host_log	NEUTRAL	refusal/errors	MAIN	uses only clap_host_log_t/CLAP_EXT_LOG; no LV2 call
+lv2/clap/lv2_clap.c	refuse	NEUTRAL	refusal/errors	MAIN	wraps why_set+host_log; no LV2 call
+lv2/clap/lv2_clap.c	shim_is_audio	NEUTRAL	lifecycle	AUDIO	pure CLAP thread-check predicate; passed to lv2_instance_set_role as role hook
+lv2/clap/lv2_clap.c	control_of_id	NEUTRAL	params/contract	AUDIO	array lookup over precomputed control_of_port table; no LV2 call
+lv2/clap/lv2_clap.c	patch_of_id	NEUTRAL	params/contract	AUDIO	linear scan of precomputed lv2_patch id array; no LV2 call
+lv2/clap/lv2_clap.c	params_count	NEUTRAL	params/contract	MAIN	sums two precomputed counts (n_controls+n_patches); no LV2 call
+lv2/clap/lv2_clap.c	patch_info	MIXED	params/contract	MAIN	reads LV2_PROP_INTEGER/TOGGLED bits off lv2_patch; needs fmt.param_props(j)
+lv2/clap/lv2_clap.c	params_get_info	MIXED	params/contract	MAIN	switches on LV2_CONTROL_BYPASS/OUTPUT/INPUT and LV2_PROP_* flags; needs fmt.param_props(k)
+lv2/clap/lv2_clap.c	params_get_value	MIXED	params/contract	MAIN	needs fmt.control_get(k)/fmt.patch_get(j) (lv2_instance_control_get/patch_get)
+lv2/clap/lv2_clap.c	params_value_to_text	MIXED	params/contract	MAIN	iterates lv2_control.points scale table; needs fmt.scale_points(k)
+lv2/clap/lv2_clap.c	params_text_to_value	MIXED	params/contract	MAIN	iterates lv2_control.points scale table; needs fmt.scale_points(k)
+lv2/clap/lv2_clap.c	apply_events	MIXED	params/contract	AUDIO	needs fmt.control_set(k,v)/fmt.patch_write(j,v) (lv2_instance_control_set/patch_write)
+lv2/clap/lv2_clap.c	triggers_reset	MIXED	params/contract	AUDIO	needs fmt.control_get(k)/fmt.control_set(k,v) to read back and clear a trigger
+lv2/clap/lv2_clap.c	emit_patch_changes	MIXED	params/contract	AUDIO	needs fmt.patch_changed(j,&v) (lv2_instance_patch_changed)
+lv2/clap/lv2_clap.c	params_flush	MIXED	params/contract	AUDIO	delegates to apply_events, which needs fmt.control_set/fmt.patch_write
+lv2/clap/lv2_clap.c	latency_get	NEUTRAL	latency/rate/activate	MAIN	reads precomputed passthrough flag and cached latency_active; no LV2 call
+lv2/clap/lv2_clap.c	main_inputs	NEUTRAL	ports/layouts/aux	AUDIO	reads precomputed in_legs/passthrough ints; also called from plugin_process
+lv2/clap/lv2_clap.c	shim_main_width	NEUTRAL	ports/layouts/aux	MAIN	reads precomputed generic port-layout counts (in_legs, main_in.n, main_out.n)
+lv2/clap/lv2_clap.c	port_type_of	MIXED	ports/layouts/aux	MAIN	maps LV2_PORT_MONO/STEREO/SURROUND/AMBISONIC to CLAP_PORT_*; needs fmt-neutral kind enum
+lv2/clap/lv2_clap.c	ports_count	NEUTRAL	ports/layouts/aux	MAIN	sums precomputed port counts (n_aux_in/out, n_cv_in/out); no LV2 call
+lv2/clap/lv2_clap.c	ports_get	MIXED	ports/layouts/aux	MAIN	builds clap_audio_port_info_t from layout; calls port_type_of (LV2_PORT_* mapping)
+lv2/clap/lv2_clap.c	audio_port_at	NEUTRAL	ports/layouts/aux	MAIN	navigates precomputed port-layout arrays (main/aux); no LV2 enum interpretation
+lv2/clap/lv2_clap.c	any_port_of	NEUTRAL	ports/layouts/aux	MAIN	compares port kind tags for equality; kind is an opaque caller-supplied value
+lv2/clap/lv2_clap.c	surround_mask_of	NEUTRAL	ports/layouts/aux	MAIN	builds CLAP surround bitmask from a->map, which lv2/core already fills with CLAP ids
+lv2/clap/lv2_clap.c	surround_is_channel_mask_supported	MIXED	ports/layouts/aux	MAIN	checks lv2_audio_port.kind against LV2_PORT_SURROUND; needs fmt-neutral kind enum
+lv2/clap/lv2_clap.c	surround_get_channel_map	MIXED	ports/layouts/aux	MAIN	checks kind against LV2_PORT_SURROUND; copies already-CLAP-id map array otherwise generic
+lv2/clap/lv2_clap.c	ambisonic_is_config_supported	NEUTRAL	ports/layouts/aux	MAIN	pure CLAP ambisonic config check (ACN/SN3D); no LV2 touch
+lv2/clap/lv2_clap.c	ambisonic_get_config	NEUTRAL	ports/layouts/aux	MAIN	stub returning false; no LV2 touch
+lv2/clap/lv2_clap.c	note_ports_count	NEUTRAL	midi/events/time	MAIN	reads precomputed midi_in_port/midi_out_port >=0 flags; no LV2 call
+lv2/clap/lv2_clap.c	note_ports_get	NEUTRAL	midi/events/time	MAIN	builds note-port descriptor from precomputed flag and fixed CLAP dialect bits
+lv2/clap/lv2_clap.c	frame_in	NEUTRAL	midi/events/time	AUDIO	clamps an event time to the block length; pure arithmetic, no LV2 call
+lv2/clap/lv2_clap.c	midi_in_events	MIXED	midi/events/time	AUDIO	needs fmt.midi_in_write(frame,data,size) (lv2_instance_midi_in_add); event decode is generic (omx_clap_midi_*)
+lv2/clap/lv2_clap.c	midi_out_event	NEUTRAL	midi/events/time	AUDIO	pure byte-to-CLAP-event translation; invoked by lv2_instance_midi_out_each as a generic sink callback
+lv2/clap/lv2_clap.c	unit_code	MIXED	params/contract	MAIN	maps LV2's unit local names (hz, db, ...) to canonical contract codes; a VST3 side needs its own name table
+lv2/clap/lv2_clap.c	contract_symbol	NEUTRAL	params/contract	MAIN	validates a symbol via pc_symbol_ok; the symbol string is already computed, no LV2 call
+lv2/clap/lv2_clap.c	contract_make	MIXED	params/contract	MAIN	needs fmt.param_info()/fmt.unit_name(); reads LV2_PROP_LOGARITHMIC and range_steps directly
+lv2/clap/lv2_clap.c	contract_version	NEUTRAL	params/contract	MAIN	returns a constant; no plugin access
+lv2/clap/lv2_clap.c	contract_fingerprint	NEUTRAL	params/contract	MAIN	returns precomputed s->fingerprint string; no LV2 call
+lv2/clap/lv2_clap.c	contract_get	NEUTRAL	params/contract	MAIN	linear scan of precomputed canonical contract table (param_contract.h); no LV2 touch
+lv2/clap/lv2_clap.c	contract_migration_count	NEUTRAL	params/contract	MAIN	returns a constant 0; no plugin access
+lv2/clap/lv2_clap.c	contract_get_migration	NEUTRAL	params/contract	MAIN	stub returning false; no plugin access
+lv2/clap/lv2_clap.c	plugin_init	MIXED	instantiate/discovery	MAIN	needs fmt.load()/fmt.instance_new()/fmt.set_role() (lv2_plugin_load/lv2_instance_new/lv2_instance_set_role)
+lv2/clap/lv2_clap.c	plugin_destroy	MIXED	instantiate/discovery	MAIN	needs fmt.instance_free()/fmt.close() (lv2_instance_free/lv2_plugin_close)
+lv2/clap/lv2_clap.c	plugin_activate	MIXED	latency/rate/activate	MAIN	needs fmt.keep()/fmt.activate()/fmt.latency() (lv2_instance_keep/activate/latency); reads lv2_core_feature_options for fixed-block
+lv2/clap/lv2_clap.c	plugin_deactivate	MIXED	latency/rate/activate	MAIN	needs fmt.deactivate() (lv2_instance_deactivate); restart/keep bookkeeping is generic
+lv2/clap/lv2_clap.c	plugin_start_processing	NEUTRAL	lifecycle	AUDIO	sets a local flag only; no LV2 call
+lv2/clap/lv2_clap.c	plugin_stop_processing	NEUTRAL	lifecycle	AUDIO	sets a local flag only; no LV2 call
+lv2/clap/lv2_clap.c	plugin_reset	MIXED	lifecycle	MAIN	needs fmt.reset() (lv2_instance_reset); error bookkeeping is generic
+lv2/clap/lv2_clap.c	write_controls	MIXED	process/run	AUDIO	delegates to apply_events; called through a function pointer passed to lv2_instance_run
+lv2/clap/lv2_clap.c	latency_watch	MIXED	latency/rate/activate	AUDIO	needs fmt.latency() (lv2_instance_latency); hold-timer bookkeeping is generic
+lv2/clap/lv2_clap.c	time_of	MIXED	process/run	AUDIO	fills lv2_time/LV2_TIME_HAS_* flags from CLAP transport; needs fmt-neutral transport struct
+lv2/clap/lv2_clap.c	plugin_process	MIXED	process/run	AUDIO	mostly generic buffer copy/dispatch; needs fmt.audio_in/aux_in/cv_in/run/audio_out/aux_out/cv_out/time/counters (lv2_instance_*)
+lv2/clap/lv2_clap.c	read_all	NEUTRAL	state/presets/paths	MAIN	generic clap_istream_t reader with bounded growth; no LV2 call
+lv2/clap/lv2_clap.c	state_save	MIXED	state/presets/paths	MAIN	needs fmt.state_save() (lv2_instance_state_save); stream-write loop is generic
+lv2/clap/lv2_clap.c	state_load	MIXED	state/presets/paths	MAIN	needs fmt.state_restore_live()/fmt.state_load() (lv2_instance_state_restore_live/load)
+lv2/clap/lv2_clap.c	preset_from_location	MIXED	state/presets/paths	MAIN	needs fmt.preset_load(key) (lv2_instance_preset_load); location/kind checks are generic
+lv2/clap/lv2_clap.c	plugin_get_extension	MIXED	other	MAIN	gates surround/ambisonic availability via any_port_of(LV2_PORT_SURROUND/AMBISONIC)
+lv2/clap/lv2_clap.c	plugin_on_main_thread	MIXED	lifecycle	MAIN	needs fmt.counters()/fmt.make_path_why() (lv2_instance_counters/make_path_why)
+lv2/clap/lv2_clap.c	slot_of_factory	NEUTRAL	instantiate/discovery	MAIN	pointer arithmetic (offsetof) over local struct slot; no LV2 call
+lv2/clap/lv2_clap.c	factory_count	MIXED	instantiate/discovery	MAIN	needs fmt.bundle_count() (lv2_bundle_count)
+lv2/clap/lv2_clap.c	factory_descriptor	MIXED	instantiate/discovery	MAIN	needs fmt.bundle_count() (lv2_bundle_count); descriptor array itself is generic
+lv2/clap/lv2_clap.c	descriptor_fill	NEUTRAL	instantiate/discovery	MAIN	fills clap_plugin_descriptor_t from id/name strings; format-free
+lv2/clap/lv2_clap.c	factory_create	MIXED	instantiate/discovery	MAIN	needs fmt.plugin_open()/fmt.bundle_count()/fmt.bundle_uri() (lv2_plugin_open/lv2_bundle_count/uri); vtable wiring is generic
+lv2/clap/lv2_clap.c	slot_of_presets	NEUTRAL	state/presets/paths	MAIN	pointer arithmetic (offsetof) over local struct slot; no LV2 call
+lv2/clap/lv2_clap.c	provider_init	NEUTRAL	state/presets/paths	MAIN	declares a CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN; no LV2 call
+lv2/clap/lv2_clap.c	provider_destroy	NEUTRAL	state/presets/paths	MAIN	frees provider_data; no LV2 call
+lv2/clap/lv2_clap.c	provider_preset	NEUTRAL	state/presets/paths	MAIN	pure CLAP preset-receiver calls from plain uri/label strings; invoked by lv2_bundle_presets as a sink
+lv2/clap/lv2_clap.c	provider_get_metadata	MIXED	state/presets/paths	MAIN	needs fmt.bundle_presets() (lv2_bundle_presets)
+lv2/clap/lv2_clap.c	provider_get_extension	NEUTRAL	state/presets/paths	MAIN	stub returning NULL; no LV2 call
+lv2/clap/lv2_clap.c	presets_count	NEUTRAL	state/presets/paths	MAIN	returns constant 1; no LV2 call
+lv2/clap/lv2_clap.c	presets_descriptor	NEUTRAL	state/presets/paths	MAIN	returns a fixed clap_preset_discovery_provider_descriptor_t; no LV2 call
+lv2/clap/lv2_clap.c	presets_create	NEUTRAL	state/presets/paths	MAIN	validates a provider id string and wires a generic provider vtable; no LV2 call
+lv2/clap/lv2_clap.c	entry_init	NEUTRAL	instantiate/discovery	MAIN	always returns true; no LV2 call
+lv2/clap/lv2_clap.c	entry_deinit	NEUTRAL	instantiate/discovery	MAIN	empty body; no LV2 call
+lv2/clap/lv2_clap.c	slot_factory	NEUTRAL	instantiate/discovery	MAIN	dispatches CLAP_PLUGIN_FACTORY_ID/preset-discovery id to local tables; no LV2 call
+lv2/clap/lv2_clap.c	omx_clap_lv2_configure	MIXED	instantiate/discovery	MAIN	needs fmt.core_configure() (lv2_core_configure); config fields are plain scalars
+lv2/clap/lv2_clap.c	omx_clap_lv2_feature_options	MIXED	instantiate/discovery	MAIN	needs fmt.feature_options_set() (lv2_core_feature_options_set)
+lv2/clap/lv2_clap.c	omx_clap_lv2_entry	MIXED	instantiate/discovery	MAIN	needs fmt.bundle_ref()/count()/uri()/name()/unref() (lv2_bundle_*); slot bookkeeping is generic
+lv2/clap/lv2_clap.c	omx_clap_lv2_entry_release	MIXED	instantiate/discovery	MAIN	needs fmt.bundle_unref() (lv2_bundle_unref); refcount bookkeeping is generic
+lv2/clap/lv2_clap.c	omx_clap_lv2_last_refusal	NEUTRAL	refusal/errors	MAIN	returns the thread-local g_last_refusal string; no LV2 call
+lv2/clap/lv2_clap.c	omx_clap_lv2_param_symbol	MIXED	other	MAIN	returns lv2:symbol string; a VST3 shim needs its own id-exposing function (fmt.symbol(k))
+lv2/clap/lv2_clap.c	omx_clap_lv2_worker_quiesce	SPECIFIC	lifecycle	MAIN	pins LV2's worker extension schedule (lv2_instance_worker_quiesce); no equivalent concept in VST3
+lv2/clap/lv2_clap.c	omx_clap_lv2_saved_dir	MIXED	state/presets/paths	MAIN	needs fmt.saved_dir() (lv2_instance_saved_dir); rest is a generic string copy-out
+lv2/clap/lv2_clap.c	omx_clap_lv2_saved_drop	MIXED	state/presets/paths	MAIN	needs fmt.saved_drop(path) (lv2_saved_drop); rest is generic why-propagation
+lv2/clap/lv2_clap.c	shim_of_any	NEUTRAL	other	MAIN	checks plugin->process==plugin_process to confirm ownership; no LV2 call
+lv2/clap/lv2_clap.c	text_of_uri	NEUTRAL	params/contract	MAIN	linear scan of precomputed text-property URI table; no LV2 call
+lv2/clap/lv2_clap.c	omx_clap_lv2_patch_text_count	NEUTRAL	params/contract	MAIN	reads precomputed s->lv2->n_texts via shim_of_any; no LV2 call
+lv2/clap/lv2_clap.c	omx_clap_lv2_patch_text_info	MIXED	params/contract	MAIN	needs fmt.text_limit() (lv2_plugin_text_limit) for max_bytes; rest is plain struct field copy
+lv2/clap/lv2_clap.c	omx_clap_lv2_patch_text_set	MIXED	params/contract	MAIN	needs fmt.text_set(j,value) (lv2_instance_text_set)
+lv2/clap/lv2_clap.c	omx_clap_lv2_patch_text_get	MIXED	params/contract	MAIN	needs fmt.text_get(j,buf,size) (lv2_instance_text_get)
+src/omx_msgring.h	omx_msgring_record_bytes	NEUTRAL	worker/threading/rings	ANY	pure arithmetic; static inline omx_msgring.h:72; no LV2/CLAP type
+src/omx_msgring.h	omx_msgring_init	NEUTRAL	worker/threading/rings	MAIN	static inline omx_msgring.h:78; control-thread bind, no format type
+src/omx_msgring.h	omx_msgring_used	NEUTRAL	worker/threading/rings	ANY	static inline omx_msgring.h:88; audio thread (effects.c:2108) and worker (lv2_instance.c:2190)
+src/omx_msgring.h	omx_msgring_push	NEUTRAL	worker/threading/rings	ANY	static inline omx_msgring.h:97; RT producer (schedule_work) and worker producer (respond)
+src/omx_msgring.h	omx_msgring_peek	NEUTRAL	worker/threading/rings	ANY	static inline omx_msgring.h:124; worker thread and audio-thread response drain
+src/omx_msgring.h	omx_msgring_pop	NEUTRAL	worker/threading/rings	ANY	static inline omx_msgring.h:143; same dual-thread consumer as peek
+src/hosted_stage.h	omx_hosted_count	NEUTRAL	process/run	ANY	static inline hosted_stage.h:177; called from RT, worker and main-thread counters alike
+src/hosted_stage.h	omx_hosted_clamp	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:183; RT ceiling clamp, only caller clap_stage.h:1708,2130
+src/hosted_stage.h	omx_hosted_strike_as	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:200; RT fault counter, called only from run_end_why internally
+src/hosted_stage.h	omx_hosted_strike	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:208; convenience wrapper, no call site found outside this header
+src/hosted_stage.h	omx_hosted_deliver	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:218; RT crossfade/copy, only caller clap_stage.h:1888
+src/hosted_stage.h	omx_hosted_stage_init	NEUTRAL	process/run	MAIN	static inline hosted_stage.h:247; control-thread one-time bind, clap_stage.h:681
+src/hosted_stage.h	omx_hosted_out_finite	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:281; RT finite-output scan, clap_stage.h:1667 only
+src/hosted_stage.h	omx_hosted_run_begin	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:293; RT block preamble, clap_stage.h:1893 only
+src/hosted_stage.h	omx_hosted_run_end_why	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:323; RT block tail, clap_stage.h:1910,2123
+src/hosted_stage.h	omx_hosted_run_end	NEUTRAL	process/run	AUDIO	static inline hosted_stage.h:361; simplified entry point, no call site found anywhere (unused today)
+src/hosted_stage.h	omx_hosted_prime	NEUTRAL	process/run	MAIN	static inline hosted_stage.h:372; control-thread warm-up loop, clap_stage.h:2247
+src/hosted_stage.h	omx_hosted_queue_init	NEUTRAL	params/contract	MAIN	static inline hosted_stage.h:392; control-thread bind, aliased omx_clap_queue_init clap_stage.h:127
+src/hosted_stage.h	omx_hosted_queue_push	NEUTRAL	params/contract	MAIN	static inline hosted_stage.h:404; control-thread producer, aliased clap_stage.h:128
+src/hosted_stage.h	omx_hosted_queue_drain	NEUTRAL	params/contract	AUDIO	static inline hosted_stage.h:422; RT consumer, clap_stage.h:991
+src/hosted_stage.h	omx_hosted_queue_pending	NEUTRAL	params/contract	ANY	static inline hosted_stage.h:442; advisory, aliased clap_stage.h:129, read from either thread
+src/param_contract.h	pc_sha256_block	NEUTRAL	params/contract	MAIN	generic SHA-256 compression round, no CLAP/LV2 type
+src/param_contract.h	pc_sha256_init	NEUTRAL	params/contract	MAIN	generic SHA-256 init, no format type
+src/param_contract.h	pc_sha256_update	NEUTRAL	params/contract	MAIN	generic SHA-256 update, no format type
+src/param_contract.h	pc_sha256_hex	NEUTRAL	params/contract	MAIN	generic SHA-256 finalize/hex, no format type
+src/param_contract.h	pc_number	NEUTRAL	params/contract	MAIN	generic double to ECMAScript-shortest-decimal, no format type
+src/param_contract.h	pc_unit_name	NEUTRAL	params/contract	MAIN	switch over OMX_CLAP_PARAM_UNITS, a shared vocabulary macro not a CLAP call
+src/param_contract.h	pc_scale_name	NEUTRAL	params/contract	MAIN	switch over OMX_CLAP_PARAM_SCALES, same shared vocabulary macro
+src/param_contract.h	pc_symbol_ok	NEUTRAL	params/contract	MAIN	generic grammar check on a fixed-size symbol buffer
+src/param_contract.h	pc_unit_family	NEUTRAL	params/contract	MAIN	pure int table (LV2-units-derived codes), no LV2/CLAP type
+src/param_contract.h	pc_convertible	NEUTRAL	params/contract	MAIN	pure int logic over unit family codes
+src/param_contract.h	pc_by_id	NEUTRAL	params/contract	MAIN	comparator generic; operand struct pc_param embeds clap_param_info_t; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_append	NEUTRAL	params/contract	MAIN	generic bounded string append
+src/param_contract.h	pc_refuse	NEUTRAL	params/contract	MAIN	message-building generic; writes into struct pc_contract, a CLAP-read result type; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_line	NEUTRAL	params/contract	MAIN	serialises clap_param_info_t fields and CLAP_PARAM_IS_* flag bits directly; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_fingerprint	NEUTRAL	params/contract	MAIN	hashing generic; iterates struct pc_param[] which embeds CLAP param info; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_migrations	NEUTRAL	params/contract	MAIN	takes clap_plugin_t* and the CLAP param-contract ext vtable directly; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_read	NEUTRAL	params/contract	MAIN	reads clap_plugin_t get_extension and clap_plugin_params_t get_info; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_fingerprint_of	NEUTRAL	params/contract	MAIN	pointer arithmetic on the shared omx_clap_param_contract_entry_t layout only
+src/param_contract.h	pc_same	NEUTRAL	params/contract	MAIN	version+fingerprint compare generic; operand struct pc_contract is CLAP-read-specific; CLAP is the face every adapter presents, so neutral
+src/param_contract.h	pc_entry	NEUTRAL	params/contract	MAIN	lookup logic generic; container struct pc_contract is CLAP-host-specific; CLAP is the face every adapter presents, so neutral
+src/omx_clap_midi.h	omx_clap_midi_size	NEUTRAL	midi/events/time	AUDIO	static inline omx_clap_midi.h:42; pure MIDI status-byte length table, no CLAP/LV2 type at all
+src/omx_clap_midi.h	omx_clap_note_midi	NEUTRAL	midi/events/time	AUDIO	static inline omx_clap_midi.h:61; MIDI-byte encoding generic, but input is clap_event_note_t/header_t; CLAP is the face every adapter presents, so neutral
