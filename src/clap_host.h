@@ -596,8 +596,8 @@ OMX_CLAP_EXPORT void omx_clap_host_stop(struct omx_clap_instance *in);
  * the host reading the ports again, activate: when the plugin said its ports changed in that deactivate, the restart does
  * not activate it and returns OMX_CLAP_RESTART_RESCANNED with the instance inactive, its audio role kept and the rescan
  * reported (omx_clap_host_ports_rescanned); the caller reads the description again (omx_clap_host_request_layout, `n` 0
- * allowed) before omx_clap_host_activate and omx_clap_host_arm. 0 once restarted; -1 when it could not (an RT that did
- * not stop, an activate refused), a failure. */
+ * allowed) before omx_clap_host_activate and omx_clap_host_arm. 0 once restarted; -1 when it could not (the instance
+ * not active, or the activate refused), a failure. */
 OMX_CLAP_EXPORT int omx_clap_host_restart(struct omx_clap_instance *in);
 
 /** Deactivate a STOPPED (or never published) instance and release the bounce and the ring. */
