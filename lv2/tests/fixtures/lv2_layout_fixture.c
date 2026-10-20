@@ -57,6 +57,8 @@ enum twin
     CV_SIXTY_FIVE_OUT,  // in 0-1, audio out 2-65, CV out 66-68: refused before it runs
     CV_SIXTY_FOUR_ONLY, // in 0-1, CV in 2-65, out 66: out = the sum of every input
     CV_SIXTY_FIVE_ONLY, // in 0-1, CV in 2-66, out 67: refused before it runs
+    CV_SIXTY_FOUR_ONLY_OUT, // in 0-1, out 2-3, CV out 4-67: every output = in_1 + in_2
+    CV_SIXTY_FIVE_ONLY_OUT, // in 0-1, out 2-3, CV out 4-68: refused before it runs
     N_TWINS
 };
 
@@ -83,6 +85,7 @@ static const LV2_Descriptor descriptors[N_TWINS] =
     [FOUR_TWO_TWO] = TWIN("#four-two-two"), [FOUR_SIDE] = TWIN("#four-side"),
     [CV_SIXTY_FOUR_OUT] = TWIN("#cv-sixty-four-out"), [CV_SIXTY_FIVE_OUT] = TWIN("#cv-sixty-five-out"),
     [CV_SIXTY_FOUR_ONLY] = TWIN("#cv-sixty-four-only"), [CV_SIXTY_FIVE_ONLY] = TWIN("#cv-sixty-five-only"),
+    [CV_SIXTY_FOUR_ONLY_OUT] = TWIN("#cv-sixty-four-only-out"), [CV_SIXTY_FIVE_ONLY_OUT] = TWIN("#cv-sixty-five-only-out"),
 };
 
 /* five-one: the output port of each designation, then the input port of the same one (L C R BL BR LFE) */
@@ -187,6 +190,7 @@ static void run(LV2_Handle handle, uint32_t n)
         sum(l, p[66], 0, 65, n);
         break;
     case CV_SIXTY_FOUR_OUT:
+    case CV_SIXTY_FOUR_ONLY_OUT:
         for (k = 2; k < 68; k++)
             sum(l, p[k], 0, 1, n);
         break;

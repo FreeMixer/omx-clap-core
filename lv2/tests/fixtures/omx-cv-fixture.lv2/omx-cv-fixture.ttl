@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # lv2_cv_fixture.c's ports: one audio input and output, one CV input and one CV output. The #many twin has sixteen CV
-# inputs and the #many-out twin sixteen CV outputs (ams-lv2's multiphase_lfo has sixteen, omx-clap-core #268): twice
-# the cap of 8 the adapter once had; every CV port counts against the auxiliary limit of 64 a side and nothing else.
+# inputs and the #many-out twin sixteen CV outputs (ams-lv2's multiphase_lfo has sixteen, omx-clap-core #268); every
+# CV port counts against the auxiliary limit of 64 a side and nothing else.
 @prefix doap: <http://usefulinc.com/ns/doap#> .
 @prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
 
