@@ -553,6 +553,14 @@ tests/jack_identity: tests/jack_identity.c
 tests/jack_parity: tests/jack_parity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack libpipewire-0.3) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack libpipewire-0.3) -lm
 
+# the parity rules on fake recordings, then each rule broken on purpose and seen red (numpy)
+test-parity-self:
+	python3 tests/lv2_parity.py --self-test
+
+# the fixture bundle through the parity runner end to end, in a PipeWire of its own, at 48 and 96 kHz; mod-host needed
+test-parity-lv2: $(PROG) tests/jack_parity $(LV2_BUNDLES)
+	./tests/lv2_parity_fixture.sh
+
 # ---- the LV2 adapter's tests ----
 
 # the fixture bundles, built into build/lv2: their TTL beside a binary of their own, every symbol a test reads exported
