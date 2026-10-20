@@ -1,0 +1,121 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# lv2_ll_midi_fixture.c's ports: MIDI through llext:MidiPort, ll-plugins' MIDI port (the event extension's
+# predecessor), the port class zynadd declares its MIDI input as. #echo: a stereo pair in and out, one llext:MidiPort
+# input and one output. #two-in and #two-out: a mono pair and two llext:MidiPorts one way, one more than the adapter
+# feeds, refused. #atom-then-ll, #ll-then-atom, #ev-then-ll, #ll-then-ev: an llext:MidiPort input beside an atom or
+# ev:EventPort MIDI input in either index order, refused the same: an llext:MidiPort is the only MIDI port its way.
+@prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
+@prefix doap:  <http://usefulinc.com/ns/doap#> .
+@prefix ev:    <http://lv2plug.in/ns/ext/event#> .
+@prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
+@prefix llext: <http://ll-plugins.nongnu.org/lv2/ext/> .
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+
+llext:MidiPort
+    a rdfs:Class ;
+    rdfs:subClassOf lv2:Port ;
+    rdfs:label "ll-plugins MIDI port" .
+
+<urn:openmixer:test:ll-midi-fixture#echo>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "midi_in" ; lv2:name "MIDI In"
+    ] , [
+        a llext:MidiPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "midi_out" ; lv2:name "MIDI Out"
+    ] .
+
+<urn:openmixer:test:ll-midi-fixture#two-in>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo (two inputs twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .
+
+<urn:openmixer:test:ll-midi-fixture#two-out>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo (two outputs twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a llext:MidiPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a llext:MidiPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .
+
+<urn:openmixer:test:ll-midi-fixture#atom-then-ll>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo (atom MIDI then ll twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ; lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .
+
+<urn:openmixer:test:ll-midi-fixture#ll-then-atom>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo (ll then atom MIDI twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ; lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .
+
+<urn:openmixer:test:ll-midi-fixture#ev-then-ll>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo (event MIDI then ll twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a ev:EventPort , lv2:InputPort ; ev:supportsEvent midi:MidiEvent ; lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .
+
+<urn:openmixer:test:ll-midi-fixture#ll-then-ev>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer ll-plugins MIDI echo (ll then event MIDI twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a llext:MidiPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "midi_a" ; lv2:name "MIDI A"
+    ] , [
+        a ev:EventPort , lv2:InputPort ; ev:supportsEvent midi:MidiEvent ; lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
+    ] .

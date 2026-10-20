@@ -58,6 +58,7 @@
 #include <lv2/urid/urid.h>
 
 #include "lv2_core_internal.h"
+#include "lv2_ll_midi.h"
 
 
 /*
@@ -111,7 +112,7 @@ enum
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
     N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
     N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_PG_MAIN_OUTPUT, N_NAME, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_UNIT,
-    N_RANGE_STEPS, N_STATE_STATE, N_COUNT
+    N_RANGE_STEPS, N_STATE_STATE, N_LL_MIDI, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -168,6 +169,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_UNIT] = LV2_UNITS__unit,
     [N_RANGE_STEPS] = LV2_PORT_PROPS__rangeSteps,
     [N_STATE_STATE] = LV2_STATE__state,
+    [N_LL_MIDI] = OMX_LV2_LL_MIDI_PORT_URI,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -1228,6 +1230,27 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         struct lv2_control *c;
         const char *symbol;
 
+        if (L.lilv_port_is_a(pl, port, g.node[N_LL_MIDI]))
+        {
+            // an llext:MidiPort (ll-plugins' MIDI port, the event extension's predecessor: zynadd's MIDI input) is a
+            // MIDI port as the atom one is, over an LV2_MIDI buffer (lv2_ll_midi.h), and the only MIDI port in its
+            // direction: beside any other MIDI port, in either index order (a second llext:MidiPort, or an atom or
+            // ev:EventPort MIDI port, which the arms below refuse when the first was an ll port), the plugin is one more
+            // MIDI port than the adapter feeds (#284)
+            if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
+                return LV2_CODE_MIDI_IN;
+            if (input)
+            {
+                p->midi_in_port = (int32_t)i;
+                p->midi_in_ll = 1;
+            }
+            else
+            {
+                p->midi_out_port = (int32_t)i;
+                p->midi_out_ll = 1;
+            }
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
         {
             // an ev:EventPort (the event extension, atom's predecessor: ll-plugins' rudolf556 and control2midi) that
@@ -1252,6 +1275,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
                 }
                 continue;
             }
+            if (input ? p->midi_in_ll : p->midi_out_ll)       // an llext:MidiPort is the only MIDI port its way
+                return LV2_CODE_MIDI_IN;
             if (*count >= (input ? LV2_CORE_ATOM_IN_PORTS : LV2_CORE_NOTIFY_PORTS))
                 return LV2_CODE_MIDI_IN;
             (input ? p->event_in : p->event_out)[(*count)++] = i;
@@ -1268,7 +1293,11 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             // is the first port's in index order
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
             {
-                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+                LilvNodes *rsz;
+
+                if (input ? p->midi_in_ll : p->midi_out_ll)   // an llext:MidiPort is the only MIDI port its way
+                    return LV2_CODE_MIDI_IN;
+                rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
 
                 if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
                 {
