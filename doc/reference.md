@@ -327,14 +327,19 @@ A main port wider than stereo, a main pair of different widths, a second
 note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects
 is refused at `add` with `resp -102` followed
 by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
-`hosting.clap.note-input`. A plugin with no main input is a source, its output its
+`hosting.clap.note-input`. A port of no channels (`hosting.topology.port-without-channels`),
+a port of more than 64 channels (`hosting.topology.port-too-wide`), a second main port on
+a side or more than 64 auxiliary ports on a side (`hosting.topology.too-many-ports`) are
+refused the same way. A plugin with no main input is a source, its output its
 own: an instrument when it has a note input, a generator (an oscillator, a noise
 source) when it has none; the client has `out_<k>` and no `in_<k>`. An extra audio
-input (a sidechain, one or two channels, up to eight) is admitted and fed
+input (a sidechain, of up to 64 channels, up to 64 of them) is admitted and fed
 silence: the command line has no verb that binds it, so the plugin reads
 zeros on it. The library's caller binds a buffer to it with
-`omx_clap_host_bind_aux_input`. An extra audio output is admitted and left
-unconnected: the plugin is handed a scratch buffer for it. A plugin is admitted with the
+`omx_clap_host_bind_aux_input`, one buffer per channel. An extra audio output (of up
+to 64 channels, up to 64 of them) is admitted and left unconnected: the plugin is
+handed a scratch buffer per channel, and the library's caller hands it buffers of
+its own with `omx_clap_host_bind_aux_output`. A plugin is admitted with the
 `audio-effect` or the `instrument` feature and refused with neither.
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
@@ -627,7 +632,9 @@ instance that is initialised, read and destroyed without being activated:
 
 - every parameter: id, name, module, min, max, default and the flags by
   name (`stepped`, `hidden`, `readonly`, `bypass`, `automatable`, ...);
-- the audio ports of each direction: id, name, `main` or `aux`, channels;
+- the audio ports of each direction: id, name, `main` or `aux`, channels and
+  kind (the CLAP port type: `mono`, `stereo`, `surround`, `ambisonic`, or
+  `unknown` for none or another);
 - the note port counts;
 - the note names (`clap.note-name`), each with its port, key and channel;
   absent when the plugin names none;
@@ -649,7 +656,7 @@ instance that is initialised, read and destroyed without being activated:
     {"id":"...","name":"...","vendor":"...","version":"...","description":"...",
      "url":"...","features":["audio-effect"],
      "params":[{"id":0,"name":"...","module":"","min":0,"max":1,"default":0,"flags":["stepped"]}],
-     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2}],"outputs":[...]},
+     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo"}],"outputs":[...]},
      "note_ports":{"inputs":0,"outputs":0},
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
      "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}

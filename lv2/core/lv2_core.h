@@ -74,8 +74,11 @@
 /* the smallest atom buffer an instance gets, whatever the configuration says: bytes, a multiple of 8 */
 #define LV2_CORE_ATOM_BYTES_MIN         1024u
 
-/* the side-chain legs a plugin may have, one per channel: at most this many channels, each side chain one or two of them */
-#define LV2_CORE_SIDE_LEGS              8
+/* the auxiliary input ports (side chains) a plugin may have, the core's CLAP_HOST_AUX_INPUTS; one more is refused */
+#define LV2_CORE_AUX_PORTS              64
+
+/* the channels one side chain may have, the core's CLAP_HOST_PORT_CHANNELS; one more is refused */
+#define LV2_CORE_SIDE_CHANNELS          64
 
 /* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
  * may have: each gets a sequence buffer of its own, emptied before every block; one more is refused */
@@ -106,7 +109,8 @@
 #define LV2_CODE_CV_PORTS               OMX_HOSTING_FEATURES_CV_PORTS
 #define LV2_CODE_FEATURES_MISSING       OMX_HOSTING_FEATURES_MISSING
 #define LV2_CODE_NO_AUDIO_OUTPUT        OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT
-#define LV2_CODE_EXTRA_INPUTS           OMX_HOSTING_TOPOLOGY_EXTRA_INPUTS_FED_SILENCE
+#define LV2_CODE_TOO_MANY_PORTS         OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS
+#define LV2_CODE_PORT_TOO_WIDE          OMX_HOSTING_TOPOLOGY_PORT_TOO_WIDE
 #define LV2_CODE_WIDER_THAN_STRIP       OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP
 #define LV2_CODE_STATE_UNREADABLE       OMX_HOSTING_STATE_UNREADABLE
 #define LV2_CODE_PRESET_NOT_FOUND       OMX_HOSTING_PRESET_NOT_FOUND
@@ -191,12 +195,12 @@ struct lv2_plugin
     uint32_t legs;                  // the main channels: 1 or 2, the output's and, for an effect, the input's
     uint32_t in_legs;               // the main input's channels: legs, or 0 for a source (an instrument or a generator: no audio input)
     uint32_t in_ports[2], out_ports[2];
-    uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
+    uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of 1 to LV2_CORE_SIDE_CHANNELS legs
     uint32_t n_side_legs;           // the legs of all of them
-    uint32_t side_channels[LV2_CORE_SIDE_LEGS];     // the legs of each side chain
-    uint32_t side_base[LV2_CORE_SIDE_LEGS];         // the first leg of each side chain
-    uint32_t side_in[LV2_CORE_SIDE_LEGS];           // the plugin's port index of each side-chain leg
-    char *side_name[LV2_CORE_SIDE_LEGS];            // the name of each side chain: its group's label, else its port's name
+    uint32_t side_channels[LV2_CORE_AUX_PORTS];     // the legs of each side chain
+    uint32_t side_base[LV2_CORE_AUX_PORTS];         // the first leg of each side chain, counting every side chain's legs
+    uint32_t side_in[LV2_CORE_AUX_PORTS][LV2_CORE_SIDE_CHANNELS];  // the plugin's port index of each leg of each side chain
+    char *side_name[LV2_CORE_AUX_PORTS];            // the name of each side chain: its group's label, else its port's name
     uint32_t n_cv_in, n_cv_out;     // the CV inputs and outputs, in port index order
     uint32_t cv_in[LV2_CORE_CV_PORTS], cv_out[LV2_CORE_CV_PORTS];          // the plugin's port index of each
     char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol

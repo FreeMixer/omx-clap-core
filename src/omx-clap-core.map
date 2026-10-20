@@ -1,4 +1,4 @@
-/* the exports of libomx-clap-core.so.0: everything else is hidden */
+/* the exports of libomx-clap-core.so.1: everything else is hidden */
 OMX_CLAP_CORE_0
 {
   global:
@@ -115,3 +115,10 @@ OMX_CLAP_CORE_0.12
     omx_clap_host_state_save_context;
     omx_clap_host_tail;
 } OMX_CLAP_CORE_0.11;
+
+/* added in the soname-1 train (0.13.0) */
+OMX_CLAP_CORE_0.13
+{
+  global:
+    omx_clap_host_bind_aux_output;
+} OMX_CLAP_CORE_0.12;

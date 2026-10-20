@@ -114,7 +114,7 @@ static struct omx_clap_binary *g_binaries;
 /* the defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
 {
-    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2
 };
 static int g_configured;
 static int g_sealed;        // a binary was opened: the configuration can no longer change
@@ -718,18 +718,46 @@ static const char *reread_note_input(struct omx_clap_instance *in)
     return code;
 }
 
+/* a port as the plugin declares it, into the description */
+static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *info)
+{
+    memset(port, 0, sizeof(*port));
+    port->id = info->id;
+    snprintf(port->name, sizeof(port->name), "%.*s", (int)sizeof(info->name), info->name);
+    port->channels = info->channel_count;
+    port->kind = !info->port_type ? OMX_CLAP_PORT_UNKNOWN
+               : !strcmp(info->port_type, CLAP_PORT_MONO) ? OMX_CLAP_PORT_MONO
+               : !strcmp(info->port_type, CLAP_PORT_STEREO) ? OMX_CLAP_PORT_STEREO
+               : !strcmp(info->port_type, CLAP_PORT_SURROUND) ? OMX_CLAP_PORT_SURROUND
+               : !strcmp(info->port_type, CLAP_PORT_AMBISONIC) ? OMX_CLAP_PORT_AMBISONIC
+               : OMX_CLAP_PORT_UNKNOWN;
+    port->in_place_pair = info->in_place_pair;
+}
+
+/* the next auxiliary port of a side into `ports`, its channels after the last one's in the flat arrays */
+static const char *aux_of(struct omx_clap_port *ports, uint32_t *base, uint32_t *count, uint32_t limit, const clap_audio_port_info_t *info)
+{
+    if (*count >= limit)
+        return CLAP_HOST_CODE_TOO_MANY_PORTS;
+    port_of(&ports[*count], info);
+    base[*count] = *count ? base[*count - 1] + ports[*count - 1].channels : 0;
+    (*count)++;
+    return NULL;
+}
+
 /*
- * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
- * channels; an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each of 1 or 2 channels); an input
- * besides them a side chain, fed silence until the caller binds it (up to CLAP_HOST_AUX_INPUTS, each of 1 or 2 channels);
- * no main input at all is a source (an instrument with a note input, a generator without one, #184), its output its own;
- * where the configuration admits note inputs, one note input; otherwise no note input. Returns the hosting code that
- * refuses, or NULL.
+ * Every audio port the plugin declares, described: the main input and output (none of a side is channels 0) and each
+ * auxiliary port, in the plugin's order, up to CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS of them. Each port is
+ * judged as it is read: no channels refuses it (port-without-channels), more than CLAP_HOST_PORT_CHANNELS refuses it
+ * (port-too-wide), a second main port on a side or one auxiliary port past the limit refuses it (too-many-ports). Then
+ * the whole: no main output is nothing to carry (no-audio-output), a main pair of different widths is refused
+ * (wider-than-strip), no main input at all is a source (an instrument with a note input, a generator without one,
+ * #184), its output its own. Where the configuration admits note inputs, one note input; otherwise none. Returns the
+ * hosting code that refuses, or NULL. How wide a main port the caller's lane carries is activation's to judge.
  */
-static const char *read_topology(struct omx_clap_instance *in)
+static const char *describe_ports(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
-    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0;
     const char *code;
     int dir;
 
@@ -746,6 +774,7 @@ static const char *read_topology(struct omx_clap_instance *in)
         {
             const bool is_input = dir == 0;
             const uint32_t count = ports->count(in->plugin, is_input);
+            struct omx_clap_port *main = is_input ? &in->main_in : &in->main_out;
             uint32_t i;
 
             for (i = 0; i < count; i++)
@@ -755,42 +784,32 @@ static const char *read_topology(struct omx_clap_instance *in)
                 memset(&info, 0, sizeof(info));
                 if (!ports->get(in->plugin, i, is_input, &info))
                     continue;
+                if (info.channel_count == 0)
+                    return CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS;
+                if (info.channel_count > CLAP_HOST_PORT_CHANNELS)
+                    return CLAP_HOST_CODE_PORT_TOO_WIDE;
                 if (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
                 {
-                    if (is_input)
-                        main_in = info.channel_count, n_main_in++;
-                    else
-                        main_out = info.channel_count, n_main_out++;
+                    if (main->channels)
+                        return CLAP_HOST_CODE_TOO_MANY_PORTS;
+                    port_of(main, &info);
+                    continue;
                 }
-                else if (is_input)
-                {
-                    if (info.channel_count == 0 || info.channel_count > 2)
-                        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-                    if (in->aux_inputs >= CLAP_HOST_AUX_INPUTS)
-                        return CLAP_HOST_CODE_EXTRA_INPUTS;
-                    in->aux_in_channels[in->aux_inputs++] = info.channel_count;
-                }
-                else if (info.channel_count == 0 || info.channel_count > 2 || in->aux_outputs >= CLAP_HOST_AUX_OUTPUTS)
-                {
-                    return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-                }
-                else
-                {
-                    in->aux_channels[in->aux_outputs++] = info.channel_count;
-                }
+                code = is_input ? aux_of(in->aux_in, in->aux_in_base, &in->aux_inputs, CLAP_HOST_AUX_INPUTS, &info)
+                                : aux_of(in->aux_out, in->aux_out_base, &in->aux_outputs, CLAP_HOST_AUX_OUTPUTS, &info);
+                if (code)
+                    return code;
             }
         }
     }
-    if (n_main_out == 0 || main_out == 0)
+    if (in->main_out.channels == 0)
         return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
-    if (main_in > CLAP_HOST_MAIN_PORT_CHANNELS || main_out > CLAP_HOST_MAIN_PORT_CHANNELS || n_main_in > 1 || n_main_out > 1)
-        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-    if (n_main_in && main_in != main_out)
+    if (in->main_in.channels && in->main_in.channels != in->main_out.channels)
         return CLAP_HOST_CODE_WIDER_THAN_STRIP;
     if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
-    in->channels = main_out;
-    in->in_channels = n_main_in ? main_in : 0;
+    in->channels = in->main_out.channels;
+    in->in_channels = in->main_in.channels;
     in->note_outputs = in->note_ports ? in->note_ports->count(in->plugin, false) : 0;
     return NULL;
 }
@@ -1018,7 +1037,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
         return -1;
     }
-    refused = read_topology(in);
+    refused = describe_ports(in);
     if (refused)
     {
         in->plugin->destroy(in->plugin);
@@ -1170,18 +1189,24 @@ static const clap_event_header_t *param_in_get(const struct clap_input_events *l
     return h;
 }
 
-/* Eight buffers of max_block floats in one mapping with a guard page at each end: the silence pair the unbound auxiliary
- * inputs read, the scratch pair for the auxiliary outputs, then the stage's four, the last of them flush against the
- * guard page above, so the first sample written past a block faults here, in this mapping, and never lands in a foreign
- * buffer. */
+/* Blocks of max_block floats in one mapping with a guard page at each end, as many as the port description needs: one
+ * silence block every unbound auxiliary input channel and every main input channel past the two legs reads, one scratch
+ * block per auxiliary output channel and per main output channel past the two legs, then the stage's four, the last of
+ * them flush against the guard page above, so the first sample written past a block faults here, in this mapping, and
+ * never lands in a foreign buffer. */
 static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
 {
     const size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    const size_t used = (size_t)8 * max_block * sizeof(float);
+    const uint32_t aux_out = in->aux_outputs ? in->aux_out_base[in->aux_outputs - 1] + in->aux_out[in->aux_outputs - 1].channels : 0;
+    const uint32_t main_out = in->main_out.channels > 2 ? in->main_out.channels - 2 : 0;
+    const uint32_t blocks = 1 + aux_out + main_out + 4;
+    const size_t used = (size_t)blocks * max_block * sizeof(float);
     const size_t body = (used + page - 1) / page * page;
     const size_t length = body + 2 * page;
     uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     struct omx_hosted_bounce bounce;
+    float **scratch;
+    uint32_t k;
     float *b;
 
     if (map == MAP_FAILED)
@@ -1190,14 +1215,15 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     mprotect(map + page + body, page, PROT_NONE);
     in->bounce_map = (float *)map;
     in->bounce_map_len = length;
+    in->bounce_blocks = blocks;
     b = (float *)(map + page + (body - used));
     in->rec_cap = CLAP_HOST_PARAM_QUEUE_DEPTH;
     in->recs = calloc(in->rec_cap, sizeof(*in->recs));
     in->max_block = max_block;
-    bounce.in_l = b + 4 * (size_t)max_block;
-    bounce.in_r = b + 5 * (size_t)max_block;
-    bounce.out_l = b + 6 * (size_t)max_block;
-    bounce.out_r = b + 7 * (size_t)max_block;
+    bounce.in_l = b + (size_t)(blocks - 4) * max_block;
+    bounce.in_r = b + (size_t)(blocks - 3) * max_block;
+    bounce.out_l = b + (size_t)(blocks - 2) * max_block;
+    bounce.out_r = b + (size_t)(blocks - 1) * max_block;
     bounce.max_block = max_block;
     if (omx_clap_stage_init(&in->stage, &bounce, in->recs, in->rec_cap) != 0)
         return -1;
@@ -1214,9 +1240,24 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->stage.note_inputs = in->note_inputs;
     in->stage.note_dialect = in->note_dialect;
     in->stage.note_dialects = in->note_dialects;
-    if (omx_clap_bind_aux(&in->stage, b + 2 * (size_t)max_block, b + 3 * (size_t)max_block, in->aux_outputs, in->aux_channels) != 0)
+    // the stage keeps the scratch blocks' addresses: the list handing them over lives for this call only
+    scratch = aux_out ? malloc(aux_out * sizeof(*scratch)) : NULL;
+    if (aux_out && !scratch)
         return -1;
-    return omx_clap_bind_aux_in(&in->aux_in, b, b + max_block, in->aux_inputs, in->aux_in_channels, in->aux_in_bound);
+    for (k = 0; k < aux_out; k++)
+        scratch[k] = b + (size_t)(1 + k) * max_block;
+    k = (uint32_t)omx_clap_bind_aux(&in->stage, scratch, in->aux_outputs, in->aux_out);
+    free(scratch);
+    if (k != 0)
+        return -1;
+    for (k = 0; k < in->aux_outputs; k++)
+        omx_clap_set_aux_out(&in->stage, k, in->aux_out[k].channels, &in->aux_out_bound[in->aux_out_base[k]]);
+    // the main channels past the legs: the inputs read the silence, each output writes a scratch block of its own
+    for (k = 2; k < in->main_in.channels; k++)
+        in->stage.in_ptrs[k] = b;
+    for (k = 2; k < in->main_out.channels; k++)
+        in->stage.out_ptrs[k] = b + (size_t)(1 + aux_out + k - 2) * max_block;
+    return omx_clap_bind_aux_in(&in->aux_list, b, in->aux_inputs, in->aux_in, in->aux_in_bound, in->aux_in_base);
 }
 
 static void drop_bounce(struct omx_clap_instance *in)
@@ -1231,7 +1272,7 @@ static void drop_bounce(struct omx_clap_instance *in)
 /* the ports, then the note ids over the stage's sink: every id free, held OMX_CLAP_NOTE_ID_HOLD_MS at the rate */
 static int bind_stage(struct omx_clap_instance *in)
 {
-    if (omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_in) != 0)
+    if (omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_list) != 0)
         return -1;
     omx_clap_note_ids_bind(&in->note_ids, &in->stage, (uint32_t)lround(in->rate * OMX_CLAP_NOTE_ID_HOLD_MS / 1000.0));
     return 0;
@@ -1366,7 +1407,7 @@ void omx_clap_host_config_default(struct omx_clap_host_config *config)
 {
     static const struct omx_clap_host_config defaults =
     {
-        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0
+        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2
     };
 
     *config = defaults;
@@ -2163,17 +2204,54 @@ void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_c
 
 static void tail_read(struct omx_clap_instance *in);
 
-/* audio-ports-activation, while the plugin is inactive: an auxiliary output is never connected, and an auxiliary input
- * only while its buffers are bound, so the plugin may skip the work of a port nobody reads or writes; the main ports stay
- * active. A plugin with no extension keeps every port active. */
-static void ports_activate(struct omx_clap_instance *in)
+/* whether the caller bound any channel of auxiliary port `port`: `ports`, `base` and `bound` are one side's */
+static bool aux_bound(const struct omx_clap_port *ports, const uint32_t *base, float *const *bound, uint32_t port)
+{
+    uint32_t c;
+
+    for (c = 0; c < ports[port].channels; c++)
+        if (bound[base[port] + c])
+            return true;
+    return false;
+}
+
+/* audio-ports-activation, while the plugin is inactive: an auxiliary port is active only while the caller's buffers are
+ * bound to it (omx_clap_host_bind_aux_input, omx_clap_host_bind_aux_output), so the plugin may skip the work of a port
+ * nobody reads or writes; the main ports stay active. A plugin with no extension keeps every port active. */
+/* the plugin's audio-ports-activation, NULL when it has none to call */
+static const clap_plugin_audio_ports_activation_t *ports_activation(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_activation_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION);
-    uint32_t aux = 0;
 
     if (!ext)
         ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
-    if (!ext || !ext->set_active || !in->audio_ports)
+    return ext && ext->set_active && in->audio_ports ? ext : NULL;
+}
+
+/* the clap.audio-ports index of auxiliary port `aux` of a side, UINT32_MAX when the plugin no longer lists it */
+static uint32_t aux_port_index(struct omx_clap_instance *in, bool is_input, uint32_t aux)
+{
+    const uint32_t count = in->audio_ports->count(in->plugin, is_input);
+
+    for (uint32_t i = 0, k = 0; i < count; i++)
+    {
+        clap_audio_port_info_t info;
+
+        memset(&info, 0, sizeof(info));
+        if (!in->audio_ports->get(in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
+            continue;
+        if (k++ == aux)
+            return i;
+    }
+    return UINT32_MAX;
+}
+
+static void ports_activate(struct omx_clap_instance *in)
+{
+    const clap_plugin_audio_ports_activation_t *ext = ports_activation(in);
+    uint32_t aux = 0, aux_out = 0;
+
+    if (!ext)
         return;
     for (int dir = 0; dir < 2; dir++)
     {
@@ -2189,13 +2267,18 @@ static void ports_activate(struct omx_clap_instance *in)
                 continue;
             if (is_input)
             {
-                const bool bound = aux < CLAP_HOST_AUX_INPUTS && in->aux_in_bound[aux][0] != NULL;
+                const bool bound = aux < in->aux_inputs && aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, aux);
 
                 aux++;
                 ext->set_active(in->plugin, true, i, bound, 32);
             }
             else
-                ext->set_active(in->plugin, false, i, false, 32);
+            {
+                const bool bound = aux_out < in->aux_outputs && aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, aux_out);
+
+                aux_out++;
+                ext->set_active(in->plugin, false, i, bound, 32);
+            }
         }
     }
 }
@@ -2208,11 +2291,22 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     if (!in || in->active || max_block == 0)
         return -1;
     for (bad = 0; bad < in->aux_inputs; bad++)
-        if (in->aux_in_bound[bad][0] && in->aux_in_frames[bad] < max_block)
+        if (aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, bad) && in->aux_in_frames[bad] < max_block)
         {
-            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // a bound pair shorter than the block: rebind it first
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // bound buffers shorter than the block: rebind them first
             return -1;
         }
+    for (bad = 0; bad < in->aux_outputs; bad++)
+        if (aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, bad) && in->aux_out_frames[bad] < max_block)
+        {
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+            return -1;
+        }
+    if (g_config.lane_channels && (in->main_in.channels > g_config.lane_channels || in->main_out.channels > g_config.lane_channels))
+    {
+        why_set(why, CLAP_HOST_CODE_WIDER_THAN_STRIP);          // a main port wider than the caller's lane
+        return -1;
+    }
     if (in->note_ports_stale)
     {
         const char *code = reread_note_input(in);
@@ -2459,22 +2553,78 @@ void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_
     in->transport_src = src;
 }
 
-int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r, uint32_t frames)
+/* the caller's buffers into the flat list `bound` from `base`, or none: the rules both directions share */
+static int bind_aux(struct omx_clap_instance *in, const struct omx_clap_port *port, float **bound, uint32_t *bound_frames,
+                    float *const *bufs, uint32_t channels, uint32_t frames)
 {
-    if (!in || port >= in->aux_inputs)
-        return -1;
-    if (l && in->aux_in_channels[port] == 2 && r == NULL)
+    uint32_t c;
+
+    if (bufs && channels != port->channels)
         return -1;
     if (in->active && !omx_clap_stopped(&in->stage))
         return -1;      // unpublish first
-    if (l && in->active && frames < in->max_block)
-        return -1;      // a block would read past the pair
-    in->aux_in_bound[port][0] = l;
-    in->aux_in_bound[port][1] = l ? r : NULL;
-    in->aux_in_frames[port] = l ? frames : 0;
-    if (in->active)
-        omx_clap_set_aux_in(&in->aux_in, port, l, in->aux_in_bound[port][1]);
+    if (bufs && in->active && frames < in->max_block)
+        return -1;      // a block would run past the buffers
+    for (c = 0; c < port->channels; c++)
+        bound[c] = bufs ? bufs[c] : NULL;
+    *bound_frames = bufs ? frames : 0;
     return 0;
+}
+
+/* An active instance whose auxiliary port `aux` of a side changed between bound and unbound tells the plugin's
+ * audio-ports-activation, on the control thread while the stage is stopped: through set_active holding the audio role
+ * when the plugin says it can activate a port while processing, else by a deactivate and an activate, which set every
+ * port again. Returns 0, or -1 when the activate refuses (the instance is then inactive). */
+static int aux_activation_refresh(struct omx_clap_instance *in, bool is_input, uint32_t aux, bool was, bool now)
+{
+    const clap_plugin_audio_ports_activation_t *ext = in->active && was != now ? ports_activation(in) : NULL;
+    const double rate = in->rate;
+    const uint32_t max_block = in->max_block;
+    struct omx_clap_role role;
+    uint32_t index;
+    bool done;
+
+    if (!ext)
+        return 0;
+    index = aux_port_index(in, is_input, aux);
+    if (index != UINT32_MAX && ext->can_activate_while_processing && ext->can_activate_while_processing(in->plugin))
+    {
+        omx_clap_host_take_role(in, &role);
+        done = ext->set_active(in->plugin, is_input, index, now, 32);
+        omx_clap_host_release_role(in, &role, role.state);
+        if (done)
+            return 0;
+    }
+    omx_clap_host_deactivate(in);
+    return omx_clap_host_activate(in, rate, max_block, NULL);
+}
+
+int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
+{
+    bool was;
+
+    if (!in || port >= in->aux_inputs)
+        return -1;
+    was = aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, port);
+    if (bind_aux(in, &in->aux_in[port], &in->aux_in_bound[in->aux_in_base[port]], &in->aux_in_frames[port], bufs, channels, frames) != 0)
+        return -1;
+    if (in->active)
+        omx_clap_set_aux_in(&in->aux_list, port, in->aux_in[port].channels, &in->aux_in_bound[in->aux_in_base[port]]);
+    return aux_activation_refresh(in, true, port, was, aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, port));
+}
+
+int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
+{
+    bool was;
+
+    if (!in || port >= in->aux_outputs)
+        return -1;
+    was = aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, port);
+    if (bind_aux(in, &in->aux_out[port], &in->aux_out_bound[in->aux_out_base[port]], &in->aux_out_frames[port], bufs, channels, frames) != 0)
+        return -1;
+    if (in->active)
+        omx_clap_set_aux_out(&in->stage, port, in->aux_out[port].channels, &in->aux_out_bound[in->aux_out_base[port]]);
+    return aux_activation_refresh(in, false, port, was, aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, port));
 }
 
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)
