@@ -6,7 +6,7 @@
 # (LSP's in_ui and out_ui; atom:Sequence and time:Position; nothing; patch:Message and time:Position; atom:String and
 # patch:Message), and an input of the plugin's own objects: each is hosted, fed a valid sequence. The twins: five notify
 # outputs, all given a buffer (the adapter takes up to 16); an atom input that is no sequence, and five control
-# inputs, one more than the adapter feeds (refused hosting.features.atom-in-unfed).
+# inputs, every one fed (the adapter feeds up to 16).
 @prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
 @prefix doap:  <http://usefulinc.com/ns/doap#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
