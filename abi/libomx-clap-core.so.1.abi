@@ -56,6 +56,7 @@
     <elf-symbol name='omx_clap_host_param_value' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_param_write' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_params_rescanned' version='OMX_CLAP_CORE_0.10' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='omx_clap_host_ports_rescanned' version='OMX_CLAP_CORE_0.12' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_preset_load' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_preset_load_key' version='OMX_CLAP_CORE_0.12' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_presets' version='OMX_CLAP_CORE_0.12' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -231,7 +232,7 @@
     <pointer-type-def type-id='type-id-189' size-in-bits='64' hash='ee9c81a98708f9e9' id='type-id-190'/>
     <qualified-type-def type-id='type-id-191' const='yes' hash='c3b52a8020cc59db' id='type-id-192'/>
     <pointer-type-def type-id='type-id-192' size-in-bits='64' hash='4f337f253209b764' id='type-id-193'/>
-    <qualified-type-def type-id='type-id-194' const='yes' hash='2cd1df0de473d1b5' id='type-id-195'/>
+    <qualified-type-def type-id='type-id-194' const='yes' hash='8d65b8600610a5b5' id='type-id-195'/>
     <pointer-type-def type-id='type-id-195' size-in-bits='64' hash='8884211db5d0e85f' id='type-id-196'/>
     <qualified-type-def type-id='type-id-197' const='yes' hash='82367c3cdc84013c' id='type-id-198'/>
     <pointer-type-def type-id='type-id-198' size-in-bits='64' hash='c62236fbb6b4f76e' id='type-id-199'/>
@@ -1573,7 +1574,7 @@
         <var-decl name='lane_channels' type-id='type-id-223' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2151680' hash='33103abf59789a18' id='type-id-194'>
+    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2151744' hash='0b9ea8cbc2471dd4' id='type-id-194'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='bin' type-id='type-id-250' visibility='default'/>
       </data-member>
@@ -2507,6 +2508,7 @@
       <function-decl name='omx_clap_host_param_text' type-id='type-id-257' mangled-name='omx_clap_host_param_text' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_text@@OMX_CLAP_CORE_0.10'/>
       <function-decl name='omx_clap_host_param_value' type-id='type-id-256' mangled-name='omx_clap_host_param_value' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_value@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_param_write' type-id='type-id-255' mangled-name='omx_clap_host_param_write' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_write@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_ports_rescanned' type-id='type-id-252' mangled-name='omx_clap_host_ports_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_ports_rescanned@@OMX_CLAP_CORE_0.12'/>
       <function-decl name='omx_clap_host_preset_load' type-id='type-id-263' mangled-name='omx_clap_host_preset_load' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_preset_load_key' type-id='type-id-272' mangled-name='omx_clap_host_preset_load_key' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load_key@@OMX_CLAP_CORE_0.12'/>
       <function-decl name='omx_clap_host_presets' type-id='type-id-251' mangled-name='omx_clap_host_presets' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_presets@@OMX_CLAP_CORE_0.12'/>
