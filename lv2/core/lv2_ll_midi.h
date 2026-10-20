@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: LGPL-2.0-or-later */
 /* The ll-plugins MIDI port's buffer, lv2-miditype.h as zyn 1 (zynadd, the lv2-zynadd-plugins source package) carries
  * it, LGPL 2 or later, Lars Luthman, copied unchanged below: an llext:MidiPort
  * (<http://ll-plugins.nongnu.org/lv2/ext/MidiPort>, the port class zynadd declares its MIDI input as) is connected to
