@@ -92,6 +92,7 @@ jobs:
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 diffutils pkgconf-pkg-config clap-devel \
             lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan \
+            python3-numpy python3-lilv \
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract under them, from the FreeMixer
@@ -242,6 +243,19 @@ jobs:
             make test-identity-lv2
           else
             echo "::warning::test-identity-lv2 SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The LV2 parity runner: its rules on fake recordings, each broken once and seen red (tests/lv2_parity.py)
+      - name: Test the LV2 parity rules
+        run: make test-parity-self
+
+      # The parity runner end to end on the fixture bundles, mod-host against the adapter, in a PipeWire of its own
+      - name: Test LV2 parity on the fixtures
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-parity-lv2
+          else
+            echo "::warning::test-parity-lv2 SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # The same behind plugin-hostd with require_pins 1 and this host as its CLAP worker.
