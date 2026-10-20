@@ -1192,7 +1192,9 @@ static const clap_event_header_t *param_in_get(const struct clap_input_events *l
  * output channel past the two legs, one block per main input channel past the two legs, then the stage's four, the last
  * of them flush against the guard page above, so the first sample written past a block faults here, in this mapping,
  * and never lands in a foreign buffer. A main port wider than the legs binds the wide bounce over the legs and those
- * blocks (omx_clap_bind_wide), which omx_clap_host_run_ports carries; the two-leg path reads silence past the legs. */
+ * blocks (omx_clap_bind_wide), which omx_clap_host_run_ports carries. A two-leg call on such an instance feeds the legs
+ * only: past them the plugin reads the main input blocks as the last omx_clap_host_run_ports left them (silence until
+ * one fills them) and writes its output blocks, which nothing reads. */
 static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
 {
     const size_t page = (size_t)sysconf(_SC_PAGESIZE);
