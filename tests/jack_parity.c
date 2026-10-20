@@ -53,7 +53,8 @@
  *
  * Writes <outdir>/source.<c>.f32 and <outdir>/<client>.<c>.f32, raw float32,
  * one channel each. Prints per client "linked <client> in=<k> out=<k> midi=<0|1>
- * latency=<min>,<max>" (the capture latency of its first output), after each
+ * midi_fed=<0|1> latency=<min>,<max>" (midi: it has a MIDI input; midi_fed:
+ * the notes reach it; the capture latency of its first output), after each
  * warm "warm blocks=<n> latency=<client>:<min>,<max>;..." (the same latencies,
  * read again once the graph has run), and after the run "done frames=<n>
  * cycles=<n> quantum=<q> wall_ms=<ms>". */
@@ -424,6 +425,8 @@ int main(int argc, char **argv)
     char line[64];
     double t0, wall;
     long warm_total = 0;
+    static const char *ins_of[CLIENTS_MAX][PORTS_MAX], *outs_of[CLIENTS_MAX][PORTS_MAX], *midis_of[CLIENTS_MAX][PORTS_MAX];
+    int n_ins[CLIENTS_MAX], n_outs[CLIENTS_MAX], n_midis[CLIENTS_MAX], midi_all;
     int paced = 0;
     int k, c, opt;
 
@@ -489,13 +492,39 @@ int main(int argc, char **argv)
         }
     }
     printf("ready rate=%u quantum=%u\n", g_rate, jack_get_buffer_size(g_src));
+    /* every client's ports, read until the graph shows them: a client's ports are registered after the host has
+     * answered its add, and a list read too early is short (a client with no output is not one of ours yet) */
     for (k = 0; k < g_clients; k++)
     {
         const char *client = argv[optind + 2 + k];
-        const char *ins[PORTS_MAX], *outs[PORTS_MAX], *midis[PORTS_MAX];
-        int n_in = client_ports(client, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, ins, PORTS_MAX);
-        int n_out = client_ports(client, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, outs, PORTS_MAX);
-        int n_midi = client_ports(client, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, midis, PORTS_MAX);
+        double until = now_ms() + 5000;
+        int last = -1;
+
+        for (;;)
+        {
+            int sig;
+
+            n_ins[k] = client_ports(client, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, ins_of[k], PORTS_MAX);
+            n_outs[k] = client_ports(client, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, outs_of[k], PORTS_MAX);
+            n_midis[k] = client_ports(client, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, midis_of[k], PORTS_MAX);
+            sig = n_ins[k] * 10000 + n_outs[k] * 100 + n_midis[k];
+            if ((n_outs[k] > 0 && sig == last) || now_ms() > until)
+                break;
+            last = sig;
+            usleep(30000);
+        }
+    }
+    /* MIDI goes to every client or to none: a MIDI input one host exposes and the other does not would feed one
+     * side only (mod-host exposes an atom input that supports MIDI as a MIDI port, even beside a patch port) */
+    midi_all = g_send_midi;
+    for (k = 0; k < g_clients; k++)
+        if (n_midis[k] == 0)
+            midi_all = 0;
+    for (k = 0; k < g_clients; k++)
+    {
+        const char *client = argv[optind + 2 + k];
+        const char **ins = ins_of[k], **outs = outs_of[k], **midis = midis_of[k];
+        int n_in = n_ins[k], n_out = n_outs[k], n_midi = n_midis[k];
         jack_latency_range_t range = {0, 0};
         int failed = 0, i;
 
@@ -514,14 +543,14 @@ int main(int argc, char **argv)
 
         for (i = 0; i < n_in && i < CHANNELS; i++)
             failed |= jack_connect(g_src, jack_port_name(g_out[i]), ins[i]) != 0;
-        if (n_midi > 0)
+        if (midi_all)
             failed |= jack_connect(g_src, jack_port_name(g_midi), midis[0]) != 0;
         for (c = 0; c < g_outs[k]; c++)
             failed |= jack_connect(g_rec, outs[c], jack_port_name(g_in[k][c])) != 0;
         if (n_out > 0)
             jack_port_get_latency_range(jack_port_by_name(g_src, outs[0]), JackCaptureLatency, &range);
-        printf("linked %s in=%d out=%d midi=%d latency=%u,%u%s\n", client, n_in, n_out, n_midi > 0,
-               range.min, range.max, failed ? " FAILED" : "");
+        printf("linked %s in=%d out=%d midi=%d midi_fed=%d latency=%u,%u%s\n", client, n_in, n_out, n_midi > 0,
+               midi_all, range.min, range.max, failed ? " FAILED" : "");
         if (failed)
             return 1;
     }
