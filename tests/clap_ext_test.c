@@ -52,6 +52,7 @@ typedef struct
     uint32_t process_calls;
     int64_t last_steady;
     uint32_t loaded_context, plain_loads, aux_out_set, aux_out_active, ring, while_processing, activations;
+    uint32_t rescan_on_deactivate;
 } ext_stats_t;
 
 static void *hook(const char *path, const char *name)
@@ -358,6 +359,16 @@ int main(int argc, char **argv)
                   "an unbind names no width, and sets it inactive");
         }
         st->while_processing = 0;
+        // the plugin says its ports changed in that deactivate: the bind leaves it inactive with the rescan reported,
+        // for the caller to read the description again and activate
+        st->rescan_on_deactivate = 1;
+        CHECK(omx_clap_host_bind_aux_output(in, 0, aux, 2, BLK) == OMX_CLAP_RESTART_RESCANNED && !in->active,
+              "a bind whose deactivate raised a ports rescan answers RESCANNED and leaves it inactive");
+        CHECK(omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0, "the rescan is reported once");
+        st->rescan_on_deactivate = 0;
+        CHECK(omx_clap_host_request_layout(in, NULL, 0, why) >= 0 && omx_clap_host_activate(in, 48000.0, BLK, why) == 0 && in->active,
+              "re-described, it activates again (%s)", why);
+        CHECK(omx_clap_host_bind_aux_output(in, 0, NULL, 0, 0) == 0 && st->aux_out_active == 0, "and unbound, it is set inactive");
     }
     CHECK(set_tail && set_tail(2000) == 0, "the plugin says its tail changed");
     omx_clap_host_tick(in);
