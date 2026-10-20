@@ -540,9 +540,9 @@ static void put_descriptor(FILE *out, const clap_plugin_descriptor_t *desc)
     {
         fputs("  plugin ", out);
         put_string(out, desc->id);
-        fputs(" \"", out);
-        put_string(out, desc->name);
-        fputs("\" vendor ", out);
+        fputc(' ', out);
+        layout_port_quoted(out, desc->name);
+        fputs(" vendor ", out);
         put_string(out, desc->vendor);
         fputs(" version ", out);
         put_string(out, desc->version);
