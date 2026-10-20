@@ -152,12 +152,13 @@ expect "add lv2:$fixture#midi-two 2" "resp 2"
 [ "$(ports effect_2 i)" = "effect_2:in_1 effect_2:midi_in " ]; step $? "the two-MIDI-input twin's inputs: $(ports effect_2 i)(one midi_in: the first port's)"
 expect "remove 2" "resp 0"
 # bufsz:fixedBlockLength is declared by omx-clap-host (JACK's cycle is the buffer size), so the twin requiring it is admitted;
-# state:mapPath is offered by no provider, so that twin keeps the refusal
+# state:mapPath is offered since #94, so the host fixture's #mappath twin passes the feature check and is refused later, no
+# realisation: that bundle holds no code for it (the path fixture holds the realisation, tested in lv2_host_test and lv2_clap_test)
 expect "add lv2:$fixture#fixed 2" "resp 2"
 expect "remove 2" "resp 0"
-expect "add lv2:$fixture#mappath 2" "resp -102 hosting.features.missing"
+expect "add lv2:$fixture#mappath 2" "resp -102 hosting.no-realisation"
 expect "add lv2:$fixture#ctl-only 2" "resp -102 hosting.topology.no-audio-output"
-for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.features.missing hosting.topology.no-audio-output; do
+for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.no-realisation hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
 done
 expect "add lv2:urn:openmixer:test:on-no-path 2" "resp -101"
