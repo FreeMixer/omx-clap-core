@@ -750,10 +750,10 @@ static const char *aux_of(struct omx_clap_port *ports, uint32_t *base, uint32_t 
  * auxiliary port, in the plugin's order, up to CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS of them. Each port is
  * judged as it is read: no channels refuses it (port-without-channels), more than CLAP_HOST_PORT_CHANNELS refuses it
  * (port-too-wide), a second main port on a side or one auxiliary port past the limit refuses it (too-many-ports). Then
- * the whole: no main output is nothing to carry (no-audio-output), a main pair of different widths is refused
- * (wider-than-strip), no main input at all is a source (an instrument with a note input, a generator without one,
- * #184), its output its own. Where the configuration admits note inputs, one note input; otherwise none. Returns the
- * hosting code that refuses, or NULL. How wide a main port the caller's lane carries is activation's to judge.
+ * the whole: no main output is nothing to carry (no-audio-output), the main pair may differ in width, no main input
+ * at all is a source (an instrument with a note input, a generator without one, #184), its output its own. Where the
+ * configuration admits note inputs, one note input; otherwise none. Returns the hosting code that refuses, or NULL. How
+ * wide a main port the caller's lane carries is activation's to judge.
  */
 static const char *describe_ports(struct omx_clap_instance *in)
 {
@@ -804,8 +804,6 @@ static const char *describe_ports(struct omx_clap_instance *in)
     }
     if (in->main_out.channels == 0)
         return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
-    if (in->main_in.channels && in->main_in.channels != in->main_out.channels)
-        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
     if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->channels = in->main_out.channels;
