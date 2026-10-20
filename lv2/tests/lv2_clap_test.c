@@ -984,7 +984,7 @@ static void t_live(double rate)
     struct mem_out saved;
     struct mem_in given;
     struct rig g, w;
-    unsigned made;
+    unsigned made, restores;
     int b, callbacks;
 
     if (rig_up(&g, g_wg, LV2_WORKER_GAIN_LIVE_URI, rate, 512) != 0 || !(pr = loaded_symbol(g_wg_so, "lv2_worker_gain_probe")))
@@ -1003,8 +1003,12 @@ static void t_live(double rate)
               && pr->max_block_set == 512,
           "live %.0f: back to the length the buffers hold, told again (%d)", rate, pr->max_block_set);
     g.plugin->deactivate(g.plugin);
+    restores = atomic_load(&pr->restores);
     CHECK(g.plugin->activate(g.plugin, rate, 1, 1024) && atomic_load(&pr->instantiate_calls) == made + 1,
           "live %.0f: a longer block than the buffers hold is a new instantiation", rate);
+    CHECK(atomic_load(&pr->restores) == restores,
+          "live %.0f: and its description has no state:state, so the instantiation restores nothing (%u restores)", rate,
+          atomic_load(&pr->restores) - restores);
     CHECK(g.plugin->start_processing(g.plugin), "live %.0f: processing", rate);
 
     // the plain worker gain has no options:interface: a shorter block instantiates it again
@@ -1413,7 +1417,7 @@ static void t_props(void)
 
     if (rig_up(&g, g_fakes, FAKE_PROPS, 0.0, MAXB) != 0)
         return;
-    CHECK(g.params->count(g.plugin) == 8, "props: eight control inputs, eight parameters (%u)", g.params->count(g.plugin));
+    CHECK(g.params->count(g.plugin) == 9, "props: eight control inputs and an output, nine parameters (%u)", g.params->count(g.plugin));
     CHECK(info_of(&g, 3, &i) && i.flags == (A | S) && i.min_value == 0.0 && i.max_value == 8.0 && i.default_value == 2.0, "props: lv2:integer is IS_STEPPED");
     CHECK(info_of(&g, 4, &i) && i.flags == (A | S) && i.min_value == 0.0 && i.max_value == 1.0 && i.default_value == 1.0, "props: lv2:toggled is IS_STEPPED over 0..1");
     CHECK(info_of(&g, 5, &i) && i.flags == (A | S | CLAP_PARAM_IS_ENUM), "props: lv2:enumeration with a point on every integer is IS_STEPPED | IS_ENUM");
@@ -1455,6 +1459,9 @@ static void t_props(void)
         ev_param(&ev, 9, 1.0);
         g_out_n = 0;
         process(&g, in, NULL, out, NULL, BLOCK, &ev);
+        CHECK(fake_last() && fake_last()->saw_readback == -1.0f,
+              "props: an output control with no lv2:default starts at its lv2:minimum, as mod-host starts it: the plugin read %g",
+              fake_last() ? fake_last()->saw_readback : 0.0f);
         CHECK(g.params->get_value(g.plugin, 9, &v) && v == 0.0, "props: a trigger set for a block is back at its default after it (%g)", v);
         CHECK(g_out_n == 1 && g_out_id[0] == 9 && g_out_value[0] == 0.0, "props: and the host is told through one parameter event (%u)",
               g_out_n);
