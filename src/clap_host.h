@@ -79,14 +79,16 @@
  * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
  * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, the ports rescan the
  * tick reports, the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
- * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels).
+ * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels; 15: the pass-through
+ * placement; 16: the CPU idle hold (#296): the configuration's idle_hold_us, the instance's idle_held,
+ * omx_clap_host_idle_hold_set and omx_clap_host_idle_hold).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               15u
-#define OMX_CLAP_CORE_ABI_OLDEST        15u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               16u
+#define OMX_CLAP_CORE_ABI_OLDEST        16u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -154,6 +156,29 @@ struct omx_clap_host_config
     int remote_controls;        ///< offer clap.remote-controls besides the declared list: see omx_clap_host_remote_controls_changed
     uint32_t lane_channels;     ///< the widest main port the caller's lane carries, 2 by default; 0 carries any width
                                 ///< (activation refuses a wider main port with CLAP_HOST_CODE_WIDER_THAN_STRIP)
+    int32_t idle_hold_us;       ///< ABI 16: what /dev/cpu_dma_latency is held at while an instance is active, in
+                                ///< microseconds: CLAP_HOST_IDLE_HOLD_US (10, C1 only) by default, 0 refuses every idle
+                                ///< state, OMX_CLAP_IDLE_HOLD_OFF holds nothing (omx_clap_host_idle_hold_set changes it later)
+};
+
+/** The CPU idle hold (ABI 16, #296). While any instance is active the library keeps one descriptor on
+ * /dev/cpu_dma_latency written with the target, so the cores wait in C1 between cycles instead of a deeper state;
+ * the kernel drops the request when the descriptor closes, at the last deactivate or at a crash. The device is held
+ * by the process, whichever host it is: omx-clap-host, an engine's in-process tier, a daemon's worker. A device that
+ * cannot be opened (its default mode is root's; a udev rule gives the audio group write access) refuses nothing: the
+ * instance runs on and the refusal is reported by code. OMX_CLAP_IDLE_HOLD_DEVICE in the environment names another
+ * device (a test's regular file). */
+#define OMX_CLAP_IDLE_HOLD_OFF          (-1)    ///< the target that holds nothing
+
+/** What omx_clap_host_idle_hold answers. */
+struct omx_clap_idle_hold
+{
+    int32_t target_us;          ///< the target: OMX_CLAP_IDLE_HOLD_OFF, 0 or a latency in microseconds
+    int32_t held_us;            ///< what the library holds now: the target while an instance is active and the device is open,
+                                ///< else OMX_CLAP_IDLE_HOLD_OFF
+    int32_t aggregate_us;       ///< the device's own answer, the kernel's limit across every requester; -1 when it cannot be read
+    uint32_t active;            ///< the instances active in this process
+    char code[OMX_CLAP_WHY_MAX];///< empty, or CLAP_HOST_CODE_IDLE_HOLD_REFUSED since the device could not be opened for writing
 };
 
 /** One parameter of a hosted plugin as a row: what a slot serves. A parameter that is not a row (hidden, read-only, the
@@ -517,6 +542,10 @@ struct omx_clap_instance
                                 ///< the host's placement, stereo and named `in (passthrough: host)` / `out (passthrough: host)`:
                                 ///< the strip's audio passes through the stage untouched, the plugin is handed no audio and
                                 ///< runs for its notes and parameters alone, and its latency reads 0
+
+    // ABI 16: the CPU idle hold (#296)
+    uint32_t idle_held;         ///< 1 while this instance counts in the process's idle hold: set by a completed activate, cleared
+                                ///< by deactivate, which releases its count
 };
 
 
@@ -534,6 +563,13 @@ OMX_CLAP_EXPORT void omx_clap_host_config_default(struct omx_clap_host_config *c
 /** Set the process's configuration, once, before the first binary is opened. -1: the ABI differs, a binary is open
  * already or a configuration was set. */
 OMX_CLAP_EXPORT int omx_clap_host_configure(const struct omx_clap_host_config *config);
+
+/** Change the idle hold's target (ABI 16): off, 0 or a latency in microseconds. Written to the open descriptor at once
+ * while held, applied at the next activate while not; off closes the descriptor. A target below off is refused, -1. */
+OMX_CLAP_EXPORT int omx_clap_host_idle_hold_set(int32_t target_us);
+
+/** The idle hold as it stands (ABI 16): the target, what is held, the device's aggregate, the active count, the code. */
+OMX_CLAP_EXPORT void omx_clap_host_idle_hold(struct omx_clap_idle_hold *out);
 
 /** The version of the library at run time, major * 10000 + minor * 100 + patch. */
 OMX_CLAP_EXPORT uint32_t omx_clap_core_version(void);
