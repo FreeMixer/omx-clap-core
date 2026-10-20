@@ -187,6 +187,25 @@ static void t_run_ports(const char *path)
     CHECK(bufs[1][0][0] == 0.5f && bufs[1][0][BLOCK - 1] == 0.5f && bufs[1][1][0] == -0.5f && bufs[1][1][BLOCK - 1] == -0.5f,
           "run_ports: the two-leg path, the left leg the input and the right its negation (%g, %g)", (double)bufs[1][0][0], (double)bufs[1][1][0]);
     omx_clap_host_close(in);
+    in = NULL;
+
+    CHECK(open_ok(path, FAKE_STEREO_MONO, &in) && activate(in), "run_ports: %s activates", FAKE_STEREO_MONO);
+    if (!in)
+        return;
+    CHECK(in->stage.wide == 0, "run_ports: two channels in and one out bind no wide bounce");
+    omx_clap_host_publish(in, pthread_self());
+    for (int i = 0; i < BLOCK; i++)
+        bufs[0][0][i] = 0.5f, bufs[0][1][i] = 0.25f;
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    CHECK(bufs[1][0][0] == 0.75f && bufs[1][0][BLOCK - 1] == 0.75f,
+          "run_ports: the plugin reads both inputs, 0.5 and 0.25, and its mono output is their sum (%g)", (double)bufs[1][0][0]);
+    omx_clap_host_bypass(in, 1);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    CHECK(bufs[1][0][0] == 0.5f && bufs[1][0][BLOCK - 1] == 0.5f, "run_ports: bypassed, the mono output carries the first input (%g)",
+          (double)bufs[1][0][0]);
+    omx_clap_host_close(in);
 }
 
 /* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the

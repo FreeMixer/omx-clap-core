@@ -1897,6 +1897,20 @@ static inline void omx_clap_run_io(struct omx_clap_stage *s, const float *const 
     omx_clap_run(s, outputs[0], s->h.n_out == 2 ? outputs[1] : NULL, n);
 }
 
+/**
+ * RT, a cycle with one buffer per main channel on the two-leg lane: the right leg of a stereo input to a mono output
+ * (2 to 1), whose lane has one output buffer only. The bounce's right output, which a mono output never writes, carries
+ * `ins[1]` for the block, so the plugin reads both inputs; its mono output is then delivered on both legs, of which the
+ * caller keeps the left. NULL for any other pair, or a block longer than the bounce (which is passed through unrun).
+ */
+static inline float *omx_clap_ports_right(struct omx_clap_stage *s, const float *const *ins, uint32_t n)
+{
+    if (s->h.n_in != 2 || s->h.n_out != 1 || ins == NULL || n > s->h.max_block)
+        return NULL;
+    memcpy(s->h.out_r, ins[1], n * sizeof(float));
+    return s->h.out_r;
+}
+
 /** The main input's channels as the stage was bound: 0 for a source. */
 static inline uint32_t omx_clap_main_in_channels(const struct omx_clap_stage *s)
 {
@@ -2045,13 +2059,21 @@ static inline void omx_clap_run_ports_transport(struct omx_clap_stage *s, const 
 /**
  * RT, a cycle with one buffer per main channel (JACK): `ins` one per main input channel (not read for a source, and may
  * then be NULL), `outs` one per main output channel, the counts the stage was bound with. A stage without the wide
- * bounce runs the two-leg path, omx_clap_run_io, bit for bit; a wide stage runs omx_clap_run_ports_transport with no
- * transport.
+ * bounce runs the two-leg path, omx_clap_run_io, bit for bit, except a stereo input to a mono output, whose right leg
+ * is omx_clap_ports_right; a wide stage runs omx_clap_run_ports_transport with no transport.
  */
 static inline void omx_clap_run_ports(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n)
 {
     if (s && !s->wide)
     {
+        float *r = s->plugin && outs && n ? omx_clap_ports_right(s, ins, n) : NULL;
+
+        if (r)
+        {
+            omx_clap_io_lane(s, ins, outs, n);
+            omx_clap_run(s, outs[0], r, n);
+            return;
+        }
         omx_clap_run_io(s, ins, outs, n);
         return;
     }
