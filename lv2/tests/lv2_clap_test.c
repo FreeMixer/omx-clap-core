@@ -482,8 +482,6 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
-        { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#no-ports", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
@@ -1691,9 +1689,10 @@ static void t_midi_extra(double rate)
     }
 }
 
-/* no audio output (#183): a MIDI tool (notes in and out, no audio port) and an analyser (audio in, no output) are
- * hosted with the strip's audio passing through them bit for bit, the host's placement said in the port's name, no
- * latency on that audio, the tool's notes transformed and the analyser's control output read as before */
+/* no audio output (#183, #253): a MIDI tool (notes in and out, no audio port), an analyser (audio in, no output) and a
+ * control-only plugin (control ports alone) are hosted with the strip's audio passing through them bit for bit, the
+ * host's placement said in the port's name, no latency on that audio, the tool's notes transformed and the control
+ * outputs read-only parameters read after the block */
 static void t_passthrough(double rate)
 {
     struct midi_in mi;
@@ -1738,6 +1737,43 @@ static void t_passthrough(double rate)
               "analyser %.0f: the audio passes through bit for bit", rate);
         CHECK(peak != CLAP_INVALID_ID && param(&g, peak) == 0.5f, "analyser %.0f: its control output reads the block's peak as before (%g)", rate,
               peak != CLAP_INVALID_ID ? param(&g, peak) : -1.0);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#ctl-alone", rate, BLOCK) == 0)
+    {
+        clap_param_info_t pi;
+        clap_audio_port_info_t ii;
+        struct evlist ev;
+        uint32_t k, n = g.params ? g.params->count(g.plugin) : 0;
+        clap_id amount = CLAP_INVALID_ID, twice = CLAP_INVALID_ID;
+        uint32_t amount_flags = 0, twice_flags = 0;
+
+        for (k = 0; k < n; k++)
+        {
+            if (!g.params->get_info(g.plugin, k, &pi))
+                continue;
+            if (strcmp(pi.name, "amount") == 0)
+                amount = pi.id, amount_flags = pi.flags;
+            else if (strcmp(pi.name, "twice") == 0)
+                twice = pi.id, twice_flags = pi.flags;
+        }
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1 && g.ports->get(g.plugin, 0, true, &ii)
+                  && g.ports->get(g.plugin, 0, false, &info) && ii.channel_count == 2 && info.channel_count == 2
+                  && strstr(ii.name, "passthrough: host") != NULL && strstr(info.name, "passthrough: host") != NULL,
+              "control only %.0f: one stereo main pair in and out, the strip's, named as the host's placement (%s)", rate, info.name);
+        CHECK(g.latency && g.latency->get(g.plugin) == 0, "control only %.0f: no latency on the audio it does not touch", rate);
+        CHECK(amount != CLAP_INVALID_ID && !(amount_flags & CLAP_PARAM_IS_READONLY) && twice != CLAP_INVALID_ID && (twice_flags & CLAP_PARAM_IS_READONLY),
+              "control only %.0f: `amount` a writable parameter, `twice` a read-only one (%u, %u)", rate, amount_flags, twice_flags);
+        ev_init(&ev);
+        if (amount != CLAP_INVALID_ID)
+            ev_param(&ev, amount, 0.25);
+        for (i = 0; i < BLOCK; i++)
+            out_l[i] = out_r[i] = 7.0f;
+        CHECK(process(&g, in_l, in_r, out_l, out_r, BLOCK, &ev) == CLAP_PROCESS_CONTINUE
+                  && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+              "control only %.0f: the strip's stereo block passes through bit for bit, both legs", rate);
+        CHECK(twice != CLAP_INVALID_ID && param(&g, twice) == 0.5, "control only %.0f: `amount` set 0.25 by event, `twice` reads 0.5 after the block (%g)",
+              rate, twice != CLAP_INVALID_ID ? param(&g, twice) : -1.0);
         rig_down(&g);
     }
 }
