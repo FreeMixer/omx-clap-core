@@ -76,6 +76,7 @@
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX];
+static char g_layout[PATH_MAX];
 static char g_fp[PATH_MAX], g_fp_so[PATH_MAX + 32];
 static const char *g_lilv;
 static pthread_t g_main;
@@ -381,6 +382,126 @@ static void t_sidechains(void)
     }
 }
 
+/* ---- the audio layouts: which ports are main and which auxiliary, by the port-group rules ---- */
+
+#define LAYOUT_URI "urn:openmixer:test:layout-fixture"
+
+static int named(const struct lv2_audio_port *a, const char *name)
+{
+    return a->name && strcmp(a->name, name) == 0;
+}
+
+static void t_layouts(void)
+{
+    static const struct { const char *uri, *code; } refused[] = {
+        { LAYOUT_URI "#sixty-five", "hosting.topology.too-many-ports" },
+        { LAYOUT_URI "#cv-sixty-five", "hosting.topology.too-many-ports" },
+    };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p;
+    uint32_t k;
+    size_t i;
+    int ok;
+
+    // rule 1: the main group is the main input, every other group one auxiliary port, in first-member order
+    p = open_plugin(g_layout, LAYOUT_URI "#main-aux", why);
+    CHECK(p != NULL, "layout main-aux: admitted (%s)", why);
+    if (p)
+    {
+        CHECK(p->main_in.n == 2 && p->main_in.port[0] == 0 && p->main_in.port[1] == 1 && named(&p->main_in, "Main"),
+              "layout main-aux: the pg:mainInput group is the main input, ports 0 and 1, named Main (%u)", p->main_in.n);
+        CHECK(p->n_aux_in == 2 && p->aux_in[0].n == 2 && p->aux_in[0].port[0] == 2 && p->aux_in[0].port[1] == 3
+              && named(&p->aux_in[0], "Aux One") && p->aux_in[1].n == 2 && p->aux_in[1].port[0] == 4 && named(&p->aux_in[1], "Aux Two"),
+              "layout main-aux: two stereo auxiliary inputs, Aux One at 2 and Aux Two at 4 (lv2:name) (%u)", p->n_aux_in);
+        CHECK(p->main_out.n == 2 && p->main_out.port[0] == 6 && p->n_aux_out == 0 && p->legs == 2 && p->in_legs == 2,
+              "layout main-aux: the two ungrouped outputs are the main output (%u)", p->main_out.n);
+    }
+    lv2_plugin_close(p);
+
+    // rule 2: no main group, the first group is the main input
+    p = open_plugin(g_layout, LAYOUT_URI "#two-mono", why);
+    CHECK(p && p->main_in.n == 1 && p->main_in.port[0] == 0 && named(&p->main_in, "A") && p->n_aux_in == 1 && p->aux_in[0].n == 1
+          && p->aux_in[0].port[0] == 1 && named(&p->aux_in[0], "B") && p->main_out.n == 1,
+          "layout two-mono: group A is the main input, group B one mono auxiliary input (%s)", why);
+    lv2_plugin_close(p);
+
+    // rule 3: ungrouped, as many inputs as outputs: one main port of that width each side
+    p = open_plugin(g_layout, LAYOUT_URI "#four-four", why);
+    CHECK(p && p->main_in.n == 4 && p->main_out.n == 4 && p->n_aux_in == 0 && p->n_aux_out == 0 && p->main_in.port[3] == 3
+          && p->main_out.port[0] == 4 && p->main_out.port[3] == 7,
+          "layout four-four: one main port of four each side, no auxiliary port (%s)", why);
+    lv2_plugin_close(p);
+
+    // rule 3: ungrouped, more inputs than two and than the outputs: the first two the main pair, the rest mono aux
+    p = open_plugin(g_layout, LAYOUT_URI "#four-two", why);
+    CHECK(p && p->main_in.n == 2 && p->main_in.port[1] == 1 && p->n_aux_in == 2 && p->aux_in[0].n == 1 && p->aux_in[0].port[0] == 2
+          && named(&p->aux_in[0], "In C") && p->aux_in[1].n == 1 && p->aux_in[1].port[0] == 3 && named(&p->aux_in[1], "In D")
+          && p->main_out.n == 2,
+          "layout four-two: main pair 0 and 1, In C and In D mono auxiliary inputs, named by their ports (%s)", why);
+    lv2_plugin_close(p);
+
+    // a mono input and a stereo main output group: two main ports of different widths
+    p = open_plugin(g_layout, LAYOUT_URI "#mono-stereo", why);
+    CHECK(p && p->main_in.n == 1 && p->main_out.n == 2 && p->main_out.port[0] == 1 && p->main_out.port[1] == 2
+          && named(&p->main_out, "Out") && p->n_aux_in == 0 && p->n_aux_out == 0 && p->legs == 2 && p->in_legs == 1,
+          "layout mono-stereo: main in 1, the pg:mainOutput group the main output of 2 (%s)", why);
+    lv2_plugin_close(p);
+
+    p = open_plugin(g_layout, LAYOUT_URI "#two-one", why);
+    CHECK(p && p->main_in.n == 2 && p->main_out.n == 1 && p->n_aux_in == 0 && p->n_aux_out == 0,
+          "layout two-one: a stereo main input and a mono main output (%s)", why);
+    lv2_plugin_close(p);
+
+    // rule 1 on the outputs: the main output group, and one auxiliary output per band group
+    p = open_plugin(g_layout, LAYOUT_URI "#bands", why);
+    ok = p && p->main_in.n == 2 && p->main_out.n == 2 && p->main_out.port[0] == 2 && named(&p->main_out, "Main Out") && p->n_aux_out == 3;
+    for (k = 0; ok && k < 3; k++)
+    {
+        char band[16];
+
+        snprintf(band, sizeof(band), "Band %u", k + 1);
+        ok = p->aux_out[k].n == 2 && p->aux_out[k].port[0] == 4 + 2 * k && p->aux_out[k].port[1] == 5 + 2 * k && named(&p->aux_out[k], band);
+    }
+    CHECK(ok, "layout bands: the main output group and three stereo auxiliary outputs, Band 1 to 3 at 4, 6, 8 (%s)", why);
+    lv2_plugin_close(p);
+
+    // pg:mainInput names a group no port belongs to: no main group, so rule 3 reads the two ungrouped inputs
+    p = open_plugin(g_layout, LAYOUT_URI "#empty-main", why);
+    CHECK(p && p->main_in.n == 2 && p->main_in.port[0] == 0 && p->main_in.port[1] == 1 && p->n_aux_in == 0 && p->main_out.n == 2,
+          "layout empty-main: a main group without members is no main, the two inputs the main pair (%s)", why);
+    lv2_plugin_close(p);
+
+    // the core's limit of auxiliary ports, exactly: 66 ungrouped inputs are the main pair and 64 mono aux ports
+    p = open_plugin(g_layout, LAYOUT_URI "#sixty-four", why);
+    CHECK(p && p->main_in.n == 2 && p->n_aux_in == LV2_CORE_AUX_PORTS && p->aux_in[63].n == 1 && p->aux_in[63].port[0] == 65,
+          "layout sixty-four: %u auxiliary inputs are admitted (%s)", LV2_CORE_AUX_PORTS, why);
+    lv2_plugin_close(p);
+
+    // the CV inputs reach the core as auxiliary inputs too: 62 aux ports and 2 CV inputs are the limit
+    p = open_plugin(g_layout, LAYOUT_URI "#cv-sixty-four", why);
+    CHECK(p && p->n_aux_in == LV2_CORE_AUX_PORTS - 2 && p->n_cv_in == 2,
+          "layout cv-sixty-four: 62 auxiliary and 2 CV inputs are admitted (%s)", why);
+    lv2_plugin_close(p);
+
+    // the host fixture's twins: a mono input and a stereo output, admitted; three inputs and two outputs
+    p = open_plugin(g_fixture, FIXTURE_URI "#wide", why);
+    CHECK(p && p->main_in.n == 1 && p->main_out.n == 2 && p->n_aux_in == 0, "layout: the host fixture's #wide, 1 in and 2 out, is admitted (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_fixture, FIXTURE_URI "#three-in", why);
+    CHECK(p && p->main_in.n == 2 && p->n_aux_in == 1 && p->aux_in[0].port[0] == 2 && p->main_out.n == 2,
+          "layout: the host fixture's #three-in, 3 in and 2 out, is a main pair and one mono auxiliary input (%s)", why);
+    lv2_plugin_close(p);
+
+    for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    {
+        char rwhy[LV2_CORE_WHY_MAX] = "";
+        struct lv2_plugin *q = open_plugin(g_layout, refused[i].uri, rwhy);
+
+        CHECK(!q && strcmp(rwhy, refused[i].code) == 0, "layout refusal: %s is refused %s (got '%s')", refused[i].uri, refused[i].code, rwhy);
+        lv2_plugin_close(q);
+    }
+}
+
 /* The open of a plugin with two side chains when the allocator refuses the name of the second: the open is refused as
  * no realisation and the name of the first, already duplicated, is freed with the rest. Unrefused, the same open
  * holds both names and the close frees them. */
@@ -413,8 +534,6 @@ static void t_refusals(void)
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#three-in", "hosting.topology.wider-than-strip" },
-        { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
     };
     size_t i;
@@ -1169,6 +1288,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
     if (abs_dir(dir, g_cv) != 0)
         return 1;
+    snprintf(dir, sizeof(dir), "%somx-layout-fixture.lv2", g_build);
+    if (abs_dir(dir, g_layout) != 0)
+        return 1;
     setenv("LV2_PATH", g_build, 1);     // what load_all would find: every bundle is there
 
     in_child("lazy", lazy);
@@ -1189,6 +1311,7 @@ int main(int argc, char **argv)
     t_midi_run();
     t_sidechains();
     t_sidechain_names_oom();
+    t_layouts();
     t_cv();
     for (r = 0; r < N_RATES; r++)
     {

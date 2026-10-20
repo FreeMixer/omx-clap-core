@@ -76,8 +76,8 @@
 /* the channels one audio port may have, the core's CLAP_HOST_PORT_CHANNELS; one more is refused */
 #define LV2_CORE_PORT_CHANNELS          64
 
-/* the auxiliary audio ports a side may have, the core's CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS; one more is
- * refused */
+/* the auxiliary audio ports a side may have, the core's CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS, the CV ports of
+ * that side counted with them (each is one more auxiliary port to the core); one more is refused */
 #define LV2_CORE_AUX_PORTS              64
 
 /* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
@@ -111,7 +111,6 @@
 #define LV2_CODE_NO_AUDIO_OUTPUT        "hosting.topology.no-audio-output"
 #define LV2_CODE_TOO_MANY_PORTS         "hosting.topology.too-many-ports"
 #define LV2_CODE_PORT_TOO_WIDE          "hosting.topology.port-too-wide"
-#define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
 #define LV2_CODE_STATE_UNREADABLE       "hosting.state.unreadable"
 #define LV2_CODE_PRESET_NOT_FOUND       "hosting.preset.not-found"
 #define LV2_CODE_PATH_OUTSIDE           "hosting.state.path-outside"       // makePath: empty, absolute, or a `..` component
