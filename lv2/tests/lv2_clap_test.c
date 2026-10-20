@@ -1545,6 +1545,41 @@ static void t_ll_midi(double rate)
     g.plugin->on_main_thread(g.plugin);
     CHECK(mo.n == 53u && out_is(&mo, 52, CLAP_EVENT_MIDI, 52, up_note, 3) && strstr(g.host.log, "midi_in_dropped 8") != NULL,
           "ll midi %.0f: 53 notes fit, the 8 past them are dropped and logged as midi_in_dropped 8 (%u)", rate, mo.n);
+    // the range rule through the face (#254): the port with no range is -1e9..1e9, the minimum-only one keeps its
+    // minimum, and a value far outside the [0,0] the old rule gave reaches the plugin, the audio and reads back
+    {
+        clap_param_info_t pi6, pi7;
+        struct evlist ev;
+        int got6 = 0, got7 = 0;
+        double v = -1.0;
+
+        memset(&pi6, 0, sizeof(pi6));       // read only once found; zeroed for the compilers that cannot see that
+        memset(&pi7, 0, sizeof(pi7));
+
+        for (i = 0; i < g.params->count(g.plugin); i++)
+        {
+            clap_param_info_t pi;
+
+            if (g.params->get_info(g.plugin, i, &pi) && pi.id == 6)
+                pi6 = pi, got6 = 1;
+            else if (g.params->get_info(g.plugin, i, &pi) && pi.id == 7)
+                pi7 = pi, got7 = 1;
+        }
+        CHECK(got6 && pi6.min_value == -1e9 && pi6.max_value == 1e9 && pi6.default_value == 0.0,
+              "ll midi %.0f: the control port with no range is the parameter -1e9..1e9, default 0 (%g..%g)", rate,
+              got6 ? pi6.min_value : 0.0, got6 ? pi6.max_value : 0.0);
+        CHECK(got7 && pi7.min_value == 0.0 && pi7.max_value == 1e9 && pi7.default_value == 0.0,
+              "ll midi %.0f: the minimum-only port keeps its minimum, maximum 1e9 (%g..%g)", rate, got7 ? pi7.min_value : 0.0,
+              got7 ? pi7.max_value : 0.0);
+        ev_init(&ev);
+        ev_param(&ev, 6, 2.75);
+        ev_param(&ev, 7, 1.5);
+        process(&g, in_l, in_r, out_l, out_r, BLOCK, &ev);
+        CHECK(seen && seen->trim_seen == 2.75f && seen->floor_seen == 1.5f && out_l[3] == in_l[3] + 2.75f + 1.5f
+                  && g.params->get_value(g.plugin, 6, &v) && v == 2.75,
+              "ll midi %.0f: 2.75 and 1.5 written as parameters reach the plugin, the audio and read back (%g, %g, %g)", rate,
+              seen ? (double)seen->trim_seen : 0.0, seen ? (double)seen->floor_seen : 0.0, v);
+    }
     rig_down(&g);
 }
 
