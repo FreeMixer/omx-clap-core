@@ -1,6 +1,7 @@
 # docs/adapter-seam.tsv: the class of every function of lv2/core, lv2/clap and the src/ headers they include, read from
 # its body (omx-clap-core#287). class: NEUTRAL (a VST3 adapter would use it unchanged), MIXED (neutral logic around a few
 # format calls: the hook it needs is in the reason), SPECIFIC (LV2 only). thread: AUDIO, WORKER, MAIN, or ANY.
+# ref: 0990c30 (the code the classes were read from; tools/adapter-seam.sh measures this ref unless OURS_REF says otherwise)
 # tools/adapter-seam.sh joins it with lizard's function list and sums it; an unclassed function or a stale row fails.
 # file	function	class	area	thread	reason
 lv2/core/lv2_features.c	urid_slot	SPECIFIC	features/urid/options/log	ANY	URID segment-table addressing; URID is an LV2-only concept, no VST3 analog
