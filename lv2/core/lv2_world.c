@@ -1103,37 +1103,14 @@ static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, cons
     return a->name ? NULL : LV2_CODE_NO_REALISATION;
 }
 
-/*
- * One side's audio ports, by the port-group rules: side chains (lv2:isSideChain, pg:sideChainOf on the port or on its
- * group) are auxiliary whatever else applies (rule 4); of the rest,
- *  1. a main group declared (pg:mainInput, pg:mainOutput) that has members on this side is the main port;
- *  2. else the group of the first grouped port is;
- *  3. else, no group at all: up to two ports are the main port, more than two as many as the other side's main port is
- *     wide (`other`: its main group's members by rule 1 or 2, else its ungrouped ports; side chains and auxiliary groups
- *     never count) are one main port of that width, and otherwise the first two are the main port.
- * Every other audio port is auxiliary: the members of one pg:group one port, an ungrouped port one mono port, in the
- * order of their first member, up to LV2_CORE_AUX_PORTS of them with the side's CV ports (one more is too many ports).
- * A port of more than LV2_CORE_PORT_CHANNELS channels is too wide. Fills p->main_in and p->aux_in, or p->main_out and
- * p->aux_out; returns the refusal, or NULL.
- */
-static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_input)
+/* This side's audio ports into sp, in port index order; returns their count. A port is a side chain by rule 4; of the rest
+ * (*plain of them, *grouped of those in a pg:group) one that carries the declared main group makes it *main_group (rule 1). */
+static uint32_t side_ports(const LilvPlugin *pl, uint32_t n, int is_input, const char *declared, struct side_port *sp,
+                           uint32_t *plain, uint32_t *grouped, const char **main_group)
 {
-    const uint32_t n = L.lilv_plugin_get_num_ports(pl), other = side_main_width(pl, n, !is_input);
-    struct lv2_audio_port *main = is_input ? &p->main_in : &p->main_out;
-    struct lv2_audio_port *aux = is_input ? p->aux_in : p->aux_out;
-    uint32_t *n_aux = is_input ? &p->n_aux_in : &p->n_aux_out;
-    const uint32_t n_cv = is_input ? p->n_cv_in : p->n_cv_out;
-    struct side_port *sp = calloc(n ? n : 1u, sizeof(*sp));
-    uint32_t *members = calloc(n ? n : 1u, sizeof(*members));
-    LilvNodes *mg = L.lilv_plugin_get_value(pl, g.node[is_input ? N_PG_MAIN_INPUT : N_PG_MAIN_OUTPUT]);
-    char *declared = first_string(mg);
-    const char *main_group = NULL, *refusal = NULL;
-    uint32_t ns = 0, i, j, plain = 0, grouped = 0, nm;
+    uint32_t ns = 0, i;
 
-    L.lilv_nodes_free(mg);
-    if (!sp || !members)
-        refusal = LV2_CODE_NO_REALISATION;
-    for (i = 0; i < n && !refusal; i++)
+    for (i = 0; i < n; i++)
     {
         const LilvPort *port;
 
@@ -1146,34 +1123,52 @@ static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_
                             || group_has(pl, port, N_PG_SIDECHAIN_OF);
         if (!sp[ns].side_chain)
         {
-            plain++;
-            grouped += sp[ns].group != NULL;
+            (*plain)++;
+            *grouped += sp[ns].group != NULL;
             // rule 1: the declared main group, when a port of this side carries it
             if (declared && sp[ns].group && strcmp(sp[ns].group, declared) == 0)
-                main_group = declared;
+                *main_group = declared;
         }
         ns++;
     }
+    return ns;
+}
+
+/* The main port's members into members, in port index order; returns their count. The main group is rule 1's, else the
+ * first group in port order (rule 2), else none and the members are chosen among ungrouped ports by rule 3. */
+static uint32_t side_main(struct side_port *sp, uint32_t ns, uint32_t plain, uint32_t grouped, uint32_t other,
+                          const char **main_group, uint32_t *members)
+{
+    uint32_t i, nm = 0;
+
     // rule 2: the first group in port order
-    for (i = 0; i < ns && !refusal && !main_group && grouped; i++)
+    for (i = 0; i < ns && !*main_group && grouped; i++)
         if (!sp[i].side_chain && sp[i].group)
-            main_group = sp[i].group;
-    // the main port's members: the main group's, or by rule 3 among ungrouped ports
-    for (i = 0, nm = 0; i < ns && !refusal; i++)
+            *main_group = sp[i].group;
+    for (i = 0; i < ns; i++)
     {
         if (sp[i].side_chain)
             continue;
-        if (main_group)
-            sp[i].main = sp[i].group && strcmp(sp[i].group, main_group) == 0;
+        if (*main_group)
+            sp[i].main = sp[i].group && strcmp(sp[i].group, *main_group) == 0;
         else
             sp[i].main = plain <= 2 || plain == other || nm < 2;
         if (sp[i].main)
             members[nm++] = sp[i].index;
     }
-    if (!refusal && nm)
-        refusal = describe(main, pl, main_group, members, nm);
-    // the auxiliary ports, in the order of their first member. A member of the main group that carries lv2:isSideChain is
-    // one of them (rule 4), named after the main group it is declared in
+    return nm;
+}
+
+/* The auxiliary ports, in the order of their first member, into aux after the *n_aux there are: every port of sp that is
+ * not the main port's, the members of one pg:group one port. A member of the main group that carries lv2:isSideChain is
+ * one of them (rule 4), named after the main group it is declared in. Up to LV2_CORE_AUX_PORTS with the side's n_cv CV
+ * ports; returns the refusal, or NULL. */
+static const char *side_aux(struct lv2_audio_port *aux, uint32_t *n_aux, uint32_t n_cv, const LilvPlugin *pl,
+                            struct side_port *sp, uint32_t ns, uint32_t *members)
+{
+    const char *refusal = NULL;
+    uint32_t i, j;
+
     for (i = 0; i < ns && !refusal; i++)
     {
         uint32_t m = 0;
@@ -1196,6 +1191,45 @@ static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_
         else
             refusal = describe(&aux[(*n_aux)++], pl, sp[i].group, members, m);
     }
+    return refusal;
+}
+
+/*
+ * One side's audio ports, by the port-group rules: side chains (lv2:isSideChain, pg:sideChainOf on the port or on its
+ * group) are auxiliary whatever else applies (rule 4); of the rest,
+ *  1. a main group declared (pg:mainInput, pg:mainOutput) that has members on this side is the main port;
+ *  2. else the group of the first grouped port is;
+ *  3. else, no group at all: up to two ports are the main port, more than two as many as the other side's main port is
+ *     wide (`other`: its main group's members by rule 1 or 2, else its ungrouped ports; side chains and auxiliary groups
+ *     never count) are one main port of that width, and otherwise the first two are the main port.
+ * Every other audio port is auxiliary: the members of one pg:group one port, an ungrouped port one mono port, in the
+ * order of their first member, up to LV2_CORE_AUX_PORTS of them with the side's CV ports (one more is too many ports).
+ * A port of more than LV2_CORE_PORT_CHANNELS channels is too wide. Fills p->main_in and p->aux_in, or p->main_out and
+ * p->aux_out; returns the refusal, or NULL.
+ */
+static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_input)
+{
+    const uint32_t n = L.lilv_plugin_get_num_ports(pl), other = side_main_width(pl, n, !is_input);
+    struct side_port *sp = calloc(n ? n : 1u, sizeof(*sp));
+    uint32_t *members = calloc(n ? n : 1u, sizeof(*members));
+    LilvNodes *mg = L.lilv_plugin_get_value(pl, g.node[is_input ? N_PG_MAIN_INPUT : N_PG_MAIN_OUTPUT]);
+    char *declared = first_string(mg);
+    const char *main_group = NULL, *refusal = NULL;
+    uint32_t ns = 0, i, plain = 0, grouped = 0, nm;
+
+    L.lilv_nodes_free(mg);
+    if (!sp || !members)
+        refusal = LV2_CODE_NO_REALISATION;
+    else
+    {
+        ns = side_ports(pl, n, is_input, declared, sp, &plain, &grouped, &main_group);
+        nm = side_main(sp, ns, plain, grouped, other, &main_group, members);
+        if (nm)
+            refusal = describe(is_input ? &p->main_in : &p->main_out, pl, main_group, members, nm);
+        if (!refusal)
+            refusal = side_aux(is_input ? p->aux_in : p->aux_out, is_input ? &p->n_aux_in : &p->n_aux_out,
+                               is_input ? p->n_cv_in : p->n_cv_out, pl, sp, ns, members);
+    }
     for (i = 0; sp && i < ns; i++)
         free(sp[i].group);
     free(sp);
@@ -1204,7 +1238,200 @@ static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_
     return refusal;
 }
 
-/* Read every port, or name the refusal, before any binary, with the codes of lv2_core.h. */
+/* An ev:EventPort (the event extension, atom's predecessor: ll-plugins' rudolf556 and control2midi) that supports
+ * midi:MidiEvent is a MIDI port as the atom one is, over an LV2_Event_Buffer: the first each way is the note path's, one
+ * after it is fed an empty buffer every block or offered one and never read. One that supports no midi:MidiEvent carries
+ * events no buffer here writes or reads. Returns the refusal, or NULL. */
+static const char *classify_event(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t i)
+{
+    uint32_t *count = input ? &p->n_event_in : &p->n_event_out;
+
+    if (!L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
+        return LV2_CODE_MIDI_IN;
+    if (input ? p->midi_in_port < 0 : p->midi_out_port < 0)
+    {
+        if (input)
+        {
+            p->midi_in_port = (int32_t)i;
+            p->midi_in_event = 1;
+        }
+        else
+        {
+            p->midi_out_port = (int32_t)i;
+            p->midi_out_event = 1;
+        }
+        return NULL;
+    }
+    if (*count >= (input ? LV2_CORE_ATOM_IN_PORTS : LV2_CORE_NOTIFY_PORTS))
+        return LV2_CODE_MIDI_IN;
+    (input ? p->event_in : p->event_out)[(*count)++] = i;
+    return NULL;
+}
+
+/* A MIDI port after the first: an input is fed an empty sequence every block, an output is offered a buffer and drained,
+ * as the other atom ports are (carla's midijoin, 16 inputs; midisplit, 16 outputs); the note path is the first port's in
+ * index order. Returns the refusal, or NULL. */
+static const char *classify_midi_more(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t i)
+{
+    LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+    if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
+    {
+        L.lilv_nodes_free(rsz);
+        return LV2_CODE_MIDI_IN;
+    }
+    if (input)
+    {
+        p->atom_in[p->n_atom_in++] = i;
+        p->atom_in_min = rsz_max(rsz, p->atom_in_min);
+    }
+    else
+    {
+        p->notify_out[p->n_notify++] = i;
+        p->notify_min = rsz_max(rsz, p->notify_min);
+    }
+    L.lilv_nodes_free(rsz);
+    return NULL;
+}
+
+/* A MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most. One that also takes
+ * patch:Message is the patch port too: one sequence the note path and the parameter path both fill, in frame order, or
+ * both readers read (the lsp samplers, midimap, midifile); a second patch port beside it is one more than the mapping
+ * carries. Returns the refusal, or NULL. */
+static const char *classify_midi(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t i)
+{
+    if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
+        return classify_midi_more(p, pl, port, input, i);
+    if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
+    {
+        LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+        if (input ? p->patch_in >= 0 : p->patch_out >= 0)
+        {
+            L.lilv_nodes_free(rsz);
+            return input ? LV2_CODE_ATOM_IN : LV2_CODE_MIDI_IN;
+        }
+        if (input)
+        {
+            p->patch_in = (int32_t)i;
+            p->patch_in_shared = 1;
+            p->patch_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+        }
+        else
+        {
+            p->patch_out = (int32_t)i;
+            p->patch_out_shared = 1;
+        }
+        p->atom_min = rsz_max(rsz, p->atom_min);
+        L.lilv_nodes_free(rsz);
+    }
+    else if (input)
+        p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+    if (input)
+        p->midi_in_port = (int32_t)i;
+    else
+        p->midi_out_port = (int32_t)i;
+    return NULL;
+}
+
+/* An atom port: a MIDI port (classify_midi); else the transport's port, the first sequence input that takes
+ * time:Position and no patch:Message (§6.6), sent nothing of whatever else it lists (atom:Sequence, the plugin's own
+ * objects); else a patch, an atom input or a notify output (atom_port). Returns the refusal, or NULL. */
+static const char *classify_atom(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t i)
+{
+    if (L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
+        return classify_midi(p, pl, port, input, i);
+    if (input && p->time_port < 0 && port_takes_time(pl, port))
+    {
+        p->time_port = (int32_t)i;
+        return NULL;
+    }
+    return atom_port(p, pl, port, input, i);
+}
+
+/* A CV port is a mono audio port of its own, each way, counted with the side's auxiliary ports against their limit
+ * (read_side adds the auxiliary ports to this count); CV ports alone past it are refused here. Returns the refusal, or
+ * NULL. */
+static const char *classify_cv(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t i)
+{
+    uint32_t *count = input ? &p->n_cv_in : &p->n_cv_out;
+    char **name = input ? p->cv_in_name : p->cv_out_name;
+    const char *sym = L.lilv_node_as_string(L.lilv_port_get_symbol(pl, port));
+
+    if (*count >= LV2_CORE_AUX_PORTS)
+        return LV2_CODE_TOO_MANY_PORTS;
+    name[*count] = node_dup(L.lilv_port_get_name(pl, port), sym ? sym : "");
+    if (!name[*count])
+        return LV2_CODE_NO_REALISATION;
+    (input ? p->cv_in : p->cv_out)[(*count)++] = i;
+    return NULL;
+}
+
+/* An audio port is read by its side once every port is (read_side, which names its refusals); here the outputs are
+ * counted, *nout, which tells a plugin with no audio output. Refuses nothing. */
+static const char *classify_audio(uint32_t *nout, int input)
+{
+    *nout += !input;
+    return NULL;
+}
+
+/* A control port: the first output that reports latency is the latency port; any other is a control, an output, the
+ * bypass (the first input designated lv2:enabled, held at 1, or symbol "bypass", held at 0; *has_bypass once there is
+ * one) or an input. Returns the refusal, or NULL. */
+static const char *classify_control(struct lv2_plugin *p, const LilvPlugin *pl, const LilvPort *port, int input, uint32_t i,
+                                    int *has_bypass)
+{
+    const char *symbol = L.lilv_node_as_string(L.lilv_port_get_symbol(pl, port));
+    struct lv2_control *c;
+
+    if (!input && p->latency_port < 0
+        && (port_designated(pl, port, N_LATENCY) || L.lilv_port_has_property(pl, port, g.node[N_REPORTS_LATENCY])))
+    {
+        struct lv2_control range;
+
+        p->latency_port = (int32_t)i;
+        port_range(pl, port, &range);
+        p->latency_def = range.def;
+        return NULL;
+    }
+    c = &p->controls[p->n_controls++];
+    c->port = i;
+    c->symbol = strdup(symbol ? symbol : "");
+    c->name = node_dup(L.lilv_port_get_name(pl, port), c->symbol ? c->symbol : "");
+    if (!c->symbol || !c->name)
+        return LV2_CODE_NO_REALISATION;
+    port_range(pl, port, c);
+    c->props = port_props(pl, port);
+    c->unit = port_unit(pl, port);
+    c->range_steps = port_steps(pl, port);
+    if (!input)
+    {
+        c->kind = LV2_CONTROL_OUTPUT;
+    }
+    else if (!*has_bypass && port_designated(pl, port, N_ENABLED))
+    {
+        c->kind = LV2_CONTROL_BYPASS;
+        c->def = 1.0f;      // held at the value that keeps the plugin processing
+        *has_bypass = 1;
+    }
+    else if (!*has_bypass && strcmp(c->symbol, "bypass") == 0)
+    {
+        c->kind = LV2_CONTROL_BYPASS;
+        c->def = 0.0f;
+        *has_bypass = 1;
+    }
+    else
+    {
+        c->kind = LV2_CONTROL_INPUT;
+    }
+    if (port_points(pl, port, c) != 0)
+        return LV2_CODE_NO_REALISATION;
+    return NULL;
+}
+
+/* Read every port, or name the refusal, before any binary, with the codes of lv2_core.h: each port by its kind, in the
+ * order the kinds are tried (an event port, an atom port, CV, audio, control; any other is refused), the first refusal
+ * the plugin's. */
 static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
 {
     const uint32_t n = L.lilv_plugin_get_num_ports(pl);
@@ -1225,181 +1452,21 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     {
         const LilvPort *port = L.lilv_plugin_get_port_by_index(pl, i);
         const int input = L.lilv_port_is_a(pl, port, g.node[N_INPUT]);
-        struct lv2_control *c;
-        const char *symbol;
 
         if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
-        {
-            // an ev:EventPort (the event extension, atom's predecessor: ll-plugins' rudolf556 and control2midi) that
-            // supports midi:MidiEvent is a MIDI port as the atom one is, over an LV2_Event_Buffer: the first each way
-            // is the note path's, one after it is fed an empty buffer every block or offered one and never read. One
-            // that supports no midi:MidiEvent carries events no buffer here writes or reads
-            uint32_t *count = input ? &p->n_event_in : &p->n_event_out;
-
-            if (!L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
-                return LV2_CODE_MIDI_IN;
-            if (input ? p->midi_in_port < 0 : p->midi_out_port < 0)
-            {
-                if (input)
-                {
-                    p->midi_in_port = (int32_t)i;
-                    p->midi_in_event = 1;
-                }
-                else
-                {
-                    p->midi_out_port = (int32_t)i;
-                    p->midi_out_event = 1;
-                }
-                continue;
-            }
-            if (*count >= (input ? LV2_CORE_ATOM_IN_PORTS : LV2_CORE_NOTIFY_PORTS))
-                return LV2_CODE_MIDI_IN;
-            (input ? p->event_in : p->event_out)[(*count)++] = i;
-            continue;
-        }
-        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
-        {
-            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most. One that
-            // also takes patch:Message is the patch port too: one sequence the note path and the parameter path both
-            // fill, in frame order, or both readers read (the lsp samplers, midimap, midifile); a second patch port
-            // beside it is one more than the mapping carries
-            // a MIDI port after the first: an input is fed an empty sequence every block, an output is offered a buffer
-            // and drained, as the other atom ports are (carla's midijoin, 16 inputs; midisplit, 16 outputs); the note path
-            // is the first port's in index order
-            if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
-            {
-                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
-
-                if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
-                {
-                    L.lilv_nodes_free(rsz);
-                    return LV2_CODE_MIDI_IN;
-                }
-                if (input)
-                {
-                    p->atom_in[p->n_atom_in++] = i;
-                    p->atom_in_min = rsz_max(rsz, p->atom_in_min);
-                }
-                else
-                {
-                    p->notify_out[p->n_notify++] = i;
-                    p->notify_min = rsz_max(rsz, p->notify_min);
-                }
-                L.lilv_nodes_free(rsz);
-                continue;
-            }
-            if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
-            {
-                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
-
-                if (input ? p->patch_in >= 0 : p->patch_out >= 0)
-                {
-                    L.lilv_nodes_free(rsz);
-                    return input ? LV2_CODE_ATOM_IN : LV2_CODE_MIDI_IN;
-                }
-                if (input)
-                {
-                    p->patch_in = (int32_t)i;
-                    p->patch_in_shared = 1;
-                    p->patch_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
-                }
-                else
-                {
-                    p->patch_out = (int32_t)i;
-                    p->patch_out_shared = 1;
-                }
-                p->atom_min = rsz_max(rsz, p->atom_min);
-                L.lilv_nodes_free(rsz);
-            }
-            else if (input)
-                p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
-            if (input)
-                p->midi_in_port = (int32_t)i;
-            else
-                p->midi_out_port = (int32_t)i;
-            continue;
-        }
-        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && input && p->time_port < 0 && port_takes_time(pl, port))
-        {
-            // the transport's port: a sequence input that takes time:Position and no patch:Message (§6.6); whatever else it
-            // lists (atom:Sequence, the plugin's own objects) it is sent nothing of
-            p->time_port = (int32_t)i;
-            continue;
-        }
-        if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]))
-        {
-            const char *refused = atom_port(p, pl, port, input, i);
-
-            if (refused)
-                return refused;
-            continue;
-        }
-        if (L.lilv_port_is_a(pl, port, g.node[N_CV]))
-        {
-            // a CV port is a mono audio port of its own, each way, counted with the side's auxiliary ports against their
-            // limit (read_side adds the auxiliary ports to this count); CV ports alone past it are refused here
-            uint32_t *count = input ? &p->n_cv_in : &p->n_cv_out;
-            char **name = input ? p->cv_in_name : p->cv_out_name;
-            const char *sym = L.lilv_node_as_string(L.lilv_port_get_symbol(pl, port));
-
-            if (*count >= LV2_CORE_AUX_PORTS)
-                return LV2_CODE_TOO_MANY_PORTS;
-            name[*count] = node_dup(L.lilv_port_get_name(pl, port), sym ? sym : "");
-            if (!name[*count])
-                return LV2_CODE_NO_REALISATION;
-            (input ? p->cv_in : p->cv_out)[(*count)++] = i;
-            continue;
-        }
-        if (L.lilv_port_is_a(pl, port, g.node[N_AUDIO]))
-        {
-            nout += !input;
-            continue;
-        }
-        if (!L.lilv_port_is_a(pl, port, g.node[N_CONTROL]))
-            return LV2_CODE_NO_REALISATION;
-        symbol = L.lilv_node_as_string(L.lilv_port_get_symbol(pl, port));
-        if (!input && p->latency_port < 0
-            && (port_designated(pl, port, N_LATENCY) || L.lilv_port_has_property(pl, port, g.node[N_REPORTS_LATENCY])))
-        {
-            struct lv2_control range;
-
-            p->latency_port = (int32_t)i;
-            port_range(pl, port, &range);
-            p->latency_def = range.def;
-            continue;
-        }
-        c = &p->controls[p->n_controls++];
-        c->port = i;
-        c->symbol = strdup(symbol ? symbol : "");
-        c->name = node_dup(L.lilv_port_get_name(pl, port), c->symbol ? c->symbol : "");
-        if (!c->symbol || !c->name)
-            return LV2_CODE_NO_REALISATION;
-        port_range(pl, port, c);
-        c->props = port_props(pl, port);
-        c->unit = port_unit(pl, port);
-        c->range_steps = port_steps(pl, port);
-        if (!input)
-        {
-            c->kind = LV2_CONTROL_OUTPUT;
-        }
-        else if (!has_bypass && port_designated(pl, port, N_ENABLED))
-        {
-            c->kind = LV2_CONTROL_BYPASS;
-            c->def = 1.0f;      // held at the value that keeps the plugin processing
-            has_bypass = 1;
-        }
-        else if (!has_bypass && strcmp(c->symbol, "bypass") == 0)
-        {
-            c->kind = LV2_CONTROL_BYPASS;
-            c->def = 0.0f;
-            has_bypass = 1;
-        }
+            refusal = classify_event(p, pl, port, input, i);
+        else if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]))
+            refusal = classify_atom(p, pl, port, input, i);
+        else if (L.lilv_port_is_a(pl, port, g.node[N_CV]))
+            refusal = classify_cv(p, pl, port, input, i);
+        else if (L.lilv_port_is_a(pl, port, g.node[N_AUDIO]))
+            refusal = classify_audio(&nout, input);
+        else if (L.lilv_port_is_a(pl, port, g.node[N_CONTROL]))
+            refusal = classify_control(p, pl, port, input, i, &has_bypass);
         else
-        {
-            c->kind = LV2_CONTROL_INPUT;
-        }
-        if (port_points(pl, port, c) != 0)
-            return LV2_CODE_NO_REALISATION;
+            refusal = LV2_CODE_NO_REALISATION;
+        if (refusal)
+            return refusal;
     }
     refusal = read_side(p, pl, 1);
     if (!refusal)
