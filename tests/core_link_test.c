@@ -29,6 +29,8 @@
 #endif
 #include <pthread.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <omx-clap-host/clap_host.h>
 
@@ -108,6 +110,62 @@ int main(int argc, char **argv)
         CHECK(instance->aux_inputs == 1, "one auxiliary input (%u)", instance->aux_inputs);
         omx_clap_host_close(instance);
         instance = NULL;
+    }
+
+    // a bundle directory (#259): opened by the directory, the host finds its one shared object whatever its name
+    {
+        char dir[] = "/tmp/core_link_bundle_XXXXXX", bundle[64], object[96], two[96];
+
+        CHECK(mkdtemp(dir) != NULL, "a scratch directory");
+        snprintf(bundle, sizeof(bundle), "%s/odd.clap", dir);
+        snprintf(object, sizeof(object), "%s/libodd_name.so", bundle);
+        CHECK(mkdir(bundle, 0755) == 0 && symlink(argv[1], object) == 0, "odd.clap/libodd_name.so links to the fake plugin");
+        CHECK(open_ok(bundle, FAKE_SIDECHAIN, &instance, why), "open %s by its directory: admitted (%s)", bundle, why);
+        if (instance)
+        {
+            omx_clap_host_close(instance);
+            instance = NULL;
+        }
+        // the reader's own contract: what it counts, what it prefers, what it refuses
+        {
+            char found[96], reason[128], clap_a[96], clap_b[96], empty[64], missing[64];
+            struct omx_clap_instance *by_file = NULL;
+
+            CHECK(omx_clap_host_bundle_object(bundle, found, sizeof(found), reason, sizeof(reason)) == 1 && strcmp(found, object) == 0,
+                  "one .so: count 1 and the object is %s (%s)", object, found);
+            CHECK(omx_clap_host_bundle_object(bundle, found, 8, reason, sizeof(reason)) == 0 && strstr(reason, "does not fit") != NULL,
+                  "a buffer the path does not fit: 0, and the reason says so (%s)", reason);
+            CHECK(open_ok(bundle, FAKE_SIDECHAIN, &instance, why) && open_ok(object, FAKE_SIDECHAIN, &by_file, why) && omx_clap_host_binaries_open() == 1,
+                  "opened by the directory and by the object at once: one binary loaded (%u)", omx_clap_host_binaries_open());
+            if (instance) omx_clap_host_close(instance);
+            if (by_file) omx_clap_host_close(by_file);
+            instance = NULL;
+            snprintf(clap_a, sizeof(clap_a), "%s/a.clap", bundle);
+            CHECK(symlink(argv[1], clap_a) == 0 && omx_clap_host_bundle_object(bundle, found, sizeof(found), reason, sizeof(reason)) == 1 && strcmp(found, clap_a) == 0,
+                  "a .clap file beside the .so is preferred: count 1, %s (%s)", clap_a, found);
+            snprintf(clap_b, sizeof(clap_b), "%s/b.clap", bundle);
+            CHECK(symlink(argv[1], clap_b) == 0 && omx_clap_host_bundle_object(bundle, found, sizeof(found), reason, sizeof(reason)) == 2
+                      && strcmp(reason, "2 .clap files, one expected") == 0,
+                  "two .clap files: count 2, the reason names them (%s)", reason);
+            unlink(clap_b);
+            unlink(clap_a);
+            snprintf(empty, sizeof(empty), "%s/empty.clap", dir);
+            CHECK(mkdir(empty, 0755) == 0 && omx_clap_host_bundle_object(empty, found, sizeof(found), reason, sizeof(reason)) == 0 && strncmp(reason, "no shared object", 16) == 0,
+                  "an empty bundle: 0, no shared object (%s)", reason);
+            rmdir(empty);
+            snprintf(missing, sizeof(missing), "%s/none.clap", dir);
+            CHECK(omx_clap_host_bundle_object(missing, found, sizeof(found), reason, sizeof(reason)) == 0 && strncmp(reason, "can't read", 10) == 0,
+                  "a directory that cannot be read: 0, can't read (%s)", reason);
+        }
+        snprintf(two, sizeof(two), "%s/libtwo.so", bundle);
+        CHECK(symlink(argv[1], two) == 0 && omx_clap_host_bundle_object(bundle, object, 0, why, sizeof(why)) == 2 && !open_ok(bundle, FAKE_SIDECHAIN, &instance, why)
+                  && strcmp(why, CLAP_HOST_CODE_HEADLESS_FAILED) == 0,
+              "a bundle with two objects counts 2 and is refused %s (%s)", CLAP_HOST_CODE_HEADLESS_FAILED, why);
+        CHECK(omx_clap_host_binaries_open() == 0, "and nothing stays loaded (%u open)", omx_clap_host_binaries_open());
+        unlink(two);
+        unlink(object);
+        rmdir(bundle);
+        rmdir(dir);
     }
 
     CHECK(open_ok(argv[1], FAKE_WIDE, &instance, why), "open %s: its six channels are described", FAKE_WIDE);

@@ -12,7 +12,7 @@ extensions it asked for that the host did not offer.
 scan     runs omx-clap-scan --json on each .clap file of the directories, one process per file, and writes
          plugins.tsv: one row per plugin (file, id, name, vendor, features, audio ports and channels, note ports,
          params, latency, instrument). A file that gave no plugin is one row with an empty id and scan = the
-         scanner's code (timeout, crash:<signal>, dlopen, entry, unreadable, no-result) or no-plugin.
+         scanner's code (timeout, crash:<signal>, dlopen, entry, unreadable, bundle, no-result) or no-plugin.
 host     adds each plugin of plugins.tsv on omx-clap-host (`add clap:<file>#<id> <n>`, then `remove <n>`), a
          fresh host per --batch plugins and after any crash or hang, --timeout seconds per reply, and writes
          host.tsv: the answer per plugin (hosted, refused with its hosting code, crash or hang, at add or at
