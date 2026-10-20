@@ -698,7 +698,8 @@ instance that is initialised, read and destroyed without being activated:
   the text form), and none for any port of a plugin the core refuses (the scan
   opens each plugin as omx-clap-host does, an instrument's note input and any
   main width admitted, and lists a refused one from an instance only created).
-  The text form is a line per port, the name quoted with `"` and `\` escaped:
+  The text form quotes the plugin's name and each port's, `"` and `\` escaped
+  with a backslash and a control byte printed as a space, and is a line per port:
   `in  aux 1 channels mono "in 1" aux_in_1_1`;
 - the note port counts;
 - the note names (`clap.note-name`), each with its port, key and channel;

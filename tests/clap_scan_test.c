@@ -245,6 +245,7 @@ static void text_checks(const char *scan, const char *fake, char *out)
 
     CHECK(status == 0 && has(out, "plugin org.omx-clap-host.test.wide") && has(out, "param 0 latency"),
           "without --json a listing for a person");
+    CHECK(has(out, "\n  plugin org.omx-clap-host.test.wide \"wide\" vendor omx-clap-host"), "the plugin's name quoted");
     CHECK(has(out, "\n    in  aux 1 channels mono \"in 1\" aux_in_1_1\n"), "a port per line: role, channels, kind, name, JACK names");
     CHECK(has(out, "\n    out main 6 channels surround map 0 1 2 3 9 10 \"out 0\" out_1 out_2 out_3 out_4 out_5 out_6\n"),
           "a surround port's map before its name");
