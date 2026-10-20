@@ -11,14 +11,15 @@ extensions it asked for that the host did not offer.
 
 scan     runs omx-clap-scan --json on each .clap file of the directories, one process per file, and writes
          plugins.tsv: one row per plugin (file, id, name, vendor, features, audio ports and channels, note ports,
-         params, latency, instrument). A file whose scan crashed, timed out or failed is one row with an empty id
-         and scan = crash | timeout | error.
+         params, latency, instrument). A file that gave no plugin is one row with an empty id and scan = the
+         scanner's code (timeout, crash:<signal>, dlopen, entry, unreadable, no-result) or no-plugin.
 host     adds each plugin of plugins.tsv on omx-clap-host (`add clap:<file>#<id> <n>`, then `remove <n>`), a
          fresh host per --batch plugins and after any crash or hang, --timeout seconds per reply, and writes
          host.tsv: the answer per plugin (hosted, refused with its hosting code, crash or hang, at add or at
          remove). Between a hosted add and its remove it waits for the host's log to go quiet, and takes from it
          the lines "<plugin id>: extension not offered: <extension id>" into missing.tsv (file, id, extension).
          The host says those for a hosted plugin only: a refused plugin's instance ends before the host's tick.
+         A "<N> unoffered ids unsaid" line in the window is the row's unsaid count.
          Resumable: a plugin already in host.tsv is not added again (remove the out dir for a fresh run).
          --sandbox runs the hosts in a private user, net, pid and mount namespace, with a tmpfs over the user's
          runtime dir and a PipeWire of its own with a null sink, under nice 10: nothing of the desk's graph is
@@ -26,7 +27,8 @@ host     adds each plugin of plugins.tsv on omx-clap-host (`add clap:<file>#<id>
 classify writes coverage.tsv (id, file, answer, code, missing extensions) and coverage.md: hosted N of M,
          the refusals by code with three example ids, the crashes and hangs by file, and per extension id
          declared in the installed CLAP headers the count of plugins that asked for it and whether the host
-         offers it (src/clap_host_extensions.h, and the ones omx-clap-host's configuration adds).
+         offers it (src/clap_host_extensions.h, and the ones omx-clap-host's configuration turns on in
+         src/effects.c, named by their header constants).
 
 The desk run is `make clap-coverage` (desk only, never in CI: the plugins are the desk's); its outputs land
 in build/clap-coverage/. --self-test runs scan parsing, the host loop against a fake host (hosted, refused,
@@ -51,15 +53,14 @@ SABOTAGE = os.environ.get('CLAP_COVERAGE_SABOTAGE', '')
 
 PLUGIN_COLS = ['file', 'id', 'name', 'vendor', 'features', 'audio_in', 'audio_out', 'note_in', 'note_out', 'params',
                'latency', 'instrument', 'scan']
-HOST_COLS = ['file', 'id', 'answer', 'code', 'reply', 'seconds', 'batch']
+HOST_COLS = ['file', 'id', 'answer', 'code', 'reply', 'unsaid', 'seconds', 'batch']
 MISSING_COLS = ['file', 'id', 'extension']
 COVERAGE_COLS = ['id', 'file', 'answer', 'code', 'missing']
 
-# what omx-clap-host's configuration adds to the declared list (src/effects.c configure_core: preset_load, track_info,
-# remote_controls), each under its id and its draft id, as host_get_extension answers them
-CONFIGURED_EXTENSIONS = ['clap.preset-load/2', 'clap.preset-load.draft/2', 'clap.track-info/1', 'clap.track-info.draft/1',
-                         'clap.remote-controls/2', 'clap.remote-controls.draft/2']
+# the configuration fields host_get_extension offers an extension for, each under CLAP_EXT_<FIELD> and its _COMPAT draft
+CONFIGURED_FIELDS = ('preset_load', 'track_info', 'remote_controls')
 UNOFFERED = re.compile(r'^(.+?): extension not offered: (\S+)\s*$')
+UNSAID = re.compile(r': (\d+) unoffered ids unsaid\b')
 
 
 def read_tsv(path):
@@ -101,9 +102,7 @@ def rows_of_scan(path, doc):
     rows = []
     for f in doc.get('files', []):
         if 'error' in f:
-            err = f['error']
-            kind = 'timeout' if 'timed out' in err else 'crash' if 'crashed' in err else 'error'
-            rows.append(dict(file=f.get('path', path), scan=kind, name=err))
+            rows.append(dict(file=f.get('path', path), scan=f.get('code') or 'no-code', name=f['error']))
             continue
         for p in f.get('plugins', []):
             ap = p.get('audio_ports', {})
@@ -115,7 +114,7 @@ def rows_of_scan(path, doc):
                              params=len(p.get('params', [])), latency=p.get('latency', ''),
                              instrument='yes' if 'instrument' in features else 'no', scan='ok'))
     if not rows and SABOTAGE != 'scan-fail-blind':
-        rows.append(dict(file=path, scan='error', name='no plugin listed'))
+        rows.append(dict(file=path, scan='no-plugin', name='no plugin listed'))
     return rows
 
 
@@ -125,11 +124,11 @@ def scan_file(scanner, path, timeout, cwd=None):
     except subprocess.TimeoutExpired:
         return [dict(file=path, scan='timeout', name=f'no answer in {timeout} s')]
     if p.returncode < 0:
-        return [dict(file=path, scan='crash', name=f'signal {-p.returncode}')]
+        return [dict(file=path, scan=f'crash:{-p.returncode}', name=f'the scanner itself died of signal {-p.returncode}')]
     try:
         doc = json.loads(p.stdout.decode(errors='replace'))
     except ValueError:
-        return [dict(file=path, scan='error', name=f'exit {p.returncode}, no JSON')]
+        return [dict(file=path, scan='no-result', name=f'exit {p.returncode}, no JSON')]
     rows = rows_of_scan(path, doc)
     if SABOTAGE == 'scan-fail-blind':
         rows = [r for r in rows if r.get('scan') == 'ok']
@@ -183,6 +182,11 @@ def parse_reply(reply):
     if SABOTAGE == 'refusal-blind':
         return 'refused', ''
     return 'refused', parts[2] if len(parts) > 2 else f'resp {n}'
+
+
+def unsaid_of(text):
+    """the host's count of unoffered ids it could not keep, summed over the window"""
+    return sum(int(m.group(1)) for m in UNSAID.finditer(text))
 
 
 def unoffered_of(text, plugin_id):
@@ -300,7 +304,7 @@ def status_of(rc):
 def host_loop(a, env):
     plugins = [r for r in read_tsv(os.path.join(a.out, 'plugins.tsv')) if r.get('scan') == 'ok' and r.get('id')]
     hostp, missp = os.path.join(a.out, 'host.tsv'), os.path.join(a.out, 'missing.tsv')
-    done = {(r['file'], r['id']) for r in read_tsv(hostp)}
+    done = {(r['file'], r['id']) for r in read_tsv(hostp)} if SABOTAGE != 'resume-blind' else set()
     todo = [r for r in plugins if (r['file'], r['id']) not in done]
     logdir, cwd = os.path.join(a.out, 'logs'), os.path.join(a.out, 'cwd')
     os.makedirs(logdir, exist_ok=True)
@@ -308,7 +312,7 @@ def host_loop(a, env):
     batch0 = len({r['batch'] for r in read_tsv(hostp)})
     h, n, batchno = None, 0, batch0
     for count, r in enumerate(todo, 1):
-        if h is None or n >= a.batch:
+        if h is None or (n >= a.batch and SABOTAGE != 'batch-blind'):
             if h:
                 h.kill()
             batchno += 1
@@ -321,16 +325,20 @@ def host_loop(a, env):
         row['seconds'] = f'{time.time() - t0:.2f}'
         if err:
             rc = h.dead(2.0 if err != 'timeout' else 0.0)
-            row.update(answer='crash' if rc is not None else 'hang', code=f"at add: {status_of(rc) if rc is not None else err}")
+            hang = rc is None and SABOTAGE != 'hang-blind'
+            row.update(answer='hang' if hang else 'crash', code=f"at add: {err if rc is None else status_of(rc)}")
             append_tsv(hostp, HOST_COLS, row)
-            h.kill()
-            h = None
+            if SABOTAGE != 'reset-blind':
+                h.kill()
+                h = None
             continue
         row['reply'] = reply
         row['answer'], row['code'] = parse_reply(reply)
         if row['answer'] == 'hosted':
             h.settle()
-            for ext in unoffered_of(h.log_since(offset), r['id']):
+            said = h.log_since(offset)
+            row['unsaid'] = unsaid_of(said) or ''
+            for ext in unoffered_of(said, r['id']):
                 append_tsv(missp, MISSING_COLS, dict(file=r['file'], id=r['id'], extension=ext))
             _, err = h.send(f'remove {n}')
             rc = h.dead(2.0 if err and err != 'timeout' else 0.05)
@@ -378,7 +386,7 @@ def inside_host(a):
     subprocess.run(['ip', 'link', 'set', 'lo', 'up'], check=False)
     # a tmpfs over the user's runtime dir, where the live PipeWire's socket is: a filesystem socket is not netns-scoped
     outer = os.environ.get('CLAP_COVERAGE_OUTER_RUNTIME', '')
-    base = outer if outer and os.path.isdir(outer) else tempfile.mkdtemp(prefix='clapcov.', dir='/tmp')
+    base = outer if outer and os.path.isdir(outer) else tempfile.mkdtemp(prefix='runtime.', dir=a.out)
     subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=256m,mode=0700', 'clap-coverage', base], check=True)
     if not os.path.ismount(base):
         raise SystemExit(f'host --sandbox: no tmpfs over {base}, refusing')
@@ -428,15 +436,28 @@ def header_extensions(include):
     return found
 
 
-def offered_extensions(header=os.path.join(ROOT, 'src', 'clap_host_extensions.h')):
-    """the ids host_get_extension offers: the declared list and the configured ones"""
+def configured_fields(effects=os.path.join(ROOT, 'src', 'effects.c')):
+    """the configuration fields omx-clap-host turns on, read from its configure_core"""
+    with open(effects) as f:
+        text = f.read()
+    m = re.search(r'static int configure_core\(void\)\s*\{(.*?)\n\}', text, re.S)
+    on = set(re.findall(r'config\.([a-z_]+)\s*=\s*1\s*;', m.group(1))) if m else set()
+    return [f for f in CONFIGURED_FIELDS if f in on]
+
+
+def offered_extensions(extensions, fields=None, header=os.path.join(ROOT, 'src', 'clap_host_extensions.h')):
+    """the ids host_get_extension offers: the declared list, and for each configured field the ids the headers give
+    CLAP_EXT_<FIELD> and CLAP_EXT_<FIELD>_COMPAT"""
     with open(header) as f:
         text = f.read()
     m = re.search(r'CLAP_HOST_EXTENSIONS_INIT\s*\{(.*?)\}', text, re.S)
     declared = re.findall(r'"([^"]+)"', m.group(1)) if m else []
     if SABOTAGE == 'offered-blind':
         return set()
-    return set(declared) | set(CONFIGURED_EXTENSIONS)
+    by_name = {name: ext for ext, name in extensions.items()}
+    fields = configured_fields() if fields is None else fields
+    configured = {by_name[n] for f in fields for n in (f'CLAP_EXT_{f.upper()}', f'CLAP_EXT_{f.upper()}_COMPAT') if n in by_name}
+    return set(declared) | configured
 
 
 def classify(plugins, host, missing, extensions, offered):
@@ -473,6 +494,7 @@ def classify(plugins, host, missing, extensions, offered):
                              offered='yes' if e in offered else 'no'))
     return dict(rows=rows, total=len(rows), hosted=len(hosted), refusals=refusals, broken=broken, failed_files=failed_files,
                 not_run=sum(r['answer'] == 'not-run' for r in rows), errors=sum(r['answer'] == 'error' for r in rows),
+                unsaid=sum(int(h.get('unsaid') or 0) for h in host),
                 extensions=ext_rows)
 
 
@@ -482,6 +504,8 @@ def render(c):
            f"; {sum(len(v) for v in c['refusals'].values())} refused, {sum(len(v) for v in c['broken'].values())} crashed or hung"
            f", {c['errors']} answered no reply grammar, {c['not_run']} not run. "
            f"{len(c['failed_files'])} files failed to scan.", '',
+           'Missing extensions are measured for hosted plugins only: a refused plugin ends before the host says them.'
+           + (f" The host could not keep {c['unsaid']} unoffered ids (table full or busy)." if c['unsaid'] else ''), '',
            '## Refusals by code', '', '| code | plugins | examples |', '|---|---|---|']
     for code, ids in sorted(c['refusals'].items(), key=lambda kv: (-len(kv[1]), kv[0])):
         out.append(f"| {code} | {len(ids)} | {', '.join(ids[:3])} |")
@@ -495,8 +519,7 @@ def render(c):
             'Plugins asked: the hosted plugins whose host log says the extension was asked for and not offered.', '',
             '| extension | header name | offered | plugins asked |', '|---|---|---|---|']
     for e in sorted(c['extensions'], key=lambda e: (-e['asked'], e['extension'])):
-        asked = '-' if e['offered'] == 'yes' else str(e['asked'])
-        out.append(f"| {e['extension']} | {e['name']} | {e['offered']} | {asked} |")
+        out.append(f"| {e['extension']} | {e['name']} | {e['offered']} | {e['asked']} |")
     return '\n'.join(out) + '\n'
 
 
@@ -504,7 +527,8 @@ def cmd_classify(a):
     plugins = read_tsv(os.path.join(a.out, 'plugins.tsv'))
     host = read_tsv(os.path.join(a.out, 'host.tsv'))
     missing = read_tsv(os.path.join(a.out, 'missing.tsv'))
-    c = classify(plugins, host, missing, header_extensions(a.clap_include), offered_extensions())
+    extensions = header_extensions(a.clap_include)
+    c = classify(plugins, host, missing, extensions, offered_extensions(extensions))
     write_tsv(os.path.join(a.out, 'coverage.tsv'), COVERAGE_COLS, c['rows'])
     with open(os.path.join(a.out, 'coverage.md'), 'w') as f:
         f.write(render(c))
@@ -546,6 +570,8 @@ while True:
             for e in ('clap.gui', 'clap.gui', 'clap.render'):
                 sys.stderr.write(f'{pid}: extension not offered: {e}\n'); sys.stderr.flush()
             sys.stderr.write(f'other.plugin: extension not offered: clap.undo/4\n'); sys.stderr.flush()
+            if pid.endswith('ok1'):
+                sys.stderr.write(f'{pid}: 3 unoffered ids unsaid, table full or busy\n'); sys.stderr.flush()
             c.sendall(f'resp {w[2]}\0'.encode())
         elif w[0] == 'remove':
             if os.environ.get('FAKE_DIE_ON_REMOVE') == w[1]:
@@ -574,7 +600,8 @@ def self_test():
             fails.append(name)
             print(f'FAIL {name}')
 
-    work = tempfile.mkdtemp(prefix='clap-coverage-self.')
+    os.makedirs(os.path.join(ROOT, 'build'), exist_ok=True)
+    work = tempfile.mkdtemp(prefix='clap-coverage-self.', dir=os.path.join(ROOT, 'build'))
     try:
         # scan: one file of two plugins, a crashed file, a timed-out file, a file that lists nothing
         doc = {'files': [{'path': '/x/a.clap', 'plugins': [
@@ -587,12 +614,15 @@ def self_test():
         t('scan: one row per plugin, ports as ports/channels, the instrument named',
           len(rows) == 2 and rows[0]['audio_in'] == '1/2' and rows[0]['audio_out'] == '2/3' and rows[0]['params'] == 3
           and rows[1]['instrument'] == 'yes' and rows[0]['instrument'] == 'no' and rows[1]['note_in'] == 1)
-        crashed = rows_of_scan('/x/b.clap', {'files': [{'path': '/x/b.clap', 'error': 'crashed with signal 11 (Segmentation fault)'}]})
-        timed = rows_of_scan('/x/c.clap', {'files': [{'path': '/x/c.clap', 'error': 'timed out after 10 s'}]})
+        crashed = rows_of_scan('/x/b.clap', {'files': [{'path': '/x/b.clap', 'code': 'crash:11', 'error': 'timed out, says the text'}]})
+        timed = rows_of_scan('/x/c.clap', {'files': [{'path': '/x/c.clap', 'code': 'timeout', 'error': 'crashed, says the text'}]})
+        loader = rows_of_scan('/x/e.clap', {'files': [{'path': '/x/e.clap', 'code': 'dlopen', 'error': "can't open"}]})
         empty = rows_of_scan('/x/d.clap', {'files': [{'path': '/x/d.clap', 'plugins': []}]})
-        t('scan: a crashed file is a row, scan=crash', len(crashed) == 1 and crashed[0]['scan'] == 'crash' and not crashed[0].get('id'))
-        t('scan: a timed-out file is a row, scan=timeout', len(timed) == 1 and timed[0]['scan'] == 'timeout')
-        t('scan: a file that lists no plugin is a row, scan=error', len(empty) == 1 and empty[0]['scan'] == 'error')
+        t('scan: a crashed file is a row, its scan the code crash:11, whatever the text says',
+          len(crashed) == 1 and crashed[0]['scan'] == 'crash:11' and not crashed[0].get('id'))
+        t('scan: a timed-out file is a row, scan=timeout by its code', len(timed) == 1 and timed[0]['scan'] == 'timeout')
+        t('scan: a file the loader refused is a row, scan=dlopen', len(loader) == 1 and loader[0]['scan'] == 'dlopen')
+        t('scan: a file that lists no plugin is a row, scan=no-plugin', len(empty) == 1 and empty[0]['scan'] == 'no-plugin')
 
         # replies and the log
         t('reply: resp <n> is hosted', parse_reply('resp 3') == ('hosted', ''))
@@ -612,7 +642,7 @@ def self_test():
         os.chmod(fake, 0o755)
         plist = [dict(file='/x/a.clap', id=i, scan='ok') for i in
                  ('p.ok1', 'p.refuse', 'p.crash', 'p.ok2', 'p.bare', 'p.hang', 'p.ok3', 'p.slowdeath')]
-        plist.append(dict(file='/x/b.clap', scan='crash', name='signal 11'))
+        plist.append(dict(file='/x/b.clap', scan='crash:11', name='crashed with signal 11'))
         write_tsv(os.path.join(out, 'plugins.tsv'), PLUGIN_COLS, plist)
         a = argparse.Namespace(out=out, omx_clap_host=fake, batch=2, timeout=1.5, port=free_port(), sandbox=False)
         host_loop(a, dict(os.environ))
@@ -625,7 +655,11 @@ def self_test():
         t('host: a hang at add', by.get('p.hang', {}).get('answer') == 'hang')
         t('host: a host that closes its socket and dies after is a crash, not a hang',
           by.get('p.slowdeath', {}).get('answer') == 'crash' and 'signal 6' in by['p.slowdeath'].get('code', ''))
-        t('host: a fresh host after the crash and per batch of 2', len({r['batch'] for r in host}) >= 4)
+        t('host: a fresh host per batch of 2', by.get('p.ok1', {}).get('batch') == by.get('p.refuse', {}).get('batch')
+          and by.get('p.ok2', {}).get('batch') == by.get('p.bare', {}).get('batch') and len({r['batch'] for r in host}) == 5)
+        t('host: a fresh host after a crash: the next plugin is hosted', by.get('p.ok2', {}).get('answer') == 'hosted'
+          and by['p.ok2'].get('batch') != by.get('p.crash', {}).get('batch'))
+        t('host: the host\'s unsaid count kept on the row', by.get('p.ok1', {}).get('unsaid') == '3')
         missing = read_tsv(os.path.join(out, 'missing.tsv'))
         t('host: the unoffered ids of a hosted plugin, each once',
           sorted(r['extension'] for r in missing if r['id'] == 'p.ok1') == ['clap.gui', 'clap.render'])
@@ -644,10 +678,16 @@ def self_test():
 
         # classify
         exts = {'clap.gui': 'CLAP_EXT_GUI', 'clap.render': 'CLAP_EXT_RENDER', 'clap.log': 'CLAP_EXT_LOG',
-                'clap.preset-load/2': 'CLAP_EXT_PRESET_LOAD'}
-        offered = offered_extensions()
-        t('offered: the declared list and the configured ones',
-          {'clap.log', 'clap.params', 'clap.tail', 'clap.preset-load/2', 'clap.track-info/1'} <= offered and 'clap.gui' not in offered)
+                'clap.preset-load/2': 'CLAP_EXT_PRESET_LOAD', 'clap.preset-load.draft/2': 'CLAP_EXT_PRESET_LOAD_COMPAT',
+                'clap.track-info/1': 'CLAP_EXT_TRACK_INFO'}
+        t('configuration: omx-clap-host turns on preset_load, track_info and remote_controls',
+          configured_fields() == ['preset_load', 'track_info', 'remote_controls'])
+        offered = offered_extensions(exts)
+        t('offered: the declared list and the configured ones, named by their header constants',
+          {'clap.log', 'clap.params', 'clap.tail', 'clap.preset-load/2', 'clap.preset-load.draft/2', 'clap.track-info/1'} <= offered
+          and 'clap.gui' not in offered)
+        t('offered: a field the configuration leaves off is not offered',
+          'clap.preset-load/2' not in offered_extensions(exts, fields=['track_info']) and 'clap.track-info/1' in offered_extensions(exts, fields=['track_info']))
         c = classify(read_tsv(os.path.join(out, 'plugins.tsv')), host, missing, exts, offered)
         t('classify: hosted 3 of 8, the failed file apart', c['hosted'] == 3 and c['total'] == 8 and len(c['failed_files']) == 1)
         t('classify: refusals by code', dict((k, len(v)) for k, v in c['refusals'].items()) == {'hosting.clap.note-input': 1, 'resp -101': 1})
@@ -659,7 +699,10 @@ def self_test():
         t('report: hosted N of M', md.startswith('# CLAP coverage\n\nHosted 3 of 8 plugins scanned'))
         t('report: the refusal row with its examples', '| hosting.clap.note-input | 1 | p.refuse |' in md)
         t('report: the extension row', '| clap.gui | CLAP_EXT_GUI | no | 3 |' in md)
-        t('report: the failed file', '| /x/b.clap | crash | signal 11 |' in md)
+        t('report: an offered extension shows its count too', '| clap.log | CLAP_EXT_LOG | yes | 0 |' in md)
+        t('report: the failed file by its code', '| /x/b.clap | crash:11 | crashed with signal 11 |' in md)
+        t('report: the scope of the missing extensions and the unsaid count',
+          'Missing extensions are measured for hosted plugins only' in md and 'could not keep 3 unoffered ids' in md)
         t('headers: the installed CLAP headers\' ids read as strings',
           not os.path.isdir('/usr/include/clap') or header_extensions('/usr/include/clap').get('clap.gui') == 'CLAP_EXT_GUI')
     finally:
@@ -674,7 +717,8 @@ def self_test_with_sabotage():
     if SABOTAGE:
         return rc
     red = 0
-    sabotages = ['scan-fail-blind', 'refusal-blind', 'attribution-blind', 'dedupe-blind', 'crash-blind', 'offered-blind', 'slow-death-blind']
+    sabotages = ['scan-fail-blind', 'refusal-blind', 'attribution-blind', 'dedupe-blind', 'crash-blind', 'offered-blind', 'slow-death-blind',
+                 'hang-blind', 'batch-blind', 'reset-blind', 'resume-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, '-I', os.path.abspath(__file__), '--self-test'],
                            env=dict(os.environ, CLAP_COVERAGE_SABOTAGE=s), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
