@@ -615,8 +615,8 @@ static struct omx_clap_instance *open_configs(const char *knob) {
 }
 
 /* the warm-up's cycle and a ports rescan: the warm-up's own deactivate is not reported, a rescan the plugin makes in
- * its activate is (the second activate makes it again), and one made before the activate is still reported after it:
- * only a read of the description (request_layout) answers it */
+ * its activate is, in every activate or in the first one only, and one made before the activate is still reported
+ * after it: only a read of the description (request_layout) answers it */
 static void t_rescan_across_warmup(void) {
   struct omx_clap_instance *in = open_configs("FAKE_RESCAN_ON_DEACTIVATE");
   char why[OMX_CLAP_WHY_MAX];
@@ -631,6 +631,13 @@ static void t_rescan_across_warmup(void) {
   if (in) {
     CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
           "the rescan its activate made is reported once, past the warm-up's cycle");
+    omx_clap_host_close(in);
+  }
+  in = open_configs("FAKE_RESCAN_ON_FIRST_ACTIVATE");
+  CHECK(in && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "configs, rescanning in its first activate only, activates with the warm-up");
+  if (in) {
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+          "the rescan only the warm-up's first activate made is reported once");
     omx_clap_host_close(in);
   }
   in = open_configs(NULL);
