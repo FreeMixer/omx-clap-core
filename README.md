@@ -98,12 +98,14 @@ The plugin is now the JACK client `effect_0`: link your audio to its `in_<k>` po
 from its `out_<k>` ports.
 
 An LV2 plugin is added by its URI, from the bundles on `LV2_PATH`, and its controls are its port
-symbols, as with mod-host. A plugin the LV2 adapter cannot run says why:
+symbols, as with mod-host. Its audio ports are read by the LV2 port groups, so a mono-in
+stereo-out reverb has `in_1` and `out_1`, `out_2`; a plugin the LV2 adapter cannot run answers
+`resp -102` and the code that says why:
 
     send "add lv2:urn:zamaudio:ZamComp 1"                                          # resp 1
     send "param_set 1 thr -20"                                                     # resp 0
     send "param_get 1 thr"                                                         # resp 0 -20.0000
-    send "add lv2:http://moddevices.com/plugins/caps/Plate 2"                       # resp -102 hosting.topology.wider-than-strip
+    send "add lv2:http://moddevices.com/plugins/caps/Plate 2"                       # resp 2
 
 More: [every command, meters, bypass, port layout, latency and scanning](doc/reference.md), the
 manual pages (`man omx-clap-host`, `man omx-clap-scan`) and <https://freemixer.github.io>.
