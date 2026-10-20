@@ -29,8 +29,9 @@ same line protocol and the same replies as mod\-host, from mod\-host's
 protocol library, so a controller that speaks to mod\-host can speak to
 this host unchanged.
 .PP
-A plugin is admitted with exactly one main audio output, mono or stereo,
-and one main audio input of the same width. A plugin with a note input, an
+A plugin is admitted with exactly one main audio output and at most one
+main audio input, each of up to 64 channels and of any widths, every channel
+a JACK port. A plugin with a note input, an
 instrument, may have no audio input at all. A plugin with one note input
 gets a JACK MIDI input port,
 .BR midi_in ,
