@@ -107,7 +107,6 @@
 /** The refusals the core returns, by the hosting code a verdict names them by: each the code omx-contract declares, from
  * its omxcontract/omx_vocabulary.h. A code is never reworded. */
 #define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
-#define CLAP_HOST_CODE_NOT_AUDIO_EFFECT     OMX_HOSTING_CLAP_NOT_AUDIO_EFFECT  ///< the plugin is not an audio effect
 #define CLAP_HOST_CODE_NOTE_INPUT           OMX_HOSTING_CLAP_NOTE_INPUT  ///< the plugin declares a note input the configuration refuses
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< nothing to carry and nothing to pass through
 #define CLAP_HOST_CODE_WIDER_THAN_STRIP     OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP  ///< a main port is wider than the lane the caller runs the plugin on
@@ -555,8 +554,8 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
 
 /**
  * Load the .clap at `path`, create the plugin `id` (NULL: the factory's first descriptor), init it and read its
- * extensions, each step judged: the descriptor must carry audio-effect (or, where the configuration admits note inputs,
- * instrument), init must succeed headless with only the declared host extensions offered, the audio ports must declare
+ * extensions, each step judged: the descriptor's feature list is not read (a plugin is admitted by its ports, #257),
+ * init must succeed headless with only the declared host extensions offered, the audio ports must declare
  * one main output and at most one main input (none for a source), the two of any widths, every port of 1 to
  * CLAP_HOST_PORT_CHANNELS channels and at most CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS auxiliary ports, and no
  * note input unless the configuration admits one; every port is described in the instance (main_in, main_out, aux_in,

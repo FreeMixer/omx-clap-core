@@ -80,10 +80,22 @@ int main(int argc, char **argv)
     config.size = 4;
     CHECK(omx_clap_host_configure(&config) == -1, "and one too short to name a host");
 
-    // the defaults refuse what the isolated host admits
+    // the defaults refuse what the isolated host admits, and only by what the ports say (#257): an instrument is
+    // refused for its note input, never for its feature list
     check_refused(argv[1], FAKE_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
-    check_refused(argv[2], SYNTH, CLAP_HOST_CODE_NOT_AUDIO_EFFECT);
+    check_refused(argv[2], SYNTH, CLAP_HOST_CODE_NOTE_INPUT);
     CHECK(omx_clap_host_binaries_open() == 0, "nothing stays loaded after the refusals (%u open)", omx_clap_host_binaries_open());
+    // a plugin whose feature list names no audio-effect (fault mode 1: features "instrument", a 2x2 pad) is admitted
+    // by its ports: a stereo main pair, no note port
+    CHECK(open_ok(argv[3], NULL, &instance, why), "open %s: features name no audio-effect, the ports are a 2x2 effect, admitted (%s)", argv[3], why);
+    if (instance)
+    {
+        CHECK(instance->main_in.channels == 2 && instance->main_out.channels == 2 && instance->aux_inputs == 0,
+              "its main pair is stereo each way (%u in, %u out)", instance->main_in.channels, instance->main_out.channels);
+        omx_clap_host_close(instance);
+        instance = NULL;
+    }
+    CHECK(omx_clap_host_binaries_open() == 0, "nothing stays loaded after it is closed (%u open)", omx_clap_host_binaries_open());
     omx_clap_host_config_default(&config);
     CHECK(omx_clap_host_configure(&config) == -1, "and the process cannot be configured once a binary was opened");
 
