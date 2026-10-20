@@ -75,11 +75,11 @@
  * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12; 12:
  * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
- * lane_channels).
+ * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               12u
+#define OMX_CLAP_CORE_ABI               13u
 #define OMX_CLAP_CORE_ABI_OLDEST        12u  ///< the oldest header ABI the library accepts: the first of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -934,6 +934,29 @@ static inline int omx_clap_transport_changed(const struct omx_clap_transport *wa
     return 0;
 }
 
+/** The audio role: the transport record a block hands the plugin into `rec`, the host's published transport when one is
+ * set (read whole, a read that does not come whole keeping the last record read), else the tempo the instance was given,
+ * else no flags. */
+static inline void omx_clap_host_transport_rec(struct omx_clap_instance *in, struct omx_clap_transport *rec)
+{
+    if (in->transport_src)
+    {
+        omx_clap_transport_read(in->transport_src, &in->transport_rec);
+        *rec = in->transport_rec;
+    }
+    else
+    {
+        const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+
+        memset(rec, 0, sizeof *rec);
+        if (bpm > 0.0)
+        {
+            rec->flags = CLAP_TRANSPORT_HAS_TEMPO;
+            rec->tempo = bpm;
+        }
+    }
+}
+
 /** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
  * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
  * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
@@ -947,22 +970,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
     clap_process_status said;
     int silent, quiet_out, moved;
 
-    if (in->transport_src)
-    {
-        omx_clap_transport_read(in->transport_src, &in->transport_rec);
-        rec = in->transport_rec;
-    }
-    else
-    {
-        const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
-
-        memset(&rec, 0, sizeof rec);
-        if (bpm > 0.0)
-        {
-            rec.flags = CLAP_TRANSPORT_HAS_TEMPO;
-            rec.tempo = bpm;
-        }
-    }
+    omx_clap_host_transport_rec(in, &rec);
     silent = l && omx_clap_block_silent(l, r, n);
     moved = z->have_last && omx_clap_transport_changed(&z->last, &rec, n, in->rate);
     z->last = rec;
@@ -1017,6 +1025,24 @@ static inline void omx_clap_host_run_io(struct omx_clap_instance *in, const floa
 {
     omx_clap_io_lane(&in->stage, inputs, outputs, n);
     omx_clap_host_run(in, outputs[0], in->stage.h.n_out == 2 ? outputs[1] : NULL, n);
+}
+
+/** The audio role, a cycle with one buffer per main channel (JACK): `ins` one per main input channel (not read for a
+ * source), `outs` one per main output channel, main_in.channels and main_out.channels of them. An instance whose main
+ * ports fit the two legs runs omx_clap_host_run_io, the two-leg path with its transport and its sleep; a wider one runs
+ * the wide path (omx_clap_run_ports_transport), the host's transport or tempo handed to the plugin as there, and never
+ * sleeps. */
+static inline void omx_clap_host_run_ports(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n)
+{
+    struct omx_clap_transport rec;
+
+    if (!in->stage.wide)
+    {
+        omx_clap_host_run_io(in, ins, outs, n);
+        return;
+    }
+    omx_clap_host_transport_rec(in, &rec);
+    omx_clap_run_ports_transport(&in->stage, ins, outs, n, &in->transport, &rec);
 }
 
 /** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
