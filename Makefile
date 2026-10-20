@@ -281,7 +281,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket
+test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -342,6 +342,11 @@ test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hos
 	! grep -q 'memory_order_relaxed) != s1' build/transport-sabotage/clap_stage.h
 	$(CC) -Ibuild/transport-sabotage -Isrc $(CLAP_CFLAGS) $(CFLAGS) -pthread -o build/transport-sabotage/test $< -lm
 	! ./build/transport-sabotage/test
+
+# the sabotage of the audio layouts (#92): each rule broken in a copy of the sources under build/sabotage-<arm>, the
+# test that guards it built there and red on the check that names it; an arm that survives fails the target
+test-layouts-sabotage:
+	./tests/layout_sabotage.sh
 
 # the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
 test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
