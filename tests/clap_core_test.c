@@ -150,13 +150,16 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, fds) > offsetof(struct omx_clap_instance, timer_next_id) &&
             offsetof(struct omx_clap_instance, sleep) > offsetof(struct omx_clap_instance, tail_changed),
         "the full host's fields follow the host's note details (%zu)", offsetof(struct omx_clap_instance, sleep));
-  /* ABI 14 appends the layout extensions and the reported ports rescan after them, the instance's last */
+  /* ABI 14 appends the layout extensions, the reported ports rescan and the layout requests' extensions, the instance's
+   * last */
   CHECK(offsetof(struct omx_clap_instance, surround) >= offsetof(struct omx_clap_instance, sleep) + sizeof(struct omx_clap_sleep) &&
             offsetof(struct omx_clap_instance, ambisonic) > offsetof(struct omx_clap_instance, surround) &&
             offsetof(struct omx_clap_instance, ports_rescanned) > offsetof(struct omx_clap_instance, ambisonic) &&
-            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, ports_rescanned) <= _Alignof(struct omx_clap_instance),
-        "the surround and ambisonic extensions and the ports rescan follow the full host's fields, the instance's last (%zu)",
-        offsetof(struct omx_clap_instance, ports_rescanned));
+            offsetof(struct omx_clap_instance, configurable_audio_ports) > offsetof(struct omx_clap_instance, ports_rescanned) &&
+            offsetof(struct omx_clap_instance, audio_ports_config) > offsetof(struct omx_clap_instance, configurable_audio_ports) &&
+            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, audio_ports_config) <= _Alignof(struct omx_clap_instance),
+        "the surround and ambisonic extensions, the ports rescan and the layout requests' extensions follow the full host's "
+        "fields, the instance's last (%zu)", offsetof(struct omx_clap_instance, audio_ports_config));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = 11;
