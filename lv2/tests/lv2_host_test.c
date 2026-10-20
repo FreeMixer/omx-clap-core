@@ -38,6 +38,15 @@
  *             the plugin's own objects): admitted, never a MIDI input, fed a valid sequence at every block, the
  *             transport's object when it takes time:Position, and the audio bit for bit; an atom input that is no
  *             sequence and a fifth control input refused hosting.features.atom-in-unfed.
+ *   ll midi   the ll-plugins MIDI port fixture: an llext:MidiPort is the MIDI input (4) and output (5) over an LV2_MIDI
+ *             buffer, the only MIDI port its way (a second one, or an atom or ev:EventPort MIDI port beside it in
+ *             either index order, refuses the plugin hosting.features.midi-in-fed-empty), nothing of the binary opened
+ *             from the TTL alone
+ *   ll midi run  the echo over LV2_MIDI buffers, read as zynadd reads them: five messages at their frames and lengths,
+ *             the stamp after the last event the host's +inf, nothing carried over, 53 of 61 kept and 8 counted, a block
+ *             filled to exactly the capacity read whole with the slack past it, and the output spoilt one way at a
+ *             time (data moved and offered afresh, an oversize event, stamps negative, NaN and 2^24, a short count, a
+ *             size past the capacity) read only as far as it is sound
  *   event     the event fixture: an ev:EventPort supporting midi:MidiEvent is the MIDI input (or output) as an atom MIDI
  *             port is, a second one each way fed empty or never read, one supporting no MIDI refused
  *             hosting.features.midi-in-fed-empty; through the instance, MIDI in comes back out at its frame, a note one
@@ -79,6 +88,7 @@
 #include "lv2_core.h"
 #include "fixtures/lv2_atom_probe.h"
 #include "fixtures/lv2_event_fixture.h"
+#include "fixtures/lv2_ll_midi_fixture.h"
 #include "fixtures/lv2_feature_probe.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "lv2_test_util.h"
@@ -89,6 +99,7 @@
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
 static char g_ev[PATH_MAX], g_ev_so[PATH_MAX + 32];
+static char g_ll[PATH_MAX], g_ll_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX];
 static char g_layout[PATH_MAX];
@@ -1216,6 +1227,171 @@ static void t_event_ports(void)
     lv2_plugin_close(p);
 }
 
+#define LL_URI LV2_LL_MIDI_FIXTURE_URI
+#define LL_CAPACITY 53u         // a 3-byte event takes 19 bytes (a double, a size_t, the bytes) of the 1024-byte buffer
+
+static struct lv2_ll_midi_fixture *ll_seen(void)
+{
+    return loaded_symbol(g_ll_so, "lv2_ll_midi_fixture");
+}
+
+/* the ll-plugins MIDI port fixture's ports as the reader reads them, from the TTL */
+static void t_ll_midi_ports(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_ll, LL_URI "#echo", why);
+
+    CHECK(p && p->midi_in_port == 4 && p->midi_in_ll && !p->midi_in_event && p->midi_out_port == 5 && p->midi_out_ll
+              && !p->midi_out_event && p->legs == 2 && p->in_legs == 2 && p->n_event_in == 0 && p->n_atom_in == 0 && p->n_notify == 0,
+          "ll midi: #echo is admitted, its llext:MidiPorts its MIDI input (4) and output (5), its audio a stereo pair (%s)", why);
+    lv2_plugin_close(p);
+    {
+        static const char *const twins[6] = { "#two-in", "#two-out", "#atom-then-ll", "#ll-then-atom", "#ev-then-ll", "#ll-then-ev" };
+        char uri[128];
+        uint32_t i;
+
+        for (i = 0; i < 6; i++)
+        {
+            snprintf(uri, sizeof(uri), LL_URI "%s", twins[i]);
+            p = open_plugin(g_ll, uri, why);
+            CHECK(!p && strcmp(why, LV2_CODE_MIDI_IN) == 0,
+                  "ll midi: %s: an llext:MidiPort is the only MIDI port its way, in either index order: refused hosting.features.midi-in-fed-empty (%s)",
+                  twins[i], why);
+            lv2_plugin_close(p);
+        }
+    }
+    CHECK(ll_seen() == NULL, "ll midi: from the TTL alone, before the binary is opened");
+    p = open_plugin(g_ll, LL_URI "#echo", why);
+    CHECK(p && p->n_controls == 2 && p->controls[0].port == 6 && p->controls[0].min == -1e9f && p->controls[0].max == 1e9f
+              && p->controls[0].def == 0.0f,
+          "ll midi: a control port that declares no range is -1e9..1e9, default 0 (%g..%g, %g)",
+          p ? (double)p->controls[0].min : 0.0, p ? (double)p->controls[0].max : 0.0, p ? (double)p->controls[0].def : 0.0);
+    CHECK(p && p->controls[1].port == 7 && p->controls[1].min == 0.0f && p->controls[1].max == 1e9f && p->controls[1].def == 0.0f,
+          "ll midi: a control port with a minimum only keeps it, its maximum 1e9, its default the minimum (%g..%g, %g)",
+          p ? (double)p->controls[1].min : 0.0, p ? (double)p->controls[1].max : 0.0, p ? (double)p->controls[1].def : 0.0);
+    lv2_plugin_close(p);
+}
+
+/* the echo through the instance over LV2_MIDI buffers: what goes in comes out at its frame, a note one key up */
+static void t_ll_midi_run(void)
+{
+    static const uint8_t on[3] = { 0x90, 0x3c, 0x64 }, off[3] = { 0x80, 0x3c, 0x00 }, cc[3] = { 0xb1, 0x07, 0x7f };
+    static const uint8_t pc[2] = { 0xc3, 0x05 }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t on_up[3] = { 0x90, 0x3d, 0x64 }, off_up[3] = { 0x80, 0x3d, 0x00 };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_ll, LL_URI "#echo", why);
+    struct lv2_instance *in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    struct lv2_ll_midi_fixture *seen = ll_seen();
+    struct lv2_counters before, after;
+    struct got g;
+    uint32_t i;
+
+    CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "ll midi run: #echo instantiates and activates (%s)", why);
+    if (!in || !seen)
+    {
+        lv2_instance_free(in);
+        lv2_plugin_close(p);
+        return;
+    }
+    lv2_instance_midi_in_add(in, 0, on, 3);
+    lv2_instance_midi_in_add(in, 5, pc, 2);
+    lv2_instance_midi_in_add(in, 9, sysex, 6);
+    lv2_instance_midi_in_add(in, 17, cc, 3);
+    lv2_instance_midi_in_add(in, 63, off, 3);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == 5 && seen->frame[0] == 0 && seen->size[1] == 2 && seen->frame[2] == 9 && seen->size[2] == 6
+              && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0 && seen->count_seen == 5 && seen->size_seen == 5u * 16u + 17u,
+          "ll midi run: the plugin read five MIDI events at their frames and lengths, walking the buffer as zynadd does; the header's count and size agree (%u, %u, %u)",
+          seen->n, seen->count_seen, seen->size_seen);
+    // zynadd's step reads the stamp at data + size after the last event: on a partial block that is inside the
+    // capacity, whatever bytes lie there (the fixture records it; its value is not a stamp and zynadd's loop stops on
+    // the position first); the slack past the capacity is what the full block below reads
+    CHECK(seen->trailing_stamp == 0.0, "ll midi run: the stamp zynadd's step reads after the last event lies inside the buffer on a partial block (%g)",
+          seen->trailing_stamp);
+    CHECK(g.n == 5 && same_message(&g, 0, 0, on_up, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
+              && same_message(&g, 3, 17, cc, 3) && same_message(&g, 4, 63, off_up, 3),
+          "ll midi run: five out at their frames, the note on and off one key up, the rest byte for byte (%u)", g.n);
+
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == 0 && g.n == 0, "ll midi run: a block with no input reads and writes nothing: nothing carries over (%u, %u)", seen->n, g.n);
+
+    lv2_instance_counters(in, &before);
+    for (i = 0; i < LL_CAPACITY + 8u; i++)
+        lv2_instance_midi_in_add(in, i < BLOCK ? i : BLOCK - 1u, on, 3);
+    lv2_instance_counters(in, &after);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == LL_CAPACITY && g.n == LL_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
+          "ll midi run: a block that does not fit keeps the first %u events and counts the 8 it dropped (%u, %u, %u)", LL_CAPACITY,
+          seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
+    CHECK(same_message(&g, LL_CAPACITY - 1u, LL_CAPACITY - 1u, on_up, 3), "ll midi run: the last one that fits is at its own frame");
+
+    // the range rule's value test (#254): a write to the unbounded port reaches the plugin and the audio, and reads back
+    lv2_instance_control_set(in, 0, 2.75f);
+    lv2_instance_control_set(in, 1, 1.5f);
+    lv2_instance_audio_in(in, 0)[0] = 0.25f;
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    CHECK(seen->trim_seen == 2.75f && seen->floor_seen == 1.5f && lv2_instance_control_get(in, 0) == 2.75f
+              && lv2_instance_audio_out(in, 0)[0] == 0.25f + 2.75f + 1.5f,
+          "ll midi run: 2.75 written to the unbounded control and 1.5 to the minimum-only one reach the plugin, the audio and read back (%g, %g, out %g)",
+          (double)seen->trim_seen, (double)seen->floor_seen, (double)lv2_instance_audio_out(in, 0)[0]);
+    lv2_instance_control_set(in, 0, 0.0f);
+    lv2_instance_control_set(in, 1, 0.0f);
+    lv2_instance_audio_in(in, 0)[0] = 0.0f;
+
+    // a block filled to exactly the capacity: 52 notes (19 bytes each) and 2 program changes (18 each) are 1024 bytes;
+    // zynadd's step then reads the stamp at data + capacity, the slack the host keeps past it
+    for (i = 0; i < 52u; i++)
+        lv2_instance_midi_in_add(in, i, on, 3);
+    lv2_instance_midi_in_add(in, 60, pc, 2);
+    lv2_instance_midi_in_add(in, 61, pc, 2);
+    lv2_instance_counters(in, &before);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_counters(in, &after);
+    CHECK(seen->size_seen == 1024u && seen->n == 54 && g.n == 54 && after.midi_in_dropped == before.midi_in_dropped,
+          "ll midi run: a block filled to exactly the capacity (%u bytes) is read whole, 54 events, none dropped (%u, %u)", seen->size_seen, seen->n, g.n);
+    CHECK(isinf(seen->trailing_stamp) && seen->trailing_stamp > 0,
+          "ll midi run: on the full block the stamp read past the last event is the slack's +inf, inside the host's allocation (%g)", seen->trailing_stamp);
+
+    // the plugin's output spoilt one way at a time: only what lies inside the buffer it was given, in frames, up to
+    // its count, from the data the host handed it, is read
+    {
+        static const struct { uint32_t kind, want; const char *what; } bad[8] =
+        {
+            { LV2_LL_MIDI_FIXTURE_MOVED, 0, "a buffer whose data pointer the plugin moved is not read" },
+            { LV2_LL_MIDI_FIXTURE_WELL, 2, "the output is offered afresh before the next run, its data pointer the host's again, and read" },
+            { LV2_LL_MIDI_FIXTURE_OVERSIZE, 0, "an event whose size runs past the buffer is not read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP, 1, "an event whose timestamp is negative is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP_NAN, 1, "an event whose timestamp is NaN is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP_FAR, 1, "an event whose timestamp is 2^24 is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_COUNT, 1, "a buffer is read up to its event count, not past it" },
+            { LV2_LL_MIDI_FIXTURE_SIZE_PAST, 54, "a size past the capacity with a huge count over a buffer full to its capacity reads the 54 events it holds and stops at the capacity" },
+        };
+
+        for (i = 0; i < 8; i++)
+        {
+            seen->misbehave = bad[i].kind;
+            lv2_instance_midi_in_add(in, 3, on, 3);
+            lv2_instance_midi_in_add(in, 7, off, 3);
+            memset(&g, 0, sizeof(g));
+            lv2_instance_run(in, BLOCK, NULL, NULL);
+            lv2_instance_midi_out_each(in, collect, &g);
+            CHECK(seen->n == 2 && g.n == bad[i].want, "ll midi run: %s (%u of 2)", bad[i].what, g.n);
+        }
+        seen->misbehave = LV2_LL_MIDI_FIXTURE_WELL;
+    }
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 static const char *const *list_without(const char *uri);
 
 /* a list without uri-map: the echo, which requires it, is refused before its binary is opened */
@@ -1610,8 +1786,9 @@ static void without_default_state(void)
 
 #define PROBE_SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS \
                      | LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE \
-                     | LV2_FEATURE_PROBE_LOG)
-/* the features the configured list adds after the seven: mapPath and freePath (makePath needs a root), uri-map and
+                     | LV2_FEATURE_PROBE_LOG | LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1 \
+                     | LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED)
+/* the features the configured list adds after the eight: mapPath and freePath (makePath needs a root), uri-map and
  * event */
 #define PROBE_PATHS (LV2_FEATURE_PROBE_MAP_PATH | LV2_FEATURE_PROBE_FREE_PATH | LV2_FEATURE_PROBE_URI_MAP \
                      | LV2_FEATURE_PROBE_EVENT)
@@ -1625,6 +1802,7 @@ static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
     [OMX_LV2_F_WORKER] = LV2_FEATURE_PROBE_WORKER,
     [OMX_LV2_F_DEFAULT_STATE] = LV2_FEATURE_PROBE_DEFAULT_STATE,
     [OMX_LV2_F_LOG] = LV2_FEATURE_PROBE_LOG,
+    [OMX_LV2_F_RTMEMPOOL] = LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1 | LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED,
 };
 
 /* the probe `uri` opened, instantiated by an activation of `min` to `max` under the options now, and freed: a copy of
@@ -1756,12 +1934,15 @@ static void t_options(void)
     CHECK(lv2_core_feature_options()->features == OMX_LV2_FEATURES_ALL && lv2_core_feature_options()->strict,
           "options: the host starts at the defaults");
     seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 4u,
-          "options: by default the probe sees the seven features, then mapPath, freePath, uri-map and event, and nothing "
-          "else (%s)", why);
-    CHECK(seen && seen->n_features == OMX_LV2_FEATURE_KINDS + 4u && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 2], LV2_URI_MAP_URI)
-              && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 3], LV2_EVENT_URI),
+    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 6u,
+          "options: by default the probe sees the eight features, the pool's two other URIs, then mapPath, freePath, uri-map "
+          "and event, and nothing else (%s)", why);
+    CHECK(seen && seen->n_features == OMX_LV2_FEATURE_KINDS + 6u && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 4], LV2_URI_MAP_URI)
+              && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 5], LV2_EVENT_URI),
           "options: uri-map and event last, in that order");
+    CHECK(seen && seen->pool_round_trip == 1 && seen->pool_v1_round_trip == 1 && seen->pool_spelled_round_trip == 1,
+          "options: the probe makes a pool, takes and returns a chunk and destroys it, through all three entries (%d, %d, %d)",
+          seen ? seen->pool_round_trip : 0, seen ? seen->pool_v1_round_trip : 0, seen ? seen->pool_spelled_round_trip : 0);
     CHECK(seen && seen->map_midi != 0 && seen->uri_map_event == seen->map_midi && seen->uri_map_other == seen->map_midi,
           "options: uri-map's uri_to_id answers urid:map's id for midi:MidiEvent under the event map and under another (%u %u %u)",
           seen ? seen->map_midi : 0u, seen ? seen->uri_map_event : 0u, seen ? seen->uri_map_other : 0u);
@@ -1780,7 +1961,7 @@ static void t_options(void)
         o.features &= ~OMX_LV2_FEATURE_BIT(k);
         CHECK(lv2_core_feature_options_set(&o, why) == 0, "options: %s withheld is taken", omx_lv2_feature_uris[k]);
         seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-        CHECK(seen && seen->seen == ((PROBE_SEVEN & ~g_probe_bit[k]) | PROBE_PATHS), "options: %s withheld, the probe sees the other six and the paths (0x%x)",
+        CHECK(seen && seen->seen == ((PROBE_SEVEN & ~g_probe_bit[k]) | PROBE_PATHS), "options: %s withheld, the probe sees the other seven and the paths (0x%x)",
               omx_lv2_feature_uris[k], seen ? seen->seen : 0u);
     }
 
@@ -1795,6 +1976,25 @@ static void t_options(void)
     seen = probe_sees(LV2_FEATURE_PROBE_WORKER_URI, 16, BLOCK, why);
     CHECK(seen && !strcmp(seen->uri, LV2_FEATURE_PROBE_WORKER_URI) && !(seen->seen & LV2_FEATURE_PROBE_WORKER),
           "options: not strict, the twin is loaded and instantiates without the worker (%s)", why);
+
+    // the pool under lv2dynparam's URI: a plugin requiring it (zynadd) is hosted by default and refused with the pool
+    // withheld, strict (#265)
+    omx_lv2_feature_options_init(&o);
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_URI, 16, BLOCK, why);
+    CHECK(seen && !strcmp(seen->uri, LV2_FEATURE_PROBE_RTMEMPOOL_URI) && seen->pool_v1_round_trip == 1,
+          "options: the twin requiring the pool's deprecated URI is hosted, the pool behind it (%s)", why);
+    seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI, 16, BLOCK, why);
+    CHECK(seen && !strcmp(seen->uri, LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI) && seen->pool_spelled_round_trip == 1,
+          "options: the twin requiring rtmempool#Pool, the specification's spelling, is hosted, the pool behind it (%s)", why);
+    o.features &= ~OMX_LV2_FEATURE_BIT(OMX_LV2_F_RTMEMPOOL);
+    lv2_core_feature_options_set(&o, why);
+    seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_URI, 16, BLOCK, why);
+    CHECK(!seen && strcmp(why, LV2_CODE_FEATURES_MISSING) == 0,
+          "options: strict with the pool withheld, the twin is refused hosting.features-missing (%s)", why);
+    seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI, 16, BLOCK, why);
+    CHECK(!seen && strcmp(why, LV2_CODE_FEATURES_MISSING) == 0,
+          "options: and so is the twin requiring the '#' spelling (%s)", why);
 
     // the block: fixed declared admits the fixture's fixed twin, and the probe sees every declaration
     omx_lv2_feature_options_init(&o);
@@ -1913,6 +2113,10 @@ int main(int argc, char **argv)
     if (abs_dir(dir, g_ev) != 0)
         return 1;
     snprintf(g_ev_so, sizeof(g_ev_so), "%somx-event-fixture.so", g_ev);
+    snprintf(dir, sizeof(dir), "%somx-ll-midi-fixture.lv2", g_build);
+    if (abs_dir(dir, g_ll) != 0)
+        return 1;
+    snprintf(g_ll_so, sizeof(g_ll_so), "%somx-ll-midi-fixture.so", g_ll);
     snprintf(g_atom_so, sizeof(g_atom_so), "%somx-atom-fixture.so", g_atom);
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
     if (abs_dir(dir, g_cv) != 0)
@@ -1946,6 +2150,8 @@ int main(int argc, char **argv)
     t_event_ports();
     t_event_run();
     t_event_mixed();
+    t_ll_midi_ports();
+    t_ll_midi_run();
     t_sidechains();
     t_sidechain_names_oom();
     t_layouts();

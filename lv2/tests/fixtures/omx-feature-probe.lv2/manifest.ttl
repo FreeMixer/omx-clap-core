@@ -13,3 +13,13 @@
     a lv2:Plugin ;
     lv2:binary <omx-feature-probe.so> ;
     rdfs:seeAlso <omx-feature-probe.ttl> .
+
+<urn:openmixer:test:feature-probe#needs-rtmempool>
+    a lv2:Plugin ;
+    lv2:binary <omx-feature-probe.so> ;
+    rdfs:seeAlso <omx-feature-probe.ttl> .
+
+<urn:openmixer:test:feature-probe#needs-rtmempool-spelled>
+    a lv2:Plugin ;
+    lv2:binary <omx-feature-probe.so> ;
+    rdfs:seeAlso <omx-feature-probe.ttl> .

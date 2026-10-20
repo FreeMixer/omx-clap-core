@@ -15,7 +15,9 @@
     doap:name "openmixer feature probe" ;
     doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
     lv2:optionalFeature urid:map , urid:unmap , opts:options , bufsz:boundedBlockLength , work:schedule ,
-        state:loadDefaultState , log:log , bufsz:fixedBlockLength , bufsz:powerOf2BlockLength ;
+        state:loadDefaultState , log:log , bufsz:fixedBlockLength , bufsz:powerOf2BlockLength ,
+        <http://kxstudio.sf.net/ns/lv2ext/rtmempoolPool> , <http://kxstudio.sf.net/ns/lv2ext/rtmempool#Pool> ,
+        <http://home.gna.org/lv2dynparam/rtmempool/v1> ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ;
         lv2:index 0 ;
@@ -33,6 +35,55 @@
     doap:name "openmixer feature probe (requires the worker)" ;
     doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
     lv2:requiredFeature work:schedule ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ;
+        lv2:index 0 ;
+        lv2:symbol "in" ;
+        lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ;
+        lv2:index 1 ;
+        lv2:symbol "out" ;
+        lv2:name "Out"
+    ] .
+
+# the pool's three URIs are features: declared here so the validator knows them (zynadd's bundle declares none). The
+# header's macro spells the current one without the '#' (what compiled code asks for); the specification with it.
+<http://kxstudio.sf.net/ns/lv2ext/rtmempoolPool>
+    a lv2:Feature .
+
+<http://kxstudio.sf.net/ns/lv2ext/rtmempool#Pool>
+    a lv2:Feature .
+
+<http://home.gna.org/lv2dynparam/rtmempool/v1>
+    a lv2:Feature .
+
+# the twin that requires the pool under lv2dynparam's URI, as zynadd does (omx-clap-core#265)
+<urn:openmixer:test:feature-probe#needs-rtmempool>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer feature probe (requires the rtmempool, deprecated URI)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature <http://home.gna.org/lv2dynparam/rtmempool/v1> ;
+    lv2:optionalFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ;
+        lv2:index 0 ;
+        lv2:symbol "in" ;
+        lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ;
+        lv2:index 1 ;
+        lv2:symbol "out" ;
+        lv2:name "Out"
+    ] .
+
+# the twin that requires the pool as the specification spells it
+<urn:openmixer:test:feature-probe#needs-rtmempool-spelled>
+    a lv2:Plugin , lv2:UtilityPlugin ;
+    doap:name "openmixer feature probe (requires rtmempool#Pool)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature <http://kxstudio.sf.net/ns/lv2ext/rtmempool#Pool> ;
+    lv2:optionalFeature urid:map ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ;
         lv2:index 0 ;

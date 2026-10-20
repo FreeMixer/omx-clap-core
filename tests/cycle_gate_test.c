@@ -345,11 +345,14 @@ static void resize_checks(const char *path)
 
         omx_cycle_gate_resize_record(&r.gate, 2 * BLOCK);
         omx_cycle_gate_resize_record(&r.gate, 8 * BLOCK);
+        // a cycle past its check when the record lands still runs: the record stops the cycles after it, so the count
+        // is taken once one cycle boundary has passed (#289: under TSan that cycle ran after the count, 2 of 50)
+        cycles_wait(&r, 1);
         runs = atomic_load(&r.in->stage.h.runs);
         cycles = atomic_load(&r.cycles);
         cycles_wait(&r, 8);
         CHECK(omx_cycle_gate_resizing(&r.gate) && atomic_load(&r.in->stage.h.runs) == runs && atomic_load(&r.cycles) > cycles,
-              "resize tick: a recorded size, the cycles pass dry until the tick (%u runs)", atomic_load(&r.in->stage.h.runs) - runs);
+              "resize tick: a recorded size, the cycles after the record pass dry until the tick (%u runs)", atomic_load(&r.in->stage.h.runs) - runs);
         CHECK(omx_cycle_gate_resize_tick(&r.gate, r.in, &lock, SAMPLE_RATE, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why, &applied)
                   == OMX_CYCLE_GATE_RESIZED && applied == 8 * BLOCK && r.in->max_block == 8 * BLOCK && b.frames == 8 * BLOCK,
               "resize tick: the tick applies the last of two recorded sizes (%u, %u)", applied, r.in->max_block);
