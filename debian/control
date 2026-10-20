@@ -43,7 +43,7 @@ Description: fixtures to test a program that drives omx-clap-host
  socket_conformance.py, beside them, checks how any server of the mod-host
  socket protocol splits what it receives into commands.
 
-Package: libomx-clap-core0
+Package: libomx-clap-core1
 Section: libs
 Architecture: any
 Multi-Arch: same
