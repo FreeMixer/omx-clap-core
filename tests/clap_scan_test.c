@@ -102,10 +102,13 @@ static void fake_checks(const char *scan, const char *fake, char *out)
     CHECK(has(out, "\"audio_ports\":{\"inputs\":[{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"unknown\"}]"),
           "the wide plugin's 6-channel main input, of no port type");
     CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":1,\"kind\":\"mono\"}"), "the sidechain plugin's mono aux input");
-    CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5]}") == 2,
-          "the surround plugin's 5.1 map by clap.surround, and the plain one's in index order (%i)",
+    CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,9,10]}") == 1,
+          "the surround plugin's 5.1 map by clap.surround, SL and SR as 9 and 10 (%i)",
+          count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,9,10]}"));
+    CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5]}") == 1,
+          "the plain surround plugin's map in index order, no clap.surround (%i)",
           count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5]}"));
-    CHECK(has(out, "\"kind\":\"surround\",\"map\":[0,1,2,3,4,25]}"), "surround-bad's map, its id 25 as the plugin names it");
+    CHECK(has(out, "\"kind\":\"surround\",\"map\":[0,1,2,3,9,25]}"), "surround-bad's map, its id 25 as the plugin names it");
     CHECK(has(out, "{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4,\"kind\":\"ambisonic\",\"ordering\":\"acn\","
                    "\"normalization\":\"sn3d\"}"), "the ambisonic plugin's ordering and normalisation by clap.ambisonic");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
