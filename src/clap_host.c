@@ -589,7 +589,8 @@ static const char *const g_extension_ids[] = CLAP_HOST_EXTENSIONS_INIT;
  * instance, so the public instance keeps its layout and nothing is allocated where get_extension runs, which may be any
  * thread. The lookup and the claim of a slot are one step under a flag, so an id asked from two threads at once is
  * claimed once; the audio role never waits on the flag, and an id it finds the flag busy for, or one past the table,
- * is counted unsaid. The owner's tick says one pending id per log line ("extension not offered: <id>"), then the
+ * is counted unsaid. The audio role is the published one (omx_clap_host_publish, set_audio_thread): an audio thread
+ * that asks before it is named waits as any other thread does, for the flag's few compares. The owner's tick says one pending id per log line ("extension not offered: <id>"), then the
  * unsaid count ("<N> unoffered ids unsaid, table full or busy"), and the instance's end frees its slots. */
 #define UNOFFERED_SLOTS 256
 #define UNOFFERED_ID_BYTES 64
