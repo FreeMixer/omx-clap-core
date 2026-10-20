@@ -2328,6 +2328,66 @@ static struct omx_clap_instance *mover_run(const char *path, const char *action,
 }
 
 /* the plugin's own parameter events, the host's modulation and gestures, rescans, clears and the plugin's text */
+/* a plugin with no audio port at all (tests/fault-17.clap: a note input, a note output, no clap.audio-ports) is hosted as
+ * a pass-through tool, the host's placement: a stereo main pair named for it, the strip's audio through the stage bit for
+ * bit, in place and on a lane with separate buffers, the plugin handed no audio and run for its notes alone, its
+ * latency none (#270) */
+static void tool_checks(const char *path)
+{
+    static const midi_at_t on[] = { { 10, { 0x90, 60, 100 }, 3 } };
+    struct omx_clap_instance *in = NULL;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK], l[BLOCK], r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    double value = -1.0;
+    uint32_t i, b;
+
+    CHECK(open_ok(path, "org.openmixer.fault.17", &in), "a plugin with no audio port at all opens: a pass-through tool");
+    if (!in)
+        return;
+    CHECK(in->passthrough == 1 && in->in_channels == 2 && in->channels == 2,
+          "the host's placement: a stereo pair on both sides (passthrough %u, %u in, %u out)", in->passthrough, in->in_channels, in->channels);
+    CHECK(strcmp(in->main_in.name, "in (passthrough: host)") == 0 && strcmp(in->main_out.name, "out (passthrough: host)") == 0
+          && in->main_in.kind == OMX_CLAP_PORT_STEREO && in->main_out.kind == OMX_CLAP_PORT_STEREO,
+          "the pair is named for it, stereo (\"%s\", \"%s\")", in->main_in.name, in->main_out.name);
+    CHECK(in->audio_ports == NULL && in->note_inputs == 1 && in->aux_inputs == 0 && in->aux_outputs == 0,
+          "no audio-ports extension, one note input, nothing auxiliary");
+    CHECK(activate(in), "the tool activates");
+    CHECK(omx_clap_host_latency(in) == 0, "its latency is none: the audio it does not touch has none (%u)", omx_clap_host_latency(in));
+    CHECK(in->stage.proc.audio_inputs_count == 0 && in->stage.proc.audio_outputs_count == 0,
+          "the plugin is handed no audio buffer (%u in, %u out)", in->stage.proc.audio_inputs_count, in->stage.proc.audio_outputs_count);
+    omx_clap_host_publish(in, pthread_self());
+    memset(in_l, 0, sizeof(in_l));
+    memset(in_r, 0, sizeof(in_r));
+    omx_clap_host_run_io(in, inputs, outputs, BLOCK);    // the arming cycle: the stage is processing from here on
+    CHECK(atomic_load(&in->stage.state) == OMX_CLAP_PROCESSING, "the stage processes: what follows is the plugin's path, not the dry one");
+    for (b = 0; b < 4; b++)
+    {
+        for (i = 0; i < BLOCK; i++)
+        {
+            in_l[i] = (float)(b * BLOCK + i) * 1e-3f - 0.5f;
+            in_r[i] = -in_l[i] * 0.75f;
+        }
+        omx_clap_host_run_io(in, inputs, outputs, BLOCK);
+        if (memcmp(out_l, in_l, sizeof(in_l)) != 0 || memcmp(out_r, in_r, sizeof(in_r)) != 0)
+            break;
+    }
+    CHECK(b == 4, "a lane with separate buffers: the input is on the output bit for bit, four blocks (%u of them matched)", b);
+    memcpy(l, in_l, sizeof(l));
+    memcpy(r, in_r, sizeof(r));
+    omx_clap_host_run(in, l, r, BLOCK);
+    CHECK(memcmp(l, in_l, sizeof(l)) == 0 && memcmp(r, in_r, sizeof(r)) == 0, "in place: the lane is untouched bit for bit");
+    omx_clap_host_note_in(in, on[0].time, on[0].data, on[0].size);
+    omx_clap_host_run_io(in, inputs, outputs, BLOCK);
+    CHECK(omx_clap_host_param_value(in, 1, &value) == 0 && value == 1.0,
+          "the plugin runs for its notes: the note on reached it (notes %g)", value);
+    CHECK(atomic_load(&in->stage.notes_delivered) == 1 && atomic_load(&in->stage.notes_dropped) == 0,
+          "one note delivered, none dropped (%u, %u)", atomic_load(&in->stage.notes_delivered), atomic_load(&in->stage.notes_dropped));
+    CHECK(memcmp(out_l, in_l, sizeof(in_l)) == 0 && memcmp(out_r, in_r, sizeof(in_r)) == 0, "and the audio still passes through untouched");
+    CHECK(atomic_load(&in->stage.h.rendered_wet) != 0, "the block was the plugin's, rendered wet (the pass-through is the stage's, not the dry path's)");
+    omx_clap_host_close(in);
+}
+
 static void mover_checks(const char *path)
 {
     struct omx_clap_instance *instance;
@@ -2485,6 +2545,7 @@ int main(int argc, char **argv)
     const char *fake_path = argc > 2 ? argv[2] : NULL;
     const char *synth_path = argc > 3 ? argv[3] : NULL;
     const char *mover_path = argc > 4 ? argv[4] : NULL;
+    const char *tool_path = argc > 5 ? argv[5] : NULL;
     struct omx_clap_instance *first = NULL, *second = NULL;
     float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
     const float *inputs[2] = { in_l, in_r };
@@ -2499,7 +2560,7 @@ int main(int argc, char **argv)
 
     if (!path)
     {
-        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap [fake_synth.clap [fake_mover.clap]]]\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap [fake_synth.clap [fake_mover.clap [fault-17.clap]]]]\n", argv[0]);
         return 2;
     }
     if (fake_path)
@@ -2545,6 +2606,8 @@ int main(int argc, char **argv)
         }
         if (mover_path)
             mover_checks(mover_path);
+        if (tool_path)
+            tool_checks(tool_path);
         return report("clap host test ok");
     }
 
