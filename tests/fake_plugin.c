@@ -30,6 +30,8 @@
  *   org.omx-clap-host.test.many-aux    a stereo main pair and 65 mono auxiliary inputs
  *   org.omx-clap-host.test.aux-wide    a stereo main pair and one auxiliary input of 4 channels; process() copies
  *                                      that input's channel 4 onto the main output's channel 1
+ *   org.omx-clap-host.test.aux-max     a stereo main pair, 64 auxiliary inputs and 64 auxiliary outputs of 64
+ *                                      channels each; process() copies nothing
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
@@ -68,6 +70,7 @@
 #define ID_TWO_MAINS    "org.omx-clap-host.test.two-mains"
 #define ID_MANY_AUX     "org.omx-clap-host.test.many-aux"
 #define ID_AUX_WIDE     "org.omx-clap-host.test.aux-wide"
+#define ID_AUX_MAX      "org.omx-clap-host.test.aux-max"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -110,6 +113,7 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("two-mains", ID_TWO_MAINS),
     DESCRIPTOR("many-aux", ID_MANY_AUX),
     DESCRIPTOR("aux-wide", ID_AUX_WIDE),
+    DESCRIPTOR("aux-max", ID_AUX_MAX),
 };
 
 /* each descriptor's ports, in the descriptors' order: the main input and output widths, the auxiliary inputs and
@@ -128,6 +132,7 @@ static const struct FAKE_LAYOUT_T {
     { 2, 2, 0, 0, 1, 2, 1, 0, 0 },      // two-mains
     { 2, 2, 65, 1, 0, 0, 0, 0, 0 },     // many-aux
     { 2, 2, 1, 4, 0, 0, 0, 1, 0 },      // aux-wide
+    { 2, 2, 64, 64, 64, 64, 0, 0, 1 },  // aux-max
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
