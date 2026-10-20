@@ -159,7 +159,7 @@ a group of a type the table lacks, orders by port index with kind unknown. The C
 | `pg:SevenPointOneWideGroup` | surround | 8 | FL FLC FC FRC FR BL BR LFE |
 | `pg:AmbisonicBH1P1Group`, `BH2P2Group`, `BH3P3Group` | ambisonic | 4, 9, 16 | ordering ACN (the elements are ACN0..ACN(n-1) in order) |
 | the other `pg:AmbisonicBH<h>P<p>Group`s (BH1P0 3, BH2P0 5, BH2P1 6, BH3P0 7, BH3P1 8, BH3P2 11) | unknown | the element count | mixed-order streams a CLAP ambisonic port cannot express: carried as discrete channels, the ACN designations in the description |
-| `pg:DiscreteGroup`, `pg:InputGroup`, `pg:OutputGroup`, an untyped group | unknown | member count | none |
+| `pg:DiscreteGroup`, `pg:InputGroup`, `pg:OutputGroup`, an untyped group, or a typed group whose members lack its designations | mono or stereo at one or two members, unknown above two | member count | none |
 
 LV2 port groups declare no normalisation. A full-order ambisonic group is exposed by the shim as a CLAP
 ambisonic port with ordering ACN and normalisation SN3D, the AmbiX convention, recorded below as a decision; the
