@@ -119,4 +119,38 @@ static inline int omx_cycle_gate_deactivate(struct omx_cycle_gate *g, struct omx
     return 0;
 }
 
+/** A change of the block size, on the carrier's own thread (JACK's buffer-size callback): under `lock`, the lock every
+ * restart and relayout of the instance holds, an instance still active at another block is stopped, deactivated and
+ * activated at `nframes`, the cycles shut out around it, and armed with the audio role it had. Its state is read under
+ * the lock only: an instance a relayout or restart left inactive meanwhile (a layout refused, ports no longer the
+ * carrier's, a rescan waiting for its relayout) is the relayout's to activate, at the size the carrier then reads, and
+ * this leaves it inactive. Nonzero when it activated the instance again. */
+static inline int omx_cycle_gate_resize(struct omx_cycle_gate *g, struct omx_clap_instance *in, pthread_mutex_t *lock, double rate,
+                                        uint32_t nframes, unsigned poll_us)
+{
+    int ok = 0;
+
+    pthread_mutex_lock(lock);
+    if (in->active && nframes != in->max_block)
+    {
+        // stop takes the audio role for this thread and releases it: the cycle's is given back after
+        const pthread_t thread = in->audio_thread;
+        const int held = in->audio_role_held;
+
+        omx_cycle_gate_close(g, poll_us);
+        omx_clap_host_stop(in);
+        omx_clap_host_deactivate(in);
+        if (omx_clap_host_activate(in, rate, nframes, NULL) == 0)
+        {
+            if (held)
+                omx_clap_host_set_audio_thread(in, thread);
+            omx_clap_host_arm(in);
+            ok = 1;
+        }
+        omx_cycle_gate_open(g);
+    }
+    pthread_mutex_unlock(lock);
+    return ok;
+}
+
 #endif

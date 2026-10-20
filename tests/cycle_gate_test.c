@@ -24,7 +24,8 @@
  * deactivate unmaps, restarted and re-described through cycle_gate.h while the cycle enters the gate, reads the active
  * flag and runs omx_clap_host_run_ports as effects.c process() does. Built with -fsanitize=thread (make
  * test-transport-tsan): a cycle reading the stage, the bounce or the flag while the control thread clears them is a
- * report, and the run halts on it.
+ * report, and the run halts on it. A block-size change (effects.c buffer_size) racing a relayout that leaves the
+ * instance inactive leaves it inactive.
  *
  * usage: cycle_gate_test <fake.clap>
  */
@@ -186,6 +187,92 @@ static void arm(const char *path, const char *knob, int want_rescanned)
     omx_clap_host_close(r.in);
 }
 
+struct resize_call {
+    struct rig *r;
+    pthread_mutex_t *lock;
+    uint32_t nframes;
+    _Atomic int started;
+    int ret;
+};
+
+/* effects.c buffer_size on a thread of its own, as JACK calls it */
+static void *resize_run(void *arg)
+{
+    struct resize_call *c = arg;
+
+    atomic_store(&c->started, 1);
+    c->ret = omx_cycle_gate_resize(&c->r->gate, c->r->in, c->lock, SAMPLE_RATE, c->nframes, CLAP_HOST_ROLE_POLL_US);
+    return NULL;
+}
+
+/* A block-size change racing a relayout that leaves the instance inactive (its layout refused, its ports no longer the
+ * carrier's): the change waits for the relayout's lock, then finds the instance inactive and leaves it so, never
+ * activating it on a description nobody read again; an active instance is re-activated at the new size, and runs */
+static void resize_checks(const char *path)
+{
+    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+    struct rig r;
+    struct resize_call c;
+    char why[OMX_CLAP_WHY_MAX] = "";
+    pthread_t t, rt;
+    uint32_t runs;
+
+    memset(&r, 0, sizeof(r));
+    CHECK(omx_clap_host_open(path, STEREO_MONO, &r.in, why) == 0 && r.in, "resize: %s opens", STEREO_MONO);
+    if (!r.in)
+        return;
+    CHECK(omx_clap_host_activate(r.in, SAMPLE_RATE, BLOCK, why) == 0, "resize: it activates (%s)", why);
+    if (pthread_create(&t, NULL, cycles_run, &r) != 0)
+    {
+        omx_clap_host_close(r.in);
+        return;
+    }
+    omx_clap_host_publish(r.in, t);
+    cycles_wait(&r, 8);
+
+    // the relayout holds the lock while the block size changes; it leaves the instance inactive
+    memset(&c, 0, sizeof(c));
+    c.r = &r;
+    c.lock = &lock;
+    c.nframes = 2 * BLOCK;
+    pthread_mutex_lock(&lock);
+    if (pthread_create(&rt, NULL, resize_run, &c) == 0)
+    {
+        while (!atomic_load(&c.started))
+            usleep(100);
+        usleep(50000);  // the change is waiting on the lock, the instance still active
+        CHECK(omx_cycle_gate_deactivate(&r.gate, r.in, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) == 0,
+              "resize: the relayout deactivates the instance under the lock");
+        omx_cycle_gate_open(&r.gate);
+        pthread_mutex_unlock(&lock);
+        pthread_join(rt, NULL);
+        CHECK(c.ret == 0 && !r.in->active, "resize: the change that waited for it leaves the instance inactive (%d, active %d)", c.ret,
+              r.in->active);
+    }
+    else
+        pthread_mutex_unlock(&lock);
+
+    // the relayout's own activate, then a change on the active instance: re-activated at the new size
+    pthread_mutex_lock(&lock);
+    omx_cycle_gate_close(&r.gate, CLAP_HOST_ROLE_POLL_US);
+    CHECK(omx_clap_host_activate(r.in, SAMPLE_RATE, BLOCK, why) == 0, "resize: the relayout activates it (%s)", why);
+    omx_clap_host_set_audio_thread(r.in, t);
+    omx_clap_host_arm(r.in);
+    omx_cycle_gate_open(&r.gate);
+    pthread_mutex_unlock(&lock);
+    cycles_wait(&r, 4);
+    CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 2 * BLOCK, CLAP_HOST_ROLE_POLL_US) == 1 && r.in->active
+              && r.in->max_block == 2 * BLOCK,
+          "resize: an active instance is re-activated at the new size (%u)", r.in->max_block);
+    runs = atomic_load(&r.in->stage.h.runs);
+    cycles_wait(&r, 8);
+    CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and runs on the cycle thread after it");
+    atomic_store(&r.stop, 1);
+    pthread_join(t, NULL);
+    omx_clap_host_stop(r.in);
+    omx_clap_host_close(r.in);
+}
+
 int main(int argc, char **argv)
 {
     struct omx_clap_host_config config;
@@ -205,6 +292,7 @@ int main(int argc, char **argv)
     }
     arm(argv[1], NULL, 0);
     arm(argv[1], "FAKE_RESCAN_ON_DEACTIVATE", 1);
+    resize_checks(argv[1]);
     if (g_failures)
     {
         printf("FAILED\n");
