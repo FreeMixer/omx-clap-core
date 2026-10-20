@@ -48,7 +48,9 @@
  *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
  *     binding while it runs, a bad port or a stereo port with one channel is refused; one auxiliary input beyond the
  *     core's count, one of 65 channels or one of none is refused; one of three channels is admitted.
- *  9. THE NOTE OUTPUT: an effect with a note output that pushes 300 note ons, a note expression and a NOTE_END on every
+ *  9. THE RESCAN AND THE WARM-UP: the warm-up's own deactivate raises no report; a rescan made in activate, or one
+ *     made before it, is reported after it; request_layout's read of the description answers one.
+ * 10. THE NOTE OUTPUT: an effect with a note output that pushes 300 note ons, a note expression and a NOTE_END on every
  *     block: its note output port is read at open, the warm-up's 64 blocks put nothing in the ring, and each live block
  *     of omx_clap_host_run keeps 256 for omx_clap_host_notes_out at the block's frames, counts 44 dropped and the
  *     expression unmapped, and never forwards the NOTE_END, with no allocation on either side under the witness.
@@ -150,13 +152,16 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, fds) > offsetof(struct omx_clap_instance, timer_next_id) &&
             offsetof(struct omx_clap_instance, sleep) > offsetof(struct omx_clap_instance, tail_changed),
         "the full host's fields follow the host's note details (%zu)", offsetof(struct omx_clap_instance, sleep));
-  /* ABI 14 appends the layout extensions and the reported ports rescan after them, the instance's last */
+  /* ABI 14 appends the layout extensions, the reported ports rescan and the layout requests' extensions, the instance's
+   * last */
   CHECK(offsetof(struct omx_clap_instance, surround) >= offsetof(struct omx_clap_instance, sleep) + sizeof(struct omx_clap_sleep) &&
             offsetof(struct omx_clap_instance, ambisonic) > offsetof(struct omx_clap_instance, surround) &&
             offsetof(struct omx_clap_instance, ports_rescanned) > offsetof(struct omx_clap_instance, ambisonic) &&
-            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, ports_rescanned) <= _Alignof(struct omx_clap_instance),
-        "the surround and ambisonic extensions and the ports rescan follow the full host's fields, the instance's last (%zu)",
-        offsetof(struct omx_clap_instance, ports_rescanned));
+            offsetof(struct omx_clap_instance, configurable_audio_ports) > offsetof(struct omx_clap_instance, ports_rescanned) &&
+            offsetof(struct omx_clap_instance, audio_ports_config) > offsetof(struct omx_clap_instance, configurable_audio_ports) &&
+            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, audio_ports_config) <= _Alignof(struct omx_clap_instance),
+        "the surround and ambisonic extensions, the ports rescan and the layout requests' extensions follow the full host's "
+        "fields, the instance's last (%zu)", offsetof(struct omx_clap_instance, audio_ports_config));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = 11;
@@ -595,6 +600,62 @@ static void sc_stop(struct omx_clap_instance *in) {
   omx_clap_request_stop(&in->stage);
   sc_prime(in, 0.0f, 0.0f);
   CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "unpublish the side-chain instance");
+}
+
+/* tests/fake.clap's configs, mono in and stereo out, with the fake's knob `knob` set while it is created */
+static struct omx_clap_instance *open_configs(const char *knob) {
+  char path[512], why[OMX_CLAP_WHY_MAX];
+  struct omx_clap_instance *in = NULL;
+
+  snprintf(path, sizeof(path), "%s/fake.clap", g_fault_dir);
+  if (knob) setenv(knob, "1", 1);
+  if (omx_clap_host_open(path, "org.omx-clap-host.test.configs", &in, why) != 0) in = NULL;
+  if (knob) unsetenv(knob);
+  return in;
+}
+
+/* the warm-up's cycle and a ports rescan: the warm-up's own deactivate is not reported, a rescan the plugin makes in
+ * its activate is, in every activate or in the first one only, and one made before the activate is still reported
+ * after it: only a read of the description (request_layout) answers it */
+static void t_rescan_across_warmup(void) {
+  struct omx_clap_instance *in = open_configs("FAKE_RESCAN_ON_DEACTIVATE");
+  char why[OMX_CLAP_WHY_MAX];
+
+  CHECK(in && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "configs, rescanning in its deactivate, activates with the warm-up");
+  if (in) {
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "the warm-up's own deactivate is not reported");
+    omx_clap_host_close(in);
+  }
+  in = open_configs("FAKE_RESCAN_ON_ACTIVATE");
+  CHECK(in && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "configs, rescanning in its activate, activates with the warm-up");
+  if (in) {
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+          "the rescan its activate made is reported once, past the warm-up's cycle");
+    omx_clap_host_close(in);
+  }
+  in = open_configs("FAKE_RESCAN_ON_FIRST_ACTIVATE");
+  CHECK(in && omx_clap_host_activate(in, 48000.0, 64, why) == 0, "configs, rescanning in its first activate only, activates with the warm-up");
+  if (in) {
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+          "the rescan only the warm-up's first activate made is reported once");
+    omx_clap_host_close(in);
+  }
+  in = open_configs(NULL);
+  if (in) {
+    const clap_host_audio_ports_t *ports = in->host.get_extension(&in->host, CLAP_EXT_AUDIO_PORTS);
+
+    ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+    CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "configs activates after a rescan it made while inactive");
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1, "the rescan made before the activate is still reported");
+    omx_clap_host_deactivate(in);
+    ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+    CHECK(omx_clap_host_request_layout(in, NULL, 0, why) == OMX_CLAP_LAYOUT_DECLARED && omx_clap_host_activate(in, 48000.0, 64, why) == 0,
+          "read again by request_layout, then activated");
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "the read answered it: nothing reported");
+    omx_clap_host_close(in);
+  } else {
+    CHECK(0, "open configs");
+  }
 }
 
 static void t_side_chain(void) {
@@ -1277,6 +1338,7 @@ int main(int argc, char **argv) {
   t_transport_record();
   t_transport_in_the_cycle();
   t_reset_off_rt();
+  t_rescan_across_warmup();
   t_side_chain();
   t_side_chain_mono();
   t_side_chain_refused();

@@ -50,12 +50,35 @@
  *                                      ambisonic.changed (with FAKE_AMBISONIC_SILENT set, get_config answers false:
  *                                      the plugin states no configuration)
  *   org.omx-clap-host.test.ambisonic-bad the same of 5 channels, no (order+1)²
+ *   org.omx-clap-host.test.configs     a mono main input and a stereo main output, and clap.audio-ports-config: config
+ *                                      1 that layout, config 2 a stereo main pair; select names the main ports "in 0
+ *                                      config <id>", "out 0 config <id>"; process() writes each output half its input;
+ *                                      a write of parameter 0 calls the host's audio-ports rescan (NAMES) instead of a
+ *                                      restart (103: and once more in the next activate; 104: in every activate), and
+ *                                      101 or 102 asks for a restart whose deactivate switches to config 2 (101) or
+ *                                      leaves the main input with no channels for good (102) and rescans the list
+ *                                      (with FAKE_CONFIGURABLE_TOO set, it offers clap.configurable-audio-ports too,
+ *                                      as configurable does; with FAKE_CONFIGS_UNTYPED its configs name no port type;
+ *                                      with FAKE_CONFIGS_SIDE each config carries a mono side-chain input beside its
+ *                                      main, which select declares; with FAKE_CONFIGS_NO_MAIN_IN config 1 is a
+ *                                      source, no main input flagged (its stale mono input fields a host must
+ *                                      ignore) and none declared once selected; with FAKE_SWITCH_ON_DEACTIVATE every
+ *                                      deactivate switches to config 2 and rescans the list, as 101 does once; with
+ *                                      FAKE_CONFIGS_TWIN a config 3, the stereo pair again, and select refuses 2)
+ *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
+ *                                      channels each side, mono or stereo or no port type, applied; apply names the main
+ *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
+ *                                      false; FAKE_CONFIGURABLE_ANY: any channel count and type can be applied)
+ *   org.omx-clap-host.test.surround-refuses a 6-channel surround main pair, the map FL FR FC BC SL SR, and
+ *                                      clap.surround whose is_channel_mask_supported answers true for that mask only
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
  *                                      announce the change
  * Every plugin reads back three read-only parameters: 1 the calls of activate and 2 the calls of process, which is how a
  * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension.
+ * FAKE_RESCAN_ON_ACTIVATE and FAKE_RESCAN_ON_DEACTIVATE make every plugin call the host's audio-ports rescan from its
+ * activate (NAMES) or its deactivate (LIST); FAKE_RESCAN_ON_FIRST_ACTIVATE from its first activate only.
  * FAKE_LAYOUT_DEFAULT is the default parameter 0 declares (64 without it): the same binary with another layout.
  * FAKE_CONTRACT makes every plugin offer org.openmixer.param-contract/1 over its four parameters (0 latency, frames,
  * stepped; the read-only three, no unit, stepped), whole with "good", at version 2 with one rename step with "migrated",
@@ -63,7 +86,8 @@
  * no entry for parameter 3), "duplicate" (R1, two entries named activations), "symbol" (R2, a symbol starting with a
  * digit), "step" (R2, a stepped parameter whose step is 2), "noop" (R5, a migration step that changes nothing).
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
- * "<id> destroy" to, which outlives an instance the host destroyed.
+ * "<id> destroy" to, which outlives an instance the host destroyed, and "<id> process off the audio role" once when
+ * the host's thread-check says process() runs off it.
  * passthrough also has clap.track-info, whose changed appends "<id> track_info <got> <flags> <a,r,g,b> <name>" with what
  * the host's get answered and, told it is on a bus, calls the host's remote_controls.changed; and clap.remote-controls
  * with two pages, a get past them appending "<id> remote_controls.get past the count". A call of either from any thread
@@ -97,6 +121,9 @@
 #define ID_SURROUND_SHORT "org.omx-clap-host.test.surround-short"
 #define ID_AMBISONIC    "org.omx-clap-host.test.ambisonic"
 #define ID_AMBISONIC_BAD "org.omx-clap-host.test.ambisonic-bad"
+#define ID_CONFIGS      "org.omx-clap-host.test.configs"
+#define ID_CONFIGURABLE "org.omx-clap-host.test.configurable"
+#define ID_SURROUND_REFUSES "org.omx-clap-host.test.surround-refuses"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -114,6 +141,24 @@ typedef struct FAKE_T {
     uint32_t copies_nothing;    // process() leaves every buffer as it is
     uint32_t mix;               // what process() writes of the main pair: one FAKE_MIX_*
     uint32_t type;              // the main pair's port type and the layout extension it offers: one FAKE_TYPE_*
+    uint32_t offers;            // the layout extensions it offers: FAKE_OFFERS_* bits
+    uint32_t named;             // what set the main ports' layout: 0 the declaration, a config id, or FAKE_CONFIGURED
+    uint32_t apply_fails;       // apply_configuration answers false (FAKE_APPLY_FAILS)
+    uint32_t configurable_any;  // any channel count and type can be applied (FAKE_CONFIGURABLE_ANY)
+    uint32_t configs_untyped;   // the configs name no port type (FAKE_CONFIGS_UNTYPED)
+    uint32_t configs_side;      // each config carries a mono side-chain input beside its main (FAKE_CONFIGS_SIDE)
+    uint32_t configs_no_main_in;    // config 1 flags no main input (FAKE_CONFIGS_NO_MAIN_IN)
+    uint32_t no_input;          // it declares no input port (config 1 selected under FAKE_CONFIGS_NO_MAIN_IN)
+    uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE; 2, its first
+                                    // activate only: FAKE_RESCAN_ON_FIRST_ACTIVATE)
+    uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
+    uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
+    uint32_t switch_always;     // configs: every deactivate does (FAKE_SWITCH_ON_DEACTIVATE)
+    uint32_t configs_twin;      // configs: a config 3 like 2, and select refuses 2 (FAKE_CONFIGS_TWIN)
+    uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
+    uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
+    const clap_host_thread_check_t *thread_check;  // the host's, read at init
+    int logged_off_role;        // process() ran off the audio role once and said so
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
@@ -150,44 +195,58 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("surround-short", ID_SURROUND_SHORT),
     DESCRIPTOR("ambisonic", ID_AMBISONIC),
     DESCRIPTOR("ambisonic-bad", ID_AMBISONIC_BAD),
+    DESCRIPTOR("configs", ID_CONFIGS),
+    DESCRIPTOR("configurable", ID_CONFIGURABLE),
+    DESCRIPTOR("surround-refuses", ID_SURROUND_REFUSES),
 };
 
 /* what process() writes of the main pair: each output channel a copy of its input (the last one past them), the mono
- * input to the left and its negation to the right, the sum of the stereo input to the one output, or the channels
- * reversed (the last input to the first output) */
-enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM, FAKE_MIX_REVERSE };
+ * input to the left and its negation to the right, the sum of the stereo input to the one output, the channels
+ * reversed (the last input to the first output), or each output channel half its input (the first one past them) */
+enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM, FAKE_MIX_REVERSE, FAKE_MIX_HALF };
 
 /* the main pair's port type: mono or stereo by its width (none past two); surround with clap.surround, its map the
- * 5.1 one, one naming id 25 or one id short; surround with no extension; ambisonic with clap.ambisonic */
+ * 5.1 one, one naming id 25 or one id short; surround with no extension; ambisonic with clap.ambisonic; surround with
+ * clap.surround, its map the 6.0 one, refusing every other mask */
 enum { FAKE_TYPE_BY_WIDTH, FAKE_TYPE_SURROUND, FAKE_TYPE_SURROUND_BAD, FAKE_TYPE_SURROUND_SHORT, FAKE_TYPE_SURROUND_PLAIN,
-       FAKE_TYPE_AMBISONIC };
+       FAKE_TYPE_AMBISONIC, FAKE_TYPE_SURROUND_REFUSES };
+
+/* the layout extensions a fake offers: clap.audio-ports-config, clap.configurable-audio-ports */
+#define FAKE_OFFERS_CONFIGS         1u
+#define FAKE_OFFERS_CONFIGURABLE    2u
+/* `named` once apply_configuration set the layout */
+#define FAKE_CONFIGURED             100u
 
 /* each descriptor's ports, in the descriptors' order: the main input and output widths, the auxiliary inputs and
- * outputs and their widths, a second main output, what process() does beyond the main pair, how it writes that pair
- * and the pair's port type */
+ * outputs and their widths, a second main output, what process() does beyond the main pair, how it writes that pair,
+ * the pair's port type and the layout extensions it offers */
 static const struct FAKE_LAYOUT_T {
-    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix, type;
+    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix, type,
+             offers;
 } g_layouts[] = {
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_REVERSE, 0 },  // wide
-    { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0 },      // sidechain
-    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
-    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
-    { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // widen
-    { 2, 2, 0, 0, 1, 2, 0, 0, 0, 0, 0 },      // auxout
-    { 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0 },      // zero-port
-    { 2, 2, 0, 0, 1, 65, 0, 0, 0, 0, 0 },     // too-wide
-    { 2, 2, 0, 0, 1, 2, 1, 0, 0, 0, 0 },      // two-mains
-    { 2, 2, 65, 1, 0, 0, 0, 0, 0, 0, 0 },     // many-aux
-    { 2, 2, 1, 4, 0, 0, 0, 1, 0, 0, 0 },      // aux-wide
-    { 2, 2, 64, 64, 64, 64, 0, 0, 1, 0, 0 },  // aux-max
-    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_NEGATE_RIGHT, 0 },  // mono-stereo
-    { 2, 1, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_SUM, 0 },           // stereo-mono
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND },        // surround
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_BAD },    // surround-bad
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_PLAIN },  // surround-plain
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_SHORT },  // surround-short
-    { 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC },       // ambisonic
-    { 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC },       // ambisonic-bad
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_REVERSE, 0, 0 },  // wide
+    { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 },      // sidechain
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // widen
+    { 2, 2, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0 },      // auxout
+    { 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // zero-port
+    { 2, 2, 0, 0, 1, 65, 0, 0, 0, 0, 0, 0 },     // too-wide
+    { 2, 2, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0 },      // two-mains
+    { 2, 2, 65, 1, 0, 0, 0, 0, 0, 0, 0, 0 },     // many-aux
+    { 2, 2, 1, 4, 0, 0, 0, 1, 0, 0, 0, 0 },      // aux-wide
+    { 2, 2, 64, 64, 64, 64, 0, 0, 1, 0, 0, 0 },  // aux-max
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_NEGATE_RIGHT, 0, 0 },  // mono-stereo
+    { 2, 1, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_SUM, 0, 0 },           // stereo-mono
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND, 0 },        // surround
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_BAD, 0 },    // surround-bad
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_PLAIN, 0 },  // surround-plain
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_SHORT, 0 },  // surround-short
+    { 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC, 0 },       // ambisonic
+    { 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC, 0 },       // ambisonic-bad
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_HALF, 0, FAKE_OFFERS_CONFIGS },  // configs
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_OFFERS_CONFIGURABLE },  // configurable
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_REFUSES, 0 },  // surround-refuses
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
@@ -216,6 +275,8 @@ static void main_thread_only(const clap_plugin_t *plugin, const char *what);
 static uint32_t audio_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const fake_t *fake = plugin->plugin_data;
+    if (is_input && fake->no_input)
+        return 0;
     return 1 + (is_input ? fake->extra_inputs : fake->extra_outputs);
 }
 
@@ -227,9 +288,16 @@ static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is
         return false;
     memset(info, 0, sizeof(*info));
     info->id = index;
-    snprintf(info->name, sizeof(info->name), "%s %u", is_input ? "in" : "out", index);
+    if (index == 0 && fake->named == FAKE_CONFIGURED)
+        snprintf(info->name, sizeof(info->name), "%s 0 configured", is_input ? "in" : "out");
+    else if (index == 0 && fake->named)
+        snprintf(info->name, sizeof(info->name), "%s 0 config %u", is_input ? "in" : "out", fake->named);
+    else
+        snprintf(info->name, sizeof(info->name), "%s %u", is_input ? "in" : "out", index);
     info->flags = index == 0 || (index == 1 && !is_input && fake->two_mains) ? CLAP_AUDIO_PORT_IS_MAIN : 0;
     info->channel_count = index == 0 ? (is_input ? fake->main_channels : fake->out_channels) : (is_input ? fake->aux_in_channels : fake->aux_out_channels);
+    if (index == 0 && is_input && fake->input_lost == 1)
+        info->channel_count = 0;
     info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : (info->channel_count == 1 ? CLAP_PORT_MONO : NULL);
     if (index == 0 && fake->type != FAKE_TYPE_BY_WIDTH)
         info->port_type = fake->type == FAKE_TYPE_AMBISONIC ? CLAP_PORT_AMBISONIC : CLAP_PORT_SURROUND;
@@ -246,10 +314,18 @@ static const uint8_t g_five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_
 #define FIVE_ONE_MASK ((1u << CLAP_SURROUND_FL) | (1u << CLAP_SURROUND_FR) | (1u << CLAP_SURROUND_FC) | (1u << CLAP_SURROUND_LFE) \
                        | (1u << CLAP_SURROUND_SL) | (1u << CLAP_SURROUND_SR))
 
+/* surround-refuses' own map, 6.0: a back centre where the 5.1 one has its LFE */
+static const uint8_t g_six_zero[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_BC, CLAP_SURROUND_SL,
+                                       CLAP_SURROUND_SR };
+#define SIX_ZERO_MASK ((1u << CLAP_SURROUND_FL) | (1u << CLAP_SURROUND_FR) | (1u << CLAP_SURROUND_FC) | (1u << CLAP_SURROUND_BC) \
+                       | (1u << CLAP_SURROUND_SL) | (1u << CLAP_SURROUND_SR))
+
 static bool surround_is_channel_mask_supported(const clap_plugin_t *plugin, uint64_t channel_mask)
 {
-    (void)plugin;
-    return channel_mask == FIVE_ONE_MASK;
+    const fake_t *fake = plugin->plugin_data;
+
+    main_thread_only(plugin, "surround.is_channel_mask_supported");
+    return channel_mask == (fake->type == FAKE_TYPE_SURROUND_REFUSES ? SIX_ZERO_MASK : FIVE_ONE_MASK);
 }
 
 static uint32_t surround_get_channel_map(const clap_plugin_t *plugin, bool is_input, uint32_t port_index, uint8_t *channel_map,
@@ -263,7 +339,7 @@ static uint32_t surround_get_channel_map(const clap_plugin_t *plugin, bool is_in
     if (port_index != 0)
         return 0;
     for (c = 0; c < 6 && c < channel_map_capacity; c++)
-        channel_map[c] = g_five_one[c];
+        channel_map[c] = fake->type == FAKE_TYPE_SURROUND_REFUSES ? g_six_zero[c] : g_five_one[c];
     if (fake->type == FAKE_TYPE_SURROUND_BAD && c == 6)
         channel_map[5] = 25;
     return fake->type == FAKE_TYPE_SURROUND_SHORT && c == 6 ? 5 : c;
@@ -289,6 +365,117 @@ static bool ambisonic_get_config(const clap_plugin_t *plugin, bool is_input, uin
 }
 
 static const clap_plugin_ambisonic_t g_ambisonic = { ambisonic_is_config_supported, ambisonic_get_config };
+
+/* configs' two configurations: 1 a mono main input and a stereo main output, 2 a stereo main pair */
+static uint32_t configs_count(const clap_plugin_t *plugin)
+{
+    main_thread_only(plugin, "audio_ports_config.count");
+    return ((const fake_t *)plugin->plugin_data)->configs_twin ? 3 : 2;
+}
+
+static bool configs_get(const clap_plugin_t *plugin, uint32_t index, clap_audio_ports_config_t *config)
+{
+    const uint32_t twin = index == 2 && ((const fake_t *)plugin->plugin_data)->configs_twin;
+
+    main_thread_only(plugin, "audio_ports_config.get");
+    if (index > 1 && !twin)
+        return false;
+    memset(config, 0, sizeof(*config));
+    config->id = index + 1;
+    snprintf(config->name, sizeof(config->name), index == 0 ? "mono to stereo" : twin ? "stereo again" : "stereo");
+    if (twin)
+        index = 1;  // the stereo pair's ports
+    config->input_port_count = ((const fake_t *)plugin->plugin_data)->configs_side ? 2 : 1;
+    config->output_port_count = 1;
+    config->has_main_input = true;
+    config->main_input_channel_count = index == 0 ? 1 : 2;
+    config->main_input_port_type = index == 0 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+    config->has_main_output = true;
+    config->main_output_channel_count = 2;
+    config->main_output_port_type = CLAP_PORT_STEREO;
+    if (index == 0 && ((const fake_t *)plugin->plugin_data)->configs_no_main_in)
+    {
+        // a source: no main input, the input fields left as they were, which a host reads only under has_main_input
+        config->input_port_count = 0;
+        config->has_main_input = false;
+    }
+    if (((const fake_t *)plugin->plugin_data)->configs_untyped)
+    {
+        config->main_input_port_type = NULL;
+        config->main_output_port_type = NULL;
+    }
+    return true;
+}
+
+static bool configs_select(const clap_plugin_t *plugin, clap_id config_id)
+{
+    fake_t *fake = plugin->plugin_data;
+    char line[32];
+
+    main_thread_only(plugin, "audio_ports_config.select");
+    if ((config_id != 1 && config_id != 2 && !(config_id == 3 && fake->configs_twin)) || (config_id == 2 && fake->configs_twin))
+        return false;
+    fake->main_channels = config_id == 1 ? 1 : 2;
+    fake->out_channels = 2;
+    if (fake->configs_side)
+    {
+        fake->extra_inputs = 1;
+        fake->aux_in_channels = 1;
+    }
+    fake->named = config_id;
+    fake->no_input = fake->configs_no_main_in && config_id == 1;
+    snprintf(line, sizeof(line), "select %u", config_id);
+    fake_log(plugin, line);
+    return true;
+}
+
+static const clap_plugin_audio_ports_config_t g_configs = { configs_count, configs_get, configs_select };
+
+/* configurable takes a main port of 1 or 2 channels each side, mono, stereo or no port type (with FAKE_CONFIGURABLE_ANY,
+ * any width and type); nothing but the main ports */
+static bool configurable_can_apply(const clap_plugin_t *plugin, const clap_audio_port_configuration_request_t *requests, uint32_t count)
+{
+    const fake_t *fake = plugin->plugin_data;
+    uint32_t i;
+
+    main_thread_only(plugin, "configurable_audio_ports.can_apply_configuration");
+    for (i = 0; i < count; i++)
+    {
+        const clap_audio_port_configuration_request_t *r = &requests[i];
+
+        if (r->port_index != 0)
+            return false;
+        if (fake->configurable_any)
+            continue;
+        if (r->channel_count < 1 || r->channel_count > 2)
+            return false;
+        if (r->port_type && strcmp(r->port_type, r->channel_count == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO) != 0)
+            return false;
+    }
+    return true;
+}
+
+static bool configurable_apply(const clap_plugin_t *plugin, const clap_audio_port_configuration_request_t *requests, uint32_t count)
+{
+    fake_t *fake = plugin->plugin_data;
+    uint32_t i;
+
+    main_thread_only(plugin, "configurable_audio_ports.apply_configuration");
+    if (fake->apply_fails || !configurable_can_apply(plugin, requests, count))
+        return false;
+    for (i = 0; i < count; i++)
+    {
+        if (requests[i].is_input)
+            fake->main_channels = requests[i].channel_count;
+        else
+            fake->out_channels = requests[i].channel_count;
+    }
+    fake->named = FAKE_CONFIGURED;
+    fake_log(plugin, "apply");
+    return true;
+}
+
+static const clap_plugin_configurable_audio_ports_t g_configurable = { configurable_can_apply, configurable_apply };
 
 static uint32_t note_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
@@ -469,6 +656,7 @@ static bool plugin_init(const clap_plugin_t *plugin)
     fake_t *fake = plugin->plugin_data;
 
     fake->init_thread = pthread_self();
+    fake->thread_check = fake->host->get_extension(fake->host, CLAP_EXT_THREAD_CHECK);
     fake_log(plugin, "init");
     return true;
 }
@@ -558,6 +746,25 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
     (void)sample_rate; (void)min_frames; (void)max_frames;
     fake->activations++;
     fake_log(plugin, "activate");
+    if (fake->names_on_activate)
+    {
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (fake->names_on_activate == 1)
+            fake->names_on_activate = 0;
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
+    }
+    if (fake->rescan_on_activate)
+    {
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (fake->rescan_on_activate == 2)
+            fake->rescan_on_activate = 0;
+
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
+    }
     if (fake->type == FAKE_TYPE_SURROUND && getenv("FAKE_CHANGED_ON_ACTIVATE"))
     {
         const clap_host_surround_t *host_surround = fake->host->get_extension(fake->host, CLAP_EXT_SURROUND);
@@ -571,8 +778,32 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
 /* deactivated, a plugin with a layout extension says its layout changed, as the extensions allow only now */
 static void plugin_deactivate(const clap_plugin_t *plugin)
 {
-    const fake_t *fake = plugin->plugin_data;
+    fake_t *fake = plugin->plugin_data;
 
+    if (fake->switch_always)
+        fake->switch_on_deactivate = 1;
+    if (fake->switch_on_deactivate || fake->input_lost == 2)
+    {
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (fake->switch_on_deactivate)
+        {
+            fake->main_channels = 2;
+            fake->named = 2;
+        }
+        fake->switch_on_deactivate = 0;
+        if (fake->input_lost)
+            fake->input_lost = 1;
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+    }
+    if (fake->rescan_on_deactivate)
+    {
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+    }
     if (fake->type == FAKE_TYPE_SURROUND || fake->type == FAKE_TYPE_SURROUND_BAD || fake->type == FAKE_TYPE_SURROUND_SHORT)
     {
         const clap_host_surround_t *host_surround = fake->host->get_extension(fake->host, CLAP_EXT_SURROUND);
@@ -613,6 +844,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     uint32_t c, i;
 
     fake->process_calls++;
+    if (fake->thread_check && !fake->logged_off_role && !fake->thread_check->is_audio_thread(fake->host))
+    {
+        fake->logged_off_role = 1;
+        fake_log(plugin, "process off the audio role");
+    }
     if (!fake->logged_process)
     {
         fake->logged_process = 1;
@@ -635,6 +871,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     {
         for (i = 0; i < process->frames_count; i++)
             out->data32[0][i] = in->data32[0][i] + in->data32[1][i];
+    }
+    else if (fake->mix == FAKE_MIX_HALF)
+    {
+        for (c = 0; c < out->channel_count; c++)
+            for (i = 0; i < process->frames_count; i++)
+                out->data32[c][i] = 0.5f * in->data32[c < in->channel_count ? c : 0][i];
     }
     else if (fake->mix == FAKE_MIX_REVERSE)
     {
@@ -670,8 +912,13 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
     if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT) && *contract_arm())
         return &g_contract;
     if (!strcmp(id, CLAP_EXT_SURROUND)
-        && (fake->type == FAKE_TYPE_SURROUND || fake->type == FAKE_TYPE_SURROUND_BAD || fake->type == FAKE_TYPE_SURROUND_SHORT))
+        && (fake->type == FAKE_TYPE_SURROUND || fake->type == FAKE_TYPE_SURROUND_BAD || fake->type == FAKE_TYPE_SURROUND_SHORT
+            || fake->type == FAKE_TYPE_SURROUND_REFUSES))
         return &g_surround;
+    if (!strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG) && (fake->offers & FAKE_OFFERS_CONFIGS))
+        return &g_configs;
+    if (!strcmp(id, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS) && (fake->offers & FAKE_OFFERS_CONFIGURABLE))
+        return &g_configurable;
     if (!strcmp(id, CLAP_EXT_AMBISONIC) && fake->type == FAKE_TYPE_AMBISONIC)
         return &g_ambisonic;
     if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_TRACK_INFO))
@@ -691,6 +938,27 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     if (latency == fake->latency)
         return;
     fake->latency = latency;
+    if (fake->offers & FAKE_OFFERS_CONFIGS)
+    {
+        // configs: 101 and 102 change its layout, which CLAP has a plugin do as request_restart, then its ports in the
+        // deactivate; any other write renames its ports while active, which only NAMES may say (103 once more in the
+        // next activate, 104 in every activate)
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (latency == 101 || latency == 102)
+        {
+            if (latency == 101)
+                fake->switch_on_deactivate = 1;
+            else
+                fake->input_lost = 2;   // from the next deactivate on
+            fake->host->request_restart(fake->host);
+            return;
+        }
+        fake->names_on_activate = latency == 103 ? 1 : latency == 104 ? 2 : 0;
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
+        return;
+    }
     host_latency = fake->host->get_extension(fake->host, CLAP_EXT_LATENCY);
     if (host_latency)
         host_latency->changed(fake->host);
@@ -735,6 +1003,18 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->copies_nothing = g_layouts[i].copies_nothing;
     fake->mix = g_layouts[i].mix;
     fake->type = g_layouts[i].type;
+    fake->offers = g_layouts[i].offers;
+    if ((fake->offers & FAKE_OFFERS_CONFIGS) && getenv("FAKE_CONFIGURABLE_TOO"))
+        fake->offers |= FAKE_OFFERS_CONFIGURABLE;
+    fake->apply_fails = getenv("FAKE_APPLY_FAILS") != NULL;
+    fake->configurable_any = getenv("FAKE_CONFIGURABLE_ANY") != NULL;
+    fake->configs_untyped = getenv("FAKE_CONFIGS_UNTYPED") != NULL;
+    fake->configs_side = getenv("FAKE_CONFIGS_SIDE") != NULL;
+    fake->configs_no_main_in = getenv("FAKE_CONFIGS_NO_MAIN_IN") != NULL;
+    fake->switch_always = getenv("FAKE_SWITCH_ON_DEACTIVATE") != NULL && (fake->offers & FAKE_OFFERS_CONFIGS);
+    fake->configs_twin = getenv("FAKE_CONFIGS_TWIN") != NULL;
+    fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
+    fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     if (fake->type == FAKE_TYPE_SURROUND_PLAIN && getenv("FAKE_SURROUND_PLAIN_CHANNELS"))
         fake->main_channels = fake->out_channels = (uint32_t)atoi(getenv("FAKE_SURROUND_PLAIN_CHANNELS"));
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;

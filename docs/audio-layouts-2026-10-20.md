@@ -51,7 +51,10 @@ Non-goals
   as it does now. The bus widths of a future surround console are that console's design.
 - Binding auxiliary inputs from the console's UI (patching a side chain): a console feature. This note gives the library API and the JACK ports; what connects to them is the
   carrier's.
-- Live layout changes: a plugin that rescans its ports while active is restarted into the new judgment, as today.
+- Live layout changes: a plugin's ports rescan (audio-ports rescan, surround or ambisonic `changed`) is parked and
+  reported once through `omx_clap_host_ports_rescanned`, never answered by a restart; the carrier re-describes the
+  plugin inactive through `omx_clap_host_request_layout` and activates it again. A restart whose deactivate raised a
+  rescan stops there, inactive, answering `OMX_CLAP_RESTART_RESCANNED`.
 - ev:EventPort (#52), control-only plugins and the ll-plugins bundles: their own lanes, in that order, after this.
 
 Anti-goals
