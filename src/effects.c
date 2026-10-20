@@ -427,16 +427,16 @@ static void latency(jack_latency_callback_mode_t mode, void *arg)
     if (mode == JackCaptureLatency)
     {
         from = effect->input_ports;
-        from_count = effect->clap->in_channels;
+        from_count = effect->in_ports;
         to = effect->output_ports;
-        to_count = effect->clap->channels;
+        to_count = effect->out_ports;
     }
     else
     {
         from = effect->output_ports;
-        from_count = effect->clap->channels;
+        from_count = effect->out_ports;
         to = effect->input_ports;
-        to_count = effect->clap->in_channels;
+        to_count = effect->in_ports;
     }
 
     total.min = UINT32_MAX;
@@ -787,16 +787,17 @@ static int clap_state_load(struct omx_clap_instance *clap, const char *filename)
 }
 
 /* The lane's width asked of an inactive plugin (request_layout): -c channels on each main port, mono or stereo, the
- * input asked only of a plugin that has one. 0 applied, OMX_CLAP_LAYOUT_DECLARED when the plugin keeps its declared
- * layout (the ports carry it as it is), -1 refused with `why`; the description is read again either way. */
-static int lane_request(struct omx_clap_instance *clap, char why[OMX_CLAP_WHY_MAX])
+ * input asked only when `has_input` (the plugin declared one at add; its JACK inputs after). 0 applied,
+ * OMX_CLAP_LAYOUT_DECLARED when the plugin keeps its declared layout (the ports carry it as it is), -1 refused with
+ * `why`; the description is read again either way. */
+static int lane_request(struct omx_clap_instance *clap, int has_input, char why[OMX_CLAP_WHY_MAX])
 {
     clap_audio_port_configuration_request_t reqs[2];
     const char *type = g_lane_channels == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
     uint32_t n = 0;
 
     memset(reqs, 0, sizeof(reqs));
-    if (clap->in_channels)
+    if (has_input)
     {
         reqs[n].is_input = true;
         reqs[n].channel_count = g_lane_channels;
@@ -842,7 +843,7 @@ static void ports_relayout(effect_t *effect)
         omx_clap_host_deactivate(clap);
     }
     effect->relayout_pending = 0;
-    if (lane_request(clap, why) < 0)
+    if (lane_request(clap, effect->in_ports != 0, why) < 0)
         fprintf(stderr, "%s: its layout after the ports rescan is refused: %s; it passes dry\n", clap->desc->id, why);
     else if (clap->in_channels != effect->in_ports || clap->channels != effect->out_ports)
         fprintf(stderr, "%s: its main ports are now %u in and %u out, not the %u and %u it was added with; it passes dry until it "
@@ -1474,7 +1475,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
     if ((effect->clap->in_channels && effect->clap->in_channels != g_lane_channels) || effect->clap->channels != g_lane_channels)
     {
         why[0] = '\0';
-        if (lane_request(effect->clap, why) < 0)
+        if (lane_request(effect->clap, effect->clap->in_channels != 0, why) < 0)
         {
             fprintf(stderr, "%s: %s\n", id, why);
             snprintf(g_add_reason, sizeof(g_add_reason), "%s", why);
