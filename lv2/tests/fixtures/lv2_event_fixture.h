@@ -5,7 +5,8 @@
  * #echo writes every MIDI event of its input to its output at the same frame, a note on or off one key up, and passes
  * its stereo audio through. #two counts the events on each of its two inputs and writes the first input's to both its
  * outputs. #mixed-atom-first and #mixed-ev-first each have an atom MIDI port and an ev:EventPort MIDI port each way, in
- * the two index orders: they count the events on each input and write every one to both outputs. What they saw is written by the thread the host called them on, and read by the test through dlsym.
+ * the two index orders: they count the events on each input and write every one to both outputs. What they saw is
+ * written by the thread the host called them on, and read by the test through dlsym.
  */
 #ifndef OMX_TEST_LV2_EVENT_FIXTURE_H
 #define OMX_TEST_LV2_EVENT_FIXTURE_H
