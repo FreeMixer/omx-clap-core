@@ -36,6 +36,7 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <omxcontract/omx_vocabulary.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -95,8 +96,6 @@
 // the LV2 adapter's numbers: its worker's poll and ring are the hosted stage's declared ones (data/hosting.json), the
 // same the console's in-process adapter is handed; the smallest atom buffer (0: the adapter's own); the latency hold
 #define LV2_ATOM_BUFFER_BYTES   0u
-// the adapter's code for a plugin it has no way to run, lv2/core's LV2_CODE_NO_REALISATION
-#define HOSTING_NO_REALISATION  "hosting.no-realisation"
 
 
 /*
@@ -625,8 +624,8 @@ static int open_lv2(const char *uri, effect_t *effect)
     search.uri = uri;
     if (!g_lv2_ready)
     {
-        fprintf(stderr, "%s: %s: the LV2 adapter is not configured\n", uri, HOSTING_NO_REALISATION);
-        snprintf(g_add_reason, sizeof(g_add_reason), "%s", HOSTING_NO_REALISATION);
+        fprintf(stderr, "%s: %s: the LV2 adapter is not configured\n", uri, OMX_HOSTING_NO_REALISATION);
+        snprintf(g_add_reason, sizeof(g_add_reason), "%s", OMX_HOSTING_NO_REALISATION);
         return ERR_LV2_INSTANTIATION;
     }
     if (!lv2_locate(NULL, uri, lv2_candidate, &search))
