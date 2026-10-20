@@ -987,9 +987,11 @@ static bool config_type_matches(const char *config_type, const clap_audio_port_c
                || (r->channel_count == 2 && !strcmp(r->port_type, CLAP_PORT_STEREO)));
 }
 
-/* Whether an audio-ports-config is the requests: only main ports asked (index 0, one per side at most), the config's
- * port counts one for each side asked and none for a side not asked, and the main channels and port types the asked
- * ones (config_type_matches). A config says nothing of an auxiliary port's width, so a request past the main ports
+/* Whether an audio-ports-config is the requests: only main ports asked (index 0, one per side at most), and the config's
+ * main ports (has_main_input, has_main_output: a config flags its mains by these, no port of it otherwise) the asked
+ * ones, a main on each side asked, of its channels and port type (config_type_matches), and no main on a side not
+ * asked. Its auxiliary ports, a side chain beside the main input, never stop a match: they are described after, when
+ * the description is read again. A config says nothing of an auxiliary port's width, so a request past the main ports
  * matches none. */
 static bool config_matches(const clap_audio_ports_config_t *config, const clap_audio_port_configuration_request_t *reqs, uint32_t n)
 {
@@ -1004,12 +1006,13 @@ static bool config_matches(const clap_audio_ports_config_t *config, const clap_a
             return false;
         *side = &reqs[i];
     }
-    if (config->input_port_count != (in_req ? 1u : 0u) || config->output_port_count != (out_req ? 1u : 0u))
+    if (in_req ? (!config->has_main_input || config->input_port_count < 1u) : config->has_main_input)
         return false;
-    if (in_req && (!config->has_main_input || config->main_input_channel_count != in_req->channel_count
-                   || !config_type_matches(config->main_input_port_type, in_req)))
+    if (out_req ? (!config->has_main_output || config->output_port_count < 1u) : config->has_main_output)
         return false;
-    if (out_req && (!config->has_main_output || config->main_output_channel_count != out_req->channel_count
+    if (in_req && (config->main_input_channel_count != in_req->channel_count || !config_type_matches(config->main_input_port_type, in_req)))
+        return false;
+    if (out_req && (config->main_output_channel_count != out_req->channel_count
                     || !config_type_matches(config->main_output_port_type, out_req)))
         return false;
     return true;
@@ -1038,9 +1041,11 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
     }
     configurable = in->configurable_audio_ports;
     configs = in->audio_ports_config;
+    // configurable-audio-ports first; one that cannot apply the requests, or whose apply refuses them, falls back to the
+    // config list
     if (n && configurable && configurable->can_apply_configuration && configurable->apply_configuration
-        && configurable->can_apply_configuration(in->plugin, reqs, n))
-        ret = configurable->apply_configuration(in->plugin, reqs, n) ? 0 : OMX_CLAP_LAYOUT_DECLARED;
+        && configurable->can_apply_configuration(in->plugin, reqs, n) && configurable->apply_configuration(in->plugin, reqs, n))
+        ret = 0;
     else if (n && configs && configs->count && configs->get && configs->select)
     {
         const uint32_t count = configs->count(in->plugin);
