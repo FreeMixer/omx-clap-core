@@ -19,7 +19,7 @@ run     per rate, one private PipeWire in its own user, net, pid and mount names
         the feeder's clock (tests/jack_parity): nothing runs until it triggers a cycle, so every instance gets
         its first run() in the same cycle, and the cycles run back to back, as fast as the graph completes
         them (--paced: one quantum of wall time apart). Per plugin, a fresh mod-host and a fresh omx-clap-host each add the
-        plugin twice (instances 0, 1 and 2, 3), default parameters; the feeder runs 0.3 s of silence (past
+        plugin twice (instances 0, 1 and 2, 3), default parameters; the feeder runs 0.25 s of silence (to
         the adapter's latency hold of 250 ms of blocks), stops the graph for --hold-ms of wall time (the
         host's restart for that latency, a worker's first answer), runs 16 blocks more (the restart's fade),
         then plays --seconds of noise + sine + impulse (and a fixed note sequence to a MIDI input) and
@@ -1450,8 +1450,10 @@ def main():
     p.add_argument('--limit', type=int, default=0)
     p.add_argument('--seconds', type=float, default=3.0)
     p.add_argument('--warm-blocks', type=int, default=16)
-    p.add_argument('--warm-seconds', type=float, default=0.3, help='the first warm, at least this much audio')
-    p.add_argument('--hold-ms', type=int, default=400)
+    p.add_argument('--warm-seconds', type=float, default=0.25, help='the first warm, at least this much audio')
+    # a full second: each instance's latency restart takes up to 200 ms of the host's control thread, and the second
+    # instance's must have landed before the cycles run again (400 ms let it land in the warm, its two instances apart)
+    p.add_argument('--hold-ms', type=int, default=1000)
     p.add_argument('--add-timeout', type=float, default=30)
     p.add_argument('--warm-timeout', type=float, default=20)
     p.add_argument('--run-timeout', type=float, default=120)
