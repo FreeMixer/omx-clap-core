@@ -400,7 +400,7 @@ jobs:
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
 
@@ -437,7 +437,7 @@ jobs:
           chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           # the LV2 adapter is linked in and loads lilv itself, on the first LV2 add
           ! grep -q 'liblilv' ldd.txt
 
@@ -542,7 +542,7 @@ jobs:
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
           dpkg -L libomx-clap-core-dev | tee dev-files.txt
@@ -628,7 +628,7 @@ jobs:
           ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |
