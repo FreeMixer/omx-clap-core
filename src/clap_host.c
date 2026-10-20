@@ -38,12 +38,16 @@
 ************************************************************************************************************************
 */
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <limits.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -447,6 +451,130 @@ static void host_voice_info_changed(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->voice_info_changed, 1u, memory_order_relaxed);
 }
 
+/* the host reads no event space but the core one, so it knows no other space to name: every query answers false */
+static bool host_event_registry_query(const clap_host_t *host, const char *space_name, uint16_t *space_id)
+{
+    (void)space_name;
+    if (space_id)
+        *space_id = UINT16_MAX;
+    main_thread_call(host);
+    return false;
+}
+
+static const clap_host_event_registry_t g_host_event_registry = { host_event_registry_query };
+
+static uint64_t now_ns(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+}
+
+/* timer-support: a slot of the instance, its first call one period from now; the tick calls on_timer when it is due */
+static bool host_register_timer(const clap_host_t *host, uint32_t period_ms, clap_id *timer_id)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    uint32_t i;
+
+    if (!main_thread_call(host) || !timer_id)
+        return false;
+    for (i = 0; i < OMX_CLAP_TIMERS && in->timers[i].used; i++)
+        ;
+    if (i == OMX_CLAP_TIMERS)
+        return false;
+    in->timers[i].used = 1;
+    in->timers[i].id = in->timer_next_id++;
+    in->timers[i].period_ms = period_ms < OMX_CLAP_TIMER_MIN_MS ? OMX_CLAP_TIMER_MIN_MS : period_ms;
+    in->timers[i].due_ns = now_ns() + (uint64_t)in->timers[i].period_ms * 1000000u;
+    *timer_id = in->timers[i].id;
+    return true;
+}
+
+static bool host_unregister_timer(const clap_host_t *host, clap_id timer_id)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (!main_thread_call(host))
+        return false;
+    for (uint32_t i = 0; i < OMX_CLAP_TIMERS; i++)
+        if (in->timers[i].used && in->timers[i].id == timer_id)
+        {
+            in->timers[i].used = 0;
+            return true;
+        }
+    return false;
+}
+
+/* posix-fd-support: a slot of the instance; the tick polls the descriptors and calls on_fd with what is ready */
+static int fd_slot(struct omx_clap_instance *in, int fd)
+{
+    for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
+        if (in->fds[i].fd == fd)
+            return (int)i;
+    return -1;
+}
+
+static bool host_register_fd(const clap_host_t *host, int fd, clap_posix_fd_flags_t flags)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    int i;
+
+    if (!main_thread_call(host) || fd < 0 || fd_slot(in, fd) >= 0 || (i = fd_slot(in, -1)) < 0)
+        return false;
+    in->fds[i].fd = fd;
+    in->fds[i].flags = flags;
+    return true;
+}
+
+static bool host_modify_fd(const clap_host_t *host, int fd, clap_posix_fd_flags_t flags)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    int i;
+
+    if (!main_thread_call(host) || fd < 0 || (i = fd_slot(in, fd)) < 0)
+        return false;
+    in->fds[i].flags = flags;
+    return true;
+}
+
+static bool host_unregister_fd(const clap_host_t *host, int fd)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    int i;
+
+    if (!main_thread_call(host) || fd < 0 || (i = fd_slot(in, fd)) < 0)
+        return false;
+    in->fds[i].fd = -1;
+    in->fds[i].flags = 0;
+    return true;
+}
+
+/* thread-pool, on the audio role inside process(): every task runs before the call returns, one after the other on the
+ * calling thread, which is real-time safe and what the extension allows; anywhere else the request is refused */
+static bool host_request_exec(const clap_host_t *host, uint32_t num_tasks)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (!in->thread_pool || !in->thread_pool->exec || !on_audio_role(in) || in->in_exec)
+        return false;       // a request made from inside exec would nest the tasks: refused, the plugin runs its own
+    in->in_exec = 1;
+    for (uint32_t i = 0; i < num_tasks; i++)
+        in->thread_pool->exec(in->plugin, i);
+    in->in_exec = 0;
+    return true;
+}
+
+/* tail: the tick reads it again */
+static void host_tail_changed(const clap_host_t *host)
+{
+    atomic_store_explicit(&instance_of(host)->tail_changed, 1u, memory_order_relaxed);
+}
+
+static const clap_host_timer_support_t g_host_timer_support = { host_register_timer, host_unregister_timer };
+static const clap_host_posix_fd_support_t g_host_posix_fd_support = { host_register_fd, host_modify_fd, host_unregister_fd };
+static const clap_host_thread_pool_t g_host_thread_pool = { host_request_exec };
+static const clap_host_tail_t g_host_tail = { host_tail_changed };
 static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
 static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
 static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
@@ -495,6 +623,16 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_note_name;
     if (!strcmp(id, CLAP_EXT_VOICE_INFO))
         return &g_host_voice_info;
+    if (!strcmp(id, CLAP_EXT_EVENT_REGISTRY))
+        return &g_host_event_registry;
+    if (!strcmp(id, CLAP_EXT_TIMER_SUPPORT))
+        return &g_host_timer_support;
+    if (!strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))
+        return &g_host_posix_fd_support;
+    if (!strcmp(id, CLAP_EXT_THREAD_POOL))
+        return &g_host_thread_pool;
+    if (!strcmp(id, CLAP_EXT_TAIL))
+        return &g_host_tail;
     return NULL;
 }
 
@@ -503,9 +641,10 @@ static void host_request_restart(const clap_host_t *host)
     atomic_store_explicit(&instance_of(host)->restart_requested, 1u, memory_order_relaxed);
 }
 
+/* a sleeping plugin is woken for its next block; one that is awake is processed anyway */
 static void host_request_process(const clap_host_t *host)
 {
-    (void)host;     // a published plugin is always processed
+    atomic_store_explicit(&instance_of(host)->sleep.wake, 1u, memory_order_relaxed);
 }
 
 static void host_request_callback(const clap_host_t *host)
@@ -583,15 +722,15 @@ static const char *reread_note_input(struct omx_clap_instance *in)
  * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
  * channels; an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each of 1 or 2 channels); an input
  * besides them a side chain, fed silence until the caller binds it (up to CLAP_HOST_AUX_INPUTS, each of 1 or 2 channels);
- * where the configuration admits note inputs, one note input, and with it no main input at all (an instrument); otherwise
- * no note input. Returns the hosting code that refuses, or NULL.
+ * no main input at all is a source (an instrument with a note input, a generator without one, #184), its output its own;
+ * where the configuration admits note inputs, one note input; otherwise no note input. Returns the hosting code that
+ * refuses, or NULL.
  */
 static const char *read_topology(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
     uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0;
     const char *code;
-    int instrument;
     int dir;
 
     if (g_config.note_inputs)
@@ -600,7 +739,6 @@ static const char *read_topology(struct omx_clap_instance *in)
         if (code)
             return code;
     }
-    instrument = g_config.note_inputs && in->note_inputs;
 
     if (ports)
     {
@@ -643,8 +781,6 @@ static const char *read_topology(struct omx_clap_instance *in)
             }
         }
     }
-    if ((n_main_in == 0 || main_in == 0) && !instrument)
-        return CLAP_HOST_CODE_NO_AUDIO_INPUT;
     if (n_main_out == 0 || main_out == 0)
         return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
     if (main_in > CLAP_HOST_MAIN_PORT_CHANNELS || main_out > CLAP_HOST_MAIN_PORT_CHANNELS || n_main_in > 1 || n_main_out > 1)
@@ -678,6 +814,8 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->host.request_restart = host_request_restart;
     in->host.request_process = host_request_process;
     in->host.request_callback = host_request_callback;
+    for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
+        in->fds[i].fd = -1;     // before init, which may register one
     in->plugin = bin->factory->create_plugin(bin->factory, &in->host, desc->id);
     if (!in->plugin || !in->plugin->init(in->plugin))
     {
@@ -693,6 +831,10 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->audio_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS);
     in->note_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_NOTE_PORTS);
     in->state = in->plugin->get_extension(in->plugin, CLAP_EXT_STATE);
+    in->timer_support = in->plugin->get_extension(in->plugin, CLAP_EXT_TIMER_SUPPORT);
+    in->fd_support = in->plugin->get_extension(in->plugin, CLAP_EXT_POSIX_FD_SUPPORT);
+    in->thread_pool = in->plugin->get_extension(in->plugin, CLAP_EXT_THREAD_POOL);
+    in->tail = in->plugin->get_extension(in->plugin, CLAP_EXT_TAIL);
     in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD);
     if (!in->preset_load)
         in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
@@ -1446,6 +1588,394 @@ uint32_t omx_clap_core_version(void)
 ************************************************************************************************************************
 */
 
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: PRESET DISCOVERY
+************************************************************************************************************************
+*/
+
+/* the filetypes and locations one provider declares at init, kept for the crawl */
+#define PRESET_FILETYPES    16u
+#define PRESET_LOCATIONS    16u
+#define PRESET_EXT_MAX      32u
+#define PRESET_NAME_MAX     256u
+#define PRESET_KEY_MAX      1024u
+#define PRESET_TEXT_MAX     512u
+
+struct preset_location
+{
+    uint32_t flags, kind;
+    char *location;             // NULL for a PLUGIN location
+};
+
+/* one crawl: the indexer, its receiver, the preset being received and the caller's callback */
+struct preset_crawl
+{
+    clap_preset_discovery_indexer_t indexer;
+    clap_preset_discovery_metadata_receiver_t receiver;
+    const char *provider_id;
+    char extensions[PRESET_FILETYPES][PRESET_EXT_MAX];
+    uint32_t n_extensions;
+    int any_extension;          // a filetype with no extension: every file is the provider's to read
+    struct preset_location locations[PRESET_LOCATIONS];
+    uint32_t n_locations;
+
+    // the preset under way: from begin_preset to the next one or the end of get_metadata
+    int open;
+    uint32_t kind, location_flags;
+    const char *location;
+    char name[PRESET_NAME_MAX], key[PRESET_KEY_MAX], description[PRESET_TEXT_MAX];
+    int has_key, has_flags;
+    uint32_t flags;
+    char plugin_ids[OMX_CLAP_PRESET_PLUGINS][CLAP_NAME_SIZE * 4];
+    uint32_t n_plugin_ids;
+
+    omx_clap_preset_fn fn;
+    void *ctx;
+    int listed, stopped, files;
+};
+
+static struct preset_crawl *crawl_of_indexer(const clap_preset_discovery_indexer_t *indexer)
+{
+    return (struct preset_crawl *)indexer->indexer_data;
+}
+
+static struct preset_crawl *crawl_of_receiver(const clap_preset_discovery_metadata_receiver_t *receiver)
+{
+    return (struct preset_crawl *)receiver->receiver_data;
+}
+
+static void copy_text(char *dst, size_t cap, const char *src)
+{
+    snprintf(dst, cap, "%s", src ? src : "");
+}
+
+static bool indexer_declare_filetype(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_filetype_t *filetype)
+{
+    struct preset_crawl *c = crawl_of_indexer(indexer);
+
+    if (!filetype)
+        return false;
+    if (!filetype->file_extension || !filetype->file_extension[0])
+    {
+        c->any_extension = 1;
+        return true;
+    }
+    if (c->n_extensions >= PRESET_FILETYPES || strlen(filetype->file_extension) >= PRESET_EXT_MAX)
+        return false;
+    copy_text(c->extensions[c->n_extensions++], PRESET_EXT_MAX, filetype->file_extension[0] == '.' ? filetype->file_extension + 1
+                                                                                                   : filetype->file_extension);
+    return true;
+}
+
+static bool indexer_declare_location(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_location_t *location)
+{
+    struct preset_crawl *c = crawl_of_indexer(indexer);
+    struct preset_location *l;
+
+    if (!location || c->n_locations >= PRESET_LOCATIONS)
+        return false;
+    if (location->kind != CLAP_PRESET_DISCOVERY_LOCATION_FILE && location->kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+        return false;
+    if (location->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && (!location->location || !location->location[0]))
+        return false;
+    l = &c->locations[c->n_locations];
+    l->flags = location->flags;
+    l->kind = location->kind;
+    l->location = location->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE ? strdup(location->location) : NULL;
+    if (location->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && !l->location)
+        return false;
+    c->n_locations++;
+    return true;
+}
+
+/* sound packs are not listed: a preset names its own */
+static bool indexer_declare_soundpack(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_soundpack_t *soundpack)
+{
+    (void)indexer;
+    return soundpack != NULL;
+}
+
+static const void *indexer_get_extension(const clap_preset_discovery_indexer_t *indexer, const char *id)
+{
+    (void)indexer;
+    (void)id;
+    return NULL;
+}
+
+/* the preset under way goes to the caller: its name, or for a file that holds one preset and names none, the file's */
+static void preset_flush(struct preset_crawl *c)
+{
+    struct omx_clap_preset p;
+    const char *base;
+    uint32_t i;
+
+    if (!c->open)
+        return;
+    c->open = 0;
+    if (c->stopped)
+        return;
+    memset(&p, 0, sizeof(p));
+    if (!c->name[0] && c->location)
+    {
+        base = strrchr(c->location, '/');
+        copy_text(c->name, sizeof(c->name), base ? base + 1 : c->location);
+    }
+    p.provider_id = c->provider_id;
+    p.name = c->name;
+    p.location_kind = c->kind;
+    p.location = c->location;
+    p.load_key = c->has_key ? c->key : NULL;
+    p.flags = c->has_flags ? c->flags : c->location_flags;
+    p.description = c->description;
+    p.plugin_count = c->n_plugin_ids;
+    for (i = 0; i < c->n_plugin_ids; i++)
+        p.plugin_ids[i] = c->plugin_ids[i];
+    c->listed++;
+    if (c->fn && c->fn(c->ctx, &p) != 0)
+        c->stopped = 1;
+}
+
+static void receiver_on_error(const clap_preset_discovery_metadata_receiver_t *receiver, int32_t os_error, const char *message)
+{
+    (void)receiver;
+    (void)os_error;
+    (void)message;      // a file the provider cannot read lists no preset; the crawl goes on
+}
+
+static bool receiver_begin_preset(const clap_preset_discovery_metadata_receiver_t *receiver, const char *name, const char *load_key)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    preset_flush(c);
+    if (c->stopped || c->listed >= (int)OMX_CLAP_PRESETS_MAX)
+        return false;
+    c->open = 1;
+    copy_text(c->name, sizeof(c->name), name);
+    c->has_key = load_key != NULL;
+    copy_text(c->key, sizeof(c->key), load_key);
+    c->description[0] = '\0';
+    c->has_flags = 0;
+    c->flags = 0;
+    c->n_plugin_ids = 0;
+    return true;
+}
+
+/* only CLAP plugin ids: a preset for another format's plugin is no preset this host loads */
+static void receiver_add_plugin_id(const clap_preset_discovery_metadata_receiver_t *receiver, const clap_universal_plugin_id_t *id)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    if (!c->open || !id || !id->abi || strcmp(id->abi, "clap") != 0 || !id->id || c->n_plugin_ids >= OMX_CLAP_PRESET_PLUGINS)
+        return;
+    copy_text(c->plugin_ids[c->n_plugin_ids++], sizeof(c->plugin_ids[0]), id->id);
+}
+
+static void receiver_set_soundpack_id(const clap_preset_discovery_metadata_receiver_t *receiver, const char *id)
+{
+    (void)receiver;
+    (void)id;
+}
+
+static void receiver_set_flags(const clap_preset_discovery_metadata_receiver_t *receiver, uint32_t flags)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    if (!c->open)
+        return;
+    c->flags = flags;
+    c->has_flags = 1;
+}
+
+static void receiver_add_creator(const clap_preset_discovery_metadata_receiver_t *receiver, const char *creator)
+{
+    (void)receiver;
+    (void)creator;
+}
+
+static void receiver_set_description(const clap_preset_discovery_metadata_receiver_t *receiver, const char *description)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    if (c->open)
+        copy_text(c->description, sizeof(c->description), description);
+}
+
+static void receiver_set_timestamps(const clap_preset_discovery_metadata_receiver_t *receiver, clap_timestamp created, clap_timestamp modified)
+{
+    (void)receiver;
+    (void)created;
+    (void)modified;
+}
+
+static void receiver_add_feature(const clap_preset_discovery_metadata_receiver_t *receiver, const char *feature)
+{
+    (void)receiver;
+    (void)feature;
+}
+
+static void receiver_add_extra_info(const clap_preset_discovery_metadata_receiver_t *receiver, const char *key, const char *value)
+{
+    (void)receiver;
+    (void)key;
+    (void)value;
+}
+
+/* one location's presets through the provider; the location's path, or NULL for a PLUGIN location */
+static void crawl_metadata(struct preset_crawl *c, const clap_preset_discovery_provider_t *provider, uint32_t kind, uint32_t flags,
+                           const char *location)
+{
+    if (c->stopped)
+        return;
+    c->kind = kind;
+    c->location_flags = flags;
+    c->location = location;
+    c->open = 0;
+    provider->get_metadata(provider, kind, location, &c->receiver);
+    preset_flush(c);
+}
+
+static int crawl_wants(const struct preset_crawl *c, const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    uint32_t i;
+
+    if (c->any_extension)
+        return 1;
+    if (!dot)
+        return 0;
+    for (i = 0; i < c->n_extensions; i++)
+        if (!strcmp(dot + 1, c->extensions[i]))
+            return 1;
+    return 0;
+}
+
+static int compare_names(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+/* a FILE location: a file is read as it is; a directory is walked in name order, OMX_CLAP_PRESET_DEPTH deep at most, its
+ * files of a declared filetype read; a symbolic link to a directory inside it is not followed, so a loop cannot hold
+ * the crawl */
+static void crawl_path(struct preset_crawl *c, const clap_preset_discovery_provider_t *provider, uint32_t flags, const char *path,
+                       uint32_t depth)
+{
+    struct stat st;
+    DIR *dir;
+    struct dirent *e;
+    char **names = NULL, **grown;
+    size_t n = 0, cap = 0, i;
+
+    if (c->stopped || lstat(path, &st) != 0)
+        return;
+    if (S_ISLNK(st.st_mode) && (stat(path, &st) != 0 || (S_ISDIR(st.st_mode) && depth > 0)))
+        return;     // the declared location itself may be a link; one met inside the walk is not followed
+    if (S_ISREG(st.st_mode))
+    {
+        if (c->files++ < (int)OMX_CLAP_PRESET_FILES_MAX)
+            crawl_metadata(c, provider, CLAP_PRESET_DISCOVERY_LOCATION_FILE, flags, path);
+        return;
+    }
+    if (!S_ISDIR(st.st_mode) || depth >= OMX_CLAP_PRESET_DEPTH || !(dir = opendir(path)))
+        return;
+    while ((e = readdir(dir)))
+    {
+        char full[PATH_MAX];
+
+        if (e->d_name[0] == '.')
+            continue;
+        if ((size_t)snprintf(full, sizeof(full), "%s/%s", path, e->d_name) >= sizeof(full))
+            continue;
+        if (n == cap)
+        {
+            cap = cap ? cap * 2 : 32;
+            grown = realloc(names, cap * sizeof(*names));
+            if (!grown)
+                break;
+            names = grown;
+        }
+        if (!(names[n] = strdup(full)))
+            break;
+        n++;
+    }
+    closedir(dir);
+    if (n)
+        qsort(names, n, sizeof(*names), compare_names);
+    for (i = 0; i < n; i++)
+    {
+        if (lstat(names[i], &st) == 0 && (S_ISDIR(st.st_mode) || crawl_wants(c, names[i])))
+            crawl_path(c, provider, flags, names[i], depth + 1);
+        free(names[i]);
+    }
+    free(names);
+}
+
+/* every preset of one provider: init declares its filetypes and locations, then each location is crawled */
+static void crawl_provider(struct preset_crawl *c, const clap_preset_discovery_factory_t *factory, const char *id)
+{
+    const clap_preset_discovery_provider_t *provider = factory->create(factory, &c->indexer, id);
+    uint32_t i;
+
+    if (!provider)
+        return;
+    c->provider_id = id;
+    if (provider->init && provider->init(provider) && provider->get_metadata)
+        for (i = 0; i < c->n_locations && !c->stopped; i++)
+        {
+            if (c->locations[i].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+                crawl_metadata(c, provider, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, c->locations[i].flags, NULL);
+            else
+                crawl_path(c, provider, c->locations[i].flags, c->locations[i].location, 0);
+        }
+    if (provider->destroy)
+        provider->destroy(provider);
+    for (i = 0; i < c->n_locations; i++)
+        free(c->locations[i].location);
+    c->n_locations = 0;
+    c->n_extensions = 0;
+    c->any_extension = 0;
+}
+
+static int presets_of(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, void *ctx)
+{
+    const clap_preset_discovery_factory_t *factory;
+    struct preset_crawl *c;
+    uint32_t i, count;
+    int listed;
+
+    factory = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID);
+    if (!factory)
+        factory = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT);
+    // a plugin that answers every factory id with its plugin factory (SpectMorph 0.6.1 does) hands back a table of the
+    // same shape: its create makes a plugin, not a provider, and calling that plugin's init with an indexer crashes it
+    if (!factory || factory == entry->get_factory(CLAP_PLUGIN_FACTORY_ID) || !factory->count || !factory->get_descriptor || !factory->create)
+        return -1;
+    c = calloc(1, sizeof(*c));
+    if (!c)
+        return -1;
+    c->indexer = (clap_preset_discovery_indexer_t){ CLAP_VERSION_INIT, g_config.name, g_config.vendor, g_config.url,
+                                                    g_config.version, c, indexer_declare_filetype, indexer_declare_location,
+                                                    indexer_declare_soundpack, indexer_get_extension };
+    c->receiver = (clap_preset_discovery_metadata_receiver_t){ c, receiver_on_error, receiver_begin_preset, receiver_add_plugin_id,
+                                                               receiver_set_soundpack_id, receiver_set_flags, receiver_add_creator,
+                                                               receiver_set_description, receiver_set_timestamps,
+                                                               receiver_add_feature, receiver_add_extra_info };
+    c->fn = fn;
+    c->ctx = ctx;
+    count = factory->count(factory);
+    for (i = 0; i < count && !c->stopped; i++)
+    {
+        const clap_preset_discovery_provider_descriptor_t *desc = factory->get_descriptor(factory, i);
+
+        if (desc && desc->id)
+            crawl_provider(c, factory, desc->id);
+    }
+    listed = c->listed;
+    free(c);
+    return listed;
+}
+
 struct omx_clap_binary *omx_clap_host_binary_open(const char *path, char *reason, size_t reason_size)
 {
     return binary_ref(path, reason, reason_size);
@@ -1454,6 +1984,27 @@ struct omx_clap_binary *omx_clap_host_binary_open(const char *path, char *reason
 void omx_clap_host_binary_close(struct omx_clap_binary *binary)
 {
     binary_unref(binary);
+}
+
+int omx_clap_host_presets(struct omx_clap_binary *binary, omx_clap_preset_fn fn, void *ctx)
+{
+    return binary && binary->entry ? presets_of(binary->entry, fn, ctx) : -1;
+}
+
+int omx_clap_host_entry_presets(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, void *ctx)
+{
+    struct omx_clap_binary *binary;
+    char reason[OMX_CLAP_WHY_MAX];
+    int listed;
+
+    if (!entry)
+        return -1;
+    binary = binary_ref_entry(entry, NULL, reason, sizeof(reason));
+    if (!binary)
+        return -1;
+    listed = presets_of(entry, fn, ctx);
+    binary_unref(binary);
+    return listed;
 }
 
 uint32_t omx_clap_host_binary_count(const struct omx_clap_binary *binary)
@@ -1610,6 +2161,45 @@ void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_c
     atomic_compare_exchange_strong(&in->stage.state, &held, state);
 }
 
+static void tail_read(struct omx_clap_instance *in);
+
+/* audio-ports-activation, while the plugin is inactive: an auxiliary output is never connected, and an auxiliary input
+ * only while its buffers are bound, so the plugin may skip the work of a port nobody reads or writes; the main ports stay
+ * active. A plugin with no extension keeps every port active. */
+static void ports_activate(struct omx_clap_instance *in)
+{
+    const clap_plugin_audio_ports_activation_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION);
+    uint32_t aux = 0;
+
+    if (!ext)
+        ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
+    if (!ext || !ext->set_active || !in->audio_ports)
+        return;
+    for (int dir = 0; dir < 2; dir++)
+    {
+        const bool is_input = dir == 0;
+        const uint32_t count = in->audio_ports->count(in->plugin, is_input);
+
+        for (uint32_t i = 0; i < count; i++)
+        {
+            clap_audio_port_info_t info;
+
+            memset(&info, 0, sizeof(info));
+            if (!in->audio_ports->get(in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
+                continue;
+            if (is_input)
+            {
+                const bool bound = aux < CLAP_HOST_AUX_INPUTS && in->aux_in_bound[aux][0] != NULL;
+
+                aux++;
+                ext->set_active(in->plugin, true, i, bound, 32);
+            }
+            else
+                ext->set_active(in->plugin, false, i, false, 32);
+        }
+    }
+}
+
 int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
 {
     struct omx_clap_role role;
@@ -1640,6 +2230,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         return -1;
     }
     omx_clap_set_bypass(&in->stage, in->bypass_wanted);
+    ports_activate(in);
     if (!in->plugin->activate(in->plugin, rate, 1, max_block))
     {
         drop_bounce(in);
@@ -1692,6 +2283,12 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
     }
     voice_info_ask(in);
+    tail_read(in);
+    in->sleep.asleep = 0;
+    in->sleep.have_last = 0;
+    in->sleep.quiet_frames = 0;
+    in->sleep.quiet_out_frames = 0;
+    in->sleep.quiet_min_frames = (uint32_t)(rate * OMX_CLAP_SLEEP_QUIET_MS / 1000.0);
     publish_latency(in);
     if (why)
         why[0] = '\0';
@@ -2142,11 +2739,66 @@ int omx_clap_host_state_load(struct omx_clap_instance *in, const void *buf, size
     return in->state->load(in->plugin, &is) ? 0 : -1;
 }
 
+int omx_clap_host_state_save_context(struct omx_clap_instance *in, uint32_t context, void *buf, size_t cap, size_t *len)
+{
+    struct bounded_stream b = { buf, NULL, cap, 0, 0, 0 };
+    const clap_ostream_t os = { &b, ostream_write };
+    const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+
+    if (!in || !buf || !len || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
+        return -1;
+    if (!ext || !ext->save)
+        return omx_clap_host_state_save(in, buf, cap, len);
+    if (!ext->save(in->plugin, &os, context) || b.overflow)
+        return -1;
+    *len = b.len;
+    return 0;
+}
+
+int omx_clap_host_state_load_context(struct omx_clap_instance *in, uint32_t context, const void *buf, size_t len)
+{
+    struct bounded_stream b = { NULL, buf, len, len, 0, 0 };
+    const clap_istream_t is = { &b, istream_read };
+    const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+
+    if (!in || !buf || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
+        return -1;
+    if (!ext || !ext->load)
+        return omx_clap_host_state_load(in, buf, len);
+    return ext->load(in->plugin, &is, context) ? 0 : -1;
+}
+
+int omx_clap_host_set_render(struct omx_clap_instance *in, int32_t mode)
+{
+    const clap_plugin_render_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_RENDER) : NULL;
+
+    if (!ext || !ext->set || (mode != CLAP_RENDER_REALTIME && mode != CLAP_RENDER_OFFLINE))
+        return -1;
+    if (mode == CLAP_RENDER_OFFLINE && ext->has_hard_realtime_requirement && ext->has_hard_realtime_requirement(in->plugin))
+        return -1;
+    return ext->set(in->plugin, mode) ? 0 : -1;
+}
+
+uint32_t omx_clap_host_tail(const struct omx_clap_instance *in)
+{
+    return in ? atomic_load_explicit(&in->tail_frames, memory_order_relaxed) : 0;
+}
+
 int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location)
 {
     if (!in->preset_load)
         return -1;
     return in->preset_load->from_location(in->plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL) ? 0 : -1;
+}
+
+int omx_clap_host_preset_load_key(struct omx_clap_instance *in, uint32_t location_kind, const char *location, const char *load_key)
+{
+    if (!in || !in->preset_load)
+        return -1;
+    if (location_kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE ? !location : location_kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+        return -1;
+    return in->preset_load->from_location(in->plugin, location_kind,
+                                          location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? NULL : location, load_key) ? 0 : -1;
 }
 
 uint32_t omx_clap_host_param_events_take(struct omx_clap_instance *in, struct omx_clap_param_event *events, uint32_t capacity)
@@ -2226,6 +2878,68 @@ int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const ch
     return 0;
 }
 
+/* the plugin's tail, as the RT's sleep reads it: 0 with no extension */
+static void tail_read(struct omx_clap_instance *in)
+{
+    atomic_store_explicit(&in->tail_frames, in->tail && in->tail->get ? in->tail->get(in->plugin) : 0u, memory_order_relaxed);
+}
+
+/* every timer that is due gets its on_timer, once, and its next due time a period on (from now when the tick ran late) */
+static void timers_serve(struct omx_clap_instance *in)
+{
+    uint64_t now = 0;
+
+    for (uint32_t i = 0; i < OMX_CLAP_TIMERS; i++)
+    {
+        struct omx_clap_timer *t = &in->timers[i];
+
+        if (!t->used)
+            continue;
+        if (!now)
+            now = now_ns();
+        if (t->due_ns > now)
+            continue;
+        t->due_ns += (uint64_t)t->period_ms * 1000000u;
+        if (t->due_ns <= now)
+            t->due_ns = now + (uint64_t)t->period_ms * 1000000u;
+        if (in->timer_support && in->timer_support->on_timer)
+            in->timer_support->on_timer(in->plugin, t->id);
+    }
+}
+
+/* the registered descriptors, polled without waiting; each that is ready gets its on_fd with what it is ready for */
+static void fds_serve(struct omx_clap_instance *in)
+{
+    struct pollfd p[OMX_CLAP_FDS];
+    nfds_t n = 0;
+
+    for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
+        if (in->fds[i].fd >= 0)
+        {
+            p[n].fd = in->fds[i].fd;
+            p[n].events = (short)(((in->fds[i].flags & CLAP_POSIX_FD_READ) ? POLLIN : 0) |
+                                  ((in->fds[i].flags & CLAP_POSIX_FD_WRITE) ? POLLOUT : 0));
+            p[n].revents = 0;
+            n++;
+        }
+    if (n == 0 || poll(p, n, 0) <= 0)
+        return;
+    for (nfds_t k = 0; k < n; k++)
+    {
+        uint32_t flags = 0;
+
+        if (p[k].revents & POLLIN)
+            flags |= CLAP_POSIX_FD_READ;
+        if (p[k].revents & POLLOUT)
+            flags |= CLAP_POSIX_FD_WRITE;
+        if (p[k].revents & (POLLERR | POLLHUP | POLLNVAL))
+            flags |= CLAP_POSIX_FD_ERROR;
+        // a descriptor the plugin unregistered from an earlier on_fd of this same tick is not called
+        if (flags && fd_slot(in, p[k].fd) >= 0 && in->fd_support && in->fd_support->on_fd)
+            in->fd_support->on_fd(in->plugin, p[k].fd, flags);
+    }
+}
+
 int omx_clap_host_tick(struct omx_clap_instance *in)
 {
     const uint32_t rescan = atomic_exchange_explicit(&in->params_rescan_flags, 0u, memory_order_relaxed);
@@ -2252,6 +2966,10 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     }
     if (atomic_exchange_explicit(&in->voice_info_changed, 0u, memory_order_relaxed) && in->active)
         voice_info_ask(in);
+    if (atomic_exchange_explicit(&in->tail_changed, 0u, memory_order_relaxed) && in->active)
+        tail_read(in);
+    timers_serve(in);
+    fds_serve(in);
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         in->plugin->on_main_thread(in->plugin);
     if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))

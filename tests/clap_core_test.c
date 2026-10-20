@@ -118,7 +118,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 10u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 10, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 11u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 11, the oldest accepted 1 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
@@ -141,7 +141,13 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, note_ports_stale) > offsetof(struct omx_clap_instance, note_ports_rescanned) &&
             offsetof(struct omx_clap_instance, note_names_changed) > offsetof(struct omx_clap_instance, note_ports_stale) &&
             offsetof(struct omx_clap_instance, voice_info_changed) > offsetof(struct omx_clap_instance, note_names_changed),
-        "the host's note details are the instance's last fields (%zu)", offsetof(struct omx_clap_instance, voice_info_changed));
+        "the host's note details follow the MPE zones (%zu)", offsetof(struct omx_clap_instance, voice_info_changed));
+  /* ABI 11 appends the full host's timers, descriptors, pool, tail and sleep after them */
+  CHECK(offsetof(struct omx_clap_instance, timer_support) > offsetof(struct omx_clap_instance, voice_info_changed) &&
+            offsetof(struct omx_clap_instance, timers) > offsetof(struct omx_clap_instance, tail) &&
+            offsetof(struct omx_clap_instance, fds) > offsetof(struct omx_clap_instance, timer_next_id) &&
+            offsetof(struct omx_clap_instance, sleep) > offsetof(struct omx_clap_instance, tail_changed),
+        "the full host's fields are the instance's last (%zu)", offsetof(struct omx_clap_instance, sleep));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;

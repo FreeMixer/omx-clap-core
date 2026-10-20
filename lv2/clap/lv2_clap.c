@@ -114,6 +114,7 @@ struct slot
 {
     clap_plugin_entry_t entry;
     clap_plugin_factory_t factory;
+    clap_preset_discovery_factory_t presets;    ///< the bundle's pset:Preset, through one provider
     struct lv2_bundle *bundle;
     unsigned refs;
     clap_plugin_descriptor_t *descs;
@@ -445,18 +446,25 @@ static const clap_plugin_params_t g_params =
 
 static uint32_t latency_get(const clap_plugin_t *plugin)
 {
-    return SHIM_OF(plugin)->latency_active;
+    // a pass-through plugin adds no latency to the audio it does not touch: its own latency applies to its MIDI alone
+    return SHIM_OF(plugin)->lv2->passthrough ? 0u : SHIM_OF(plugin)->latency_active;
 }
 
 static const clap_plugin_latency_t g_latency = { latency_get };
 
-/* the inputs before the side chains and the CV inputs: the main one, none for an instrument */
+/* the inputs before the side chains and the CV inputs: the main one, none for a source (an instrument or a generator) */
 static uint32_t main_inputs(const struct lv2_plugin *l)
 {
-    return l->in_legs ? 1u : 0u;
+    return l->in_legs || l->passthrough ? 1u : 0u;
 }
 
-/* the main pair (none in for an instrument), then one input per side chain (LV2 port groups and lv2:isSideChain,
+/* the main pair's width as the host sees it: a pass-through tool with no audio of its own carries the strip's stereo pair */
+static uint32_t shim_legs(const struct lv2_plugin *l)
+{
+    return l->passthrough ? (l->in_legs ? l->in_legs : 2u) : l->legs;
+}
+
+/* the main pair (none in for a source), then one input per side chain (LV2 port groups and lv2:isSideChain,
  * lv2/core), then one per CV input; the output is the main pair, then one per CV output */
 static uint32_t ports_count(const clap_plugin_t *plugin, bool is_input)
 {
@@ -474,13 +482,14 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
     memset(info, 0, sizeof(*info));
     info->id = index;
     if (is_input)
-        index += 1u - main_inputs(s->lv2);     // an instrument's first input is a side chain's or a CV input's
+        index += 1u - main_inputs(s->lv2);     // a source's first input is a side chain's or a CV input's
     if (index == 0)
     {
-        snprintf(info->name, sizeof(info->name), "%s", is_input ? "in" : "out");
+        // a pass-through plugin's main pair is the host's placement, said in the port's own name
+        snprintf(info->name, sizeof(info->name), "%s%s", is_input ? "in" : "out", s->lv2->passthrough ? " (passthrough: host)" : "");
         info->flags = CLAP_AUDIO_PORT_IS_MAIN;
-        info->channel_count = s->lv2->legs;
-        info->port_type = s->lv2->legs == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
+        info->channel_count = shim_legs(s->lv2);
+        info->port_type = shim_legs(s->lv2) == 2 ? CLAP_PORT_STEREO : CLAP_PORT_MONO;
     }
     else if (is_input && index - 1 < s->lv2->n_side)
     {
@@ -679,6 +688,14 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     // the restart a held latency asked for is this activation: it takes the reading
     s->latency_active = lv2_instance_latency(s->in);
     s->latency_pending = s->latency_active;
+    if (s->lv2->passthrough)
+    {
+        char line[256];
+
+        snprintf(line, sizeof(line), "%s: passthrough: host (no audio output: the strip's audio passes through untouched; the plugin's %u frames of latency apply to its MIDI alone)",
+                 s->lv2->uri, s->latency_active);
+        host_log(s->host, CLAP_LOG_INFO, line);
+    }
     s->latency_held_frames = 0;
     s->latency_hold_frames = (uint64_t)(rate * (double)g_latency_hold_ms / 1000.0);
     s->restart_requested = 0;
@@ -847,7 +864,23 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     if (s->lv2->midi_out_port >= 0 && s->out_events)
         lv2_instance_midi_out_each(s->in, midi_out_event, s);
     s->out_events = NULL;
-    if (process->audio_outputs_count && process->audio_outputs[0].data32)
+    if (process->audio_outputs_count && process->audio_outputs[0].data32 && s->lv2->passthrough)
+    {
+        // the host's placement: the main input passes to the main output bit for bit, silence where there is none
+        const clap_audio_buffer_t *b = &process->audio_outputs[0];
+        const clap_audio_buffer_t *a = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
+
+        for (leg = 0; leg < b->channel_count; leg++)
+        {
+            const float *src = a && a->data32 && a->channel_count ? a->data32[leg < a->channel_count ? leg : 0] : NULL;
+
+            if (!src)
+                memset(b->data32[leg], 0, n * sizeof(float));
+            else if (src != b->data32[leg])
+                memcpy(b->data32[leg], src, n * sizeof(float));
+        }
+    }
+    else if (process->audio_outputs_count && process->audio_outputs[0].data32)
     {
         const clap_audio_buffer_t *b = &process->audio_outputs[0];
 
@@ -1128,6 +1161,104 @@ static const clap_plugin_t *factory_create(const clap_plugin_factory_t *factory,
     return &s->plugin;
 }
 
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: THE PRESET-DISCOVERY FACTORY
+************************************************************************************************************************
+*/
+
+/*
+ * A bundle's presets as CLAP lists them: one provider whose one location is the bundle itself (a PLUGIN location, so
+ * nothing is read from a path), and each pset:Preset applying to one of the bundle's plugins a preset of it, named by
+ * its rdfs:label, its URI the load key clap.preset-load takes (preset_from_location), for the plugin whose descriptor id
+ * is the plugin's URI.
+ */
+#define LV2_PRESET_PROVIDER "org.openmixer.lv2.pset"
+
+static const clap_preset_discovery_provider_descriptor_t g_presets_desc = { CLAP_VERSION_INIT, LV2_PRESET_PROVIDER, "LV2 presets",
+                                                                            "omx-clap-host" };
+
+struct preset_provider
+{
+    clap_preset_discovery_provider_t provider;
+    const clap_preset_discovery_indexer_t *indexer;
+    struct slot *slot;
+};
+
+static struct slot *slot_of_presets(const clap_preset_discovery_factory_t *factory)
+{
+    return (struct slot *)((const char *)factory - offsetof(struct slot, presets));
+}
+
+static bool provider_init(const clap_preset_discovery_provider_t *provider)
+{
+    const struct preset_provider *p = provider->provider_data;
+    const clap_preset_discovery_location_t bundle = { CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "bundle",
+                                                      CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL };
+
+    return p->indexer->declare_location(p->indexer, &bundle);
+}
+
+static void provider_destroy(const clap_preset_discovery_provider_t *provider)
+{
+    free(provider->provider_data);
+}
+
+static int provider_preset(void *ctx, const char *plugin_uri, const char *preset_uri, const char *label)
+{
+    const clap_preset_discovery_metadata_receiver_t *r = ctx;
+    const clap_universal_plugin_id_t id = { "clap", plugin_uri };
+
+    if (!r->begin_preset(r, label, preset_uri))
+        return 1;
+    r->add_plugin_id(r, &id);
+    return 0;
+}
+
+static bool provider_get_metadata(const clap_preset_discovery_provider_t *provider, uint32_t kind, const char *location,
+                                  const clap_preset_discovery_metadata_receiver_t *receiver)
+{
+    const struct preset_provider *p = provider->provider_data;
+
+    (void)location;
+    if (kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN || !receiver)
+        return false;
+    return lv2_bundle_presets(p->slot->bundle, provider_preset, (void *)receiver) >= 0;
+}
+
+static const void *provider_get_extension(const clap_preset_discovery_provider_t *provider, const char *id)
+{
+    (void)provider;
+    (void)id;
+    return NULL;
+}
+
+static uint32_t presets_count(const clap_preset_discovery_factory_t *factory)
+{
+    (void)factory;
+    return 1;
+}
+
+static const clap_preset_discovery_provider_descriptor_t *presets_descriptor(const clap_preset_discovery_factory_t *factory, uint32_t index)
+{
+    (void)factory;
+    return index == 0 ? &g_presets_desc : NULL;
+}
+
+static const clap_preset_discovery_provider_t *presets_create(const clap_preset_discovery_factory_t *factory,
+                                                              const clap_preset_discovery_indexer_t *indexer, const char *id)
+{
+    struct preset_provider *p;
+
+    if (!indexer || !id || strcmp(id, LV2_PRESET_PROVIDER) != 0 || !(p = calloc(1, sizeof(*p))))
+        return NULL;
+    p->indexer = indexer;
+    p->slot = slot_of_presets(factory);
+    p->provider = (clap_preset_discovery_provider_t){ &g_presets_desc, p, provider_init, provider_destroy, provider_get_metadata,
+                                                      provider_get_extension };
+    return &p->provider;
+}
+
 static bool entry_init(const char *path)
 {
     (void)path;
@@ -1140,7 +1271,11 @@ static void entry_deinit(void)
 
 static const void *slot_factory(uint32_t index, const char *id)
 {
-    if (index >= OMX_CLAP_LV2_BUNDLES || !g_slots[index].refs || !id || strcmp(id, CLAP_PLUGIN_FACTORY_ID) != 0)
+    if (index >= OMX_CLAP_LV2_BUNDLES || !g_slots[index].refs || !id)
+        return NULL;
+    if (!strcmp(id, CLAP_PRESET_DISCOVERY_FACTORY_ID))
+        return &g_slots[index].presets;
+    if (strcmp(id, CLAP_PLUGIN_FACTORY_ID) != 0)
         return NULL;
     return &g_slots[index].factory;
 }
@@ -1262,6 +1397,9 @@ const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[
     slot->factory.get_plugin_count = factory_count;
     slot->factory.get_plugin_descriptor = factory_descriptor;
     slot->factory.create_plugin = factory_create;
+    slot->presets.count = presets_count;
+    slot->presets.get_descriptor = presets_descriptor;
+    slot->presets.create = presets_create;
     why_set(why, "");
     return &slot->entry;
 }

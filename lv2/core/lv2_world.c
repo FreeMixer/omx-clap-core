@@ -109,7 +109,7 @@ enum
     N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
     N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
-    N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_COUNT
+    N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -159,6 +159,8 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_PG_SIDECHAIN_OF] = LV2_PORT_GROUPS__sideChainOf,
     [N_PG_MAIN_INPUT] = LV2_PORT_GROUPS__mainInput,
     [N_LABEL] = LV2_RDFS_LABEL,
+    [N_PSET_PRESET] = "http://lv2plug.in/ns/ext/presets#Preset",
+    [N_APPLIES_TO] = LV2_CORE__appliesTo,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -865,9 +867,9 @@ static char *side_name(const LilvPlugin *pl, const LilvPort *port)
 }
 
 /* The audio inputs, sorted. The main input is every input that is not a side chain, or with pg:mainInput the members of
- * that group; more than two, or an input outside the group, is refused as extra. None is an instrument when the plugin
- * has a MIDI input (read_ports finds it first): a source, its main channels its outputs'; with no MIDI input either it is
- * refused as no audio input. A side chain is an input with
+ * that group; more than two, or an input outside the group, is refused as extra. None is a source, its main channels
+ * its outputs' (read_ports): an instrument when the plugin has a MIDI input, a generator (an oscillator, a noise source)
+ * with no input of any kind (#184). A side chain is an input with
  * lv2:isSideChain, or with pg:sideChainOf on the port or on its group. A CLAP input is made of the members of one
  * pg:group, or of one ungrouped port, in the order of their first member, one or two channels each. Fills p->legs,
  * p->in_ports and the side chains; returns the refusal, or NULL. */
@@ -912,8 +914,6 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
             p->in_ports[nmain] = i;
         nmain++;
     }
-    if (!refusal && nmain == 0 && p->midi_in_port < 0)
-        refusal = LV2_CODE_NO_AUDIO_INPUT;
     if (!refusal && nmain > 2)
         refusal = LV2_CODE_EXTRA_INPUTS;
     for (i = 0; i < n && !refusal; i++)
@@ -1147,12 +1147,22 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     if (refusal)
         return refusal;
     if (nout == 0)
-        return LV2_CODE_NO_AUDIO_OUTPUT;
-    if (p->in_legs == 0 && nout <= 2)
-        p->legs = nout;     // an instrument: its outputs are its main channels
-    if (nout != p->legs)
-        return LV2_CODE_WIDER_THAN_STRIP;
-    memcpy(p->out_ports, out, sizeof(p->out_ports));
+    {
+        // no audio output. A MIDI tool (a MIDI output) or an analyser (audio inputs) is hosted with the strip's audio
+        // passing through it untouched, the host's placement, never the plugin's own audio (#183); a plugin with
+        // neither an audio output, a MIDI output nor an audio input has nothing to host
+        if (p->midi_out_port < 0 && p->in_legs == 0)
+            return LV2_CODE_NO_AUDIO_OUTPUT;
+        p->passthrough = 1;
+    }
+    else
+    {
+        if (p->in_legs == 0 && nout <= 2)
+            p->legs = nout;     // a source, an instrument or a generator: its outputs are its main channels
+        if (nout != p->legs)
+            return LV2_CODE_WIDER_THAN_STRIP;
+        memcpy(p->out_ports, out, sizeof(p->out_ports));
+    }
     if (p->patch_in >= 0)
         return read_patches(p, pl);     // a property is writable only through an input port
     return NULL;
@@ -1524,4 +1534,55 @@ int lv2_plugin_state_check(const char *text, LV2_URID_Map *map)
         return -1;
     L.lilv_state_free(state);
     return 0;
+}
+
+/* the presets of one plugin of the bundle: every pset:Preset that lv2:appliesTo it, in the world's order, with its
+ * rdfs:label (the preset's resource is loaded for the label, as for its state, then unloaded; a preset with no label
+ * is named by its URI) */
+static int plugin_presets(const struct lv2_bundle *b, uint32_t index, lv2_preset_fn fn, void *ctx, int *stopped)
+{
+    LilvNode *plugin = L.lilv_new_uri(g.world, b->uris[index]);
+    LilvNodes *presets;
+    LilvIter *it;
+    int listed = 0;
+
+    if (!plugin)
+        return 0;
+    presets = L.lilv_world_find_nodes(g.world, NULL, g.node[N_APPLIES_TO], plugin);
+    for (it = presets ? L.lilv_nodes_begin(presets) : NULL; it && !L.lilv_nodes_is_end(presets, it) && !*stopped;
+         it = L.lilv_nodes_next(presets, it))
+    {
+        const LilvNode *preset = L.lilv_nodes_get(presets, it);
+        LilvNodes *labels;
+        char *label;
+
+        if (!L.lilv_world_ask(g.world, preset, g.node[N_RDF_TYPE], g.node[N_PSET_PRESET]))
+            continue;
+        L.lilv_world_load_resource(g.world, preset);
+        labels = L.lilv_world_find_nodes(g.world, preset, g.node[N_RDFS_LABEL], NULL);
+        label = first_string(labels);
+        if (labels)
+            L.lilv_nodes_free(labels);
+        L.lilv_world_unload_resource(g.world, preset);
+        listed++;
+        if (fn && fn(ctx, b->uris[index], L.lilv_node_as_uri(preset), label ? label : L.lilv_node_as_uri(preset)) != 0)
+            *stopped = 1;
+        free(label);
+    }
+    if (presets)
+        L.lilv_nodes_free(presets);
+    L.lilv_node_free(plugin);
+    return listed;
+}
+
+int lv2_bundle_presets(const struct lv2_bundle *b, lv2_preset_fn fn, void *ctx)
+{
+    uint32_t i;
+    int listed = 0, stopped = 0;
+
+    if (!b || !g.world)
+        return -1;
+    for (i = 0; i < b->count && !stopped; i++)
+        listed += plugin_presets(b, i, fn, ctx, &stopped);
+    return listed;
 }

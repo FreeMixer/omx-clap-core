@@ -72,11 +72,11 @@
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
  * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
  * instance's MPE zones, a lower and an upper, 0.11; 10: what the plugin tells the host's note-ports, note-name and
- * voice-info, 0.12).
+ * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               10u
+#define OMX_CLAP_CORE_ABI               11u
 #define OMX_CLAP_CORE_ABI_OLDEST        1u  ///< the oldest header ABI the library accepts
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -252,6 +252,67 @@ struct omx_clap_meter
     double max_value;  ///< the top of that range
 };
 
+/** The timers one instance serves at once (clap.timer-support); a register past them is refused. */
+#define OMX_CLAP_TIMERS                 16u
+/** The file descriptors one instance watches at once (clap.posix-fd-support); a register past them is refused. */
+#define OMX_CLAP_FDS                    16u
+/** The shortest timer period the tick serves, in milliseconds: a shorter one is served at this period. */
+#define OMX_CLAP_TIMER_MIN_MS           1u
+
+/** One timer of clap.timer-support: due at `due_ns` on CLOCK_MONOTONIC, then every `period_ms`. */
+struct omx_clap_timer
+{
+    uint32_t used;          ///< 1 while registered
+    clap_id id;             ///< what register_timer answered
+    uint32_t period_ms;     ///< the period asked for, at least OMX_CLAP_TIMER_MIN_MS
+    uint64_t due_ns;        ///< when the tick calls on_timer next
+};
+
+/** One file descriptor of clap.posix-fd-support and the CLAP_POSIX_FD_* events it is watched for. */
+struct omx_clap_fd
+{
+    int fd;                 ///< -1 when the slot is free
+    uint32_t flags;         ///< CLAP_POSIX_FD_READ, _WRITE, _ERROR
+};
+
+/**
+ * The sleep of an idle plugin (CLAP_PROCESS_SLEEP and its kin), kept by the RT. A plugin that answers SLEEP sleeps; one
+ * that answers CONTINUE_IF_NOT_QUIET sleeps after a block whose input and output were silent; one that answers TAIL
+ * sleeps once its input has been silent for its tail and its output is silent. Whatever it answers, it sleeps only once
+ * its output has been silent for quiet_min_frames (OMX_CLAP_SLEEP_QUIET_MS at the activated rate) and no note the host
+ * gave it an id for is held or inside its hold after a note off: an instrument whose voice starts silent, or that says it
+ * may sleep while a voice is still to sound, is kept awake. That guard covers the notes the host gave an id for, which are the
+ * CLAP-dialect ports'; a MIDI-dialect port keeps no note bookkeeping, so notes sent to one are not held awake by it. While asleep, a block whose input is silent and that carries no note and no
+ * parameter event is not processed: the lane keeps its silence and the steady time moves on. Anything else wakes it, and
+ * so does the plugin's request_process, a queued sysex, and a change of the transport handed to it: its flags (playing,
+ * loop), its tempo, or a position that is not the last one moved on by this block. A stage with a bound side chain never sleeps.
+ */
+struct omx_clap_sleep
+{
+    uint32_t asleep;                ///< 1 while the plugin is not processed on silence
+    uint64_t quiet_frames;          ///< frames of silent input since the last sound, for a TAIL plugin
+    uint64_t quiet_out_frames;      ///< frames of silent output since the last sound
+    uint32_t quiet_min_frames;      ///< the silent output a sleep needs first; set at activate, a caller may change it
+    _Atomic uint32_t wake;          ///< the plugin's request_process, from any thread
+    _Atomic uint64_t skipped;       ///< blocks not processed while asleep
+    struct omx_clap_transport last; ///< the transport the previous block was handed, awake or asleep
+    int have_last;                  ///< 1 once `last` holds a block's transport
+    _Atomic uint32_t sleeps;        ///< times the plugin went to sleep
+};
+
+/** How long a plugin's output must have been silent before it may sleep, in milliseconds. */
+#define OMX_CLAP_SLEEP_QUIET_MS         200u
+
+/** The quiet of a block: every sample of the lane exactly 0. */
+static inline int omx_clap_block_silent(const float *l, const float *r, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++)
+        if (l[i] != 0.0f || (r && r[i] != 0.0f))
+            return 0;
+    return 1;
+}
+
+
 /** One hosted instance. Opaque to the RT except for `stage`, which the consumer's RT thread runs. */
 struct omx_clap_instance
 {
@@ -385,6 +446,20 @@ struct omx_clap_instance
     uint32_t note_ports_stale;  ///< 1 after a rescan of every note port: the next activate reads the note input again
     _Atomic uint32_t note_names_changed;  ///< the plugin said its note names changed, until omx_clap_host_note_names_changed
     _Atomic uint32_t voice_info_changed;  ///< the plugin said its voice info changed: the tick asks it again while active
+
+    // what a full host offers besides (ABI 11): timers and file descriptors the tick serves, the thread pool, the tail
+    // and the sleep of an idle plugin
+    const clap_plugin_timer_support_t *timer_support;  ///< the plugin's on_timer, read at open
+    const clap_plugin_posix_fd_support_t *fd_support;  ///< the plugin's on_fd, read at open
+    const clap_plugin_thread_pool_t *thread_pool;  ///< the plugin's exec, read at open
+    int in_exec;                                   ///< 1 while the host runs the plugin's tasks: a request made inside is refused
+    const clap_plugin_tail_t *tail;  ///< the plugin's tail, read at open
+    struct omx_clap_timer timers[OMX_CLAP_TIMERS];  ///< the timers the plugin registered, served by the tick
+    uint32_t timer_next_id;  ///< the id the next timer takes
+    struct omx_clap_fd fds[OMX_CLAP_FDS];  ///< the descriptors the plugin registered, polled by the tick
+    _Atomic uint32_t tail_frames;  ///< the plugin's tail, read at activate and after it says it changed; UINT32_MAX infinite
+    _Atomic uint32_t tail_changed;  ///< the plugin said its tail changed: the tick reads it again
+    struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
 };
 
 
@@ -560,6 +635,51 @@ OMX_CLAP_EXPORT int omx_clap_host_state_load(struct omx_clap_instance *in, const
 /** preset-load from a file location; -1 when the plugin has no such extension or refuses. */
 OMX_CLAP_EXPORT int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location);
 
+/** preset-load of a preset omx_clap_host_presets listed, by its location kind, location and load key: a FILE location
+ * names its file (`load_key` NULL for a file that holds one preset, the key for one inside a container), a PLUGIN
+ * location none (`location` is not read) and its key. -1 when the plugin has no such extension, refuses, or a FILE
+ * location has no path. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_preset_load_key(struct omx_clap_instance *in, uint32_t location_kind, const char *location,
+                                                  const char *load_key);
+
+/** The plugin ids one listed preset names at most (CLAP ids only: a preset for another format's plugin names none). */
+#define OMX_CLAP_PRESET_PLUGINS         8u
+/** The presets one listing hands its callback at most; the rest of the file is not read. */
+#define OMX_CLAP_PRESETS_MAX            65536u
+/** The preset files one listing reads at most, across every location of every provider. */
+#define OMX_CLAP_PRESET_FILES_MAX       65536u
+/** How deep a FILE location that is a directory is walked: its files are depth 1. */
+#define OMX_CLAP_PRESET_DEPTH           16u
+
+/** One preset a plugin file lists through its preset-discovery factory. Every pointer is valid only for the callback. */
+struct omx_clap_preset
+{
+    const char *provider_id;    ///< the provider that listed it
+    const char *name;           ///< its name; for a file holding one preset that gives none, the file's name
+    uint32_t location_kind;     ///< CLAP_PRESET_DISCOVERY_LOCATION_FILE or CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN
+    const char *location;       ///< the file's path for FILE, NULL for PLUGIN
+    const char *load_key;       ///< the key inside a container or a PLUGIN location; NULL for a file holding one preset
+    uint32_t flags;             ///< CLAP_PRESET_DISCOVERY_IS_*: its own, else its location's
+    const char *description;    ///< "" when it gives none
+    uint32_t plugin_count;      ///< the CLAP plugin ids it applies to, at most OMX_CLAP_PRESET_PLUGINS
+    const char *plugin_ids[OMX_CLAP_PRESET_PLUGINS];  ///< the first plugin_count are set
+};
+
+/** One preset of a listing; return nonzero to stop it. */
+typedef int (*omx_clap_preset_fn)(void *ctx, const struct omx_clap_preset *preset);
+
+/** Every preset a plugin file lists through its preset-discovery factory (clap.preset-discovery-factory/2, or its draft
+ * id), in order: each provider is created and initialised, and each location it declares is read: a PLUGIN location
+ * through get_metadata, a FILE location that is a file the same, and a directory walked in name order (at most
+ * OMX_CLAP_PRESET_DEPTH deep, a link to a directory inside it not followed) for its files of a declared filetype. At most
+ * OMX_CLAP_PRESETS_MAX presets and OMX_CLAP_PRESET_FILES_MAX files. Returns the presets listed, or -1 when the file
+ * has no preset-discovery factory. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_presets(struct omx_clap_binary *binary, omx_clap_preset_fn fn, void *ctx);
+
+/** The same for a linked entry, or an adapter's (omx_clap_lv2_entry): init once as omx_clap_host_open_entry does, kept
+ * for the listing. */
+OMX_CLAP_EXPORT int omx_clap_host_entry_presets(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, void *ctx);
+
 /** clap.track-info, where the configuration offers it: store what the host's get answers from now on and call the
  * plugin's changed. `name` NULL or "" for none, `color` NULL for none; `flags` the CLAP_TRACK_INFO_IS_FOR_* bits, the
  * HAS_ bits are set here. The name is cut at CLAP_NAME_SIZE - 1 bytes. -1 when the configuration does not offer it. */
@@ -588,6 +708,25 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in
  * or an instance never activated; each output then reads 0, which is never a voice count. Any pointer may be NULL.
  * Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count, uint32_t *capacity, uint64_t *flags);
+
+/** state-context's save (clap.state-context): the plugin's state for `context` (CLAP_STATE_CONTEXT_FOR_PRESET, _DUPLICATE
+ * or _PROJECT) into `buf`, as omx_clap_host_state_save does; a plugin without the extension saves its plain state for
+ * every context, which is what the extension says it stands for. -1 for another context, or as omx_clap_host_state_save.
+ * Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_state_save_context(struct omx_clap_instance *in, uint32_t context, void *buf, size_t cap, size_t *len);
+
+/** state-context's load, the same way: the plain state load for a plugin without the extension. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_state_load_context(struct omx_clap_instance *in, uint32_t context, const void *buf, size_t len);
+
+/** Tell the plugin how it is rendered (clap.render): CLAP_RENDER_REALTIME, or CLAP_RENDER_OFFLINE before a render that is
+ * not bound to the clock (a bounce, a freeze), so it may take its best quality. 0, or -1 when it has no extension,
+ * refuses, or has a hard real-time requirement and OFFLINE was asked. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_set_render(struct omx_clap_instance *in, int32_t mode);
+
+/** The plugin's tail (clap.tail) in frames, as read at the last activate or after it said its tail changed: 0 with no
+ * extension, UINT32_MAX for an infinite tail. A plugin that answers CLAP_PROCESS_TAIL is processed for this long after
+ * its input goes silent, then sleeps (struct omx_clap_sleep). Any thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_tail(const struct omx_clap_instance *in);
 
 /** The note dialects the host's clap.note-ports answers a plugin that asks (supported_dialects): every dialect a note
  * input can be fed in, CLAP, MIDI, MIDI with MPE and MIDI 2.0 (translated from the MIDI 1.0 the host reads), when the
@@ -733,6 +872,35 @@ static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
     return bits ? bpm : 0.0;
 }
 
+/** 1 when `now` is not the transport `was` moved on by one block of `n` frames at `rate`: a flag, a tempo or a meter changed,
+ * or the playhead jumped (a locate, a loop wrap) rather than advanced by about the block's length. */
+static inline int omx_clap_transport_changed(const struct omx_clap_transport *was, const struct omx_clap_transport *now,
+                                             uint32_t n, double rate)
+{
+    const double dt = rate > 0.0 ? (double)n / rate : 0.0;
+    const double tol = dt + 0.001;      // a block's length and a millisecond of the host's rounding
+
+    if (was->flags != now->flags || was->tempo != now->tempo || was->tsig_num != now->tsig_num || was->tsig_denom != now->tsig_denom)
+        return 1;
+    if (!(now->flags & CLAP_TRANSPORT_IS_PLAYING))
+        return (now->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) && was->song_pos_seconds != now->song_pos_seconds;
+    if (now->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE)
+    {
+        const double d = (double)(now->song_pos_seconds - was->song_pos_seconds) / (double)CLAP_SECTIME_FACTOR;
+
+        if (d < 0.0 || d > dt + tol)
+            return 1;
+    }
+    if ((now->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) && (now->flags & CLAP_TRANSPORT_HAS_TEMPO))
+    {
+        const double d = (double)(now->song_pos_beats - was->song_pos_beats) / (double)CLAP_BEATTIME_FACTOR;
+
+        if (d < 0.0 || d > (dt + tol) * now->tempo / 60.0)
+            return 1;
+    }
+    return 0;
+}
+
 /** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
  * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
  * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
@@ -742,6 +910,9 @@ static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
 static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
 {
     struct omx_clap_transport rec;
+    struct omx_clap_sleep *z = &in->sleep;
+    clap_process_status said;
+    int silent, quiet_out, moved;
 
     if (in->transport_src)
     {
@@ -759,7 +930,50 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
             rec.tempo = bpm;
         }
     }
-    omx_clap_run_transport(&in->stage, l, r, n, &in->transport, &rec);
+    silent = l && omx_clap_block_silent(l, r, n);
+    moved = z->have_last && omx_clap_transport_changed(&z->last, &rec, n, in->rate);
+    z->last = rec;
+    z->have_last = 1;
+    if (z->asleep)
+    {
+        if (silent && !moved && !atomic_exchange_explicit(&z->wake, 0u, memory_order_relaxed) && in->stage.n_notes == 0 &&
+            in->stage.n_sysex == 0 &&
+            !omx_clap_queue_pending(&in->stage.queue) &&
+            atomic_load_explicit(&in->stage.state, memory_order_acquire) == OMX_CLAP_PROCESSING &&
+            atomic_load_explicit(&in->stage.h.bypass, memory_order_relaxed) == 0u &&
+            atomic_load_explicit(&in->stage.h.rendered_wet, memory_order_relaxed))
+        {
+            in->stage.steady_time += (int64_t)n;    // the plugin's clock moves on while it sleeps
+            atomic_fetch_add_explicit(&z->skipped, 1u, memory_order_relaxed);
+            return;
+        }
+        z->asleep = 0;
+        z->quiet_frames = 0;
+        z->quiet_out_frames = 0;
+    }
+    omx_clap_run_transport_status(&in->stage, l, r, n, &in->transport, &rec, &said);
+    if (said < 0)
+        return;
+    for (uint32_t i = 0; i < in->aux_inputs && i < CLAP_HOST_AUX_INPUTS; i++)
+        if (in->aux_in_bound[i][0])
+            return;     // a side chain the host does not read for silence: never asleep
+    if (!silent)
+        z->quiet_frames = 0;
+    else
+        z->quiet_frames += n;
+    // the lane after the block is the plugin's output: CONTINUE_IF_NOT_QUIET and TAIL sleep only once that is silent
+    // too, so an instrument that sounds on silent input, or a reverb still ringing, is never put to sleep
+    quiet_out = omx_clap_block_silent(l, r, n);
+    z->quiet_out_frames = quiet_out ? z->quiet_out_frames + n : 0;
+    if (z->quiet_out_frames < z->quiet_min_frames || omx_clap_note_ids_live(&in->note_ids, in->stage.steady_time))
+        return;
+    if (said == CLAP_PROCESS_SLEEP || (said == CLAP_PROCESS_CONTINUE_IF_NOT_QUIET && silent && quiet_out) ||
+        (said == CLAP_PROCESS_TAIL && silent && quiet_out && atomic_load_explicit(&in->tail_frames, memory_order_relaxed) != UINT32_MAX &&
+         z->quiet_frames >= atomic_load_explicit(&in->tail_frames, memory_order_relaxed)))
+    {
+        z->asleep = 1;
+        atomic_fetch_add_explicit(&z->sleeps, 1u, memory_order_relaxed);
+    }
 }
 
 /** The audio role, a cycle as a client with separate input and output buffers has it (JACK): the lane is the output pair,

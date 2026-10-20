@@ -107,4 +107,11 @@ OMX_CLAP_CORE_0.12
     omx_clap_host_note_name_count;
     omx_clap_host_note_names_changed;
     omx_clap_host_note_ports_rescanned;
+    omx_clap_host_entry_presets;
+    omx_clap_host_preset_load_key;
+    omx_clap_host_presets;
+    omx_clap_host_set_render;
+    omx_clap_host_state_load_context;
+    omx_clap_host_state_save_context;
+    omx_clap_host_tail;
 } OMX_CLAP_CORE_0.11;

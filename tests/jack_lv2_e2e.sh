@@ -156,7 +156,7 @@ expect "remove 2" "resp 0"
 expect "add lv2:$fixture#fixed 2" "resp 2"
 expect "remove 2" "resp 0"
 expect "add lv2:$fixture#mappath 2" "resp -102 hosting.features.missing"
-expect "add lv2:$fixture#no-out 2" "resp -102 hosting.topology.no-audio-output"
+expect "add lv2:$fixture#ctl-only 2" "resp -102 hosting.topology.no-audio-output"
 for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.features.missing hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
 done
@@ -171,9 +171,32 @@ expect "add clap:$fake#org.omx-clap-host.test.wide 2" "resp -102 hosting.topolog
 expect "add lv2:$fixture 2" "resp 2"
 expect "remove 2" "resp 0"
 
+# ---- a MIDI tool (#183): notes in and out, no audio port; hosted with the strip's pair passing through it ----
+expect "add lv2:urn:openmixer:test:midi-echo#tool 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:in_1 effect_2:in_2 effect_2:midi_in " ]; step $? "the tool's inputs: $(ports effect_2 i)(the strip's pair and midi_in)"
+[ "$(ports effect_2 o)" = "effect_2:midi_out effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
+grep -q "midi-echo#tool: passthrough: host" "$runtime/host.log"; step $? "stderr says the audio is the host's pass-through"
+expect "remove 2" "resp 0"
+# ---- a generator (#184): a stereo output and no input of any kind, admitted as a source and heard; a MIDI source
+# (a MIDI output alone) hosted with the strip's pair passing through; a control port alone is nothing to host ----
+expect "add lv2:$fixture#ctl-alone 2" "resp -102 hosting.topology.no-audio-output"
+expect "add lv2:$fixture#gen 2" "resp 2"
+[ -z "$(ports effect_2 i)" ]; step $? "the generator's inputs: none at all ($(ports effect_2 i))"
+[ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
+line=$(echo listen | timeout 10 "$probe" - effect_2:out_1 effect_2:out_2 2>"$runtime/probe.log")
+step $? "the probe listened to the generator: $line"
+set -- $line
+# 0.5 left and 0.25 right over both ports: sqrt((0.25 + 0.0625) / 2) = 0.3953 RMS, 0.5 peak
+near "${1:-0}" 0.3953 0.01; step $? "the generator is heard at 0.3953 RMS over its pair (${1:-})"
+near "${2:-0}" 0.5 0.005; step $? "its peak is 0.5, the left channel (${2:-})"
+expect "remove 2" "resp 0"
+expect "add lv2:urn:openmixer:test:midi-echo#source 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:in_1 effect_2:in_2 " ]; step $? "the MIDI source's inputs: $(ports effect_2 i)(the strip's pair, no midi_in)"
+[ "$(ports effect_2 o)" = "effect_2:midi_out effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
+grep -q "midi-echo#source: passthrough: host" "$runtime/host.log"; step $? "stderr says the audio is the host's pass-through"
+expect "remove 2" "resp 0"
 # ---- an LV2 instrument (#132): a MIDI input and a stereo output, no audio input, admitted as a source and played
-# through its midi_in; a plugin with neither an audio nor a MIDI input is still refused, with the code that names it ----
-expect "add lv2:$fixture#no-in 2" "resp -102 hosting.topology.no-audio-input"
+# through its midi_in ----
 expect "add lv2:urn:openmixer:test:midi-echo#synth 2" "resp 2"
 [ "$(ports effect_2 i)" = "effect_2:midi_in " ]; step $? "the instrument's inputs: $(ports effect_2 i)(midi_in alone, no audio input)"
 [ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"

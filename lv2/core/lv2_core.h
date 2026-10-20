@@ -104,7 +104,6 @@
 #define LV2_CODE_ATOM_IN                "hosting.features.atom-in-unfed"    // a non-MIDI atom input no buffer here can feed
 #define LV2_CODE_CV_PORTS               "hosting.features.cv-ports"
 #define LV2_CODE_FEATURES_MISSING       "hosting.features.missing"
-#define LV2_CODE_NO_AUDIO_INPUT         "hosting.topology.no-audio-input"
 #define LV2_CODE_NO_AUDIO_OUTPUT        "hosting.topology.no-audio-output"
 #define LV2_CODE_EXTRA_INPUTS           "hosting.topology.extra-inputs-fed-silence"
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
@@ -187,7 +186,7 @@ struct lv2_plugin
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
     uint32_t legs;                  // the main channels: 1 or 2, the output's and, for an effect, the input's
-    uint32_t in_legs;               // the main input's channels: legs, or 0 for an instrument (a MIDI input, no audio input)
+    uint32_t in_legs;               // the main input's channels: legs, or 0 for a source (an instrument or a generator: no audio input)
     uint32_t in_ports[2], out_ports[2];
     uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
     uint32_t n_side_legs;           // the legs of all of them
@@ -207,6 +206,9 @@ struct lv2_plugin
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
     int patch_time;                 // the patch input also supports time:Position: the transport is forged into it
+    int passthrough;                // no audio output: hosted with the strip's audio passing through it untouched, the
+                                    // host's placement (a MIDI tool, or an analyser with audio inputs); legs is then
+                                    // the input count, 0 for a tool with no audio at all
     int patch_in_shared;            // the patch input IS the MIDI input: one sequence both writers fill, in frame order
     int patch_out_shared;           // the patch output IS the MIDI output: one sequence both readers read
     uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
@@ -325,6 +327,14 @@ void lv2_bundle_unref(struct lv2_bundle *bundle);
 uint32_t lv2_bundle_count(const struct lv2_bundle *bundle);
 const char *lv2_bundle_uri(const struct lv2_bundle *bundle, uint32_t index);
 const char *lv2_bundle_name(const struct lv2_bundle *bundle, uint32_t index);
+
+/* one preset of a bundle: the plugin it applies to, its URI (the load key clap.preset-load takes) and its label; return
+ * nonzero to stop the listing */
+typedef int (*lv2_preset_fn)(void *ctx, const char *plugin_uri, const char *preset_uri, const char *label);
+
+/* [main] Every pset:Preset of the bundle that applies to one of its plugins, plugin by plugin in the bundle's order:
+ * the presets listed, or -1 for no bundle. */
+int lv2_bundle_presets(const struct lv2_bundle *bundle, lv2_preset_fn fn, void *ctx);
 
 /* Read the plugin `uri` of `bundle`: its ports and its required features, refused with the verdict's code before any
  * binary is opened, including, under strict feature options, a required feature the configured list and the options do
