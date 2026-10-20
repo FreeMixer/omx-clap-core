@@ -14,12 +14,15 @@ BuildRequires: pkgconfig(mod-host-protocol)
 BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
-# make install puts data/ into omx-contract's contract directory with omx-contract's install script
-BuildRequires: omx-contract-devel >= 2.16.0
+# make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
+# write every hosting code from its omx_vocabulary.h (2.18.0)
+BuildRequires: omx-contract-devel >= 2.18.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
 BuildRequires: libasan
+# make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
+BuildRequires: perl-interpreter
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 # LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add
@@ -64,15 +67,16 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits and refusal codes, in omx-contract's contract directory, which that package owns
-Requires: omx-contract-devel >= 2.16.0
+# the hosting limits, in omx-contract's contract directory, which that package owns; clap_host.h names the refusal
+# codes by omx-contract's omx_vocabulary.h (2.18.0)
+Requires: omx-contract-devel >= 2.18.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
 headers, the pkg-config file, the list of functions the library promises to
 keep, with the baseline each release is checked against, and the hosting
-limits and refusal codes as definitions in omx-contract's contract directory.
+limits as definitions in omx-contract's contract directory.
 
 %package -n omx-clap-lv2-devel
 Summary: Run LV2 plugins in a CLAP host, as a library to link
