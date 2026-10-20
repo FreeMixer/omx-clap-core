@@ -341,6 +341,57 @@ def _where(m, rate):
             f"{m['max_vals'][1]:.6g}); first at sample {first} (block {first // QUANTUM}, +{first % QUANTUM})")
 
 
+# ---------------------------------------------------------------- jalv: a third host (classifier only so far;
+# step 1 of omx-clap-core#266 / #282 -- driving jalv for real, and the URI-set builder, are later steps)
+
+
+def run_jalv(binary, uri, rate, frames, outdir, timeout=10):
+    """One jalv-like process for one plugin and rate: argv <binary> <uri> <rate> <frames> <outdir>/out.f32,
+    expected to write raw float32 samples there. ('ok', samples) on a clean exit with that file; ('fault', None)
+    on a non-zero exit, a timeout, or no file (jalv crashed, hung, or never produced a recording)."""
+    os.makedirs(outdir, exist_ok=True)
+    outfile = os.path.join(outdir, 'out.f32')
+    try:
+        p = subprocess.run([binary, uri, str(rate), str(frames), outfile], stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=timeout, text=True)
+    except subprocess.TimeoutExpired as e:
+        return 'fault', None, f'jalv timed out: {(e.output or "")[-300:]}'
+    if p.returncode != 0 or not os.path.exists(outfile):
+        return 'fault', None, f'jalv exit {p.returncode}: {(p.stdout or "")[-300:]}'
+    np = _np()
+    return 'ok', np.fromfile(outfile, dtype=np.float32), ''
+
+
+def _jalv_agrees(diff, peak):
+    if SABOTAGE == 'jalv-tolerance-blind':
+        return True
+    return diff < TOL and diff <= REL_TOL * peak
+
+
+def third_host_verdict(status, samples, mod_ref, omx_ref, detail=''):
+    """(verdict, detail) classifying jalv against the same plugin and rate's mod-host and omx-clap-host recordings
+    (mod_ref, omx_ref: raw float32 arrays, the same size as samples when they can be compared): 'jalv fault' (it
+    crashed, hung, or produced nothing), 'jalv agrees with mod-host', 'jalv agrees with the adapter', or 'jalv
+    agrees with neither'. Never a gate: the mod-host removal gate stays adapter vs mod-host."""
+    if status != 'ok' or samples is None:
+        return 'jalv fault', detail or 'jalv produced no recording'
+    np = _np()
+    peak = max(float(np.max(np.abs(mod_ref))) if mod_ref is not None and mod_ref.size else 0.0,
+               float(np.max(np.abs(omx_ref))) if omx_ref is not None and omx_ref.size else 0.0)
+
+    def diff(ref):
+        if ref is None or ref.size != samples.size:
+            return float('inf')
+        return float(np.max(np.abs(samples.ravel().astype(np.float64) - ref.ravel().astype(np.float64))))
+
+    dm, do = diff(mod_ref), diff(omx_ref)
+    if _jalv_agrees(dm, peak):
+        return 'jalv agrees with mod-host', f'max diff vs mod-host {dm:.3g}'
+    if _jalv_agrees(do, peak):
+        return 'jalv agrees with the adapter', f'max diff vs omx-clap-host {do:.3g}'
+    return 'jalv agrees with neither', f'max diff vs mod-host {dm:.3g}, vs omx-clap-host {do:.3g}'
+
+
 # ---------------------------------------------------------------- probe
 
 
@@ -1478,6 +1529,29 @@ def self_test():
           f"Of the 200-row coverage table: 180 both hosts add" in sm and f"**{cov['no_parity']} of the 200 plugins mod-host hosts have no parity measurement**" in sm
           and '20 mod-host only' in sm)
 
+    # jalv: a third host (classifier and stub-driven self-test only; omx-clap-core#282)
+    with tempfile.TemporaryDirectory() as d:
+        mod_ref, omx_ref = (sig * np.float32(0.3)).astype(np.float32), (sig * np.float32(0.6)).astype(np.float32)
+        mod_path, omx_path = os.path.join(d, 'mod_ref.f32'), os.path.join(d, 'omx_ref.f32')
+        mod_ref.tofile(mod_path)
+        omx_ref.tofile(omx_path)
+        stub = os.path.join(HERE, 'lv2_parity_jalv_stub.py')
+        jenv = dict(os.environ, LV2_PARITY_JALV_STUB_MOD_REF=mod_path, LV2_PARITY_JALV_STUB_OMX_REF=omx_path)
+
+        def jalv_case(mode):
+            os.environ.update(jenv, LV2_PARITY_JALV_STUB_MODE=mode)
+            status, samples, detail = run_jalv(stub, 'urn:fake', 48000, mod_ref.size, os.path.join(d, mode))
+            return third_host_verdict(status, samples, mod_ref, omx_ref, detail)
+
+        v = jalv_case('agree-mod')
+        t('stub jalv matching mod-host: jalv agrees with mod-host', v[0] == 'jalv agrees with mod-host')
+        v = jalv_case('agree-adapter')
+        t('stub jalv matching the adapter: jalv agrees with the adapter', v[0] == 'jalv agrees with the adapter')
+        v = jalv_case('neither')
+        t('stub jalv matching neither: jalv agrees with neither', v[0] == 'jalv agrees with neither')
+        v = jalv_case('fault')
+        t('stub jalv exiting non-zero: jalv fault', v[0] == 'jalv fault')
+
     print(f"self-test: {oks} ok, {len(fails)} failed" + (f" ({SABOTAGE})" if SABOTAGE else ''))
     return 0 if not fails else 1
 
@@ -1488,7 +1562,7 @@ def self_test_with_sabotage():
         return rc
     red = 0
     sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind',
-                 'known-blind']
+                 'known-blind', 'jalv-tolerance-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, os.path.abspath(__file__), '--self-test'], env=dict(os.environ, LV2_PARITY_SABOTAGE=s),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
