@@ -33,8 +33,8 @@
  *    fallback is 0 dB, so −26 dB proves the state was restored and −20 dB proves it was not;
  *  - the latency port reports 7 frames — a DECLARED figure for the host to publish, not a delay the
  *    fixture applies.
- * Its refused twins in the same TTL (an atom port, three inputs) have NO descriptor here: the host
- * must refuse them from the TTL before it opens this binary at all.
+ * Its refused twins in the same TTL (an atom port, three inputs, a plugin with no port at all) have NO descriptor
+ * here: the host must refuse them from the TTL before it opens this binary at all.
  */
 #include <math.h>
 #include <stdlib.h>
@@ -42,7 +42,9 @@
 #include "lv2_host_fixture.h"
 
 #include <lv2/atom/atom.h>
+#include <lv2/atom/util.h>
 #include <lv2/core/lv2.h>
+#include <lv2/midi/midi.h>
 #include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
 
@@ -258,8 +260,62 @@ static void wide_run(LV2_Handle h, uint32_t n)
 }
 static const LV2_Descriptor WIDE_TWIN = {FIXTURE_URI "#wide", wide_instantiate, wide_connect_port, NULL, wide_run, NULL, fixed_cleanup, NULL};
 
+/* the control-only twin (#ctl-alone): a control input `amount` and a control output `twice`, amount * 2, written every
+ * run(); no audio port and no MIDI port. Both ports are dereferenced, so one the host left unconnected is a SIGSEGV */
+struct ctl_alone { const float *amount; float *twice; };
+static LV2_Handle ctl_alone_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    (void)d; (void)rate; (void)path; (void)f;
+    return calloc(1, sizeof(struct ctl_alone));
+}
+static void ctl_alone_connect_port(LV2_Handle h, uint32_t port, void *data)
+{
+    struct ctl_alone *c = h;
+    if (port == 0) c->amount = data; else if (port == 1) c->twice = data;
+}
+static void ctl_alone_run(LV2_Handle h, uint32_t n)
+{
+    struct ctl_alone *c = h;
+    (void)n;
+    *c->twice = *c->amount * 2.0f;
+}
+static const LV2_Descriptor CTL_ALONE_TWIN = {FIXTURE_URI "#ctl-alone", ctl_alone_instantiate, ctl_alone_connect_port, NULL, ctl_alone_run, NULL, fixed_cleanup, NULL};
+
+/* the MIDI sink twin (#ctl-only): a MIDI input, a control input `amount` and a control output `notes`, the count of MIDI
+ * events read in the block; no audio port and no output but the control one. Every port is dereferenced */
+struct ctl_only { const LV2_Atom_Sequence *midi; const float *amount; float *notes; LV2_URID midi_event; };
+static LV2_Handle ctl_only_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    const LV2_URID_Map *map = NULL;
+    struct ctl_only *c;
+    (void)d; (void)rate; (void)path;
+    for (int i = 0; f && f[i]; i++)
+        if (strcmp(f[i]->URI, LV2_URID__map) == 0) map = f[i]->data;
+    if (!map) return NULL;
+    c = calloc(1, sizeof(*c));
+    if (c) c->midi_event = map->map(map->handle, LV2_MIDI__MidiEvent);
+    return c;
+}
+static void ctl_only_connect_port(LV2_Handle h, uint32_t port, void *data)
+{
+    struct ctl_only *c = h;
+    if (port == 0) c->midi = data; else if (port == 1) c->amount = data; else if (port == 2) c->notes = data;
+}
+static void ctl_only_run(LV2_Handle h, uint32_t n)
+{
+    struct ctl_only *c = h;
+    unsigned count = 0;
+    (void)n;
+    (void)*c->amount;
+    LV2_ATOM_SEQUENCE_FOREACH(c->midi, ev)
+        if (ev->body.type == c->midi_event) count++;
+    *c->notes = (float)count;
+}
+static const LV2_Descriptor CTL_ONLY_TWIN = {FIXTURE_URI "#ctl-only", ctl_only_instantiate, ctl_only_connect_port, NULL, ctl_only_run, NULL, fixed_cleanup, NULL};
+
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
     return index == 0 ? &DESCRIPTOR : index == 1 ? &FIXED_TWIN : index == 2 ? &INPLACE_TWIN : index == 3 ? &MIDI_TWO_TWIN
-         : index == 4 ? &ANALYSER_TWIN : index == 5 ? &GENERATOR_TWIN : index == 6 ? &WIDE_TWIN : NULL;
+         : index == 4 ? &ANALYSER_TWIN : index == 5 ? &GENERATOR_TWIN : index == 6 ? &WIDE_TWIN : index == 7 ? &CTL_ALONE_TWIN
+         : index == 8 ? &CTL_ONLY_TWIN : NULL;
 }

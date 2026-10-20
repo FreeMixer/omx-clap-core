@@ -161,7 +161,7 @@ expect "remove 2" "resp 0"
 expect "add lv2:$fixture#fixed 2" "resp 2"
 expect "remove 2" "resp 0"
 expect "add lv2:$fixture#mappath 2" "resp -102 hosting.no-realisation"
-expect "add lv2:$fixture#ctl-only 2" "resp -102 hosting.topology.no-audio-output"
+expect "add lv2:$fixture#no-ports 2" "resp -102 hosting.topology.no-audio-output"
 for code in hosting.features.atom-in-unfed hosting.no-realisation hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
 done
@@ -183,8 +183,7 @@ expect "add lv2:urn:openmixer:test:midi-echo#tool 2" "resp 2"
 grep -q "midi-echo#tool: passthrough: host" "$runtime/host.log"; step $? "stderr says the audio is the host's pass-through"
 expect "remove 2" "resp 0"
 # ---- a generator (#184): a stereo output and no input of any kind, admitted as a source and heard; a MIDI source
-# (a MIDI output alone) hosted with the strip's pair passing through; a control port alone is nothing to host ----
-expect "add lv2:$fixture#ctl-alone 2" "resp -102 hosting.topology.no-audio-output"
+# (a MIDI output alone) hosted with the strip's pair passing through ----
 expect "add lv2:$fixture#gen 2" "resp 2"
 [ -z "$(ports effect_2 i)" ]; step $? "the generator's inputs: none at all ($(ports effect_2 i))"
 [ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
@@ -199,6 +198,19 @@ expect "add lv2:urn:openmixer:test:midi-echo#source 2" "resp 2"
 [ "$(ports effect_2 i)" = "effect_2:in_1 effect_2:in_2 " ]; step $? "the MIDI source's inputs: $(ports effect_2 i)(the strip's pair, no midi_in)"
 [ "$(ports effect_2 o)" = "effect_2:midi_out effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
 grep -q "midi-echo#source: passthrough: host" "$runtime/host.log"; step $? "stderr says the audio is the host's pass-through"
+expect "remove 2" "resp 0"
+# ---- control ports alone and a MIDI sink (#253): hosted with the strip's pair passing through, the control output read
+# after the block; a plugin with no port at all is refused (above) ----
+expect "add lv2:$fixture#ctl-alone 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:in_1 effect_2:in_2 " ]; step $? "the control-only plugin's inputs: $(ports effect_2 i)(the strip's pair)"
+[ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)"
+grep -q "host-fixture#ctl-alone: passthrough: host" "$runtime/host.log"; step $? "stderr says the audio is the host's pass-through"
+expect "param_set 2 amount 0.25" "resp 0"
+reads 2 twice 0.5 0.00006 "the control-only plugin's output"
+expect "remove 2" "resp 0"
+expect "add lv2:$fixture#ctl-only 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:in_1 effect_2:in_2 effect_2:midi_in " ]; step $? "the MIDI sink's inputs: $(ports effect_2 i)(the strip's pair and midi_in)"
+[ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "and its outputs: $(ports effect_2 o)(no midi_out)"
 expect "remove 2" "resp 0"
 # ---- an LV2 instrument (#132): a MIDI input and a stereo output, no audio input, admitted as a source and played
 # through its midi_in ----
