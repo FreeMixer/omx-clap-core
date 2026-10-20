@@ -211,6 +211,8 @@ def classify(rec):
         return 'DIFFERS', 'silent through mod-host', f"omx-clap-host peak {m['peak_omx']:.3g}"
     if m.get('max_diff_swapped', 1.0) < tol:
         return 'DIFFERS', 'channels swapped', where
+    if rec.get('param_diff'):
+        return 'DIFFERS', 'a control starts at a different value', '; '.join(rec['param_diff'][:6]) + f'; {where}'
     peak = max(m['peak_mod'], m['peak_omx'])
     if m.get('lag') and m['max_diff_lagged'] < 1e-3 * peak:
         return 'DIFFERS', f"latency offset of {m['lag']} samples, not exact", f"max after the shift {m['max_diff_lagged']:.3g}; {where}"
@@ -609,6 +611,9 @@ def one_pass(e, rate, a, env, work, logdir, tag, arms_of):
             return rec
         mark('settled')
         rec['ports'] = {l.split()[1]: l.split(' ', 2)[2] for l in out if l.startswith('linked ')}
+        midi = {c: ' midi=1' in p for c, p in rec['ports'].items()}
+        if len(set(midi.values())) > 1:
+            rec['note'] = 'a MIDI input through ' + ' and '.join(sorted({NAMES['mod' if c in ('effect_0', 'effect_1') else 'omx'] for c, v in midi.items() if v})) + ' only: no notes sent'
         # the adapter holds a latency the plugin reports after its first activate for 250 ms of blocks, then asks the
         # host for a restart, which the host's control thread runs in wall time: the first warm runs past the hold, the
         # pause gives the restart its wall time with the graph stopped, the second warm runs the restart's crossfade
@@ -668,6 +673,10 @@ def one_pass(e, rate, a, env, work, logdir, tag, arms_of):
         rec['m']['equal_second'] = bits_equal(m1, o1)
         mark('measured')
         cls = classify(rec)[0]
+        if cls == 'DIFFERS' and all(h.alive() for h in hosts.values()):
+            # the cause most often behind a deterministic difference: a control the two hosts start differently
+            rec['param_diff'] = param_diff(hosts, e['uri'], a.lv2_path)
+            cls = classify(rec)[0]
         if a.keep == 'all' or (a.keep == 'differs' and cls != 'IDENTICAL'):
             kd = os.path.join(a.out, 'keep', str(rate), _slug(e['uri']))
             os.makedirs(kd, exist_ok=True)
@@ -704,6 +713,48 @@ def graph_ready(env, timeout=10.0):
             return True, last
         time.sleep(0.02)
     return False, last
+
+
+_WORLD = {}
+
+
+def control_symbols(uri, lv2_path):
+    """The symbols of the plugin's input control ports, from lilv (None when lilv cannot say)."""
+    try:
+        import lilv
+    except ImportError:
+        return None
+    if 'w' not in _WORLD:
+        os.environ['LV2_PATH'] = lv2_path
+        w = lilv.World()
+        w.load_all()
+        _WORLD['w'] = w
+    w = _WORLD['w']
+    p = w.get_all_plugins().get_by_uri(w.new_uri(uri))
+    if p is None:
+        return None
+    ctl, inp = w.new_uri('http://lv2plug.in/ns/lv2core#ControlPort'), w.new_uri('http://lv2plug.in/ns/lv2core#InputPort')
+    out = []
+    for i in range(p.get_num_ports()):
+        port = p.get_port_by_index(i)
+        if port.is_a(ctl) and port.is_a(inp):
+            out.append(str(port.get_symbol()))
+    return out
+
+
+def param_diff(hosts, uri, lv2_path):
+    """Every input control whose value mod-host's instance 0 and omx-clap-host's instance 2 read differently."""
+    syms = control_symbols(uri, lv2_path)
+    if syms is None:
+        return None
+    diff = []
+    for sym in syms:
+        a, _ = hosts['mod'].send(f'param_get 0 {sym}', 2)
+        b, _ = hosts['omx'].send(f'param_get 2 {sym}', 2)
+        va, vb = (a or '').split()[2:3], (b or '').split()[2:3]
+        if va != vb:
+            diff.append(f"{sym} mod-host {va[0] if va else a} omx-clap-host {vb[0] if vb else b}")
+    return diff
 
 
 def _say(feeder, line):
@@ -844,7 +895,7 @@ def cmd_run(a):
 
 # ---------------------------------------------------------------- classify and report
 
-ROW_COLS = ['rate', 'uri', 'class', 'cause', 'detail', 'stratum', 'max_diff', 'first_diff', 'lag', 'peak_mod',
+ROW_COLS = ['rate', 'uri', 'class', 'cause', 'detail', 'note', 'stratum', 'max_diff', 'first_diff', 'lag', 'peak_mod',
             'peak_omx', 'latency_mod', 'latency_omx', 'latency_log_omx', 'cpu_ms_mod', 'cpu_ms_omx', 'wall_s',
             'add_s_mod', 'add_s_omx']
 
@@ -863,7 +914,7 @@ def row_of(rec):
     m = rec.get('m', {})
     lj = rec.get('latency_jack', {})
     return dict(rate=rec['rate'], uri=rec['uri'], stratum=rec.get('stratum', ''), **{'class': cls}, cause=cause,
-                detail=detail, max_diff=m.get('max_diff', ''), first_diff=m.get('first_over_tol', ''),
+                detail=detail, note=rec.get('note', ''), max_diff=m.get('max_diff', ''), first_diff=m.get('first_over_tol', ''),
                 lag=m.get('lag', ''), peak_mod=m.get('peak_mod', ''), peak_omx=m.get('peak_omx', ''),
                 latency_mod=lj.get('effect_0', ''), latency_omx=lj.get('effect_2', ''),
                 latency_log_omx=' / '.join(l.split(': ', 1)[-1] for l in rec.get('latency_log_omx', [])),
@@ -917,6 +968,13 @@ def report_text(rows, skipped, meta):
     if silent:
         L += ['', f"Of the IDENTICAL, {len(silent)} measurements are silent through both hosts (weak evidence: "
               "a generator or a gate whose defaults make no sound): " + ', '.join(sorted({r['uri'] for r in silent}))]
+    strata = sorted({r.get('stratum', '') for r in rows if r.get('stratum')})
+    if len(strata) > 1:
+        cls_here = [c for c in CLASSES if any(r['class'] == c for r in rows)]
+        L += ['', '## Per stratum (measurements, every rate)', '', '| stratum | ' + ' | '.join(cls_here) + ' |',
+              '|---|' + '---:|' * len(cls_here)]
+        for st in strata:
+            L.append(f'| {st} | ' + ' | '.join(str(sum(1 for r in rows if r.get('stratum') == st and r['class'] == c)) for c in cls_here) + ' |')
     L += ['', f'Plugins: {len(uris)}. Skipped before the run (omx-clap-core#92, more than two audio inputs, a '
           f'sidechain or CV ports): {len(skipped)}.']
     def table(cls, title):
@@ -941,7 +999,12 @@ def report_text(rows, skipped, meta):
     table('HANG', 'HANG')
     table('REFUSED', 'REFUSED this time')
     table('ERROR', 'ERROR (the runner could not measure)')
-    lat = [r for r in rows if r.get('latency_mod', '') != r.get('latency_omx', '') or r.get('latency_log_omx')]
+    noted = [r for r in rows if r.get('note')]
+    if noted:
+        L += ['', '## Notes', '']
+        L += [f"- {r['uri']} at {r['rate']}: {r['note']} ({r['class']})" for r in noted]
+    lat = [r for r in rows if r.get('latency_mod', '') != r.get('latency_omx', '') or
+           any(x != 'latency 0 frames' for x in (r.get('latency_log_omx') or 'latency 0 frames').split(' / '))]
     L += ['', '## Latency', '',
           'The capture latency of each host\'s first output port as the graph reports it after the links '
           '(min,max frames), and the latency omx-clap-host logs when the adapter publishes one.', '']
@@ -950,7 +1013,7 @@ def report_text(rows, skipped, meta):
         for r in lat:
             L.append(f"| {r['uri']} | {r['rate']} | {r['latency_mod']} | {r['latency_omx']} | {r['latency_log_omx']} | {r['class']} |")
     else:
-        L.append('Both hosts reported the same graph latency for every plugin, and the adapter logged none.')
+        L.append('Both hosts reported the same graph latency for every plugin, and the adapter published none but 0.')
     cpu = [(float(r['cpu_ms_mod']), float(r['cpu_ms_omx']), r) for r in rows if r.get('cpu_ms_mod') not in ('', None) and r.get('cpu_ms_omx') not in ('', None)]
     if cpu:
         ratios = sorted(o / m for m, o, _ in cpu if m > 0.5)
@@ -1078,6 +1141,9 @@ def self_test():
     other = (rng.standard_normal((2, n)) * 0.1).astype(np.float32)
     c = cls(sig, sig, other, other.copy())
     t('another signal: DIFFERS, different output', c[:2] == ('DIFFERS', 'different output'))
+    r = dict(rec_of(sig, sig, other, other.copy()), param_diff=['drive mod-host 0.5000 omx-clap-host 1.0000'])
+    c = classify(r)
+    t('another signal with a control read differently: DIFFERS, the control named', c[:2] == ('DIFFERS', 'a control starts at a different value') and c[2].startswith('drive mod-host 0.5000'))
     c = cls(sig, sig, sig[::-1].copy(), sig[::-1].copy())
     t('left and right swapped: DIFFERS, channels swapped', c[:2] == ('DIFFERS', 'channels swapped'))
     c = cls(sig, sig, z, z)
