@@ -71,6 +71,8 @@ the continuous integration runs on every push, and the packages it builds:
 
 LV2 support is partial: [docs/lv2-compatibility.md](docs/lv2-compatibility.md) lists what is
 claimed and the test behind each row.
+Every CLAP extension, what the host does with it and the test behind each claim, is in
+[docs/clap-compatibility.md](docs/clap-compatibility.md).
 The host has no plugin GUI.
 
 Try it
