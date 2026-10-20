@@ -15,8 +15,8 @@ BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
-# write every hosting code from its omx_vocabulary.h (2.19.0)
-BuildRequires: omx-contract-devel >= 2.19.0
+# the codes under contract.d/3 (3.0.0, the hosting codes moved here)
+BuildRequires: omx-contract-devel >= 3.0.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -68,9 +68,8 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits, in omx-contract's contract directory, which that package owns; clap_host.h names the refusal
-# codes by omx-contract's omx_vocabulary.h (2.19.0)
-Requires: omx-contract-devel >= 2.19.0
+# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0)
+Requires: omx-contract-devel >= 3.0.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
@@ -138,7 +137,7 @@ make test-lv2
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
 %{_datadir}/omx-clap-core/
-%{_datadir}/omx-contract/contract.d/2/omx-clap-core/
+%{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING
