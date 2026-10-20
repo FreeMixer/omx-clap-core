@@ -47,6 +47,7 @@
 
 #include "clap_host.h"
 #include "layout_pin.h"
+#include "scan_fields.h"
 
 
 /*
@@ -1000,9 +1001,11 @@ static void usage(const char *name)
 {
     fprintf(stderr,
             "usage: %s [--json] [<path>...]\n"
+            "       %s --fields clap:<path>#<id> | lv2:<uri> | --list\n"
             "  <path> is a .clap file or a directory searched for .clap files;\n"
-            "  none given: CLAP_PATH, then ~/.clap, /usr/lib64/clap and /usr/lib/clap\n",
-            name);
+            "  none given: CLAP_PATH, then ~/.clap, /usr/lib64/clap and /usr/lib/clap\n"
+            "  --fields writes one plugin's field dump, a record a line: <scope> TAB <field> TAB <value>\n",
+            name, name);
 }
 
 
@@ -1016,6 +1019,7 @@ int main(int argc, char **argv)
 {
     list_t roots = { NULL, 0 }, files = { NULL, 0 }, failures = { NULL, 0 }, seen = { NULL, 0 };
     int explicit_paths, readable = 0, first = 1, a;
+    const char *fields = NULL;
     struct stat st;
     size_t i;
 
@@ -1023,6 +1027,8 @@ int main(int argc, char **argv)
     {
         if (strcmp(argv[a], "--json") == 0)
             g_json = 1;
+        else if (strcmp(argv[a], "--fields") == 0 && a + 1 < argc && !fields)
+            fields = argv[++a];
         else if (strcmp(argv[a], "-h") == 0 || strcmp(argv[a], "--help") == 0)
         {
             usage(argv[0]);
@@ -1050,6 +1056,17 @@ int main(int argc, char **argv)
             fprintf(stderr, "can't configure the clap core\n");
             return 2;
         }
+    }
+
+    // one plugin's field dump, through the core configured as above (clap:) or the LV2 adapter's world (lv2:)
+    if (fields)
+    {
+        if (g_json || roots.count > 0)
+        {
+            usage(argv[0]);
+            return 2;
+        }
+        return strcmp(fields, "--list") == 0 ? scan_fields_list() : scan_fields(fields);
     }
 
     explicit_paths = roots.count > 0;
