@@ -29,6 +29,8 @@
 #endif
 #include <pthread.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <omx-clap-host/clap_host.h>
 
@@ -91,6 +93,30 @@ int main(int argc, char **argv)
         CHECK(instance->aux_inputs == 1, "one auxiliary input (%u)", instance->aux_inputs);
         omx_clap_host_close(instance);
         instance = NULL;
+    }
+
+    // a bundle directory (#259): opened by the directory, the host finds its one shared object whatever its name
+    {
+        char dir[] = "/tmp/core_link_bundle_XXXXXX", bundle[64], object[96], two[96];
+
+        CHECK(mkdtemp(dir) != NULL, "a scratch directory");
+        snprintf(bundle, sizeof(bundle), "%s/odd.clap", dir);
+        snprintf(object, sizeof(object), "%s/libodd_name.so", bundle);
+        CHECK(mkdir(bundle, 0755) == 0 && symlink(argv[1], object) == 0, "odd.clap/libodd_name.so links to the fake plugin");
+        CHECK(open_ok(bundle, FAKE_SIDECHAIN, &instance, why), "open %s by its directory: admitted (%s)", bundle, why);
+        if (instance)
+        {
+            omx_clap_host_close(instance);
+            instance = NULL;
+        }
+        snprintf(two, sizeof(two), "%s/libtwo.so", bundle);
+        CHECK(symlink(argv[1], two) == 0 && !open_ok(bundle, FAKE_SIDECHAIN, &instance, why) && strcmp(why, CLAP_HOST_CODE_HEADLESS_FAILED) == 0,
+              "a bundle with two objects is refused %s (%s)", CLAP_HOST_CODE_HEADLESS_FAILED, why);
+        CHECK(omx_clap_host_binaries_open() == 0, "and nothing stays loaded (%u open)", omx_clap_host_binaries_open());
+        unlink(two);
+        unlink(object);
+        rmdir(bundle);
+        rmdir(dir);
     }
 
     CHECK(open_ok(argv[1], FAKE_WIDE, &instance, why), "open %s: its six channels are described", FAKE_WIDE);

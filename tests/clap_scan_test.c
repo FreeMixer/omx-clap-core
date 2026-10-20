@@ -160,7 +160,7 @@ static void relative_checks(const char *scan, const char *fake, char *out)
     CHECK(has(out, "test.passthrough") && !has(out, "\"error\""), "found in the working directory");
 }
 
-static void broken_checks(const char *scan, const char *fake, const char *crash, char *out)
+static void broken_checks(const char *scan, const char *fake, const char *crash, const char *synth, char *out)
 {
     char dir[] = "/tmp/clap_scan_test_XXXXXX";
     char path[512];
@@ -201,6 +201,40 @@ static void broken_checks(const char *scan, const char *fake, const char *crash,
     CHECK(strstr(out, "a_crash.clap") < strstr(out, "broken.clap") && strstr(out, "broken.clap") < strstr(out, "z_fake.clap"),
           "in name order, the subdirectory walked in place");
     CHECK(has(out, "test.passthrough") && has(out, "crashed with signal"), "the scan went on past the crash and the broken file");
+
+    // a bundle directory (#259): a .clap directory with no .clap file inside is its one shared object, whatever its name;
+    // two objects are an ambiguity named with the code bundle; a directory of other files is nothing, as before
+    snprintf(path, sizeof(path), "%s/odd.clap", dir);
+    mkdir(path, 0755);
+    snprintf(path, sizeof(path), "%s/odd.clap/libodd_name.so", dir);
+    CHECK(symlink(synth, path) == 0, "odd.clap/libodd_name.so links to the synth fixture (a symlink to a plugin already listed is skipped, so not the fake)");
+    snprintf(path, sizeof(path), "%s/odd.clap/readme.txt", dir);
+    file = fopen(path, "w");
+    fclose(file);
+    snprintf(path, sizeof(path), "%s/two.clap", dir);
+    mkdir(path, 0755);
+    snprintf(path, sizeof(path), "%s/two.clap/liba.so", dir);
+    CHECK(symlink(fake, path) == 0, "two.clap/liba.so links to the fake plugin");
+    snprintf(path, sizeof(path), "%s/two.clap/libb.so", dir);
+    CHECK(symlink(fake, path) == 0, "and two.clap/libb.so too");
+    status = run(out, "%s --json %s", scan, dir);
+    CHECK(status == 0, "a walk over bundle directories: exit 0 (%i)", status);
+    CHECK(count(out, "{\"path\":") == 5, "the three files, the bundle's object and the ambiguous bundle (%i rows)", count(out, "{\"path\":"));
+    CHECK(has(out, "odd.clap/libodd_name.so\"") && has(out, "\"org.omx-clap-host.test.synth\""), "odd.clap is listed by its object, which lists the synth");
+    CHECK(has(out, "two.clap\",\"code\":\"bundle\",\"error\":\"2 shared objects, one expected\""), "two.clap is a failure, code bundle, the count named");
+    CHECK(!has(out, "liba.so") && !has(out, "libb.so"), "and neither of its objects is listed on its own");
+    snprintf(path, sizeof(path), "%s/two.clap/libb.so", dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/two.clap/liba.so", dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/two.clap", dir);
+    rmdir(path);
+    snprintf(path, sizeof(path), "%s/odd.clap/readme.txt", dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/odd.clap/libodd_name.so", dir);
+    unlink(path);
+    snprintf(path, sizeof(path), "%s/odd.clap", dir);
+    rmdir(path);
 
     snprintf(path, sizeof(path), "%s/sub/z_fake.clap", dir);
     unlink(path);
@@ -335,7 +369,7 @@ int main(int argc, char **argv)
 
     fake_checks(scan, argv[2], out);
     relative_checks(scan, argv[2], out);
-    broken_checks(scan, argv[2], argv[3], out);
+    broken_checks(scan, argv[2], argv[3], argv[5], out);
     unreadable_checks(scan, argv[2], out);
     text_checks(scan, argv[2], out);
     if (argc > 4 && strcmp(argv[4], "-") != 0)
