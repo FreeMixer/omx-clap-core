@@ -910,6 +910,138 @@ static uint32_t kind_of_count(uint32_t n)
     return n == 1 ? LV2_PORT_MONO : n == 2 ? LV2_PORT_STEREO : LV2_PORT_UNKNOWN;
 }
 
+/* a member's lv2:designation, as a code: a CLAP surround id (CLAP_SURROUND_FL 0 ... CLAP_SURROUND_SR 10, named by number:
+ * the LV2 host holds no CLAP), LV2_CORE_MAP_SIDE for a mid-side group's side, ACN k as DES_ACN + k */
+#define DES_ACN                         0x40u
+#define DES_NONE                        0xffu
+#define PG                              LV2_PORT_GROUPS_PREFIX
+enum { FL = 0, FR = 1, FC = 2, LFE = 3, BL = 4, BR = 5, FLC = 6, FRC = 7, BC = 8, SL = 9, SR = 10 };
+#define A(k)                            (DES_ACN + (k))
+
+static const struct
+{
+    const char *uri;
+    uint8_t code;
+} DESIGNATIONS[] =
+{
+    { PG "left", FL }, { PG "right", FR }, { PG "center", FC }, { PG "lowFrequencyEffects", LFE }, { PG "rearLeft", BL },
+    { PG "rearRight", BR }, { PG "centerLeft", FLC }, { PG "centerRight", FRC }, { PG "rearCenter", BC },
+    { PG "sideLeft", SL }, { PG "sideRight", SR }, { PG "side", LV2_CORE_MAP_SIDE },
+    { PG "ACN0", A(0) }, { PG "ACN1", A(1) }, { PG "ACN2", A(2) }, { PG "ACN3", A(3) }, { PG "ACN4", A(4) },
+    { PG "ACN5", A(5) }, { PG "ACN6", A(6) }, { PG "ACN7", A(7) }, { PG "ACN8", A(8) }, { PG "ACN9", A(9) },
+    { PG "ACN10", A(10) }, { PG "ACN11", A(11) }, { PG "ACN12", A(12) }, { PG "ACN13", A(13) }, { PG "ACN14", A(14) },
+    { PG "ACN15", A(15) },
+};
+
+/* the group types port-groups.ttl declares elements for: the kind each gives, and its elements' designations in the
+ * ttl's pg:element order (which is the channel order and the map's) */
+static const struct
+{
+    const char *uri;
+    uint32_t kind;
+    uint32_t n;
+    uint8_t order[16];
+} GROUP_TYPES[] =
+{
+    { PG "MonoGroup", LV2_PORT_MONO, 1, { FC } },
+    { PG "StereoGroup", LV2_PORT_STEREO, 2, { FL, FR } },
+    { PG "MidSideGroup", LV2_PORT_STEREO, 2, { FC, LV2_CORE_MAP_SIDE } },
+    { PG "ThreePointZeroGroup", LV2_PORT_SURROUND, 3, { FL, FR, BC } },
+    { PG "FourPointZeroGroup", LV2_PORT_SURROUND, 4, { FL, FC, FR, BC } },
+    { PG "FivePointZeroGroup", LV2_PORT_SURROUND, 5, { FL, FC, FR, BL, BR } },
+    { PG "FivePointOneGroup", LV2_PORT_SURROUND, 6, { FL, FC, FR, BL, BR, LFE } },
+    { PG "SixPointOneGroup", LV2_PORT_SURROUND, 7, { FL, FC, FR, SL, SR, BC, LFE } },
+    { PG "SevenPointOneGroup", LV2_PORT_SURROUND, 8, { FL, FC, FR, SL, SR, BL, BR, LFE } },
+    { PG "SevenPointOneWideGroup", LV2_PORT_SURROUND, 8, { FL, FLC, FC, FRC, FR, BL, BR, LFE } },
+    // full-order ambisonic streams: ACN 0 to (order+1)^2 - 1, in order
+    { PG "AmbisonicBH1P1Group", LV2_PORT_AMBISONIC, 4, { A(0), A(1), A(2), A(3) } },
+    { PG "AmbisonicBH2P2Group", LV2_PORT_AMBISONIC, 9, { A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8) } },
+    { PG "AmbisonicBH3P3Group", LV2_PORT_AMBISONIC, 16,
+      { A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9), A(10), A(11), A(12), A(13), A(14), A(15) } },
+    // mixed-order streams, which a CLAP ambisonic port cannot express: discrete channels, their ACNs in the map
+    { PG "AmbisonicBH1P0Group", LV2_PORT_UNKNOWN, 3, { A(0), A(1), A(3) } },
+    { PG "AmbisonicBH2P0Group", LV2_PORT_UNKNOWN, 5, { A(0), A(1), A(3), A(4), A(8) } },
+    { PG "AmbisonicBH2P1Group", LV2_PORT_UNKNOWN, 6, { A(0), A(1), A(2), A(3), A(4), A(8) } },
+    { PG "AmbisonicBH3P0Group", LV2_PORT_UNKNOWN, 7, { A(0), A(1), A(3), A(4), A(8), A(9), A(15) } },
+    { PG "AmbisonicBH3P1Group", LV2_PORT_UNKNOWN, 8, { A(0), A(1), A(2), A(3), A(4), A(8), A(9), A(15) } },
+    { PG "AmbisonicBH3P2Group", LV2_PORT_UNKNOWN, 11, { A(0), A(1), A(2), A(3), A(4), A(5), A(6), A(7), A(8), A(9), A(15) } },
+};
+
+#undef A
+#undef PG
+
+/* The kind a group type gives its port, and its elements' designations in order: 1, or 0 for a type the table lacks
+ * (pg:Group, pg:InputGroup, pg:OutputGroup, pg:DiscreteGroup, another vocabulary's). */
+static int group_kind(const char *type_uri, uint32_t *kind, const uint8_t **order, uint32_t *n)
+{
+    size_t t;
+
+    for (t = 0; type_uri && t < sizeof(GROUP_TYPES) / sizeof(GROUP_TYPES[0]); t++)
+    {
+        if (strcmp(type_uri, GROUP_TYPES[t].uri) == 0)
+        {
+            *kind = GROUP_TYPES[t].kind;
+            *order = GROUP_TYPES[t].order;
+            *n = GROUP_TYPES[t].n;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* a port's lv2:designation as a code of DESIGNATIONS, DES_NONE without one the table names */
+static uint8_t designation_of(const LilvPlugin *pl, uint32_t index)
+{
+    LilvNodes *d = L.lilv_port_get_value(pl, L.lilv_plugin_get_port_by_index(pl, index), g.node[N_DESIGNATION]);
+    char *uri = first_string(d);
+    uint8_t code = DES_NONE;
+    size_t k;
+
+    for (k = 0; uri && k < sizeof(DESIGNATIONS) / sizeof(DESIGNATIONS[0]); k++)
+        if (strcmp(uri, DESIGNATIONS[k].uri) == 0)
+            code = DESIGNATIONS[k].code;
+    L.lilv_nodes_free(d);
+    free(uri);
+    return code;
+}
+
+/* A group's port in its type's element order: the kind and the map from the table when the group's rdf:type is in it
+ * and its members carry the type's designations, one each; otherwise the port stays in port index order with the kind
+ * its count gives. A mixed-order ambisonic group is ordered and mapped but of no kind. */
+static void group_order(struct lv2_audio_port *a, const LilvPlugin *pl)
+{
+    const LilvPort *first = L.lilv_plugin_get_port_by_index(pl, a->port[0]);
+    LilvNodes *grp = L.lilv_port_get_value(pl, first, g.node[N_PG_GROUP]);
+    LilvIter *it = grp ? L.lilv_nodes_begin(grp) : NULL;
+    LilvNodes *types = it && !L.lilv_nodes_is_end(grp, it)
+                       ? L.lilv_world_find_nodes(g.world, L.lilv_nodes_get(grp, it), g.node[N_RDF_TYPE], NULL) : NULL;
+    uint32_t kind = LV2_PORT_UNKNOWN, n = 0, port[LV2_CORE_PORT_CHANNELS], c, e;
+    const uint8_t *order = NULL;
+    int typed = 0, ok;
+
+    for (it = types ? L.lilv_nodes_begin(types) : NULL; types && !typed && !L.lilv_nodes_is_end(types, it); it = L.lilv_nodes_next(types, it))
+        typed = group_kind(L.lilv_node_as_string(L.lilv_nodes_get(types, it)), &kind, &order, &n);
+    L.lilv_nodes_free(types);
+    L.lilv_nodes_free(grp);
+    ok = typed && n == a->n;
+    for (e = 0; ok && e < n; e++)
+    {
+        // the member designated as element e: exactly one
+        uint32_t found = 0;
+
+        for (c = 0; c < a->n; c++)
+            if (designation_of(pl, a->port[c]) == order[e])
+                port[e] = a->port[c], found++;
+        ok = found == 1;
+    }
+    if (!ok)
+        return;
+    memcpy(a->port, port, n * sizeof(port[0]));
+    for (e = 0; e < n; e++)
+        a->map[e] = order[e] >= DES_ACN && order[e] < DES_ACN + 16u ? (uint8_t)(order[e] - DES_ACN) : order[e];
+    a->kind = kind;
+}
+
 /* one audio port of a side, as the port-group rules read it */
 struct side_port
 {
@@ -935,8 +1067,10 @@ static uint32_t side_count(const LilvPlugin *pl, uint32_t n, int is_input)
     return count;
 }
 
-/* One port of the description: its channels (the members, in port index order, at most LV2_CORE_PORT_CHANNELS of
- * them: one more is too wide), its name and its kind. */
+/* One port of the description: its channels (the members, at most LV2_CORE_PORT_CHANNELS of them: one more is too wide),
+ * its name, its kind and its map. A group is ordered by its type (group_order); an ungrouped port, and a group the
+ * table leaves of no kind, keeps port index order. A port of one or two channels of no kind is mono or stereo by its
+ * count, the CLAP port types for those widths. */
 static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, const char *group, const uint32_t *members, uint32_t n)
 {
     if (n > LV2_CORE_PORT_CHANNELS)
@@ -944,6 +1078,8 @@ static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, cons
     memcpy(a->port, members, n * sizeof(*members));
     a->n = n;
     a->kind = kind_of_count(n);
+    if (group)
+        group_order(a, pl);
     a->name = port_name(pl, group != NULL, members[0]);
     return a->name ? NULL : LV2_CODE_NO_REALISATION;
 }
