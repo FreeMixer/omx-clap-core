@@ -1057,6 +1057,14 @@ static void ports_relayout(effect_t *effect)
         omx_clap_host_deactivate(clap);
     }
     effect->relayout_pending = 0;
+    // a relayout still waiting on its blocks keeps the audio role it saved; every outcome below decides again, and only
+    // the short-block one waits again
+    if (effect->activate_pending)
+    {
+        thread = effect->pending_thread;
+        held = effect->pending_held;
+    }
+    effect->activate_pending = 0;
     if (lane_request(clap, effect->in_ports != 0, why) < 0)
         fprintf(stderr, "%s: its layout after the ports rescan is refused: %s; it passes dry\n", clap->desc->id, why);
     else if (clap->in_channels != effect->in_ports || clap->channels != effect->out_ports)
