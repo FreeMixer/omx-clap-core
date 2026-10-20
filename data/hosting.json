@@ -164,6 +164,14 @@
         "code": "hosting.topology.port-without-channels",
         "doc": "a port of zero channels"
       },
+      "channelMapUnknown": {
+        "code": "hosting.topology.channel-map-unknown",
+        "doc": "a surround port names a channel id the host does not know, or refuses the carrier's channel mask"
+      },
+      "ambisonicConfig": {
+        "code": "hosting.topology.ambisonic-config",
+        "doc": "an ambisonic port refuses the carrier's ordering or normalisation; raised by a layout request only"
+      },
       "crashedLive": {
         "code": "hosting.stability.crashed-live-on-this-rig",
         "doc": "the plugin crashed live on this rig"
