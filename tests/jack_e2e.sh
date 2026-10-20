@@ -271,6 +271,9 @@ step $? "under -c 1 the mono pair is asked, no config offers it: the declared in
 device=${OMX_CLAP_IDLE_HOLD_DEVICE:-/dev/cpu_dma_latency}
 device_reads() { od -An -td4 "$device" 2>/dev/null | tr -d ' '; }
 if [ -w "$device" ]; then idle_arm=held; before=$(device_reads); else idle_arm=refused; before=-; fi
+# the device answers the kernel's limit across every holder: what this host's hold makes it read is its target, or
+# the lower value someone else holds (the resting policy here, tuned's 4000, is above both targets this script sets)
+held_reads() { if [ "$before" != - ] && [ "$before" -lt "$1" ]; then echo "$before"; else echo "$1"; fi; }
 expect "idle_hold" "resp 0 off off $before 1 -"
 [ "$idle_arm" = refused ] || [ "$(device_reads)" = "$before" ]; step $? "--idle-hold=off: an active plugin holds nothing ($(device_reads))"
 expect "add clap:$fake#org.omx-clap-host.test.configurable 1" "resp 1"
@@ -318,24 +321,24 @@ expect "idle_hold soon" "resp -902"
 expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
 case $idle_arm in
     held)
-        expect "idle_hold" "resp 0 10 10 10 1 -"
-        [ "$(device_reads)" = 10 ]; step $? "the device reads 10 while effect_0 is active ($(device_reads))"
+        expect "idle_hold" "resp 0 10 10 $(held_reads 10) 1 -"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "the device reads $(held_reads 10) while effect_0 is active ($(device_reads))"
         expect "idle_hold 0" "resp 0"
-        [ "$(device_reads)" = 0 ]; step $? "idle_hold 0: the device reads 0, no idle state ($(device_reads))"
+        [ "$(device_reads)" = "$(held_reads 0)" ]; step $? "idle_hold 0: the device reads 0, no idle state ($(device_reads))"
         expect "idle_hold off" "resp 0"
         [ "$(device_reads)" = "$before" ]; step $? "idle_hold off: the device reads $before again ($(device_reads))"
         expect "idle_hold" "resp 0 off off $before 1 -"
         expect "idle_hold 10" "resp 0"
-        [ "$(device_reads)" = 10 ]; step $? "idle_hold 10: held again ($(device_reads))"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "idle_hold 10: held again ($(device_reads))"
         expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 1" "resp 1"
         expect "remove 0" "resp 0"
-        expect "idle_hold" "resp 0 10 10 10 1 -"
-        [ "$(device_reads)" = 10 ]; step $? "one of two removed: still held for the other ($(device_reads))"
+        expect "idle_hold" "resp 0 10 10 $(held_reads 10) 1 -"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "one of two removed: still held for the other ($(device_reads))"
         expect "remove 1" "resp 0"
         [ "$(device_reads)" = "$before" ]; step $? "every plugin removed: the device reads $before again ($(device_reads))"
         expect "idle_hold" "resp 0 10 off $before 0 -"
         expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
-        [ "$(device_reads)" = 10 ]; step $? "added again: held at 10 ($(device_reads))"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "added again: held at 10 ($(device_reads))"
         expect "quit" "resp 0"
         sleep 0.3
         [ "$(device_reads)" = "$before" ]; step $? "stopped with a plugin active: the device reads $before again ($(device_reads))"
@@ -347,7 +350,7 @@ case $idle_arm in
         grep -q "ready!" "$runtime/host10.log"; step $? "a fourth host, ready on port $((port + 3))"
         exec 3<>"/dev/tcp/127.0.0.1/$((port + 3))"
         expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
-        [ "$(device_reads)" = 10 ]; step $? "the fourth host holds at 10 ($(device_reads))"
+        [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "the fourth host holds at 10 ($(device_reads))"
         kill -9 "$host10"
         wait "$host10" 2>/dev/null
         sleep 0.2
