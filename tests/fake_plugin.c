@@ -40,6 +40,7 @@
  *   org.omx-clap-host.test.surround    a 5.1 main pair, port type surround, and clap.surround: the map FL FR FC LFE SL
  *                                      SR (0 1 2 3 9 10, not index order) on both, its own mask supported; deactivate
  *                                      calls the host's surround.changed
+ *                                      (with FAKE_CHANGED_ON_ACTIVATE set, activate calls it too)
  *   org.omx-clap-host.test.surround-bad the same, the map's last id 25, past CLAP_SURROUND_TSR
  *   org.omx-clap-host.test.surround-short the same, the map five ids long for six channels
  *   org.omx-clap-host.test.surround-plain a 6-channel main pair of port type surround and no clap.surround
@@ -555,6 +556,13 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
     (void)sample_rate; (void)min_frames; (void)max_frames;
     fake->activations++;
     fake_log(plugin, "activate");
+    if (fake->type == FAKE_TYPE_SURROUND && getenv("FAKE_CHANGED_ON_ACTIVATE"))
+    {
+        const clap_host_surround_t *host_surround = fake->host->get_extension(fake->host, CLAP_EXT_SURROUND);
+
+        if (host_surround)
+            host_surround->changed(fake->host);
+    }
     return true;
 }
 

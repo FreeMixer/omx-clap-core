@@ -2411,6 +2411,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     }
     omx_clap_set_bypass(&in->stage, in->bypass_wanted);
     ports_activate(in);
+    // a ports rescan the plugin made in the deactivate before (a restart's) is answered by this activate; one it makes
+    // inside activate() is its own and reported
+    atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);
     if (!in->plugin->activate(in->plugin, rate, 1, max_block))
     {
         drop_bounce(in);
@@ -2447,6 +2450,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
          * same cycle.
          */
         in->plugin->deactivate(in->plugin);
+        atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);  // answered by this cycle
         if (!in->plugin->activate(in->plugin, rate, 1, max_block))
         {
             in->active = 0;
@@ -2462,8 +2466,6 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         }
         atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
     }
-    // a ports rescan the plugin made in a deactivate this activate (or the restart around it) called is answered by it
-    atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);
     voice_info_ask(in);
     tail_read(in);
     in->sleep.asleep = 0;

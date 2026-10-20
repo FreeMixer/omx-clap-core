@@ -783,8 +783,9 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_inst
 
 /** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
  * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
- * plugin's. Nothing is restarted or read again for it. A rescan made inside omx_clap_host_activate (the plugin's
- * deactivate in the warm-up's cycle, or in a restart) is cleared by it, before any tick. Control thread. */
+ * plugin's. Nothing is restarted or read again for it. A rescan made in the deactivate just before one of
+ * omx_clap_host_activate's activate() calls (the warm-up's cycle, a restart) is answered by that call and not reported;
+ * one made inside activate() is. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
 
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
