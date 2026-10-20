@@ -2398,7 +2398,8 @@ static void t_layouts(double rate)
 /*
  * The typed groups through the core: five-one opens as a surround main pair whose maps the shim's clap.surround gives in
  * the group's designation order (FL FC FR BL BR LFE: 0 2 1 4 5 3, not the index order the core falls back to), and
- * ambi-first as an ambisonic main pair whose clap.ambisonic answers ACN and SN3D. A layout of no surround or ambisonic
+ * ambi-first as an ambisonic main pair whose clap.ambisonic states no configuration (LV2 declares no normalisation), so
+ * the core reads ACN and SN3D and marks both ports assumed. A layout of no surround or ambisonic
  * port is offered neither extension.
  */
 static void t_layouts_kinds(void)
@@ -2436,6 +2437,8 @@ static void t_layouts_kinds(void)
                   && in->main_in.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D,
               "kinds: ambi-first offers clap.ambisonic and is an ambisonic main input of four channels, ACN and SN3D (%u, %u, %u)",
               in->main_in.kind, in->main_in.ambisonic_ordering, in->main_in.ambisonic_normalization);
+        CHECK(in->main_in.ambisonic_assumed == 1 && in->main_out.ambisonic_assumed == 1,
+              "kinds: ambi-first's ACN and SN3D are assumed, not stated (%u, %u)", in->main_in.ambisonic_assumed, in->main_out.ambisonic_assumed);
         CHECK(in->ambisonic && in->ambisonic->is_config_supported(in->plugin, &acn_sn3d) && !in->ambisonic->is_config_supported(in->plugin, &fuma),
               "kinds: ambi-first supports ACN with SN3D and not FuMa with MaxN");
         omx_clap_host_close(in);

@@ -52,6 +52,7 @@
 #include "effects.h"
 #include "clap_host.h"
 #include "clap_meters.h"
+#include "cycle_gate.h"
 #include "hosted_stage_limits.h"
 #include "host_transport.h"
 #include "layout_pin.h"
@@ -153,6 +154,7 @@ typedef struct EFFECT_T {
     int relayout_pending;                   // a reported ports rescan not yet answered (ports_relayout)
     uint32_t relayout_tick;                 // the idle tick of the last relayout
     uint32_t relayouts_unchanged;           // relayouts on consecutive ticks that found the main layout unchanged
+    struct omx_cycle_gate gate;             // the cycles shut out of the instance while a restart or relayout deactivates it
     jack_port_t *midi_port;
     struct omx_msgring note_ring;           // control thread -> audio thread: the note verbs' MIDI messages
     void *note_ring_buf;                    // its NOTE_RING_BYTES, NULL for a plugin that takes no notes
@@ -367,17 +369,14 @@ static void notes_out(effect_t *effect, jack_nframes_t nframes)
     }
 }
 
-static int process(jack_nframes_t nframes, void *arg)
+/* one cycle inside the gate: `open` zero when the control thread shut it, and the instance is then not read at all */
+static void process_gated(effect_t *effect, jack_nframes_t nframes, int open)
 {
-    effect_t *effect = arg;
     const float *inputs[CLAP_HOST_PORT_CHANNELS];
     float *outputs[CLAP_HOST_PORT_CHANNELS];
     uint32_t c, runs = 0;
 
-    if (!effect || !effect->clap)
-        return 0;
-
-    if (effect->note_ring_buf)
+    if (open && effect->note_ring_buf)
     {
         // the note verbs first, at the cycle's first frame, ahead of what midi_in carries in it
         const void *m;
@@ -389,7 +388,7 @@ static int process(jack_nframes_t nframes, void *arg)
             omx_msgring_pop(&effect->note_ring);
         }
     }
-    if (effect->midi_port)
+    if (open && effect->midi_port)
     {
         void *midi = jack_port_get_buffer(effect->midi_port, nframes);
         jack_nframes_t count = jack_midi_get_event_count(midi);
@@ -407,10 +406,13 @@ static int process(jack_nframes_t nframes, void *arg)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
     for (c = 0; c < effect->out_ports; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
-    // a cycle while the instance is deactivated (buffer_size re-activating it, JACK stopping this client's cycle for
-    // the callback but this thread waiting on nothing of it; a relayout): the audio passes dry, a source's output
-    // silent, and the plugin is not run
-    if (!effect->clap->active || ((effect->aux_in_count || effect->aux_out_count) && nframes > effect->aux_frames))
+    // a cycle with the gate shut (a restart or a relayout deactivating the instance) or the instance deactivated
+    // (buffer_size re-activating it, JACK stopping this client's cycle for the callback but this thread waiting on
+    // nothing of it; a relayout that left it inactive), or a cycle longer than the auxiliary blocks: the audio passes
+    // dry, a source's output silent, and the plugin is not run. The flag and the blocks are read inside the open gate,
+    // where no control thread writes them
+    if (!open || !__atomic_load_n(&effect->clap->active, __ATOMIC_ACQUIRE)
+        || ((effect->aux_in_count || effect->aux_out_count) && nframes > effect->aux_frames))
     {
         for (c = 0; c < effect->out_ports; c++)
         {
@@ -421,7 +423,10 @@ static int process(jack_nframes_t nframes, void *arg)
         }
         for (c = 0; c < effect->aux_out_count; c++)
             memset(jack_port_get_buffer(effect->aux_out_ports[c], nframes), 0, nframes * sizeof(float));
-        return 0;
+        // the note output says nothing this cycle: JACK hands the buffer back as the last cycle left it
+        if (effect->midi_out_port)
+            jack_midi_clear_buffer(jack_port_get_buffer(effect->midi_out_port, nframes));
+        return;
     }
     for (c = 0; c < effect->aux_in_count; c++)
         memcpy(effect->aux_in_bufs[c], jack_port_get_buffer(effect->aux_in_ports[c], nframes), nframes * sizeof(float));
@@ -436,6 +441,16 @@ static int process(jack_nframes_t nframes, void *arg)
         publish_gain_adjustment(effect, runs);
     if (effect->midi_out_port)
         notes_out(effect, nframes);
+}
+
+static int process(jack_nframes_t nframes, void *arg)
+{
+    effect_t *effect = arg;
+
+    if (!effect || !effect->clap)
+        return 0;
+    process_gated(effect, nframes, omx_cycle_gate_enter(&effect->gate));
+    omx_cycle_gate_leave(&effect->gate);
     return 0;
 }
 
@@ -644,26 +659,30 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
     if (!effect || !effect->clap)
         return 0;
     // any change, a shrink too: the adapter promised the plugin the activation's length (bufsz:fixedBlockLength) and
-    // refuses a cycle of another one, so an instance left at the old size would run no block at all
+    // refuses a cycle of another one, so an instance left at the old size would run no block at all. Under the lock
+    // every restart and relayout holds, with the cycles shut out by the gate: the auxiliary blocks, which a cycle copies,
+    // made again at the new size; an active instance at another block, or one whose relayout waits for these blocks
+    // (activate_pending), activated at it. An instance a relayout left inactive otherwise is the relayout's to activate.
     pthread_mutex_lock(&g_reactivate);
     active = effect->clap->active;
     reactivate = active && nframes != effect->clap->max_block;
     reblock = (effect->aux_in_count || effect->aux_out_count) && nframes != effect->aux_frames;
     if (reactivate || reblock || effect->activate_pending)
     {
-        // stop takes the audio role for this thread and releases it: the process thread's is given back after; a
-        // pending relayout's is the one the relayout saved
+        // stop takes the audio role for this thread and releases it: the cycle's is given back after; a pending
+        // relayout's is the one the relayout saved
         const pthread_t thread = active ? effect->clap->audio_thread : effect->pending_thread;
         const int held = active ? effect->clap->audio_role_held : effect->pending_held;
         const int activate = active || effect->activate_pending;
 
         effect->activate_pending = 0;
+        omx_cycle_gate_close(&effect->gate, CLAP_HOST_ROLE_POLL_US);
         if (active)
         {
             omx_clap_host_stop(effect->clap);
             omx_clap_host_deactivate(effect->clap);
         }
-        // a block that cannot be made leaves the ports unbound and every longer cycle dry (process)
+        // a block that cannot be made leaves the ports unbound and every longer cycle dry (process_gated)
         if (reblock && aux_blocks(effect, nframes) != 0)
             fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; its auxiliary ports are unbound "
                     "and it passes dry\n", effect->instance, nframes);
@@ -673,6 +692,7 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
                 omx_clap_host_set_audio_thread(effect->clap, thread);
             omx_clap_host_arm(effect->clap);
         }
+        omx_cycle_gate_open(&effect->gate);
     }
     pthread_mutex_unlock(&g_reactivate);
     return 0;
@@ -1008,7 +1028,8 @@ static int lane_request(struct omx_clap_instance *clap, int has_input, char why[
 
 /*
  * A ports rescan the tick reported, once per report: the plugin's layout may have moved, and only an inactive plugin
- * is asked. The instance is unpublished and deactivated (a restart whose deactivate made the rescan left it inactive
+ * is asked. The instance is unpublished and deactivated, its cycles shut out of it until it is armed again or left
+ * inactive (omx_cycle_gate_deactivate; a restart whose deactivate made the rescan left it inactive
  * already), the lane's width asked again (lane_request, which reads the description again whatever the plugin
  * answers), and the instance activated again with its audio role as it was when its main ports are still the JACK
  * ports registered at add. A description those ports do not carry, or one refused, leaves it deactivated, its audio
@@ -1046,15 +1067,11 @@ static void ports_relayout(effect_t *effect)
     in_kind = clap->main_in.kind;
     out_kind = clap->main_out.kind;
     pthread_mutex_lock(&g_reactivate);
-    if (clap->active)
+    // the cycles stop the stage, then are shut out of the instance until it is armed again or left inactive
+    if (omx_cycle_gate_deactivate(&effect->gate, clap, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) != 0)
     {
-        if (omx_clap_host_unpublish(clap, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) != 0)
-        {
-            pthread_mutex_unlock(&g_reactivate);
-            return;
-        }
-        omx_clap_host_stop(clap);
-        omx_clap_host_deactivate(clap);
+        pthread_mutex_unlock(&g_reactivate);
+        return;
     }
     effect->relayout_pending = 0;
     // a relayout still waiting on its blocks keeps the audio role it saved; every outcome below decides again, and only
@@ -1096,19 +1113,35 @@ static void ports_relayout(effect_t *effect)
     unchanged = clap->in_channels == in_channels && clap->channels == channels && clap->main_in.kind == in_kind
                 && clap->main_out.kind == out_kind;
     effect->relayouts_unchanged = unchanged ? effect->relayouts_unchanged + 1 : 0;
+    omx_cycle_gate_open(&effect->gate);
     pthread_mutex_unlock(&g_reactivate);
 }
 
-/* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle took */
-static void clap_idle(struct omx_clap_instance *clap)
+/* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle
+ * took. A restart stopped by a ports rescan is the relayout's to answer (ports_relayout, right after); a failed one is
+ * said on stderr */
+static void clap_idle(effect_t *effect)
 {
+    struct omx_clap_instance *clap = effect->clap;
     const int restart = omx_clap_host_tick(clap);
     const char *log = omx_clap_host_log_take(clap);
 
     if (log)
         fprintf(stderr, "%s: %s\n", clap->desc->id, log);
     if (restart && clap->active)
-        omx_clap_host_restart(clap);
+    {
+        int restarted;
+
+        // the cycles keep running: they stop the stage, then are shut out across the deactivate (omx_cycle_gate_restart),
+        // and a buffer-size re-activation waits
+        pthread_mutex_lock(&g_reactivate);
+        restarted = omx_cycle_gate_restart(&effect->gate, clap, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US);
+        pthread_mutex_unlock(&g_reactivate);
+        if (restarted == OMX_CLAP_RESTART_RESCANNED)
+            effect->relayout_pending = 1;
+        else if (restarted != 0)
+            fprintf(stderr, "%s: its restart failed\n", clap->desc->id);
+    }
     omx_clap_host_settle(clap, QUEUE_SETTLE_US);
 }
 
@@ -2158,7 +2191,7 @@ void effects_idle(void)
 
         if (!instance_exist(i))
             continue;
-        clap_idle(effect->clap);
+        clap_idle(effect);
         ports_relayout(effect);
         if (omx_clap_host_remote_controls_changed(effect->clap))
         {
@@ -2334,8 +2367,7 @@ static void audio_port_record(FILE *out, const effect_t *effect, bool is_input, 
         t.ordering = port->ambisonic_ordering == CLAP_AMBISONIC_ORDERING_FUMA ? "fuma" : "acn";
         t.normalization = port->ambisonic_normalization < sizeof(normalizations) / sizeof(normalizations[0])
                           ? normalizations[port->ambisonic_normalization] : "sn3d";
-        // an LV2 group declares no normalisation, and a CLAP plugin without clap.ambisonic none at all: the host's
-        t.assumed = effect->lv2_entry != NULL || !clap->ambisonic || !clap->ambisonic->get_config;
+        t.assumed = port->ambisonic_assumed != 0;     // the description's: the configuration is the host's assumption
     }
     fputc(' ', out);
     layout_port_text(out, &t, 1);

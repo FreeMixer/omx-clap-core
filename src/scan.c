@@ -310,9 +310,10 @@ static const char *normalization_name(uint32_t normalization)
  * What a surround or an ambisonic port's channels are, as the description reads them, into `t` (its kind too, and
  * `map` for a surround port): a surround port's map from clap.surround (the ids as the plugin names them, as many as it
  * stores), in index order without it; an ambisonic port's ordering and normalisation from clap.ambisonic, ACN and SN3D
- * without it, which is then the host's assumption. Nothing for any other port, nor for a surround port of more than
- * CLAP_HOST_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is as long as the plugin says it is, up
- * to CLAP_HOST_PORT_CHANNELS ids.
+ * marked assumed without it or when its get_config answers false. For a plugin the core admits, put_audio_ports takes
+ * `assumed` from the description (its ambisonic_assumed). Nothing for any other port, nor for a surround port of more
+ * than CLAP_HOST_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is as long as the plugin says it
+ * is, up to CLAP_HOST_PORT_CHANNELS ids.
  */
 static void port_layout(const struct omx_clap_instance *instance, const clap_audio_port_info_t *info, bool is_input, uint32_t index,
                         uint8_t map[CLAP_HOST_PORT_CHANNELS], struct layout_port_text *t)
@@ -411,6 +412,14 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance,
             t.name = info.name;
             t.jack = accepted;
             port_layout(instance, &info, is_input, i, map, &t);
+            // an admitted plugin's description says whether its ambisonic configuration is the host's assumption
+            if (accepted && t.ordering)
+            {
+                const struct omx_clap_port *d = t.aux == LAYOUT_PORT_MAIN ? (is_input ? &instance->main_in : &instance->main_out)
+                                              : is_input ? &instance->aux_in[t.aux] : &instance->aux_out[t.aux];
+
+                t.assumed = d->ambisonic_assumed != 0;
+            }
             if (g_json)
             {
                 if (!first)
