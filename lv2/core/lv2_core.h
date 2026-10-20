@@ -200,6 +200,7 @@ struct lv2_plugin
     uint32_t cv_in[LV2_CORE_CV_PORTS], cv_out[LV2_CORE_CV_PORTS];          // the plugin's port index of each
     char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
     int32_t latency_port;           // -1: none
+    float latency_def;              // where its buffer starts: lv2:default, else lv2:minimum, else 0, as every control's
     int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
     int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
     int32_t midi_out_port;          // the one MIDI output atom port, -1: none

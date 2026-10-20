@@ -1282,7 +1282,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     // every port in index order, to the instance's own memory: an LV2 plugin may dereference ANY port it declares, its
     // own bypass held at the value that keeps it processing, the rows at their values, every other output into memory
     // the host reads
-    in->latency_port = 0.0f;
+    in->latency_port = p->latency_def;
     in->midi_bytes = atom_bytes();
     // a shared port carries the patch messages too: the MIDI buffers are at least the patch capacity
     if ((p->patch_in_shared || p->patch_out_shared) && patch_cap(p) > in->midi_bytes)
