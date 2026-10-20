@@ -169,6 +169,14 @@ static void t_strict(void)
     CHECK(omx_lv2_features_admit(&o, need_worker, &missing) == 0 && missing && !strcmp(missing, LV2_WORKER__schedule),
           "strict off: the same plugin is admitted, the missing feature still named");
     CHECK(omx_lv2_features_admit(&o, NULL, &missing) == 0 && missing == NULL, "strict: no requirement, nothing missing");
+    {
+        const char *const need_inplace[] = { LV2_CORE__inPlaceBroken, NULL };
+
+        missing = "untouched";
+        CHECK(omx_lv2_feature_offered(NULL, LV2_CORE__inPlaceBroken)
+              && omx_lv2_features_admit(NULL, need_inplace, &missing) == 0 && missing == NULL,
+              "strict: lv2:inPlaceBroken required is offered by construction and admitted under the defaults");
+    }
     // admitted degraded, the plugin is handed no worker: what it instantiates with is what it sees
     CHECK(observe(&o, 16, 256) == 0 && !(g_probe->seen & LV2_FEATURE_PROBE_WORKER),
           "strict off: the admitted plugin instantiates without the worker");
@@ -202,6 +210,11 @@ static void t_block(void)
           "block: the buf-size item withheld, no declaration at all");
     CHECK(!omx_lv2_feature_offered(&o, LV2_BUF_SIZE__powerOf2BlockLength), "block: and none is offered");
 
+    omx_lv2_feature_options_init(&o);
+    o.block.declares |= OMX_LV2_BLOCK_FIXED;
+    CHECK(observe(&o, 64, 512) == 0 && g_probe->min_block == 512 && g_probe->max_block == 512 && g_probe->nominal_block == 512,
+          "block: fixed declared, the minimum reported is the maximum, whatever the activation's minimum (%d %d %d)",
+          g_probe->min_block, g_probe->max_block, g_probe->nominal_block);
     omx_lv2_feature_options_init(&o);
     o.block.min = 1;
     CHECK(observe(&o, 64, 512) == 0 && g_probe->min_block == 1 && g_probe->max_block == 512 && g_probe->nominal_block == 512,

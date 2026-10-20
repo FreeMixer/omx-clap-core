@@ -28,9 +28,11 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include "lv2_patch_fixture.h"
 
 #include <lv2/atom/atom.h>
 #include <lv2/atom/forge.h>
+#include <lv2/midi/midi.h>
 #include <lv2/atom/util.h>
 #include <lv2/core/lv2.h>
 #include <lv2/patch/patch.h>
@@ -177,7 +179,87 @@ static const LV2_Descriptor descriptor = {
     FX_URI, instantiate, connect_port, NULL, run, NULL, cleanup, NULL,
 };
 
+/* the #midi twin: audio in and out, and ONE atom input that takes midi:MidiEvent and patch:Message (the lsp
+ * samplers' shape). Its witness counts what each run's sequence held and whether it was in frame order. */
+struct lv2_patch_fixture_midi lv2_patch_fixture_midi;
+struct mfx
+{
+    const float *in;
+    float *out;
+    const LV2_Atom_Sequence *events;
+    LV2_URID midi, object, blank, set, put;
+};
+static LV2_Handle midi_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features)
+{
+    struct mfx *f = calloc(1, sizeof(*f));
+    LV2_URID_Map *map = NULL;
+    uint32_t i;
+
+    (void)d; (void)rate; (void)path;
+    if (!f)
+        return NULL;
+    for (i = 0; features && features[i]; i++)
+        if (strcmp(features[i]->URI, LV2_URID__map) == 0)
+            map = features[i]->data;
+    if (!map)
+    {
+        free(f);
+        return NULL;
+    }
+    f->midi = map->map(map->handle, LV2_MIDI__MidiEvent);
+    f->object = map->map(map->handle, LV2_ATOM__Object);
+    f->blank = map->map(map->handle, LV2_ATOM__Blank);
+    f->set = map->map(map->handle, LV2_PATCH__Set);
+    f->put = map->map(map->handle, LV2_PATCH__Put);
+    return f;
+}
+static void midi_connect_port(LV2_Handle h, uint32_t port, void *data)
+{
+    struct mfx *f = h;
+
+    if (port == 0) f->in = data; else if (port == 1) f->out = data; else if (port == 2) f->events = data;
+}
+static void midi_run(LV2_Handle h, uint32_t n)
+{
+    struct mfx *f = h;
+    struct lv2_patch_fixture_midi *w = &lv2_patch_fixture_midi;
+    int64_t last = -1;
+
+    w->runs++;
+    w->events = w->midi = w->patch = 0;
+    w->first_midi_frame = w->first_patch_frame = -1;
+    if (f->events)
+        LV2_ATOM_SEQUENCE_FOREACH(f->events, ev)
+        {
+            w->events++;
+            if (ev->time.frames < last)
+                w->out_of_order++;
+            last = ev->time.frames;
+            if (ev->body.type == f->midi)
+            {
+                w->midi++;
+                if (w->first_midi_frame < 0) w->first_midi_frame = ev->time.frames;
+            }
+            else if (ev->body.type == f->object || ev->body.type == f->blank)
+            {
+                const LV2_Atom_Object *obj = (const LV2_Atom_Object *)&ev->body;
+
+                if (obj->body.otype == f->set || obj->body.otype == f->put)
+                {
+                    w->patch++;
+                    if (w->first_patch_frame < 0) w->first_patch_frame = ev->time.frames;
+                }
+            }
+        }
+    if (f->in && f->out)
+        memmove(f->out, f->in, n * sizeof(float));
+}
+static void midi_cleanup(LV2_Handle h) { free(h); }
+static const LV2_Descriptor midi_descriptor = {
+    FX_URI "#midi", midi_instantiate, midi_connect_port, NULL, midi_run, NULL, midi_cleanup, NULL,
+};
+
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &descriptor : NULL;
+    return index == 0 ? &descriptor : index == 1 ? &midi_descriptor : NULL;
 }

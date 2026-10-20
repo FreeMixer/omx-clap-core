@@ -7,8 +7,8 @@ to run bit-identically through the adapter, `libomx-clap-lv2`. The proof of that
 identity run in the console, at every declared rate and quantum; until its results are published,
 this page claims only what the tests of this repository prove. MIDI, transport, state and presets
 are supported where the matrix below names a passing test; each atom message type is either carried or refused with
-its reason (the atom rows below). Not supported:
-fixed or power-of-two
+its reason (the atom rows below). A fixed block length is supported where the host declares it (omx-clap-host
+does, under JACK; the console does not). Not supported: power-of-two
 block lengths. A latency
 that moves under a parameter sweep is applied after a hold and a restart rather than per cycle.
 
@@ -65,7 +65,10 @@ Ports
 | Audio, one input and one output | supported: one mono main port each way (`lv2_clap_test` fixture, `lv2_host_test` fixture) | unsupported |
 | Audio, two inputs and two outputs | supported: one stereo main port each way (`lv2_clap_test` core: the 2×2 plugin on a mono lane) | unsupported |
 | Audio, side chains (`lv2:isSideChain`, or `pg:sideChainOf` on a port or group) | supported: one CLAP input per side chain, of one or two channels, named by its group's label or its port's name, silent until the host binds a buffer to it (`lv2_clap_test` side chain, `lv2_host_test` side chain) | unsupported |
-| An instrument: a MIDI input, one or two audio outputs, no audio input | supported as a source: no CLAP audio input, a mono or stereo main output, the MIDI input its note input (below), played through `effect_<N>:midi_in` in omx-clap-host. A plugin with neither an audio input nor a MIDI input is still refused with `hosting.topology.no-audio-input` (`lv2_host_test` midi ports, `lv2_clap_test` instrument, `jack_lv2_e2e`) | unsupported |
+| An instrument: a MIDI input, one or two audio outputs, no audio input | supported as a source: no CLAP audio input, a mono or stereo main output, the MIDI input its note input (below), played through `effect_<N>:midi_in` in omx-clap-host (`lv2_host_test` midi ports, `lv2_clap_test` instrument, `jack_lv2_e2e`) | unsupported |
+| A generator: one or two audio outputs and no input of any kind (an oscillator, a noise or tone source) | supported as a source: no CLAP audio input, no note port, a mono or stereo main output of its own; `effect_<N>` has `out_<k>` and no input port, and a probe hears it (`lv2_host_test` sources, `lv2_clap_test` generator, `jack_lv2_e2e`) | unsupported: no test runs a source through mod-host yet |
+| A MIDI source: a MIDI output and no input of any kind (an arpeggio or sequence generator) | supported as a pass-through tool: the strip's pair passes through untouched (`passthrough: host`), its notes on `effect_<N>:midi_out` (`lv2_host_test` sources, `lv2_clap_test` generator, `jack_lv2_e2e`) | unsupported: no test runs a source through mod-host yet |
+| A control port alone: no audio port and no MIDI port either way | unsupported: nothing to host, refused `hosting.topology.no-audio-output` (`lv2_host_test` and `lv2_clap_test` refusals, `jack_lv2_e2e`) | unsupported |
 | Audio, any other layout (mono to stereo, more than two channels, an input that is neither main nor a side chain) | unsupported (stage 2); refused with the verdict's code (`lv2_host_test` and `lv2_clap_test` refusals) | unsupported |
 | Port groups (`pg:mainInput`, `pg:group`, `pg:sideChainOf`) | supported for the main input and side chains: the members of `pg:mainInput` are the main pair, the members of one `pg:group` one CLAP input (`lv2_host_test` side chain). Output groups and other groups are read as ungrouped ports (unsupported) | unsupported |
 | Control input ports | supported: a CLAP parameter each, id = port index, name, range and default from the TTL, written before the block's run (`lv2_clap_test` fixture) | unsupported |
@@ -112,6 +115,8 @@ Port properties
 | `pprops:rangeSteps`, `pprops:expensive`, `pprops:causesArtifacts` | unsupported | unsupported |
 | No `lv2:default` | supported: the minimum is the default (`lv2_clap_test` props) | unsupported |
 | Units (`units:unit`) | unsupported | unsupported |
+| No audio output: a MIDI tool (a MIDI output, no audio port) or an analyser (audio inputs, no output) | supported, the host's placement: the strip's audio passes through the stage bit for bit with no latency, named `passthrough: host` on the main ports and on clap.log; the tool's MIDI goes through the note path and the analyser's control outputs read as before (`lv2_clap_test` passthrough, `jack_lv2_e2e` the tool). A plugin with neither an audio output, a MIDI output nor an audio input is refused `hosting.topology.no-audio-output` | unsupported |
+| More than one MIDI input or output port | supported: the first of each, in port index order, is the note path's; a later MIDI input is fed an empty sequence every block and a later MIDI output is offered a buffer and drained, up to 16 of each (carla midijoin, midisplit; `lv2_clap_test` two-in and two-out) | unsupported |
 | `lv2:inPlaceBroken` | supported: every port is the adapter's own memory, so a host that processes in place is safe (`lv2_run_test` and `lv2_clap_test` pad) | unsupported |
 
 Features and extensions
@@ -123,7 +128,8 @@ Features and extensions
 | `urid:unmap` | supported (`lv2_host_test` worker) | unsupported |
 | `options:options` | supported: `param:sampleRate`, `bufsz:minBlockLength`, `bufsz:maxBlockLength` and `bufsz:nominalBlockLength` as the activation says (`lv2_host_test` worker) | unsupported |
 | `bufsz:boundedBlockLength` | supported (`lv2_host_test` worker) | unsupported |
-| `bufsz:fixedBlockLength`, `bufsz:powerOf2BlockLength` | unsupported by default; a plugin requiring one is refused with `hosting.features.missing` (`lv2_host_test` refusals and the configure arm). A host that pins its block declares them through the feature options' block declarations (`lv2_host_test` options, `lv2_features_test` block) | unsupported |
+| `bufsz:fixedBlockLength` | supported where the host declares `OMX_LV2_BLOCK_FIXED`: omx-clap-host does, since under JACK every cycle is the buffer size and any change of it re-activates; the plugin is then told one length, and a cycle of another length is refused and counted apart from the plugin's faults (`lv2_clap_test` fixed, `jack_lv2_e2e` the shrink and the growth). Not declared, a plugin requiring it is refused `hosting.features.missing` (`lv2_host_test` refusals) | unsupported |
+| `bufsz:powerOf2BlockLength` | unsupported by default; a plugin requiring it is refused with `hosting.features.missing` (`lv2_host_test` refusals and the configure arm). A host that pins its block to a power of two declares it through the feature options' block declarations (`lv2_host_test` options, `lv2_features_test` block) | unsupported |
 | `worker:schedule` and `worker:interface` | lossy: one worker thread per instance, which polls instead of being woken, so a response lands on a later block than in a host that wakes its worker (`lv2_run_test` worker, `lv2_host_test` worker, `lv2_clap_test` worker) | unsupported |
 | `log:log` | lossy: answered and discarded by default, so a log call never blocks the audio thread (`lv2_host_test` worker). The feature options route a line to a host sink or capture it into a buffer, off the audio role only (`lv2_host_test` options, `lv2_features_test` log) | unsupported |
 | `state:loadDefaultState` | supported (`lv2_host_test` fixture: -26 dB only with the default state restored) | unsupported |
@@ -143,7 +149,7 @@ Through omx-clap-host
 |---|---|
 | `add lv2:<uri> <N>`, and the URI alone as mod-host takes it | supported: the bundle on `LV2_PATH` whose manifest names the URI, whole or as a prefixed name, and whose plugin list holds it; the client `effect_<N>` with `in_<k>`/`out_<k>`, and `midi_in` for a plugin with an LV2 MIDI input, as for a CLAP plugin (`jack_lv2_e2e`, `lv2_locate_test`) |
 | A URI no bundle holds | `resp -101` (`jack_lv2_e2e`) |
-| A plugin the adapter refuses | `resp -102 <code>`, the code also on stderr: `hosting.topology.no-audio-input` (neither an audio nor a MIDI input), `hosting.topology.wider-than-strip`, `hosting.features.midi-in-fed-empty`, `hosting.features.atom-in-unfed`, `hosting.features.missing`, `hosting.topology.no-audio-output`, and `hosting.no-realisation` for a plugin whose binary cannot be loaded (`jack_lv2_e2e`); the adapter keeps the code for the host, `omx_clap_lv2_last_refusal` (`lv2_clap_test` refusals) |
+| A plugin the adapter refuses | `resp -102 <code>`, the code also on stderr: `hosting.topology.wider-than-strip`, `hosting.features.midi-in-fed-empty`, `hosting.features.atom-in-unfed`, `hosting.features.missing`, `hosting.topology.no-audio-output` (no audio output, no MIDI output and no audio input: nothing to host), and `hosting.no-realisation` for a plugin whose binary cannot be loaded (`jack_lv2_e2e`); the adapter keeps the code for the host, `omx_clap_lv2_last_refusal` (`lv2_clap_test` refusals) |
 | The default state (`state:loadDefaultState`) | supported (`jack_lv2_e2e`: -26 dB with the -6 dB of the default state) |
 | Control input ports | supported: `param_set` and `param_get` by the port's `lv2:symbol` or by its CLAP id, the port index; `param_info` by either (`jack_lv2_e2e`, `lv2_clap_test` fixture: `omx_clap_lv2_param_symbol`) |
 | Control output ports | supported: `param_get` by symbol; `monitor_output <N> <symbol>` sends `output_set` when the value moves (`jack_lv2_e2e`) |

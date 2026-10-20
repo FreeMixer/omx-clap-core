@@ -867,9 +867,9 @@ static char *side_name(const LilvPlugin *pl, const LilvPort *port)
 }
 
 /* The audio inputs, sorted. The main input is every input that is not a side chain, or with pg:mainInput the members of
- * that group; more than two, or an input outside the group, is refused as extra. None is an instrument when the plugin
- * has a MIDI input (read_ports finds it first): a source, its main channels its outputs'; with no MIDI input either it is
- * refused as no audio input. A side chain is an input with
+ * that group; more than two, or an input outside the group, is refused as extra. None is a source, its main channels
+ * its outputs' (read_ports): an instrument when the plugin has a MIDI input, a generator (an oscillator, a noise source)
+ * with no input of any kind (#184). A side chain is an input with
  * lv2:isSideChain, or with pg:sideChainOf on the port or on its group. A CLAP input is made of the members of one
  * pg:group, or of one ungrouped port, in the order of their first member, one or two channels each. Fills p->legs,
  * p->in_ports and the side chains; returns the refusal, or NULL. */
@@ -914,8 +914,6 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
             p->in_ports[nmain] = i;
         nmain++;
     }
-    if (!refusal && nmain == 0 && p->midi_in_port < 0)
-        refusal = LV2_CODE_NO_AUDIO_INPUT;
     if (!refusal && nmain > 2)
         refusal = LV2_CODE_EXTRA_INPUTS;
     for (i = 0; i < n && !refusal; i++)
@@ -1005,13 +1003,59 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             return LV2_CODE_MIDI_IN;
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
         {
-            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most; a port that
-            // also takes patch:Message is refused, since neither mapping carries both on one port
+            // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most. One that
+            // also takes patch:Message is the patch port too: one sequence the note path and the parameter path both
+            // fill, in frame order, or both readers read (the lsp samplers, midimap, midifile); a second patch port
+            // beside it is one more than the mapping carries
+            // a MIDI port after the first: an input is fed an empty sequence every block, an output is offered a buffer
+            // and drained, as the other atom ports are (carla's midijoin, 16 inputs; midisplit, 16 outputs); the note path
+            // is the first port's in index order
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
-                return LV2_CODE_MIDI_IN;
+            {
+                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+                if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
+                {
+                    L.lilv_nodes_free(rsz);
+                    return LV2_CODE_MIDI_IN;
+                }
+                if (input)
+                {
+                    p->atom_in[p->n_atom_in++] = i;
+                    p->atom_in_min = rsz_max(rsz, p->atom_in_min);
+                }
+                else
+                {
+                    p->notify_out[p->n_notify++] = i;
+                    p->notify_min = rsz_max(rsz, p->notify_min);
+                }
+                L.lilv_nodes_free(rsz);
+                continue;
+            }
             if (L.lilv_port_supports_event(pl, port, g.node[N_PATCH_MESSAGE]))
-                return LV2_CODE_MIDI_IN;
-            if (input)
+            {
+                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+                if (input ? p->patch_in >= 0 : p->patch_out >= 0)
+                {
+                    L.lilv_nodes_free(rsz);
+                    return input ? LV2_CODE_ATOM_IN : LV2_CODE_MIDI_IN;
+                }
+                if (input)
+                {
+                    p->patch_in = (int32_t)i;
+                    p->patch_in_shared = 1;
+                    p->patch_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+                }
+                else
+                {
+                    p->patch_out = (int32_t)i;
+                    p->patch_out_shared = 1;
+                }
+                p->atom_min = rsz_max(rsz, p->atom_min);
+                L.lilv_nodes_free(rsz);
+            }
+            else if (input)
                 p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
             if (input)
                 p->midi_in_port = (int32_t)i;
@@ -1103,12 +1147,22 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     if (refusal)
         return refusal;
     if (nout == 0)
-        return LV2_CODE_NO_AUDIO_OUTPUT;
-    if (p->in_legs == 0 && nout <= 2)
-        p->legs = nout;     // an instrument: its outputs are its main channels
-    if (nout != p->legs)
-        return LV2_CODE_WIDER_THAN_STRIP;
-    memcpy(p->out_ports, out, sizeof(p->out_ports));
+    {
+        // no audio output. A MIDI tool (a MIDI output) or an analyser (audio inputs) is hosted with the strip's audio
+        // passing through it untouched, the host's placement, never the plugin's own audio (#183); a plugin with
+        // neither an audio output, a MIDI output nor an audio input has nothing to host
+        if (p->midi_out_port < 0 && p->in_legs == 0)
+            return LV2_CODE_NO_AUDIO_OUTPUT;
+        p->passthrough = 1;
+    }
+    else
+    {
+        if (p->in_legs == 0 && nout <= 2)
+            p->legs = nout;     // a source, an instrument or a generator: its outputs are its main channels
+        if (nout != p->legs)
+            return LV2_CODE_WIDER_THAN_STRIP;
+        memcpy(p->out_ports, out, sizeof(p->out_ports));
+    }
     if (p->patch_in >= 0)
         return read_patches(p, pl);     // a property is writable only through an input port
     return NULL;

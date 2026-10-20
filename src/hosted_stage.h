@@ -87,7 +87,17 @@
 enum omx_hosted_fault
 {
     OMX_HOSTED_FAULT_NONE = 0,
-    OMX_HOSTED_FAULT_NONFINITE = 1      ///< a non-finite block, or a CLAP_PROCESS_ERROR block, struck the counter out
+    OMX_HOSTED_FAULT_NONFINITE = 1,     ///< non-finite output blocks struck the counter out
+    OMX_HOSTED_FAULT_PROCESS_ERROR = 2  ///< CLAP_PROCESS_ERROR blocks struck the counter out: the plugin did not run
+                                        ///< the block (its own refusal, or a host fault its log names), never its output
+};
+
+/** What one block was, for omx_hosted_run_end_why. */
+enum omx_hosted_block
+{
+    OMX_HOSTED_BLOCK_USABLE = 1,        ///< finite output: delivered
+    OMX_HOSTED_BLOCK_NONFINITE = 0,     ///< non-finite output: discarded, struck
+    OMX_HOSTED_BLOCK_ERROR = -1         ///< CLAP_PROCESS_ERROR: discarded, struck apart
 };
 
 /**
@@ -114,7 +124,8 @@ struct omx_hosted_stage
     _Atomic uint32_t rendered_wet;      ///< the body the lane carried on the last block
     _Atomic uint32_t fault;             ///< enum omx_hosted_fault
     _Atomic uint32_t runs;              ///< live plugin calls
-    _Atomic uint32_t nonfinite_blocks;  ///< discarded blocks: non-finite output, a CLAP process error
+    _Atomic uint32_t nonfinite_blocks;  ///< discarded blocks: non-finite output (a CLAP_PROCESS_ERROR block is the
+                                        ///< format's own counter, struck through omx_hosted_run_end_why)
     _Atomic uint32_t clamped_samples;   ///< samples clamped at CLAP_HOST_CLAMP_DBFS
     _Atomic uint32_t oversize_blocks;   ///< a block longer than the bounce: passed through, not run
 };
@@ -186,11 +197,17 @@ static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
 
 /** A discarded block: count it, and at the strike count fault the stage for good. The lane already holds the dry
  * block; the caller marks the body dry so the next usable block fades back in. */
-static inline void omx_hosted_strike(_Atomic uint32_t *blocks, _Atomic uint32_t *fault)
+static inline void omx_hosted_strike_as(_Atomic uint32_t *blocks, _Atomic uint32_t *fault, uint32_t kind)
 {
     omx_hosted_count(blocks, 1);
     if (atomic_load_explicit(blocks, memory_order_relaxed) >= CLAP_HOST_NON_FINITE_STRIKES)
-        atomic_store_explicit(fault, OMX_HOSTED_FAULT_NONFINITE, memory_order_relaxed);
+        atomic_store_explicit(fault, kind, memory_order_relaxed);
+}
+
+/** A discarded block of non-finite output: omx_hosted_strike_as with the non-finite fault, the strike every host knew. */
+static inline void omx_hosted_strike(_Atomic uint32_t *blocks, _Atomic uint32_t *fault)
+{
+    omx_hosted_strike_as(blocks, fault, OMX_HOSTED_FAULT_NONFINITE);
 }
 
 /**
@@ -297,17 +314,30 @@ static inline enum omx_hosted_verdict omx_hosted_run_begin(struct omx_hosted_sta
  * clamps, counted, and delivered as the body `want_wet` names, one crossfade on every change of body; the lane is finite
  * afterwards.
  */
-static inline void omx_hosted_run_end(struct omx_hosted_stage *h, int usable, uint32_t want_wet, float *l, float *r, uint32_t n)
+/**
+ * End a block knowing what it was: usable blocks are delivered as omx_hosted_run_end does; a non-finite block strikes
+ * `nonfinite_blocks`; a CLAP_PROCESS_ERROR block strikes `errors`, the format's own counter (omx_clap_stage.process_errors),
+ * counted once here, with its own fault, so the plugin not running a block is never reported as its output. `errors`
+ * NULL falls back to the non-finite counter.
+ */
+static inline void omx_hosted_run_end_why(struct omx_hosted_stage *h, int block, _Atomic uint32_t *errors, uint32_t want_wet, float *l,
+                                          float *r, uint32_t n)
 {
     const float *wet_r;
 
     omx_hosted_count(&h->runs, 1);
-    if (!usable)
+    if (block != OMX_HOSTED_BLOCK_USABLE)
     {
+        // a process error is counted and struck apart from non-finite output: the plugin did not run the block, so
+        // nothing of it was its output, and the fault says so
+        const int error = block == OMX_HOSTED_BLOCK_ERROR && errors != NULL;
+        _Atomic uint32_t *blocks = error ? errors : &h->nonfinite_blocks;
+        const uint32_t kind = error ? OMX_HOSTED_FAULT_PROCESS_ERROR : OMX_HOSTED_FAULT_NONFINITE;
+
         if (h->guards & OMX_HOSTED_GUARD_NONFINITE)
-            omx_hosted_strike(&h->nonfinite_blocks, &h->fault);
+            omx_hosted_strike_as(blocks, &h->fault, kind);
         else
-            omx_hosted_count(&h->nonfinite_blocks, 1);
+            omx_hosted_count(blocks, 1);
         atomic_store_explicit(&h->rendered_wet, 0, memory_order_release);
         return;
     }
@@ -325,6 +355,12 @@ static inline void omx_hosted_run_end(struct omx_hosted_stage *h, int usable, ui
                        h->in_r, h->out_l, wet_r, n);
     atomic_store_explicit(&h->rendered_wet, want_wet, memory_order_release);
     CLAP_HOST_POST((omx_block_finite(l, n) && omx_block_finite(r, n)) || !(h->guards & OMX_HOSTED_GUARD_NONFINITE), "finite");
+}
+
+/** The entry point a host that knows only whether the block was usable keeps: not usable is non-finite output. */
+static inline void omx_hosted_run_end(struct omx_hosted_stage *h, int usable, uint32_t want_wet, float *l, float *r, uint32_t n)
+{
+    omx_hosted_run_end_why(h, usable ? OMX_HOSTED_BLOCK_USABLE : OMX_HOSTED_BLOCK_NONFINITE, NULL, want_wet, l, r, n);
 }
 
 /**
