@@ -1128,7 +1128,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     const struct lv2_plugin *p = in->plugin;
     const LV2_Descriptor *d = p->desc;
     float *audio;
-    uint32_t leg, k, i;
+    uint32_t leg, k, i, c;
 
     audio = calloc((4u + p->n_side_legs + p->n_cv_in + p->n_cv_out) * (size_t)max_frames, sizeof(*audio));
     if (!audio)
@@ -1240,9 +1240,10 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         for (leg = 0; leg < p->n_atom_in && !at; leg++)
             if (p->atom_in[leg] == i)
                 at = in->atom_in_seq + leg * (size_t)in->atom_in_bytes;
-        for (leg = 0; leg < p->n_side_legs && !at; leg++)
-            if (p->side_in[leg] == i)
-                at = in->audio + (4u + leg) * (size_t)max_frames;
+        for (leg = 0; leg < p->n_side && !at; leg++)
+            for (c = 0; c < p->side_channels[leg] && !at; c++)
+                if (p->side_in[leg][c] == i)
+                    at = in->audio + (4u + p->side_base[leg] + c) * (size_t)max_frames;
         for (leg = 0; leg < p->n_cv_in && !at; leg++)
             if (p->cv_in[leg] == i)
                 at = in->audio + (4u + p->n_side_legs + leg) * (size_t)max_frames;

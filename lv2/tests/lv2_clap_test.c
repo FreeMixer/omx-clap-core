@@ -472,7 +472,7 @@ static void t_refusals(void)
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
+        { FIXTURE_URI "#three-in", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
         { FIXTURE_URI "#mappath", "hosting.features.missing" },
@@ -1855,6 +1855,38 @@ static clap_process_status sc_process(struct rig *g, float *in_l, float *in_r, f
     return st;
 }
 
+/* the side chains at the core's limit through the face: 65 are refused with too-many-ports, and a three-channel side
+ * chain is one auxiliary input of three channels and no port type */
+static void t_sidechain_limits(void)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_sc, why);
+    const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    const clap_plugin_audio_ports_t *ports;
+    clap_audio_port_info_t port;
+    const clap_plugin_t *p;
+    struct th t;
+
+    CHECK(f != NULL, "side chain limits: the side-chain bundle reads (%s)", why);
+    if (!f)
+        return;
+    th_init(&t);
+    CHECK(f->create_plugin(f, &t.host, SC_URI "#sixty-five") == NULL && strcmp(t.log, "hosting.topology.too-many-ports\n") == 0,
+          "side chain limits: 65 side chains are refused, and clap.log carries hosting.topology.too-many-ports (got '%s')", t.log);
+    th_init(&t);
+    p = f->create_plugin(f, &t.host, SC_URI "#wide");
+    CHECK(p != NULL, "side chain limits: a three-channel side chain is admitted");
+    if (p)
+    {
+        CHECK(p->init(p), "side chain limits: init");
+        ports = p->get_extension(p, CLAP_EXT_AUDIO_PORTS);
+        CHECK(ports && ports->count(p, true) == 2 && ports->get(p, 1, true, &port) && port.channel_count == 3 && port.port_type == NULL,
+              "side chain limits: one auxiliary input of three channels, of no port type");
+        p->destroy(p);
+    }
+    omx_clap_lv2_entry_release(e);
+}
+
 static void t_sidechain(double rate)
 {
     static float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK], side_l[BLOCK], side_r[BLOCK], none_l[BLOCK], none_r[BLOCK];
@@ -3103,6 +3135,8 @@ int main(int argc, char **argv)
         t_atom_midi_time(RATES[r]);
         t_atom_ui(RATES[r]);
         t_sidechain(RATES[r]);
+        if (r == 0)
+            t_sidechain_limits();
         t_sidechain_core(RATES[r]);
         t_make_path(RATES[r]);
         t_make_path_escape(RATES[r]);
