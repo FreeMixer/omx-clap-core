@@ -68,8 +68,8 @@
  *                                      ignore) and none declared once selected; with FAKE_SWITCH_ON_DEACTIVATE every
  *                                      deactivate switches to config 2 and rescans the list, as 101 does once; with
  *                                      FAKE_CONFIGS_TWIN a config 3, the stereo pair again, and select refuses 2)
- *                                      (with FAKE_CONFIGS_RESCAN set, deactivate makes config 3 appear and config 2
- *                                      refuse selection, as FAKE_CONFIGS_TWIN does, and calls the host's
+ *                                      (with FAKE_CONFIGS_RESCAN set, deactivate changes the list: config 2 leaves
+ *                                      it and config 3, a mono main pair, takes its place; it calls the host's
  *                                      audio-ports-config.rescan)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
@@ -161,7 +161,8 @@ typedef struct FAKE_T {
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
     uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
     uint32_t switch_always;     // configs: every deactivate does (FAKE_SWITCH_ON_DEACTIVATE)
-    uint32_t configs_rescan;    // configs: deactivate changes the configuration set and says so (FAKE_CONFIGS_RESCAN)
+    uint32_t configs_rescan;    // configs: deactivate changes the configuration list and says so (FAKE_CONFIGS_RESCAN)
+    uint32_t configs_moved;     // configs: the list changed: config 2 is gone, config 3 (a mono pair) is in its place
     uint32_t configs_twin;      // configs: a config 3 like 2, and select refuses 2 (FAKE_CONFIGS_TWIN)
     uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
     uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
@@ -383,19 +384,34 @@ static const clap_plugin_ambisonic_t g_ambisonic = { ambisonic_is_config_support
 static uint32_t configs_count(const clap_plugin_t *plugin)
 {
     main_thread_only(plugin, "audio_ports_config.count");
-    return ((const fake_t *)plugin->plugin_data)->configs_twin ? 3 : 2;
+    return ((const fake_t *)plugin->plugin_data)->configs_twin ? 3 : 2;    // moved: still 2, ids 1 and 3
 }
 
 static bool configs_get(const clap_plugin_t *plugin, uint32_t index, clap_audio_ports_config_t *config)
 {
     const uint32_t twin = index == 2 && ((const fake_t *)plugin->plugin_data)->configs_twin;
+    const uint32_t moved = index == 1 && ((const fake_t *)plugin->plugin_data)->configs_moved;
 
     main_thread_only(plugin, "audio_ports_config.get");
     if (index > 1 && !twin)
         return false;
     memset(config, 0, sizeof(*config));
     config->id = index + 1;
-    snprintf(config->name, sizeof(config->name), index == 0 ? "mono to stereo" : twin ? "stereo again" : "stereo");
+    snprintf(config->name, sizeof(config->name), index == 0 ? "mono to stereo" : twin ? "stereo again" : moved ? "mono pair" : "stereo");
+    if (moved)
+    {
+        // the list after the change: in config 2's place, config 3, a mono main pair
+        config->id = 3;
+        config->input_port_count = 1;
+        config->output_port_count = 1;
+        config->has_main_input = true;
+        config->main_input_channel_count = 1;
+        config->main_input_port_type = CLAP_PORT_MONO;
+        config->has_main_output = true;
+        config->main_output_channel_count = 1;
+        config->main_output_port_type = CLAP_PORT_MONO;
+        return true;
+    }
     if (twin)
         index = 1;  // the stereo pair's ports
     config->input_port_count = ((const fake_t *)plugin->plugin_data)->configs_side ? 2 : 1;
@@ -426,10 +442,11 @@ static bool configs_select(const clap_plugin_t *plugin, clap_id config_id)
     char line[32];
 
     main_thread_only(plugin, "audio_ports_config.select");
-    if ((config_id != 1 && config_id != 2 && !(config_id == 3 && fake->configs_twin)) || (config_id == 2 && fake->configs_twin))
+    if ((config_id != 1 && config_id != 2 && !(config_id == 3 && (fake->configs_twin || fake->configs_moved)))
+        || (config_id == 2 && (fake->configs_twin || fake->configs_moved)))
         return false;
-    fake->main_channels = config_id == 1 ? 1 : 2;
-    fake->out_channels = 2;
+    fake->main_channels = config_id == 1 ? 1 : fake->configs_moved && config_id == 3 ? 1 : 2;
+    fake->out_channels = fake->configs_moved && config_id == 3 ? 1 : 2;
     if (fake->configs_side)
     {
         fake->extra_inputs = 1;
@@ -827,10 +844,11 @@ static void plugin_deactivate(const clap_plugin_t *plugin)
     }
     if (fake->configs_rescan)
     {
-        // the configuration set changes as FAKE_CONFIGS_TWIN's is: config 3 appears, config 2 refuses selection
+        // the list changes: config 2 leaves it, config 3, a mono pair, takes its place; said to the host here, while it
+        // is still being deactivated (a host that reports only while inactive drops this one and reads the list itself)
         const clap_host_audio_ports_config_t *host_configs = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS_CONFIG);
 
-        fake->configs_twin = 1;
+        fake->configs_moved = 1;
         if (host_configs)
             host_configs->rescan(fake->host);
     }
