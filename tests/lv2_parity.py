@@ -47,6 +47,7 @@ import hashlib
 import json
 import os
 import random
+import shutil
 import signal
 import socket
 import subprocess
@@ -602,6 +603,11 @@ def one_pass(e, rate, a, env, work, logdir, tag, arms_of):
             rec.update(status='error', detail='the graph runs ' + out[0])
             return rec
         mark('linked')
+        ready, rec['graph'] = graph_ready(env)
+        if not ready:
+            rec.update(status='error', detail='the graph did not settle: ' + rec['graph'])
+            return rec
+        mark('settled')
         rec['ports'] = {l.split()[1]: l.split(' ', 2)[2] for l in out if l.startswith('linked ')}
         # the adapter holds a latency the plugin reports after its first activate for 250 ms of blocks, then asks the
         # host for a restart, which the host's control thread runs in wall time: the first warm runs past the hold, the
@@ -666,7 +672,7 @@ def one_pass(e, rate, a, env, work, logdir, tag, arms_of):
             kd = os.path.join(a.out, 'keep', str(rate), _slug(e['uri']))
             os.makedirs(kd, exist_ok=True)
             for f in os.listdir(rec_dir):
-                os.replace(os.path.join(rec_dir, f), os.path.join(kd, f))
+                shutil.move(os.path.join(rec_dir, f), os.path.join(kd, f))
         for f in os.listdir(rec_dir):
             os.unlink(os.path.join(rec_dir, f))
         os.rmdir(rec_dir)
@@ -680,12 +686,36 @@ def one_pass(e, rate, a, env, work, logdir, tag, arms_of):
             h.kill()
 
 
+def graph_ready(env, timeout=10.0):
+    """Every link of the graph active and no node still starting: a cycle triggered before a link has agreed
+    its format stalls in its first cycle, and with no driver timeout it never completes."""
+    dl = time.time() + timeout
+    last = ''
+    while time.time() < dl:
+        try:
+            objs = json.loads(subprocess.run(['pw-dump'], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                             text=True, timeout=5).stdout or '[]')
+        except (subprocess.TimeoutExpired, ValueError):
+            objs = []
+        links = [o for o in objs if o.get('type') == 'PipeWire:Interface:Link']
+        states = [((o.get('info') or {}).get('state') or '') for o in links]
+        last = f"{len(links)} links: " + ', '.join(f'{states.count(x)} {x}' for x in sorted(set(states)))
+        if links and all(x == 'active' for x in states):
+            return True, last
+        time.sleep(0.02)
+    return False, last
+
+
 def _say(feeder, line):
     try:
         feeder.stdin.write(line + '\n')
         feeder.stdin.flush()
         return True
     except OSError:
+        try:
+            feeder.stdin.close()
+        except OSError:
+            pass
         return False
 
 
@@ -752,7 +782,12 @@ def inside_run(a):
                     return 3
                 if pw.poll() is not None:
                     pw, _ = start_pipewire(rt, rate, QUANTUM)
-                rec = run_plugin(e, rate, a, env, rt, logdir, n)
+                try:
+                    rec = run_plugin(e, rate, a, env, rt, logdir, n)
+                except Exception as x:  # the runner's own fault on one plugin: recorded, the run goes on
+                    import traceback
+                    rec = {'uri': e['uri'], 'rate': rate, 'stratum': e.get('stratum', ''), 'status': 'error',
+                           'detail': f'runner: {x!r} ' + traceback.format_exc().splitlines()[-3].strip()}
                 if rec['status'] == 'ok':
                     rec.pop('feeder', None)
                 raw.write(json.dumps(rec) + '\n')
