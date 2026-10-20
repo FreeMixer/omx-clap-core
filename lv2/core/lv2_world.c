@@ -1409,10 +1409,11 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     p->legs = p->main_out.n;
     if (nout == 0)
     {
-        // no audio output. A MIDI tool (a MIDI output) or an analyser (audio inputs) is hosted with the strip's audio
-        // passing through it untouched, the host's placement, never the plugin's own audio (#183); a plugin with
-        // neither an audio output, a MIDI output nor an audio input has nothing to host
-        if (p->midi_out_port < 0 && p->in_legs == 0)
+        // no audio output. A MIDI tool (a MIDI output), an analyser (audio inputs), a control-only plugin (control ports
+        // alone) or a MIDI sink (a MIDI input and control ports) is hosted with the strip's audio passing through it
+        // untouched, the host's placement, never the plugin's own audio (#183, #253); its control outputs read after
+        // every block. A plugin with no port at all has nothing the host feeds or reads
+        if (n == 0)
             return LV2_CODE_NO_AUDIO_OUTPUT;
         p->passthrough = 1;
         p->legs = p->in_legs;

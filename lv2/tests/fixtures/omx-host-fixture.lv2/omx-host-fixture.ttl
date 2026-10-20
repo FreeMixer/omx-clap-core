@@ -106,14 +106,23 @@ fx:offset_db
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out_r" ; lv2:name "out_r"
     ] .
 
-# a control port and nothing else: no audio port, no MIDI port either way; nothing to host, refused from the TTL
+# control ports and nothing else: no audio port, no MIDI port either way; hosted as a pass-through tool (#253), its
+# control output `twice` the input `amount` times two
 <urn:openmixer:test:host-fixture#ctl-alone>
     a lv2:Plugin ;
-    doap:name "openmixer host fixture (a control port alone twin)" ;
+    doap:name "openmixer host fixture (control ports alone twin)" ;
     lv2:port [
         a lv2:ControlPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "amount" ; lv2:name "amount" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "twice" ; lv2:name "twice" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 2.0
     ] .
+
+# no port at all: nothing the host feeds or reads; refused from the TTL, hosting.topology.no-audio-output
+<urn:openmixer:test:host-fixture#no-ports>
+    a lv2:Plugin ;
+    doap:name "openmixer host fixture (no port at all twin)" .
 
 <urn:openmixer:test:host-fixture#no-out>
     a lv2:Plugin ;
@@ -125,15 +134,21 @@ fx:offset_db
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
     ] .
 
+# a MIDI sink: a MIDI input and control ports, no audio port and no MIDI output; hosted as a pass-through tool (#253),
+# its control output `notes` the count of MIDI events read in the block
 <urn:openmixer:test:host-fixture#ctl-only>
     a lv2:Plugin ;
-    doap:name "openmixer host fixture (a MIDI input and a control port, no output of any kind twin)" ;
+    doap:name "openmixer host fixture (a MIDI sink twin: a MIDI input and control ports)" ;
+    lv2:requiredFeature urid:map ;
     lv2:port [
         a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
         lv2:index 0 ; lv2:symbol "midi_in" ; lv2:name "midi_in"
     ] , [
         a lv2:ControlPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "amount" ; lv2:name "amount" ;
         lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1.0
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "notes" ; lv2:name "notes" ;
+        lv2:default 0.0 ; lv2:minimum 0.0 ; lv2:maximum 1024.0
     ] .
 
 <urn:openmixer:test:host-fixture#three-in>
