@@ -1,5 +1,5 @@
 uri	cause	evidence
-http://plugin.org.uk/swh-plugins/dcRemove	plugin reads uninitialised memory (valgrind-confirmable)	varies through whichever host runs it, up to 1e26 (omx-clap-core#230)
-http://plugin.org.uk/swh-plugins/valve	plugin reads uninitialised memory (valgrind-confirmable)	varies through whichever host runs it, up to 1e25 (omx-clap-core#230)
-http://plugin.org.uk/swh-plugins/const	plugin reads uninitialised memory (valgrind-confirmable)	varies through whichever host runs it, by 4.6e-37 (omx-clap-core#230)
+http://plugin.org.uk/swh-plugins/dcRemove	swh's LV2 generator drops activate's reset (xslt/source.xsl stores no instance-data local back), so the plugin runs on the memory malloc handed instantiate	both instances blow to 1.5e13 through liblv2core alone and both hosts under MALLOC_PERTURB_=165; the plugin regenerated from a patched xsl reads clean (omx-clap-core#230)
+http://plugin.org.uk/swh-plugins/valve	swh's LV2 generator drops activate's reset (xslt/source.xsl stores no instance-data local back), so the plugin runs on the memory malloc handed instantiate	same mechanism and figures as dcRemove: 1.5e13 under MALLOC_PERTURB_=165 in-process and in both hosts (omx-clap-core#230)
+http://plugin.org.uk/swh-plugins/const	swh's LV2 generator drops activate's reset (xslt/source.xsl stores no instance-data local back), so the plugin runs on the memory malloc handed instantiate	last_amp never reset: a garbage first block (1.5e16 under MALLOC_PERTURB_=165), denormal-sized spread otherwise, in both hosts (omx-clap-core#230)
 https://github.com/asb2m10/dexed	plugin reads uninitialised memory (valgrind-confirmable)	one LSB of 16 bits from a note onset, through whichever host runs it (omx-clap-core#213, #230)
