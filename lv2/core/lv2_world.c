@@ -1457,6 +1457,81 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     return NULL;
 }
 
+/* the first of a port's roles, in lv2_port_role's order: a control is the next of controls[*k], and takes it */
+static uint16_t port_role(const struct lv2_plugin *p, uint32_t i, uint32_t *k, uint32_t *leg, uint32_t *c)
+{
+    for (*c = 0; *c < p->main_in.n; (*c)++)
+        if (p->main_in.port[*c] == i)
+            return LV2_ROLE_MAIN_IN;
+    for (*c = 0; *c < p->main_out.n; (*c)++)
+        if (p->main_out.port[*c] == i)
+            return LV2_ROLE_MAIN_OUT;
+    *c = 0;
+    if (p->patch_in >= 0 && !p->patch_in_shared && (uint32_t)p->patch_in == i)
+        return LV2_ROLE_PATCH_IN;
+    if (p->patch_out >= 0 && !p->patch_out_shared && (uint32_t)p->patch_out == i)
+        return LV2_ROLE_PATCH_OUT;
+    if (p->midi_in_port >= 0 && (uint32_t)p->midi_in_port == i)
+        return LV2_ROLE_MIDI_IN;
+    if (p->midi_out_port >= 0 && (uint32_t)p->midi_out_port == i)
+        return LV2_ROLE_MIDI_OUT;
+    if (p->time_port >= 0 && (uint32_t)p->time_port == i)
+        return LV2_ROLE_TIME;
+    for (*leg = 0; *leg < p->n_notify; (*leg)++)
+        if (p->notify_out[*leg] == i)
+            return LV2_ROLE_NOTIFY;
+    for (*leg = 0; *leg < p->n_atom_in; (*leg)++)
+        if (p->atom_in[*leg] == i)
+            return LV2_ROLE_ATOM_IN;
+    for (*leg = 0; *leg < p->n_event_in; (*leg)++)
+        if (p->event_in[*leg] == i)
+            return LV2_ROLE_EVENT_IN;
+    for (*leg = 0; *leg < p->n_event_out; (*leg)++)
+        if (p->event_out[*leg] == i)
+            return LV2_ROLE_EVENT_OUT;
+    for (*leg = 0; *leg < p->n_aux_in; (*leg)++)
+        for (*c = 0; *c < p->aux_in[*leg].n; (*c)++)
+            if (p->aux_in[*leg].port[*c] == i)
+                return LV2_ROLE_AUX_IN;
+    for (*leg = 0; *leg < p->n_aux_out; (*leg)++)
+        for (*c = 0; *c < p->aux_out[*leg].n; (*c)++)
+            if (p->aux_out[*leg].port[*c] == i)
+                return LV2_ROLE_AUX_OUT;
+    *c = 0;
+    for (*leg = 0; *leg < p->n_cv_in; (*leg)++)
+        if (p->cv_in[*leg] == i)
+            return LV2_ROLE_CV_IN;
+    for (*leg = 0; *leg < p->n_cv_out; (*leg)++)
+        if (p->cv_out[*leg] == i)
+            return LV2_ROLE_CV_OUT;
+    *leg = 0;
+    if (p->latency_port >= 0 && (uint32_t)p->latency_port == i)
+        return LV2_ROLE_LATENCY;
+    if (*k < p->n_controls && p->controls[*k].port == i)
+    {
+        *leg = (*k)++;
+        return LV2_ROLE_CONTROL;
+    }
+    return LV2_ROLE_NONE;
+}
+
+/* every port's role, by its index: what an instance connects it to */
+static const char *read_roles(struct lv2_plugin *p)
+{
+    uint32_t i, k, leg, c;
+
+    p->roles = calloc(p->n_ports ? p->n_ports : 1u, sizeof(*p->roles));
+    if (!p->roles)
+        return LV2_CODE_NO_REALISATION;
+    for (i = 0, k = 0; i < p->n_ports; i++)
+    {
+        p->roles[i].role = port_role(p, i, &k, &leg, &c);
+        p->roles[i].leg = leg;
+        p->roles[i].channel = (uint16_t)c;
+    }
+    return NULL;
+}
+
 /* lv2:requiredFeature, and the refusal of one outside the configured list */
 static const char *read_required(struct lv2_plugin *p, const LilvPlugin *pl)
 {
@@ -1541,6 +1616,7 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->texts[k].name);
     }
     free(p->texts);
+    free(p->roles);
     free(p->main_in.name);
     free(p->main_out.name);
     for (i = 0; i < LV2_CORE_AUX_PORTS; i++)    // every slot: a refused open has named some ports, not set the counts
@@ -1599,6 +1675,8 @@ struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, c
     refusal = !pl || !L.lilv_node_equals(L.lilv_plugin_get_bundle_uri(pl), bundle->node) ? LV2_CODE_NO_REALISATION : NULL;
     if (!refusal)
         refusal = read_ports(p, pl);
+    if (!refusal)
+        refusal = read_roles(p);
     if (!refusal)
         refusal = read_required(p, pl);
     if (refusal)
