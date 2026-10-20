@@ -14,6 +14,7 @@
     <elf-symbol name='omx_clap_host_binary_open' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bind_aux_input' version='OMX_CLAP_CORE_0.13' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bind_aux_output' version='OMX_CLAP_CORE_0.13' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='omx_clap_host_bundle_object' version='OMX_CLAP_CORE_0.13' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bypass' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bypassed' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_close' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -421,107 +422,115 @@
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-159'/>
     </function-type>
-    <function-type size-in-bits='64' hash='5bcba04b115c9635' id='type-id-250'>
+    <function-type size-in-bits='64' hash='2b1eaa0aea27a20a' id='type-id-250'>
       <parameter type-id='type-id-89'/>
-      <parameter type-id='type-id-89'/>
+      <parameter type-id='type-id-58'/>
       <parameter type-id='type-id-251'/>
       <parameter type-id='type-id-58'/>
+      <parameter type-id='type-id-251'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='ceac40aa6fcb6360' id='type-id-253'>
+    <function-type size-in-bits='64' hash='5bcba04b115c9635' id='type-id-253'>
       <parameter type-id='type-id-89'/>
       <parameter type-id='type-id-89'/>
       <parameter type-id='type-id-254'/>
-      <parameter type-id='type-id-251'/>
       <parameter type-id='type-id-58'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='d1b8b0922f8dcd3a' id='type-id-255'>
+    <function-type size-in-bits='64' hash='ceac40aa6fcb6360' id='type-id-255'>
+      <parameter type-id='type-id-89'/>
+      <parameter type-id='type-id-89'/>
+      <parameter type-id='type-id-256'/>
+      <parameter type-id='type-id-254'/>
+      <parameter type-id='type-id-58'/>
+      <return type-id='type-id-252'/>
+    </function-type>
+    <function-type size-in-bits='64' hash='d1b8b0922f8dcd3a' id='type-id-257'>
       <parameter type-id='type-id-159'/>
       <parameter type-id='type-id-89'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='36e917184abcdd2e' id='type-id-256'>
+    <function-type size-in-bits='64' hash='36e917184abcdd2e' id='type-id-258'>
       <parameter type-id='type-id-162'/>
       <parameter type-id='type-id-89'/>
-      <parameter type-id='type-id-251'/>
+      <parameter type-id='type-id-254'/>
       <parameter type-id='type-id-58'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='912833a4e97c3522' id='type-id-257'>
+    <function-type size-in-bits='64' hash='912833a4e97c3522' id='type-id-259'>
       <parameter type-id='type-id-162'/>
-      <parameter type-id='type-id-258'/>
-      <parameter type-id='type-id-259'/>
+      <parameter type-id='type-id-260'/>
+      <parameter type-id='type-id-261'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='4167ce2d4d4b48da' id='type-id-260'>
+    <function-type size-in-bits='64' hash='4167ce2d4d4b48da' id='type-id-262'>
       <parameter type-id='type-id-213'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='ba1740f97a4fc767' id='type-id-261'>
+    <function-type size-in-bits='64' hash='ba1740f97a4fc767' id='type-id-263'>
       <parameter type-id='type-id-216'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='ee8cd77ff990d424' id='type-id-262'>
+    <function-type size-in-bits='64' hash='ee8cd77ff990d424' id='type-id-264'>
       <parameter type-id='type-id-216'/>
-      <parameter type-id='type-id-263'/>
-      <parameter type-id='type-id-263'/>
-      <parameter type-id='type-id-264'/>
-      <return type-id='type-id-252'/>
-    </function-type>
-    <function-type size-in-bits='64' hash='a99ca1a5d913efd6' id='type-id-265'>
-      <parameter type-id='type-id-216'/>
-      <parameter type-id='type-id-243'/>
+      <parameter type-id='type-id-265'/>
+      <parameter type-id='type-id-265'/>
       <parameter type-id='type-id-266'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='c5d716e5e875e1fa' id='type-id-267'>
-      <parameter type-id='type-id-232'/>
-      <parameter type-id='type-id-58'/>
+    <function-type size-in-bits='64' hash='a99ca1a5d913efd6' id='type-id-267'>
+      <parameter type-id='type-id-216'/>
+      <parameter type-id='type-id-243'/>
       <parameter type-id='type-id-268'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='31c4e73549bc7e4c' id='type-id-269'>
-      <parameter type-id='type-id-270'/>
-      <parameter type-id='type-id-159'/>
+    <function-type size-in-bits='64' hash='c5d716e5e875e1fa' id='type-id-269'>
+      <parameter type-id='type-id-232'/>
+      <parameter type-id='type-id-58'/>
       <parameter type-id='type-id-251'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='15eb9a17c2097f5e' id='type-id-271'>
-      <parameter type-id='type-id-270'/>
-      <parameter type-id='type-id-258'/>
-      <parameter type-id='type-id-259'/>
+    <function-type size-in-bits='64' hash='31c4e73549bc7e4c' id='type-id-270'>
+      <parameter type-id='type-id-271'/>
+      <parameter type-id='type-id-159'/>
+      <parameter type-id='type-id-254'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='f55e59de48b32f40' id='type-id-272'>
+    <function-type size-in-bits='64' hash='15eb9a17c2097f5e' id='type-id-272'>
+      <parameter type-id='type-id-271'/>
+      <parameter type-id='type-id-260'/>
+      <parameter type-id='type-id-261'/>
+      <return type-id='type-id-252'/>
+    </function-type>
+    <function-type size-in-bits='64' hash='f55e59de48b32f40' id='type-id-273'>
       <parameter type-id='type-id-247'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='b89c285ff3425eba' id='type-id-273'>
+    <function-type size-in-bits='64' hash='b89c285ff3425eba' id='type-id-274'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='808ce5d456218004' id='type-id-274'>
+    <function-type size-in-bits='64' hash='808ce5d456218004' id='type-id-275'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-89'/>
       <parameter type-id='type-id-233'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='0d7f0a1c2ed55c26' id='type-id-275'>
+    <function-type size-in-bits='64' hash='0d7f0a1c2ed55c26' id='type-id-276'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-232'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='f047a5adc9f87182' id='type-id-276'>
+    <function-type size-in-bits='64' hash='f047a5adc9f87182' id='type-id-277'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-233'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='76de2e2e4aa140ff' id='type-id-277'>
+    <function-type size-in-bits='64' hash='76de2e2e4aa140ff' id='type-id-278'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-232'/>
@@ -529,81 +538,81 @@
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='eb97c5c4d96d0078' id='type-id-278'>
+    <function-type size-in-bits='64' hash='eb97c5c4d96d0078' id='type-id-279'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-252'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='46d1b2e6f015b59c' id='type-id-279'>
+    <function-type size-in-bits='64' hash='46d1b2e6f015b59c' id='type-id-280'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
-      <parameter type-id='type-id-280'/>
+      <parameter type-id='type-id-281'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='f0a7fecd8b418783' id='type-id-281'>
+    <function-type size-in-bits='64' hash='f0a7fecd8b418783' id='type-id-282'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
-      <parameter type-id='type-id-282'/>
+      <parameter type-id='type-id-283'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='1572535dd162f6bc' id='type-id-283'>
+    <function-type size-in-bits='64' hash='1572535dd162f6bc' id='type-id-284'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-89'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='fa6e0ee7aa29b80f' id='type-id-284'>
+    <function-type size-in-bits='64' hash='fa6e0ee7aa29b80f' id='type-id-285'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-89'/>
       <parameter type-id='type-id-106'/>
       <parameter type-id='type-id-244'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9fe25494d8c1748a' id='type-id-285'>
+    <function-type size-in-bits='64' hash='9fe25494d8c1748a' id='type-id-286'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-103'/>
       <parameter type-id='type-id-243'/>
       <parameter type-id='type-id-58'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9c4230122ffbeec5' id='type-id-286'>
+    <function-type size-in-bits='64' hash='9c4230122ffbeec5' id='type-id-287'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-232'/>
       <parameter type-id='type-id-243'/>
       <parameter type-id='type-id-58'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='aeacd66218c4dc93' id='type-id-287'>
+    <function-type size-in-bits='64' hash='aeacd66218c4dc93' id='type-id-288'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-288'/>
+      <parameter type-id='type-id-289'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='c4559128eb8a7e0b' id='type-id-289'>
+    <function-type size-in-bits='64' hash='c4559128eb8a7e0b' id='type-id-290'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-290'/>
+      <parameter type-id='type-id-291'/>
       <parameter type-id='type-id-92'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='b96ce311f6c0cfe4' id='type-id-291'>
+    <function-type size-in-bits='64' hash='b96ce311f6c0cfe4' id='type-id-292'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-263'/>
+      <parameter type-id='type-id-265'/>
       <parameter type-id='type-id-92'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='e41b4afb706fd6c2' id='type-id-292'>
+    <function-type size-in-bits='64' hash='e41b4afb706fd6c2' id='type-id-293'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-243'/>
       <parameter type-id='type-id-79'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='8e41a63a0db3fcb4' id='type-id-293'>
+    <function-type size-in-bits='64' hash='8e41a63a0db3fcb4' id='type-id-294'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-243'/>
       <parameter type-id='type-id-89'/>
       <parameter type-id='type-id-89'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='f2cfdceb494cc2c6' id='type-id-294'>
+    <function-type size-in-bits='64' hash='f2cfdceb494cc2c6' id='type-id-295'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-243'/>
       <parameter type-id='type-id-238'/>
@@ -611,296 +620,296 @@
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='3873308ea5313548' id='type-id-295'>
+    <function-type size-in-bits='64' hash='3873308ea5313548' id='type-id-296'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-243'/>
-      <parameter type-id='type-id-282'/>
+      <parameter type-id='type-id-283'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='58819d5e887d21da' id='type-id-296'>
+    <function-type size-in-bits='64' hash='58819d5e887d21da' id='type-id-297'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-243'/>
-      <parameter type-id='type-id-259'/>
-      <parameter type-id='type-id-268'/>
+      <parameter type-id='type-id-261'/>
+      <parameter type-id='type-id-251'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='3466930102bc12bc' id='type-id-297'>
+    <function-type size-in-bits='64' hash='3466930102bc12bc' id='type-id-298'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-243'/>
-      <parameter type-id='type-id-259'/>
-      <parameter type-id='type-id-268'/>
-      <parameter type-id='type-id-298'/>
+      <parameter type-id='type-id-261'/>
+      <parameter type-id='type-id-251'/>
+      <parameter type-id='type-id-299'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='f2617547f43036ae' id='type-id-299'>
+    <function-type size-in-bits='64' hash='f2617547f43036ae' id='type-id-300'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-254'/>
-      <parameter type-id='type-id-254'/>
+      <parameter type-id='type-id-256'/>
+      <parameter type-id='type-id-256'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='8f9abd5a7e61cd38' id='type-id-300'>
+    <function-type size-in-bits='64' hash='8f9abd5a7e61cd38' id='type-id-301'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-259'/>
-      <parameter type-id='type-id-268'/>
+      <parameter type-id='type-id-261'/>
+      <parameter type-id='type-id-251'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='97faca7bece06009' id='type-id-301'>
+    <function-type size-in-bits='64' hash='97faca7bece06009' id='type-id-302'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-259'/>
-      <parameter type-id='type-id-268'/>
-      <parameter type-id='type-id-298'/>
+      <parameter type-id='type-id-261'/>
+      <parameter type-id='type-id-251'/>
+      <parameter type-id='type-id-299'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='d1f8f927f65c1101' id='type-id-302'>
-      <parameter type-id='type-id-259'/>
+    <function-type size-in-bits='64' hash='d1f8f927f65c1101' id='type-id-303'>
+      <parameter type-id='type-id-261'/>
       <parameter type-id='type-id-219'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='acfc453e992d8ff4' id='type-id-303'>
-      <parameter type-id='type-id-259'/>
-      <parameter type-id='type-id-304'/>
+    <function-type size-in-bits='64' hash='acfc453e992d8ff4' id='type-id-304'>
+      <parameter type-id='type-id-261'/>
+      <parameter type-id='type-id-305'/>
       <return type-id='type-id-252'/>
     </function-type>
-    <function-type size-in-bits='64' hash='996f87030b31ac9d' id='type-id-305'>
+    <function-type size-in-bits='64' hash='996f87030b31ac9d' id='type-id-306'>
       <parameter type-id='type-id-126'/>
-      <parameter type-id='type-id-259'/>
+      <parameter type-id='type-id-261'/>
       <parameter type-id='type-id-244'/>
-      <return type-id='type-id-306'/>
+      <return type-id='type-id-307'/>
     </function-type>
-    <function-type size-in-bits='64' hash='eb975254567b3672' id='type-id-307'>
+    <function-type size-in-bits='64' hash='eb975254567b3672' id='type-id-308'>
       <parameter type-id='type-id-132'/>
-      <parameter type-id='type-id-259'/>
+      <parameter type-id='type-id-261'/>
       <parameter type-id='type-id-244'/>
-      <return type-id='type-id-306'/>
+      <return type-id='type-id-307'/>
     </function-type>
-    <function-type size-in-bits='64' hash='53ef432243e48e45' id='type-id-308'>
+    <function-type size-in-bits='64' hash='53ef432243e48e45' id='type-id-309'>
       <parameter type-id='type-id-89'/>
       <parameter type-id='type-id-58'/>
-      <parameter type-id='type-id-268'/>
-      <return type-id='type-id-270'/>
+      <parameter type-id='type-id-251'/>
+      <return type-id='type-id-271'/>
     </function-type>
-    <function-type size-in-bits='64' hash='4a4c70f7731d4536' id='type-id-309'>
+    <function-type size-in-bits='64' hash='4a4c70f7731d4536' id='type-id-310'>
       <parameter type-id='type-id-120'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9ce157837cd9099b' id='type-id-310'>
+    <function-type size-in-bits='64' hash='9ce157837cd9099b' id='type-id-311'>
       <parameter type-id='type-id-192'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='3521a67a86e67798' id='type-id-311'>
+    <function-type size-in-bits='64' hash='3521a67a86e67798' id='type-id-312'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-14'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9cc0a99ef184048a' id='type-id-312'>
+    <function-type size-in-bits='64' hash='9cc0a99ef184048a' id='type-id-313'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-14'/>
       <parameter type-id='type-id-243'/>
-      <parameter type-id='type-id-313'/>
+      <parameter type-id='type-id-314'/>
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='f2a93264d6407127' id='type-id-314'>
+    <function-type size-in-bits='64' hash='f2a93264d6407127' id='type-id-315'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-233'/>
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='54ff61e0e8eec83a' id='type-id-315'>
+    <function-type size-in-bits='64' hash='54ff61e0e8eec83a' id='type-id-316'>
       <parameter type-id='type-id-210'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='00e0146ba5fa06fe' id='type-id-316'>
+    <function-type size-in-bits='64' hash='00e0146ba5fa06fe' id='type-id-317'>
       <parameter type-id='type-id-216'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='731a3fb52b587564' id='type-id-317'>
+    <function-type size-in-bits='64' hash='731a3fb52b587564' id='type-id-318'>
       <parameter type-id='type-id-247'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='4a22e4d4f1dc7c02' id='type-id-318'>
+    <function-type size-in-bits='64' hash='4a22e4d4f1dc7c02' id='type-id-319'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-74'/>
       <parameter type-id='type-id-233'/>
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='6114697ab3474803' id='type-id-319'>
+    <function-type size-in-bits='64' hash='6114697ab3474803' id='type-id-320'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-320'/>
+      <parameter type-id='type-id-321'/>
       <parameter type-id='type-id-243'/>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='a4b9cd9d5b366423' id='type-id-321'>
+    <function-type size-in-bits='64' hash='a4b9cd9d5b366423' id='type-id-322'>
       <return type-id='type-id-243'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9b417d88a8270377' id='type-id-322'>
+    <function-type size-in-bits='64' hash='9b417d88a8270377' id='type-id-323'>
       <parameter type-id='type-id-117'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='d4e4b3aba4adfb57' id='type-id-324'>
+    <function-type size-in-bits='64' hash='d4e4b3aba4adfb57' id='type-id-325'>
       <parameter type-id='type-id-144'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='7a80b4e70b9fddc1' id='type-id-325'>
+    <function-type size-in-bits='64' hash='7a80b4e70b9fddc1' id='type-id-326'>
       <parameter type-id='type-id-192'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='cf607302b8eab4c5' id='type-id-326'>
+    <function-type size-in-bits='64' hash='cf607302b8eab4c5' id='type-id-327'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-74'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='a8f1a95b3e9e5fd3' id='type-id-327'>
+    <function-type size-in-bits='64' hash='a8f1a95b3e9e5fd3' id='type-id-328'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-123'/>
       <parameter type-id='type-id-141'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='7b634dbc9a149201' id='type-id-328'>
+    <function-type size-in-bits='64' hash='7b634dbc9a149201' id='type-id-329'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-252'/>
-      <parameter type-id='type-id-329'/>
-      <return type-id='type-id-323'/>
+      <parameter type-id='type-id-330'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='12ed9a6c0215837e' id='type-id-330'>
+    <function-type size-in-bits='64' hash='12ed9a6c0215837e' id='type-id-331'>
       <parameter type-id='type-id-192'/>
       <parameter type-id='type-id-243'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='edb24d13882e7eac' id='type-id-331'>
-      <parameter type-id='type-id-270'/>
-      <return type-id='type-id-323'/>
+    <function-type size-in-bits='64' hash='edb24d13882e7eac' id='type-id-332'>
+      <parameter type-id='type-id-271'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='0f640b82aa4eb985' id='type-id-332'>
-      <parameter type-id='type-id-333'/>
-      <return type-id='type-id-323'/>
+    <function-type size-in-bits='64' hash='0f640b82aa4eb985' id='type-id-333'>
+      <parameter type-id='type-id-334'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9e6b644bf8584dd9' id='type-id-334'>
+    <function-type size-in-bits='64' hash='9e6b644bf8584dd9' id='type-id-335'>
       <parameter type-id='type-id-247'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='514855dafeea68f5' id='type-id-335'>
+    <function-type size-in-bits='64' hash='514855dafeea68f5' id='type-id-336'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-222'/>
       <parameter type-id='type-id-243'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='6c3c9b20bd405dd2' id='type-id-336'>
+    <function-type size-in-bits='64' hash='6c3c9b20bd405dd2' id='type-id-337'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-225'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='9219ddbeea50f47d' id='type-id-337'>
+    <function-type size-in-bits='64' hash='9219ddbeea50f47d' id='type-id-338'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-228'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='64fb21e98111ff20' id='type-id-338'>
+    <function-type size-in-bits='64' hash='64fb21e98111ff20' id='type-id-339'>
       <parameter type-id='type-id-247'/>
       <parameter type-id='type-id-252'/>
-      <return type-id='type-id-323'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='4340e520cc1f5db6' id='type-id-339'>
+    <function-type size-in-bits='64' hash='4340e520cc1f5db6' id='type-id-340'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-340'/>
-      <return type-id='type-id-323'/>
+      <parameter type-id='type-id-341'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='05a01a7290db31ec' id='type-id-341'>
+    <function-type size-in-bits='64' hash='05a01a7290db31ec' id='type-id-342'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-304'/>
-      <return type-id='type-id-323'/>
+      <parameter type-id='type-id-305'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='2645983be2a11f97' id='type-id-342'>
+    <function-type size-in-bits='64' hash='2645983be2a11f97' id='type-id-343'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-304'/>
-      <parameter type-id='type-id-343'/>
-      <parameter type-id='type-id-259'/>
-      <return type-id='type-id-323'/>
+      <parameter type-id='type-id-305'/>
+      <parameter type-id='type-id-344'/>
+      <parameter type-id='type-id-261'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='696c6957dee34e5e' id='type-id-344'>
+    <function-type size-in-bits='64' hash='696c6957dee34e5e' id='type-id-345'>
       <parameter type-id='type-id-247'/>
-      <parameter type-id='type-id-254'/>
-      <return type-id='type-id-323'/>
+      <parameter type-id='type-id-256'/>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='a2bf7572e9861bb4' id='type-id-345'>
-      <return type-id='type-id-323'/>
+    <function-type size-in-bits='64' hash='a2bf7572e9861bb4' id='type-id-346'>
+      <return type-id='type-id-324'/>
     </function-type>
-    <function-type size-in-bits='64' hash='18e014c0dddcb079' id='type-id-346'>
+    <function-type size-in-bits='64' hash='18e014c0dddcb079' id='type-id-347'>
       <parameter type-id='type-id-89'/>
-      <return type-id='type-id-259'/>
+      <return type-id='type-id-261'/>
     </function-type>
-    <function-type size-in-bits='64' hash='239fee6b8c64a106' id='type-id-347'>
+    <function-type size-in-bits='64' hash='239fee6b8c64a106' id='type-id-348'>
       <parameter type-id='type-id-117'/>
       <parameter type-id='type-id-89'/>
-      <return type-id='type-id-259'/>
+      <return type-id='type-id-261'/>
     </function-type>
-    <function-type size-in-bits='64' hash='562fb04bbcabfe41' id='type-id-348'>
+    <function-type size-in-bits='64' hash='562fb04bbcabfe41' id='type-id-349'>
       <parameter type-id='type-id-144'/>
       <parameter type-id='type-id-89'/>
-      <return type-id='type-id-259'/>
+      <return type-id='type-id-261'/>
     </function-type>
     <type-decl name='int' size-in-bits='32' hash='09d17c08f594edc7' id='type-id-252'/>
-    <pointer-type-def type-id='type-id-302' size-in-bits='64' hash='c50826241f25df4e' id='type-id-349'/>
-    <pointer-type-def type-id='type-id-303' size-in-bits='64' hash='254bd3346016306d' id='type-id-350'/>
-    <array-type-def dimensions='1' type-id='type-id-288' size-in-bits='512' hash='195e7306fd8b4d1a' id='type-id-351'>
+    <pointer-type-def type-id='type-id-303' size-in-bits='64' hash='c50826241f25df4e' id='type-id-350'/>
+    <pointer-type-def type-id='type-id-304' size-in-bits='64' hash='254bd3346016306d' id='type-id-351'/>
+    <array-type-def dimensions='1' type-id='type-id-289' size-in-bits='512' hash='195e7306fd8b4d1a' id='type-id-352'>
       <subrange length='16' lower-bound='0' upper-bound='15' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6c35b1e999eba398' id='type-id-4'/>
     </array-type-def>
-    <array-type-def dimensions='2' type-id='type-id-288' size-in-bits='65536' hash='666d8a0996a65f77' id='type-id-352'>
+    <array-type-def dimensions='2' type-id='type-id-289' size-in-bits='65536' hash='666d8a0996a65f77' id='type-id-353'>
       <subrange length='16' lower-bound='0' upper-bound='15' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6c35b1e999eba398' id='type-id-4'/>
       <subrange length='128' lower-bound='0' upper-bound='127' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6d1a6a21feae6dd2' id='type-id-3'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-305' size-in-bits='64' hash='0aaa803ed5be85b0' id='type-id-353'/>
-    <pointer-type-def type-id='type-id-307' size-in-bits='64' hash='a9b972e7312d76ab' id='type-id-354'/>
-    <type-decl name='long int' size-in-bits='64' hash='8aa1e1a2ab2c2d3e' id='type-id-355'/>
-    <pointer-type-def type-id='type-id-208' size-in-bits='64' hash='64e4246781fffc31' id='type-id-270'/>
-    <array-type-def dimensions='1' type-id='type-id-356' size-in-bits='1024' hash='8a305e42b40bd03a' id='type-id-357'>
+    <pointer-type-def type-id='type-id-306' size-in-bits='64' hash='0aaa803ed5be85b0' id='type-id-354'/>
+    <pointer-type-def type-id='type-id-308' size-in-bits='64' hash='a9b972e7312d76ab' id='type-id-355'/>
+    <type-decl name='long int' size-in-bits='64' hash='8aa1e1a2ab2c2d3e' id='type-id-356'/>
+    <pointer-type-def type-id='type-id-208' size-in-bits='64' hash='64e4246781fffc31' id='type-id-271'/>
+    <array-type-def dimensions='1' type-id='type-id-357' size-in-bits='1024' hash='8a305e42b40bd03a' id='type-id-358'>
       <subrange length='16' lower-bound='0' upper-bound='15' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6c35b1e999eba398' id='type-id-4'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-211' size-in-bits='64' hash='4ca20d751f6ac5a3' id='type-id-333'/>
+    <pointer-type-def type-id='type-id-211' size-in-bits='64' hash='4ca20d751f6ac5a3' id='type-id-334'/>
     <pointer-type-def type-id='type-id-214' size-in-bits='64' hash='d4c1cee40a26ab86' id='type-id-247'/>
-    <pointer-type-def type-id='type-id-247' size-in-bits='64' hash='7ca6b8d51b0cf3c3' id='type-id-251'/>
-    <pointer-type-def type-id='type-id-358' size-in-bits='64' hash='999da7499d467d1f' id='type-id-266'/>
-    <array-type-def dimensions='1' type-id='type-id-358' size-in-bits='36864' hash='74f18d39aa1489b8' id='type-id-359'>
+    <pointer-type-def type-id='type-id-247' size-in-bits='64' hash='7ca6b8d51b0cf3c3' id='type-id-254'/>
+    <pointer-type-def type-id='type-id-359' size-in-bits='64' hash='999da7499d467d1f' id='type-id-268'/>
+    <array-type-def dimensions='1' type-id='type-id-359' size-in-bits='36864' hash='74f18d39aa1489b8' id='type-id-360'>
       <subrange length='16' lower-bound='0' upper-bound='15' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6c35b1e999eba398' id='type-id-4'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-360' size-in-bits='768' hash='946416a94390479d' id='type-id-361'>
+    <array-type-def dimensions='1' type-id='type-id-361' size-in-bits='768' hash='946416a94390479d' id='type-id-362'>
       <subrange length='2' lower-bound='0' upper-bound='1' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='95f31efc53154467' id='type-id-6'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-362' size-in-bits='81920' hash='5afcdcf367cbe0b1' id='type-id-363'>
+    <array-type-def dimensions='1' type-id='type-id-363' size-in-bits='81920' hash='5afcdcf367cbe0b1' id='type-id-364'>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-5'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-364' size-in-bits='32768' hash='b48ae6008262c4a1' id='type-id-365'>
+    <array-type-def dimensions='1' type-id='type-id-365' size-in-bits='32768' hash='b48ae6008262c4a1' id='type-id-366'>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-5'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-366' size-in-bits='32768' hash='51e122e3f1d3ac5c' id='type-id-367'>
+    <array-type-def dimensions='1' type-id='type-id-367' size-in-bits='32768' hash='51e122e3f1d3ac5c' id='type-id-368'>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-5'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-368' size-in-bits='64' hash='4ff4385735d58ecd' id='type-id-369'/>
-    <pointer-type-def type-id='type-id-370' size-in-bits='64' hash='76bcbc1ba68c9780' id='type-id-320'/>
-    <array-type-def dimensions='1' type-id='type-id-370' size-in-bits='32768' hash='75d38d8187e0b6b6' id='type-id-371'>
+    <pointer-type-def type-id='type-id-369' size-in-bits='64' hash='4ff4385735d58ecd' id='type-id-370'/>
+    <pointer-type-def type-id='type-id-371' size-in-bits='64' hash='76bcbc1ba68c9780' id='type-id-321'/>
+    <array-type-def dimensions='1' type-id='type-id-371' size-in-bits='32768' hash='75d38d8187e0b6b6' id='type-id-372'>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-5'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-372' size-in-bits='64' hash='210f2d8c764d8f8c' id='type-id-280'/>
-    <pointer-type-def type-id='type-id-373' size-in-bits='64' hash='e3de8dd74f65c13d' id='type-id-282'/>
-    <pointer-type-def type-id='type-id-282' size-in-bits='64' hash='9301fe3e44f3a94f' id='type-id-290'/>
-    <array-type-def dimensions='1' type-id='type-id-374' size-in-bits='65536' hash='2569ac1335380ea8' id='type-id-375'>
+    <pointer-type-def type-id='type-id-373' size-in-bits='64' hash='210f2d8c764d8f8c' id='type-id-281'/>
+    <pointer-type-def type-id='type-id-374' size-in-bits='64' hash='e3de8dd74f65c13d' id='type-id-283'/>
+    <pointer-type-def type-id='type-id-283' size-in-bits='64' hash='9301fe3e44f3a94f' id='type-id-291'/>
+    <array-type-def dimensions='1' type-id='type-id-375' size-in-bits='65536' hash='2569ac1335380ea8' id='type-id-376'>
       <subrange length='512' lower-bound='0' upper-bound='511' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='c0710bf9002b732f' id='type-id-10'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-376' size-in-bits='178176' hash='752b23e328e25e95' id='type-id-377'>
+    <array-type-def dimensions='1' type-id='type-id-377' size-in-bits='178176' hash='752b23e328e25e95' id='type-id-378'>
       <subrange length='64' lower-bound='0' upper-bound='63' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6066f2053fe47763' id='type-id-11'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-220' size-in-bits='64' hash='06726935f65e8ad7' id='type-id-340'/>
-    <pointer-type-def type-id='type-id-378' size-in-bits='64' hash='59ecb9443d0d3313' id='type-id-379'/>
-    <pointer-type-def type-id='type-id-380' size-in-bits='64' hash='7611fe39c1e91fb3' id='type-id-381'/>
-    <array-type-def dimensions='1' type-id='type-id-382' size-in-bits='3072' hash='e2ddf6d7f687d36b' id='type-id-383'>
+    <pointer-type-def type-id='type-id-220' size-in-bits='64' hash='06726935f65e8ad7' id='type-id-341'/>
+    <pointer-type-def type-id='type-id-379' size-in-bits='64' hash='59ecb9443d0d3313' id='type-id-380'/>
+    <pointer-type-def type-id='type-id-381' size-in-bits='64' hash='7611fe39c1e91fb3' id='type-id-382'/>
+    <array-type-def dimensions='1' type-id='type-id-383' size-in-bits='3072' hash='e2ddf6d7f687d36b' id='type-id-384'>
       <subrange length='16' lower-bound='0' upper-bound='15' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6c35b1e999eba398' id='type-id-4'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-384' size-in-bits='64' hash='78482867ff3af61f' id='type-id-385'/>
-    <type-decl name='short int' size-in-bits='16' hash='2e5e87528799cdbb' id='type-id-386'/>
-    <pointer-type-def type-id='type-id-268' size-in-bits='64' hash='fce61c10660e5f2d' id='type-id-298'/>
-    <class-decl name='clap_ambisonic_config' is-struct='yes' visibility='default' size-in-bits='64' hash='a5b02540824c45de' id='type-id-387'>
+    <pointer-type-def type-id='type-id-385' size-in-bits='64' hash='78482867ff3af61f' id='type-id-386'/>
+    <type-decl name='short int' size-in-bits='16' hash='2e5e87528799cdbb' id='type-id-387'/>
+    <pointer-type-def type-id='type-id-251' size-in-bits='64' hash='fce61c10660e5f2d' id='type-id-299'/>
+    <class-decl name='clap_ambisonic_config' is-struct='yes' visibility='default' size-in-bits='64' hash='a5b02540824c45de' id='type-id-388'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='ordering' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -908,7 +917,7 @@
         <var-decl name='normalization' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_audio_buffer' is-struct='yes' visibility='default' size-in-bits='256' hash='f3b207b3d512d07b' id='type-id-388'>
+    <class-decl name='clap_audio_buffer' is-struct='yes' visibility='default' size-in-bits='256' hash='f3b207b3d512d07b' id='type-id-389'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='data32' type-id='type-id-239' visibility='default'/>
       </data-member>
@@ -939,10 +948,10 @@
         <var-decl name='port_type' type-id='type-id-89' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='port_details' type-id='type-id-259' visibility='default'/>
+        <var-decl name='port_details' type-id='type-id-261' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_audio_port_info' is-struct='yes' visibility='default' size-in-bits='2304' hash='e77a0cf621d76fb1' id='type-id-389'>
+    <class-decl name='clap_audio_port_info' is-struct='yes' visibility='default' size-in-bits='2304' hash='e77a0cf621d76fb1' id='type-id-390'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -962,7 +971,7 @@
         <var-decl name='in_place_pair' type-id='type-id-74' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_audio_ports_config' is-struct='yes' visibility='default' size-in-bits='2432' hash='aaf996c23683fb39' id='type-id-390'>
+    <class-decl name='clap_audio_ports_config' is-struct='yes' visibility='default' size-in-bits='2432' hash='aaf996c23683fb39' id='type-id-391'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -994,7 +1003,7 @@
         <var-decl name='main_output_port_type' type-id='type-id-89' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_color' is-struct='yes' visibility='default' size-in-bits='32' hash='a991c86fd9bc11bf' id='type-id-391'>
+    <class-decl name='clap_color' is-struct='yes' visibility='default' size-in-bits='32' hash='a991c86fd9bc11bf' id='type-id-392'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='alpha' type-id='type-id-229' visibility='default'/>
       </data-member>
@@ -1008,7 +1017,7 @@
         <var-decl name='blue' type-id='type-id-229' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_header' is-struct='yes' visibility='default' size-in-bits='128' hash='0df4f59dde06acfa' id='type-id-392'>
+    <class-decl name='clap_event_header' is-struct='yes' visibility='default' size-in-bits='128' hash='0df4f59dde06acfa' id='type-id-393'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='size' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -1016,43 +1025,43 @@
         <var-decl name='time' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='space_id' type-id='type-id-393' visibility='default'/>
+        <var-decl name='space_id' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='80'>
-        <var-decl name='type' type-id='type-id-393' visibility='default'/>
+        <var-decl name='type' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='96'>
         <var-decl name='flags' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_midi' is-struct='yes' visibility='default' size-in-bits='192' hash='6d49fb39554c9a4d' id='type-id-394'>
+    <class-decl name='clap_event_midi' is-struct='yes' visibility='default' size-in-bits='192' hash='6d49fb39554c9a4d' id='type-id-395'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='port_index' type-id='type-id-393' visibility='default'/>
+        <var-decl name='port_index' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='144'>
-        <var-decl name='data' type-id='type-id-395' visibility='default'/>
+        <var-decl name='data' type-id='type-id-396' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_midi2' is-struct='yes' visibility='default' size-in-bits='288' hash='59ef88df87ef4fc5' id='type-id-396'>
+    <class-decl name='clap_event_midi2' is-struct='yes' visibility='default' size-in-bits='288' hash='59ef88df87ef4fc5' id='type-id-397'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='port_index' type-id='type-id-393' visibility='default'/>
+        <var-decl name='port_index' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='160'>
-        <var-decl name='data' type-id='type-id-397' visibility='default'/>
+        <var-decl name='data' type-id='type-id-398' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_midi_sysex' is-struct='yes' visibility='default' size-in-bits='320' hash='a325aa8749f73cf8' id='type-id-398'>
+    <class-decl name='clap_event_midi_sysex' is-struct='yes' visibility='default' size-in-bits='320' hash='a325aa8749f73cf8' id='type-id-399'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='port_index' type-id='type-id-393' visibility='default'/>
+        <var-decl name='port_index' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
         <var-decl name='buffer' type-id='type-id-231' visibility='default'/>
@@ -1061,50 +1070,50 @@
         <var-decl name='size' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_note' is-struct='yes' visibility='default' size-in-bits='320' hash='14a6aa28bf14034f' id='type-id-399'>
+    <class-decl name='clap_event_note' is-struct='yes' visibility='default' size-in-bits='320' hash='14a6aa28bf14034f' id='type-id-400'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='note_id' type-id='type-id-288' visibility='default'/>
+        <var-decl name='note_id' type-id='type-id-289' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='160'>
-        <var-decl name='port_index' type-id='type-id-400' visibility='default'/>
+        <var-decl name='port_index' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='176'>
-        <var-decl name='channel' type-id='type-id-400' visibility='default'/>
+        <var-decl name='channel' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='key' type-id='type-id-400' visibility='default'/>
+        <var-decl name='key' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
         <var-decl name='velocity' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_note_expression' is-struct='yes' visibility='default' size-in-bits='320' hash='855ad8c50fb86e08' id='type-id-401'>
+    <class-decl name='clap_event_note_expression' is-struct='yes' visibility='default' size-in-bits='320' hash='855ad8c50fb86e08' id='type-id-402'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='expression_id' type-id='type-id-402' visibility='default'/>
+        <var-decl name='expression_id' type-id='type-id-403' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='160'>
-        <var-decl name='note_id' type-id='type-id-288' visibility='default'/>
+        <var-decl name='note_id' type-id='type-id-289' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='port_index' type-id='type-id-400' visibility='default'/>
+        <var-decl name='port_index' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='208'>
-        <var-decl name='channel' type-id='type-id-400' visibility='default'/>
+        <var-decl name='channel' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='224'>
-        <var-decl name='key' type-id='type-id-400' visibility='default'/>
+        <var-decl name='key' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
         <var-decl name='value' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_param_value' is-struct='yes' visibility='default' size-in-bits='448' hash='a053d583713a0833' id='type-id-403'>
+    <class-decl name='clap_event_param_value' is-struct='yes' visibility='default' size-in-bits='448' hash='a053d583713a0833' id='type-id-404'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
@@ -1112,25 +1121,25 @@
         <var-decl name='param_id' type-id='type-id-74' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='cookie' type-id='type-id-259' visibility='default'/>
+        <var-decl name='cookie' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
-        <var-decl name='note_id' type-id='type-id-288' visibility='default'/>
+        <var-decl name='note_id' type-id='type-id-289' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='288'>
-        <var-decl name='port_index' type-id='type-id-400' visibility='default'/>
+        <var-decl name='port_index' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='304'>
-        <var-decl name='channel' type-id='type-id-400' visibility='default'/>
+        <var-decl name='channel' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='320'>
-        <var-decl name='key' type-id='type-id-400' visibility='default'/>
+        <var-decl name='key' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='384'>
         <var-decl name='value' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_event_transport' is-struct='yes' visibility='default' size-in-bits='832' hash='dc8b9fb530ed27a3' id='type-id-404'>
+    <class-decl name='clap_event_transport' is-struct='yes' visibility='default' size-in-bits='832' hash='dc8b9fb530ed27a3' id='type-id-405'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
@@ -1138,10 +1147,10 @@
         <var-decl name='flags' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='song_pos_beats' type-id='type-id-405' visibility='default'/>
+        <var-decl name='song_pos_beats' type-id='type-id-406' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
-        <var-decl name='song_pos_seconds' type-id='type-id-406' visibility='default'/>
+        <var-decl name='song_pos_seconds' type-id='type-id-407' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='320'>
         <var-decl name='tempo' type-id='type-id-232' visibility='default'/>
@@ -1150,36 +1159,36 @@
         <var-decl name='tempo_inc' type-id='type-id-232' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='448'>
-        <var-decl name='loop_start_beats' type-id='type-id-405' visibility='default'/>
+        <var-decl name='loop_start_beats' type-id='type-id-406' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='512'>
-        <var-decl name='loop_end_beats' type-id='type-id-405' visibility='default'/>
+        <var-decl name='loop_end_beats' type-id='type-id-406' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='576'>
-        <var-decl name='loop_start_seconds' type-id='type-id-406' visibility='default'/>
+        <var-decl name='loop_start_seconds' type-id='type-id-407' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='640'>
-        <var-decl name='loop_end_seconds' type-id='type-id-406' visibility='default'/>
+        <var-decl name='loop_end_seconds' type-id='type-id-407' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='704'>
-        <var-decl name='bar_start' type-id='type-id-405' visibility='default'/>
+        <var-decl name='bar_start' type-id='type-id-406' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='768'>
-        <var-decl name='bar_number' type-id='type-id-288' visibility='default'/>
+        <var-decl name='bar_number' type-id='type-id-289' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='800'>
-        <var-decl name='tsig_num' type-id='type-id-393' visibility='default'/>
+        <var-decl name='tsig_num' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='816'>
-        <var-decl name='tsig_denom' type-id='type-id-393' visibility='default'/>
+        <var-decl name='tsig_denom' type-id='type-id-394' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='clap_host' is-struct='yes' visibility='default' size-in-bits='704' hash='ca85cf5a9c3fbb88' id='type-id-115'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='clap_version' type-id='type-id-407' visibility='default'/>
+        <var-decl name='clap_version' type-id='type-id-408' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='host_data' type-id='type-id-259' visibility='default'/>
+        <var-decl name='host_data' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
         <var-decl name='name' type-id='type-id-89' visibility='default'/>
@@ -1194,24 +1203,24 @@
         <var-decl name='version' type-id='type-id-89' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='448'>
-        <var-decl name='get_extension' type-id='type-id-408' visibility='default'/>
+        <var-decl name='get_extension' type-id='type-id-409' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='512'>
-        <var-decl name='request_restart' type-id='type-id-409' visibility='default'/>
+        <var-decl name='request_restart' type-id='type-id-410' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='576'>
-        <var-decl name='request_process' type-id='type-id-409' visibility='default'/>
+        <var-decl name='request_process' type-id='type-id-410' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='640'>
-        <var-decl name='request_callback' type-id='type-id-409' visibility='default'/>
+        <var-decl name='request_callback' type-id='type-id-410' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='clap_input_events' is-struct='yes' visibility='default' size-in-bits='192' hash='6c672f2589d0d444' id='type-id-118'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='ctx' type-id='type-id-259' visibility='default'/>
+        <var-decl name='ctx' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='size' type-id='type-id-410' visibility='default'/>
+        <var-decl name='size' type-id='type-id-411' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
         <var-decl name='get' type-id='type-id-111' visibility='default'/>
@@ -1219,13 +1228,13 @@
     </class-decl>
     <class-decl name='clap_istream' is-struct='yes' visibility='default' size-in-bits='128' hash='6bbb6334cac57459' id='type-id-124'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='ctx' type-id='type-id-259' visibility='default'/>
+        <var-decl name='ctx' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='read' type-id='type-id-353' visibility='default'/>
+        <var-decl name='read' type-id='type-id-354' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_meter_info' is-struct='yes' visibility='default' size-in-bits='2304' hash='ffeec799e8e45459' id='type-id-411'>
+    <class-decl name='clap_meter_info' is-struct='yes' visibility='default' size-in-bits='2304' hash='ffeec799e8e45459' id='type-id-412'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -1248,21 +1257,21 @@
         <var-decl name='max_value' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_note_name' is-struct='yes' visibility='default' size-in-bits='2096' hash='763bf9dcdde54f27' id='type-id-412'>
+    <class-decl name='clap_note_name' is-struct='yes' visibility='default' size-in-bits='2096' hash='763bf9dcdde54f27' id='type-id-413'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='name' type-id='type-id-61' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2048'>
-        <var-decl name='port' type-id='type-id-400' visibility='default'/>
+        <var-decl name='port' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2064'>
-        <var-decl name='key' type-id='type-id-400' visibility='default'/>
+        <var-decl name='key' type-id='type-id-401' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2080'>
-        <var-decl name='channel' type-id='type-id-400' visibility='default'/>
+        <var-decl name='channel' type-id='type-id-401' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_note_port_info' is-struct='yes' visibility='default' size-in-bits='2144' hash='def4ea65d530b143' id='type-id-413'>
+    <class-decl name='clap_note_port_info' is-struct='yes' visibility='default' size-in-bits='2144' hash='def4ea65d530b143' id='type-id-414'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -1278,29 +1287,29 @@
     </class-decl>
     <class-decl name='clap_ostream' is-struct='yes' visibility='default' size-in-bits='128' hash='30a5e6a024dd1cc4' id='type-id-130'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='ctx' type-id='type-id-259' visibility='default'/>
+        <var-decl name='ctx' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='write' type-id='type-id-354' visibility='default'/>
+        <var-decl name='write' type-id='type-id-355' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='clap_output_events' is-struct='yes' visibility='default' size-in-bits='128' hash='de1aa52126afac00' id='type-id-136'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='ctx' type-id='type-id-259' visibility='default'/>
+        <var-decl name='ctx' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='try_push' type-id='type-id-18' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_param_info' is-struct='yes' visibility='default' size-in-bits='10560' hash='f6b787094710ee7b' id='type-id-414'>
+    <class-decl name='clap_param_info' is-struct='yes' visibility='default' size-in-bits='10560' hash='f6b787094710ee7b' id='type-id-415'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='32'>
-        <var-decl name='flags' type-id='type-id-415' visibility='default'/>
+        <var-decl name='flags' type-id='type-id-416' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='cookie' type-id='type-id-259' visibility='default'/>
+        <var-decl name='cookie' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
         <var-decl name='name' type-id='type-id-61' visibility='default'/>
@@ -1323,40 +1332,40 @@
         <var-decl name='desc' type-id='type-id-159' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='plugin_data' type-id='type-id-259' visibility='default'/>
+        <var-decl name='plugin_data' type-id='type-id-261' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
         <var-decl name='init' type-id='type-id-20' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='destroy' type-id='type-id-416' visibility='default'/>
+        <var-decl name='destroy' type-id='type-id-417' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
         <var-decl name='activate' type-id='type-id-22' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='320'>
-        <var-decl name='deactivate' type-id='type-id-416' visibility='default'/>
+        <var-decl name='deactivate' type-id='type-id-417' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='384'>
         <var-decl name='start_processing' type-id='type-id-20' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='448'>
-        <var-decl name='stop_processing' type-id='type-id-416' visibility='default'/>
+        <var-decl name='stop_processing' type-id='type-id-417' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='512'>
-        <var-decl name='reset' type-id='type-id-416' visibility='default'/>
+        <var-decl name='reset' type-id='type-id-417' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='576'>
         <var-decl name='process' type-id='type-id-85' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='640'>
-        <var-decl name='get_extension' type-id='type-id-417' visibility='default'/>
+        <var-decl name='get_extension' type-id='type-id-418' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='704'>
-        <var-decl name='on_main_thread' type-id='type-id-416' visibility='default'/>
+        <var-decl name='on_main_thread' type-id='type-id-417' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_ambisonic' is-struct='yes' visibility='default' size-in-bits='128' hash='abcf4f4e38550283' id='type-id-418'>
+    <class-decl name='clap_plugin_ambisonic' is-struct='yes' visibility='default' size-in-bits='128' hash='abcf4f4e38550283' id='type-id-419'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='is_config_supported' type-id='type-id-34' visibility='default'/>
       </data-member>
@@ -1364,17 +1373,17 @@
         <var-decl name='get_config' type-id='type-id-24' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_audio_ports' is-struct='yes' visibility='default' size-in-bits='128' hash='473b8a51d3592cb2' id='type-id-419'>
+    <class-decl name='clap_plugin_audio_ports' is-struct='yes' visibility='default' size-in-bits='128' hash='473b8a51d3592cb2' id='type-id-420'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='count' type-id='type-id-420' visibility='default'/>
+        <var-decl name='count' type-id='type-id-421' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='get' type-id='type-id-42' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_audio_ports_config' is-struct='yes' visibility='default' size-in-bits='192' hash='621b45b3f0d7c170' id='type-id-421'>
+    <class-decl name='clap_plugin_audio_ports_config' is-struct='yes' visibility='default' size-in-bits='192' hash='621b45b3f0d7c170' id='type-id-422'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='count' type-id='type-id-422' visibility='default'/>
+        <var-decl name='count' type-id='type-id-423' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='get' type-id='type-id-46' visibility='default'/>
@@ -1383,7 +1392,7 @@
         <var-decl name='select' type-id='type-id-26' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_configurable_audio_ports' is-struct='yes' visibility='default' size-in-bits='128' hash='f071d75fb26d1b95' id='type-id-423'>
+    <class-decl name='clap_plugin_configurable_audio_ports' is-struct='yes' visibility='default' size-in-bits='128' hash='f071d75fb26d1b95' id='type-id-424'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='can_apply_configuration' type-id='type-id-36' visibility='default'/>
       </data-member>
@@ -1391,9 +1400,9 @@
         <var-decl name='apply_configuration' type-id='type-id-36' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_descriptor' is-struct='yes' visibility='default' size-in-bits='704' hash='1928853f14cfc78e' id='type-id-424'>
+    <class-decl name='clap_plugin_descriptor' is-struct='yes' visibility='default' size-in-bits='704' hash='1928853f14cfc78e' id='type-id-425'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='clap_version' type-id='type-id-407' visibility='default'/>
+        <var-decl name='clap_version' type-id='type-id-408' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
         <var-decl name='id' type-id='type-id-89' visibility='default'/>
@@ -1423,47 +1432,47 @@
         <var-decl name='features' type-id='type-id-91' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_entry' is-struct='yes' visibility='default' size-in-bits='320' hash='07f16a36e722c10f' id='type-id-425'>
+    <class-decl name='clap_plugin_entry' is-struct='yes' visibility='default' size-in-bits='320' hash='07f16a36e722c10f' id='type-id-426'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='clap_version' type-id='type-id-407' visibility='default'/>
+        <var-decl name='clap_version' type-id='type-id-408' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
         <var-decl name='init' type-id='type-id-16' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='deinit' type-id='type-id-426' visibility='default'/>
+        <var-decl name='deinit' type-id='type-id-427' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
-        <var-decl name='get_factory' type-id='type-id-427' visibility='default'/>
+        <var-decl name='get_factory' type-id='type-id-428' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_latency' is-struct='yes' visibility='default' size-in-bits='64' hash='262315c987e8c673' id='type-id-428'>
+    <class-decl name='clap_plugin_latency' is-struct='yes' visibility='default' size-in-bits='64' hash='262315c987e8c673' id='type-id-429'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='get' type-id='type-id-422' visibility='default'/>
+        <var-decl name='get' type-id='type-id-423' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='clap_plugin_meters' is-struct='yes' visibility='default' size-in-bits='192' hash='f5a76289085b05f8' id='type-id-166'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='count' type-id='type-id-422' visibility='default'/>
+        <var-decl name='count' type-id='type-id-423' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='get_info' type-id='type-id-48' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='get_values' type-id='type-id-429' visibility='default'/>
+        <var-decl name='get_values' type-id='type-id-430' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_note_ports' is-struct='yes' visibility='default' size-in-bits='128' hash='8ae6eb0ba9775f1d' id='type-id-430'>
+    <class-decl name='clap_plugin_note_ports' is-struct='yes' visibility='default' size-in-bits='128' hash='8ae6eb0ba9775f1d' id='type-id-431'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='count' type-id='type-id-420' visibility='default'/>
+        <var-decl name='count' type-id='type-id-421' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='get' type-id='type-id-44' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_params' is-struct='yes' visibility='default' size-in-bits='384' hash='9d2055995822ccf8' id='type-id-431'>
+    <class-decl name='clap_plugin_params' is-struct='yes' visibility='default' size-in-bits='384' hash='9d2055995822ccf8' id='type-id-432'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='count' type-id='type-id-422' visibility='default'/>
+        <var-decl name='count' type-id='type-id-423' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='get_info' type-id='type-id-50' visibility='default'/>
@@ -1478,28 +1487,28 @@
         <var-decl name='text_to_value' type-id='type-id-28' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='320'>
-        <var-decl name='flush' type-id='type-id-432' visibility='default'/>
+        <var-decl name='flush' type-id='type-id-433' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_posix_fd_support' is-struct='yes' visibility='default' size-in-bits='64' hash='0d7f015c0daa15dc' id='type-id-433'>
+    <class-decl name='clap_plugin_posix_fd_support' is-struct='yes' visibility='default' size-in-bits='64' hash='0d7f015c0daa15dc' id='type-id-434'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='on_fd' type-id='type-id-434' visibility='default'/>
+        <var-decl name='on_fd' type-id='type-id-435' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_preset_load' is-struct='yes' visibility='default' size-in-bits='64' hash='bec625c12bf7db8b' id='type-id-435'>
+    <class-decl name='clap_plugin_preset_load' is-struct='yes' visibility='default' size-in-bits='64' hash='bec625c12bf7db8b' id='type-id-436'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='from_location' type-id='type-id-54' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_remote_controls' is-struct='yes' visibility='default' size-in-bits='128' hash='fa45d29d638b5c0c' id='type-id-436'>
+    <class-decl name='clap_plugin_remote_controls' is-struct='yes' visibility='default' size-in-bits='128' hash='fa45d29d638b5c0c' id='type-id-437'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='count' type-id='type-id-422' visibility='default'/>
+        <var-decl name='count' type-id='type-id-423' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='get' type-id='type-id-52' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_state' is-struct='yes' visibility='default' size-in-bits='128' hash='7f09f3f5b0cc87a9' id='type-id-437'>
+    <class-decl name='clap_plugin_state' is-struct='yes' visibility='default' size-in-bits='128' hash='7f09f3f5b0cc87a9' id='type-id-438'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='save' type-id='type-id-40' visibility='default'/>
       </data-member>
@@ -1507,37 +1516,37 @@
         <var-decl name='load' type-id='type-id-38' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_surround' is-struct='yes' visibility='default' size-in-bits='128' hash='897cb167f68b43cb' id='type-id-438'>
+    <class-decl name='clap_plugin_surround' is-struct='yes' visibility='default' size-in-bits='128' hash='897cb167f68b43cb' id='type-id-439'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='is_channel_mask_supported' type-id='type-id-56' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='get_channel_map' type-id='type-id-439' visibility='default'/>
+        <var-decl name='get_channel_map' type-id='type-id-440' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_tail' is-struct='yes' visibility='default' size-in-bits='64' hash='f4c04ef2e6132e5e' id='type-id-440'>
+    <class-decl name='clap_plugin_tail' is-struct='yes' visibility='default' size-in-bits='64' hash='f4c04ef2e6132e5e' id='type-id-441'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='get' type-id='type-id-422' visibility='default'/>
+        <var-decl name='get' type-id='type-id-423' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_thread_pool' is-struct='yes' visibility='default' size-in-bits='64' hash='65eea28bca157a8d' id='type-id-441'>
+    <class-decl name='clap_plugin_thread_pool' is-struct='yes' visibility='default' size-in-bits='64' hash='65eea28bca157a8d' id='type-id-442'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='exec' type-id='type-id-442' visibility='default'/>
+        <var-decl name='exec' type-id='type-id-443' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_timer_support' is-struct='yes' visibility='default' size-in-bits='64' hash='73b02197b63ef3a4' id='type-id-443'>
+    <class-decl name='clap_plugin_timer_support' is-struct='yes' visibility='default' size-in-bits='64' hash='73b02197b63ef3a4' id='type-id-444'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='on_timer' type-id='type-id-444' visibility='default'/>
+        <var-decl name='on_timer' type-id='type-id-445' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_plugin_track_info' is-struct='yes' visibility='default' size-in-bits='64' hash='535c5eaed16b276e' id='type-id-445'>
+    <class-decl name='clap_plugin_track_info' is-struct='yes' visibility='default' size-in-bits='64' hash='535c5eaed16b276e' id='type-id-446'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='changed' type-id='type-id-446' visibility='default'/>
+        <var-decl name='changed' type-id='type-id-447' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_process' is-struct='yes' visibility='default' size-in-bits='512' hash='a5b3ac779acc953d' id='type-id-447'>
+    <class-decl name='clap_process' is-struct='yes' visibility='default' size-in-bits='512' hash='a5b3ac779acc953d' id='type-id-448'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='steady_time' type-id='type-id-306' visibility='default'/>
+        <var-decl name='steady_time' type-id='type-id-307' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='frames_count' type-id='type-id-243' visibility='default'/>
@@ -1564,7 +1573,7 @@
         <var-decl name='out_events' type-id='type-id-141' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_remote_controls_page' is-struct='yes' visibility='default' size-in-bits='4416' hash='d21e0d825b13a564' id='type-id-448'>
+    <class-decl name='clap_remote_controls_page' is-struct='yes' visibility='default' size-in-bits='4416' hash='d21e0d825b13a564' id='type-id-449'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='section_name' type-id='type-id-61' visibility='default'/>
       </data-member>
@@ -1581,7 +1590,7 @@
         <var-decl name='is_for_preset' type-id='type-id-14' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_track_info' is-struct='yes' visibility='default' size-in-bits='2240' hash='488504f6761c7e80' id='type-id-449'>
+    <class-decl name='clap_track_info' is-struct='yes' visibility='default' size-in-bits='2240' hash='488504f6761c7e80' id='type-id-450'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='flags' type-id='type-id-244' visibility='default'/>
       </data-member>
@@ -1592,13 +1601,13 @@
         <var-decl name='color' type-id='type-id-104' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2144'>
-        <var-decl name='audio_channel_count' type-id='type-id-288' visibility='default'/>
+        <var-decl name='audio_channel_count' type-id='type-id-289' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2176'>
         <var-decl name='audio_port_type' type-id='type-id-89' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='clap_version' is-struct='yes' visibility='default' size-in-bits='96' hash='427d81aa894d7cf2' id='type-id-450'>
+    <class-decl name='clap_version' is-struct='yes' visibility='default' size-in-bits='96' hash='427d81aa894d7cf2' id='type-id-451'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='major' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -1609,7 +1618,7 @@
         <var-decl name='revision' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_aux_in' is-struct='yes' visibility='default' size-in-bits='281024' hash='8769450f8be218d0' id='type-id-451'>
+    <class-decl name='omx_clap_aux_in' is-struct='yes' visibility='default' size-in-bits='281024' hash='8769450f8be218d0' id='type-id-452'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='ains' type-id='type-id-67' visibility='default'/>
       </data-member>
@@ -1620,14 +1629,14 @@
         <var-decl name='aux_in_ptrs' type-id='type-id-241' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='278848'>
-        <var-decl name='aux_in_base' type-id='type-id-452' visibility='default'/>
+        <var-decl name='aux_in_base' type-id='type-id-453' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='280896'>
         <var-decl name='aux_silence' type-id='type-id-240' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='omx_clap_binary' is-struct='yes' visibility='default' is-declaration-only='yes' hash='745684e63a9320ea' id='type-id-208'/>
-    <class-decl name='omx_clap_fd' is-struct='yes' visibility='default' size-in-bits='64' hash='7eb96f6a96019edf' id='type-id-356'>
+    <class-decl name='omx_clap_fd' is-struct='yes' visibility='default' size-in-bits='64' hash='7eb96f6a96019edf' id='type-id-357'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='fd' type-id='type-id-252' visibility='default'/>
       </data-member>
@@ -1681,7 +1690,7 @@
     </class-decl>
     <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2156032' hash='32c31996751553ba' id='type-id-214'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='bin' type-id='type-id-270' visibility='default'/>
+        <var-decl name='bin' type-id='type-id-271' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='desc' type-id='type-id-159' visibility='default'/>
@@ -1708,10 +1717,10 @@
         <var-decl name='preset_load' type-id='type-id-180' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='576'>
-        <var-decl name='host' type-id='type-id-453' visibility='default'/>
+        <var-decl name='host' type-id='type-id-454' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1280'>
-        <var-decl name='stage' type-id='type-id-380' visibility='default'/>
+        <var-decl name='stage' type-id='type-id-381' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='690624'>
         <var-decl name='channels' type-id='type-id-243' visibility='default'/>
@@ -1720,25 +1729,25 @@
         <var-decl name='in_channels' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='690688'>
-        <var-decl name='main_in' type-id='type-id-376' visibility='default'/>
+        <var-decl name='main_in' type-id='type-id-377' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='693472'>
-        <var-decl name='main_out' type-id='type-id-376' visibility='default'/>
+        <var-decl name='main_out' type-id='type-id-377' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='696256'>
         <var-decl name='aux_outputs' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='696288'>
-        <var-decl name='aux_out' type-id='type-id-377' visibility='default'/>
+        <var-decl name='aux_out' type-id='type-id-378' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='874496'>
         <var-decl name='aux_out_bound' type-id='type-id-241' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1136640'>
-        <var-decl name='aux_out_base' type-id='type-id-452' visibility='default'/>
+        <var-decl name='aux_out_base' type-id='type-id-453' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1138688'>
-        <var-decl name='aux_out_frames' type-id='type-id-452' visibility='default'/>
+        <var-decl name='aux_out_frames' type-id='type-id-453' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1140736'>
         <var-decl name='note_inputs' type-id='type-id-243' visibility='default'/>
@@ -1762,22 +1771,22 @@
         <var-decl name='bounce_map' type-id='type-id-236' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141056'>
-        <var-decl name='bounce_map_len' type-id='type-id-268' visibility='default'/>
+        <var-decl name='bounce_map_len' type-id='type-id-251' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141120'>
         <var-decl name='bounce_blocks' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141184'>
-        <var-decl name='recs' type-id='type-id-385' visibility='default'/>
+        <var-decl name='recs' type-id='type-id-386' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141248'>
         <var-decl name='rec_cap' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141312'>
-        <var-decl name='main_thread' type-id='type-id-304' visibility='default'/>
+        <var-decl name='main_thread' type-id='type-id-305' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141376'>
-        <var-decl name='audio_thread' type-id='type-id-304' visibility='default'/>
+        <var-decl name='audio_thread' type-id='type-id-305' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141440'>
         <var-decl name='audio_role_held' type-id='type-id-252' visibility='default'/>
@@ -1786,7 +1795,7 @@
         <var-decl name='bypass_wanted' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141504'>
-        <var-decl name='shadow' type-id='type-id-379' visibility='default'/>
+        <var-decl name='shadow' type-id='type-id-380' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1141568'>
         <var-decl name='shadow_cap' type-id='type-id-243' visibility='default'/>
@@ -1804,7 +1813,7 @@
         <var-decl name='track_info' type-id='type-id-204' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1146176'>
-        <var-decl name='track' type-id='type-id-454' visibility='default'/>
+        <var-decl name='track' type-id='type-id-455' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1148416'>
         <var-decl name='track_set' type-id='type-id-252' visibility='default'/>
@@ -1822,25 +1831,25 @@
         <var-decl name='transport_src' type-id='type-id-228' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1149696'>
-        <var-decl name='transport_rec' type-id='type-id-455' visibility='default'/>
+        <var-decl name='transport_rec' type-id='type-id-456' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1150080'>
         <var-decl name='aux_inputs' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1150112'>
-        <var-decl name='aux_in' type-id='type-id-377' visibility='default'/>
+        <var-decl name='aux_in' type-id='type-id-378' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1328320'>
         <var-decl name='aux_in_bound' type-id='type-id-241' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1590464'>
-        <var-decl name='aux_in_base' type-id='type-id-452' visibility='default'/>
+        <var-decl name='aux_in_base' type-id='type-id-453' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1592512'>
-        <var-decl name='aux_in_frames' type-id='type-id-452' visibility='default'/>
+        <var-decl name='aux_in_frames' type-id='type-id-453' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1594560'>
-        <var-decl name='aux_list' type-id='type-id-451' visibility='default'/>
+        <var-decl name='aux_list' type-id='type-id-452' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1875584'>
         <var-decl name='meters' type-id='type-id-168' visibility='default'/>
@@ -1849,16 +1858,16 @@
         <var-decl name='meter_count' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1875712'>
-        <var-decl name='meter' type-id='type-id-359' visibility='default'/>
+        <var-decl name='meter' type-id='type-id-360' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1912576'>
-        <var-decl name='param_out' type-id='type-id-456' visibility='default'/>
+        <var-decl name='param_out' type-id='type-id-457' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1945600'>
-        <var-decl name='param_in' type-id='type-id-457' visibility='default'/>
+        <var-decl name='param_in' type-id='type-id-458' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2011328'>
-        <var-decl name='contract' type-id='type-id-369' visibility='default'/>
+        <var-decl name='contract' type-id='type-id-370' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2011392'>
         <var-decl name='contract_count' type-id='type-id-243' visibility='default'/>
@@ -1870,13 +1879,13 @@
         <var-decl name='contract_why' type-id='type-id-60' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2012480'>
-        <var-decl name='note_ids' type-id='type-id-458' visibility='default'/>
+        <var-decl name='note_ids' type-id='type-id-459' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2116224'>
         <var-decl name='note_outputs' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2116288'>
-        <var-decl name='note_out' type-id='type-id-459' visibility='default'/>
+        <var-decl name='note_out' type-id='type-id-460' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2149184'>
         <var-decl name='voice_info_read' type-id='type-id-243' visibility='default'/>
@@ -1891,7 +1900,7 @@
         <var-decl name='voice_flags' type-id='type-id-244' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2149376'>
-        <var-decl name='mpe_zones' type-id='type-id-460' visibility='default'/>
+        <var-decl name='mpe_zones' type-id='type-id-461' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2150272'>
         <var-decl name='note_ports_stale' type-id='type-id-243' visibility='default'/>
@@ -1912,16 +1921,16 @@
         <var-decl name='tail' type-id='type-id-195' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2150720'>
-        <var-decl name='timers' type-id='type-id-383' visibility='default'/>
+        <var-decl name='timers' type-id='type-id-384' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2153792'>
         <var-decl name='timer_next_id' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2153824'>
-        <var-decl name='fds' type-id='type-id-357' visibility='default'/>
+        <var-decl name='fds' type-id='type-id-358' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2154944'>
-        <var-decl name='sleep' type-id='type-id-461' visibility='default'/>
+        <var-decl name='sleep' type-id='type-id-462' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2155712'>
         <var-decl name='surround' type-id='type-id-189' visibility='default'/>
@@ -1936,7 +1945,7 @@
         <var-decl name='audio_ports_config' type-id='type-id-150' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_meter' is-struct='yes' visibility='default' size-in-bits='2304' hash='2dc4a7b0f71593fd' id='type-id-358'>
+    <class-decl name='omx_clap_meter' is-struct='yes' visibility='default' size-in-bits='2304' hash='2dc4a7b0f71593fd' id='type-id-359'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -1959,7 +1968,7 @@
         <var-decl name='max_value' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_mpe_zone' is-struct='yes' visibility='default' size-in-bits='384' hash='0f2659a3a687914e' id='type-id-360'>
+    <class-decl name='omx_clap_mpe_zone' is-struct='yes' visibility='default' size-in-bits='384' hash='0f2659a3a687914e' id='type-id-361'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='members' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -1982,12 +1991,12 @@
         <var-decl name='master_brightness' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_mpe_zones' is-struct='yes' visibility='default' size-in-bits='832' hash='50c653ff0ccb2d13' id='type-id-460'>
+    <class-decl name='omx_clap_mpe_zones' is-struct='yes' visibility='default' size-in-bits='832' hash='50c653ff0ccb2d13' id='type-id-461'>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='zone' type-id='type-id-361' visibility='default'/>
+        <var-decl name='zone' type-id='type-id-362' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_note_id' is-struct='yes' visibility='default' size-in-bits='128' hash='cae49002064e0e3e' id='type-id-364'>
+    <class-decl name='omx_clap_note_id' is-struct='yes' visibility='default' size-in-bits='128' hash='cae49002064e0e3e' id='type-id-365'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='state' type-id='type-id-229' visibility='default'/>
       </data-member>
@@ -2001,12 +2010,12 @@
         <var-decl name='pad' type-id='type-id-229' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='released_at' type-id='type-id-306' visibility='default'/>
+        <var-decl name='released_at' type-id='type-id-307' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_note_ids' is-struct='yes' visibility='default' size-in-bits='103744' hash='1ac7ac41c767fae7' id='type-id-458'>
+    <class-decl name='omx_clap_note_ids' is-struct='yes' visibility='default' size-in-bits='103744' hash='1ac7ac41c767fae7' id='type-id-459'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='stage' type-id='type-id-381' visibility='default'/>
+        <var-decl name='stage' type-id='type-id-382' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='out_events' type-id='type-id-139' visibility='default'/>
@@ -2027,32 +2036,32 @@
         <var-decl name='mpe_member_bend' type-id='type-id-232' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='448'>
-        <var-decl name='rpn' type-id='type-id-462' visibility='default'/>
+        <var-decl name='rpn' type-id='type-id-463' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='704'>
-        <var-decl name='chan_id' type-id='type-id-351' visibility='default'/>
+        <var-decl name='chan_id' type-id='type-id-352' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='1216'>
-        <var-decl name='key_id' type-id='type-id-352' visibility='default'/>
+        <var-decl name='key_id' type-id='type-id-353' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='66752'>
-        <var-decl name='ids' type-id='type-id-365' visibility='default'/>
+        <var-decl name='ids' type-id='type-id-366' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='99520'>
-        <var-decl name='free_ids' type-id='type-id-463' visibility='default'/>
+        <var-decl name='free_ids' type-id='type-id-464' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='103616'>
         <var-decl name='n_free' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_note_out' is-struct='yes' visibility='default' size-in-bits='32896' hash='d1d2af00a974bbb0' id='type-id-459'>
+    <class-decl name='omx_clap_note_out' is-struct='yes' visibility='default' size-in-bits='32896' hash='d1d2af00a974bbb0' id='type-id-460'>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='ring' type-id='type-id-367' visibility='default'/>
+        <var-decl name='ring' type-id='type-id-368' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_note_out_event' is-struct='yes' visibility='default' size-in-bits='128' hash='3358e735f012871f' id='type-id-366'>
+    <class-decl name='omx_clap_note_out_event' is-struct='yes' visibility='default' size-in-bits='128' hash='3358e735f012871f' id='type-id-367'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='frame' type-id='type-id-306' visibility='default'/>
+        <var-decl name='frame' type-id='type-id-307' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='time' type-id='type-id-243' visibility='default'/>
@@ -2061,10 +2070,10 @@
         <var-decl name='size' type-id='type-id-229' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='104'>
-        <var-decl name='data' type-id='type-id-395' visibility='default'/>
+        <var-decl name='data' type-id='type-id-396' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_contract_entry' is-struct='yes' visibility='default' size-in-bits='704' hash='64ee20b274893a12' id='type-id-464'>
+    <class-decl name='omx_clap_param_contract_entry' is-struct='yes' visibility='default' size-in-bits='704' hash='64ee20b274893a12' id='type-id-465'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='param_id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -2081,7 +2090,7 @@
         <var-decl name='step' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_event' is-struct='yes' visibility='default' size-in-bits='128' hash='0f4d55aa95cf1d37' id='type-id-370'>
+    <class-decl name='omx_clap_param_event' is-struct='yes' visibility='default' size-in-bits='128' hash='0f4d55aa95cf1d37' id='type-id-371'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='kind' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -2092,15 +2101,15 @@
         <var-decl name='value' type-id='type-id-232' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_in' is-struct='yes' visibility='default' size-in-bits='65728' hash='e43087f21f248113' id='type-id-457'>
+    <class-decl name='omx_clap_param_in' is-struct='yes' visibility='default' size-in-bits='65728' hash='e43087f21f248113' id='type-id-458'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='stage_in' type-id='type-id-121' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='tag' type-id='type-id-375' visibility='default'/>
+        <var-decl name='tag' type-id='type-id-376' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_meaning' is-struct='yes' visibility='default' size-in-bits='960' hash='0f3a124260d5e34d' id='type-id-372'>
+    <class-decl name='omx_clap_param_meaning' is-struct='yes' visibility='default' size-in-bits='960' hash='0f3a124260d5e34d' id='type-id-373'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -2129,15 +2138,15 @@
         <var-decl name='flags' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_out' is-struct='yes' visibility='default' size-in-bits='32960' hash='eb4400e30c37bd78' id='type-id-456'>
+    <class-decl name='omx_clap_param_out' is-struct='yes' visibility='default' size-in-bits='32960' hash='eb4400e30c37bd78' id='type-id-457'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='stage' type-id='type-id-381' visibility='default'/>
+        <var-decl name='stage' type-id='type-id-382' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='ring' type-id='type-id-371' visibility='default'/>
+        <var-decl name='ring' type-id='type-id-372' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_row' is-struct='yes' visibility='default' size-in-bits='2432' hash='e11d29a9f6cce064' id='type-id-373'>
+    <class-decl name='omx_clap_param_row' is-struct='yes' visibility='default' size-in-bits='2432' hash='e11d29a9f6cce064' id='type-id-374'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -2160,18 +2169,18 @@
         <var-decl name='enumerated' type-id='type-id-252' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2368'>
-        <var-decl name='cookie' type-id='type-id-259' visibility='default'/>
+        <var-decl name='cookie' type-id='type-id-261' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_param_tag' is-struct='yes' visibility='default' size-in-bits='128' hash='4eaeeb0367073363' id='type-id-374'>
+    <class-decl name='omx_clap_param_tag' is-struct='yes' visibility='default' size-in-bits='128' hash='4eaeeb0367073363' id='type-id-375'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='type' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='cookie' type-id='type-id-259' visibility='default'/>
+        <var-decl name='cookie' type-id='type-id-261' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_port' is-struct='yes' visibility='default' size-in-bits='2784' hash='08aa889639d5d419' id='type-id-376'>
+    <class-decl name='omx_clap_port' is-struct='yes' visibility='default' size-in-bits='2784' hash='08aa889639d5d419' id='type-id-377'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -2185,7 +2194,7 @@
         <var-decl name='kind' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2144'>
-        <var-decl name='map' type-id='type-id-465' visibility='default'/>
+        <var-decl name='map' type-id='type-id-466' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='2656'>
         <var-decl name='ambisonic_ordering' type-id='type-id-243' visibility='default'/>
@@ -2234,13 +2243,13 @@
         <var-decl name='state' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='thread' type-id='type-id-304' visibility='default'/>
+        <var-decl name='thread' type-id='type-id-305' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
         <var-decl name='held' type-id='type-id-252' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_shadow' is-struct='yes' visibility='default' size-in-bits='192' hash='e2515f580c4856fc' id='type-id-378'>
+    <class-decl name='omx_clap_shadow' is-struct='yes' visibility='default' size-in-bits='192' hash='e2515f580c4856fc' id='type-id-379'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-74' visibility='default'/>
       </data-member>
@@ -2254,7 +2263,7 @@
         <var-decl name='valid' type-id='type-id-252' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_sleep' is-struct='yes' visibility='default' size-in-bits='768' hash='66c48c45ff4bf5c1' id='type-id-461'>
+    <class-decl name='omx_clap_sleep' is-struct='yes' visibility='default' size-in-bits='768' hash='66c48c45ff4bf5c1' id='type-id-462'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='asleep' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -2268,15 +2277,15 @@
         <var-decl name='quiet_min_frames' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='320'>
-        <var-decl name='last' type-id='type-id-455' visibility='default'/>
+        <var-decl name='last' type-id='type-id-456' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='704'>
         <var-decl name='have_last' type-id='type-id-252' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='689344' hash='4c3896552c94d2a6' id='type-id-380'>
+    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='689344' hash='4c3896552c94d2a6' id='type-id-381'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='h' type-id='type-id-466' visibility='default'/>
+        <var-decl name='h' type-id='type-id-467' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='640'>
         <var-decl name='plugin' type-id='type-id-192' visibility='default'/>
@@ -2300,7 +2309,7 @@
         <var-decl name='aux_ptrs' type-id='type-id-241' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='288000'>
-        <var-decl name='aux_base' type-id='type-id-452' visibility='default'/>
+        <var-decl name='aux_base' type-id='type-id-453' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='290048'>
         <var-decl name='aux_scratch' type-id='type-id-241' visibility='default'/>
@@ -2312,13 +2321,13 @@
         <var-decl name='n_events' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='580928'>
-        <var-decl name='notes' type-id='type-id-363' visibility='default'/>
+        <var-decl name='notes' type-id='type-id-364' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='662848'>
         <var-decl name='n_notes' type-id='type-id-243' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='662880'>
-        <var-decl name='sysex_bytes' type-id='type-id-467' visibility='default'/>
+        <var-decl name='sysex_bytes' type-id='type-id-468' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='679264'>
         <var-decl name='n_sysex' type-id='type-id-243' visibility='default'/>
@@ -2345,10 +2354,10 @@
         <var-decl name='proc' type-id='type-id-205' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='680320'>
-        <var-decl name='queue' type-id='type-id-468' visibility='default'/>
+        <var-decl name='queue' type-id='type-id-469' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='680512'>
-        <var-decl name='steady_time' type-id='type-id-306' visibility='default'/>
+        <var-decl name='steady_time' type-id='type-id-307' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='680672'>
         <var-decl name='need_reset' type-id='type-id-243' visibility='default'/>
@@ -2367,7 +2376,7 @@
       </data-member>
     </class-decl>
     <class-decl name='omx_clap_tempo' is-struct='yes' visibility='default' size-in-bits='64' hash='bbf53208d8c82bab' id='type-id-223'/>
-    <class-decl name='omx_clap_timer' is-struct='yes' visibility='default' size-in-bits='192' hash='e374191efa5232e5' id='type-id-382'>
+    <class-decl name='omx_clap_timer' is-struct='yes' visibility='default' size-in-bits='192' hash='e374191efa5232e5' id='type-id-383'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='used' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -2381,7 +2390,7 @@
         <var-decl name='due_ns' type-id='type-id-244' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_transport' is-struct='yes' visibility='default' size-in-bits='384' hash='c0f729b6dd0c3f81' id='type-id-455'>
+    <class-decl name='omx_clap_transport' is-struct='yes' visibility='default' size-in-bits='384' hash='c0f729b6dd0c3f81' id='type-id-456'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='flags' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -2389,34 +2398,34 @@
         <var-decl name='tempo' type-id='type-id-232' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='song_pos_beats' type-id='type-id-405' visibility='default'/>
+        <var-decl name='song_pos_beats' type-id='type-id-406' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='song_pos_seconds' type-id='type-id-406' visibility='default'/>
+        <var-decl name='song_pos_seconds' type-id='type-id-407' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='256'>
-        <var-decl name='bar_start' type-id='type-id-405' visibility='default'/>
+        <var-decl name='bar_start' type-id='type-id-406' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='320'>
-        <var-decl name='bar_number' type-id='type-id-288' visibility='default'/>
+        <var-decl name='bar_number' type-id='type-id-289' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='352'>
-        <var-decl name='tsig_num' type-id='type-id-393' visibility='default'/>
+        <var-decl name='tsig_num' type-id='type-id-394' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='368'>
-        <var-decl name='tsig_denom' type-id='type-id-393' visibility='default'/>
+        <var-decl name='tsig_denom' type-id='type-id-394' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='omx_clap_transport_src' is-struct='yes' visibility='default' size-in-bits='384' hash='41d67ee99705c726' id='type-id-226'/>
-    <class-decl name='omx_hosted_param_queue' is-struct='yes' visibility='default' size-in-bits='192' hash='ceb2fff552e37818' id='type-id-468'>
+    <class-decl name='omx_hosted_param_queue' is-struct='yes' visibility='default' size-in-bits='192' hash='ceb2fff552e37818' id='type-id-469'>
       <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='recs' type-id='type-id-385' visibility='default'/>
+        <var-decl name='recs' type-id='type-id-386' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='64'>
         <var-decl name='cap' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_hosted_param_record' is-struct='yes' visibility='default' size-in-bits='192' hash='fd2cd75961400943' id='type-id-384'>
+    <class-decl name='omx_hosted_param_record' is-struct='yes' visibility='default' size-in-bits='192' hash='fd2cd75961400943' id='type-id-385'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='id' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -2424,10 +2433,10 @@
         <var-decl name='value' type-id='type-id-232' visibility='default'/>
       </data-member>
       <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='cookie' type-id='type-id-259' visibility='default'/>
+        <var-decl name='cookie' type-id='type-id-261' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_hosted_stage' is-struct='yes' visibility='default' size-in-bits='640' hash='2513fbdcca9d231e' id='type-id-466'>
+    <class-decl name='omx_hosted_stage' is-struct='yes' visibility='default' size-in-bits='640' hash='2513fbdcca9d231e' id='type-id-467'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='n_in' type-id='type-id-243' visibility='default'/>
       </data-member>
@@ -2453,230 +2462,231 @@
         <var-decl name='guards' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
-    <typedef-decl name='__int16_t' type-id='type-id-386' size-in-bits='16' hash='bfcf8c53a7e22b05' id='type-id-469'/>
-    <typedef-decl name='__int32_t' type-id='type-id-252' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-470'/>
-    <typedef-decl name='__int64_t' type-id='type-id-355' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-471'/>
-    <typedef-decl name='__uint16_t' type-id='type-id-472' size-in-bits='16' hash='012767b19cd3b7f4' id='type-id-473'/>
-    <typedef-decl name='__uint32_t' type-id='type-id-254' size-in-bits='32' hash='01b265816e53dd71' id='type-id-474'/>
-    <typedef-decl name='__uint64_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-475'/>
-    <typedef-decl name='__uint8_t' type-id='type-id-476' size-in-bits='8' hash='7948234ee9eb1041' id='type-id-477'/>
-    <typedef-decl name='clap_ambisonic_config_t' type-id='type-id-387' size-in-bits='64' hash='3291d5c2158041ee' id='type-id-63'/>
-    <typedef-decl name='clap_audio_buffer_t' type-id='type-id-388' size-in-bits='256' hash='aa8f84fbddff2825' id='type-id-65'/>
+    <typedef-decl name='__int16_t' type-id='type-id-387' size-in-bits='16' hash='bfcf8c53a7e22b05' id='type-id-470'/>
+    <typedef-decl name='__int32_t' type-id='type-id-252' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-471'/>
+    <typedef-decl name='__int64_t' type-id='type-id-356' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-472'/>
+    <typedef-decl name='__uint16_t' type-id='type-id-473' size-in-bits='16' hash='012767b19cd3b7f4' id='type-id-474'/>
+    <typedef-decl name='__uint32_t' type-id='type-id-256' size-in-bits='32' hash='01b265816e53dd71' id='type-id-475'/>
+    <typedef-decl name='__uint64_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-476'/>
+    <typedef-decl name='__uint8_t' type-id='type-id-477' size-in-bits='8' hash='7948234ee9eb1041' id='type-id-478'/>
+    <typedef-decl name='clap_ambisonic_config_t' type-id='type-id-388' size-in-bits='64' hash='3291d5c2158041ee' id='type-id-63'/>
+    <typedef-decl name='clap_audio_buffer_t' type-id='type-id-389' size-in-bits='256' hash='aa8f84fbddff2825' id='type-id-65'/>
     <typedef-decl name='clap_audio_port_configuration_request_t' type-id='type-id-98' size-in-bits='256' hash='0ec5b06366521b0d' id='type-id-101'/>
-    <typedef-decl name='clap_audio_port_info_t' type-id='type-id-389' size-in-bits='2304' hash='4339f2753259a01c' id='type-id-68'/>
-    <typedef-decl name='clap_audio_ports_config_t' type-id='type-id-390' size-in-bits='2432' hash='6cd43943c17a01fd' id='type-id-70'/>
-    <typedef-decl name='clap_beattime' type-id='type-id-306' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-405'/>
-    <typedef-decl name='clap_color_t' type-id='type-id-391' size-in-bits='32' hash='645b39d6d8cff5cb' id='type-id-104'/>
-    <typedef-decl name='clap_event_header_t' type-id='type-id-392' size-in-bits='128' hash='6bfeb91c7cc88ab7' id='type-id-107'/>
-    <typedef-decl name='clap_event_midi2_t' type-id='type-id-396' size-in-bits='288' hash='291d2540d0312add' id='type-id-478'/>
-    <typedef-decl name='clap_event_midi_sysex_t' type-id='type-id-398' size-in-bits='320' hash='c5ded8577d791ad1' id='type-id-479'/>
-    <typedef-decl name='clap_event_midi_t' type-id='type-id-394' size-in-bits='192' hash='ba3e653756b2ec4d' id='type-id-480'/>
-    <typedef-decl name='clap_event_note_expression_t' type-id='type-id-401' size-in-bits='320' hash='70ef8277b44ab5d9' id='type-id-481'/>
-    <typedef-decl name='clap_event_note_t' type-id='type-id-399' size-in-bits='320' hash='ff6ccaaf68092870' id='type-id-482'/>
-    <typedef-decl name='clap_event_param_value_t' type-id='type-id-403' size-in-bits='448' hash='de7d6b7528a0a1ca' id='type-id-72'/>
-    <typedef-decl name='clap_event_transport_t' type-id='type-id-404' size-in-bits='832' hash='f39a4dba0a16f26c' id='type-id-112'/>
-    <typedef-decl name='clap_host_t' type-id='type-id-115' size-in-bits='704' hash='843023d38bf2bd4f' id='type-id-453'/>
+    <typedef-decl name='clap_audio_port_info_t' type-id='type-id-390' size-in-bits='2304' hash='4339f2753259a01c' id='type-id-68'/>
+    <typedef-decl name='clap_audio_ports_config_t' type-id='type-id-391' size-in-bits='2432' hash='6cd43943c17a01fd' id='type-id-70'/>
+    <typedef-decl name='clap_beattime' type-id='type-id-307' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-406'/>
+    <typedef-decl name='clap_color_t' type-id='type-id-392' size-in-bits='32' hash='645b39d6d8cff5cb' id='type-id-104'/>
+    <typedef-decl name='clap_event_header_t' type-id='type-id-393' size-in-bits='128' hash='6bfeb91c7cc88ab7' id='type-id-107'/>
+    <typedef-decl name='clap_event_midi2_t' type-id='type-id-397' size-in-bits='288' hash='291d2540d0312add' id='type-id-479'/>
+    <typedef-decl name='clap_event_midi_sysex_t' type-id='type-id-399' size-in-bits='320' hash='c5ded8577d791ad1' id='type-id-480'/>
+    <typedef-decl name='clap_event_midi_t' type-id='type-id-395' size-in-bits='192' hash='ba3e653756b2ec4d' id='type-id-481'/>
+    <typedef-decl name='clap_event_note_expression_t' type-id='type-id-402' size-in-bits='320' hash='70ef8277b44ab5d9' id='type-id-482'/>
+    <typedef-decl name='clap_event_note_t' type-id='type-id-400' size-in-bits='320' hash='ff6ccaaf68092870' id='type-id-483'/>
+    <typedef-decl name='clap_event_param_value_t' type-id='type-id-404' size-in-bits='448' hash='de7d6b7528a0a1ca' id='type-id-72'/>
+    <typedef-decl name='clap_event_transport_t' type-id='type-id-405' size-in-bits='832' hash='f39a4dba0a16f26c' id='type-id-112'/>
+    <typedef-decl name='clap_host_t' type-id='type-id-115' size-in-bits='704' hash='843023d38bf2bd4f' id='type-id-454'/>
     <typedef-decl name='clap_id' type-id='type-id-243' size-in-bits='32' hash='01b265816e53dd71' id='type-id-74'/>
     <typedef-decl name='clap_input_events_t' type-id='type-id-118' size-in-bits='192' hash='81c36f8c4b481061' id='type-id-121'/>
     <typedef-decl name='clap_istream_t' type-id='type-id-124' size-in-bits='128' hash='44ea868a462f7935' id='type-id-127'/>
-    <typedef-decl name='clap_meter_info_t' type-id='type-id-411' size-in-bits='2304' hash='dd1958fa4e1e563c' id='type-id-76'/>
-    <typedef-decl name='clap_note_expression' type-id='type-id-288' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-402'/>
-    <typedef-decl name='clap_note_name_t' type-id='type-id-412' size-in-bits='2096' hash='7ad453e5783516c2' id='type-id-78'/>
-    <typedef-decl name='clap_note_port_info_t' type-id='type-id-413' size-in-bits='2144' hash='4b6814e05eb4d6d5' id='type-id-80'/>
+    <typedef-decl name='clap_meter_info_t' type-id='type-id-412' size-in-bits='2304' hash='dd1958fa4e1e563c' id='type-id-76'/>
+    <typedef-decl name='clap_note_expression' type-id='type-id-289' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-403'/>
+    <typedef-decl name='clap_note_name_t' type-id='type-id-413' size-in-bits='2096' hash='7ad453e5783516c2' id='type-id-78'/>
+    <typedef-decl name='clap_note_port_info_t' type-id='type-id-414' size-in-bits='2144' hash='4b6814e05eb4d6d5' id='type-id-80'/>
     <typedef-decl name='clap_ostream_t' type-id='type-id-130' size-in-bits='128' hash='0f7850c380d4da8c' id='type-id-133'/>
     <typedef-decl name='clap_output_events_t' type-id='type-id-136' size-in-bits='128' hash='b371eb7f75363489' id='type-id-139'/>
-    <typedef-decl name='clap_param_info_flags' type-id='type-id-243' size-in-bits='32' hash='01b265816e53dd71' id='type-id-415'/>
-    <typedef-decl name='clap_param_info_t' type-id='type-id-414' size-in-bits='10560' hash='f5a9efb710522572' id='type-id-82'/>
-    <typedef-decl name='clap_plugin_ambisonic_t' type-id='type-id-418' size-in-bits='128' hash='f9128d6afbb0cc44' id='type-id-145'/>
-    <typedef-decl name='clap_plugin_audio_ports_config_t' type-id='type-id-421' size-in-bits='192' hash='d83cf08f8cf36820' id='type-id-148'/>
-    <typedef-decl name='clap_plugin_audio_ports_t' type-id='type-id-419' size-in-bits='128' hash='aa427aa4e72ff35c' id='type-id-151'/>
-    <typedef-decl name='clap_plugin_configurable_audio_ports_t' type-id='type-id-423' size-in-bits='128' hash='f4254456b3319d9b' id='type-id-154'/>
-    <typedef-decl name='clap_plugin_descriptor_t' type-id='type-id-424' size-in-bits='704' hash='22b0b18c7f2567a8' id='type-id-157'/>
-    <typedef-decl name='clap_plugin_entry_t' type-id='type-id-425' size-in-bits='320' hash='ce019624418527da' id='type-id-160'/>
-    <typedef-decl name='clap_plugin_latency_t' type-id='type-id-428' size-in-bits='64' hash='135a5f926b8ee7cf' id='type-id-163'/>
-    <typedef-decl name='clap_plugin_note_ports_t' type-id='type-id-430' size-in-bits='128' hash='39ab551e227ca822' id='type-id-169'/>
-    <typedef-decl name='clap_plugin_params_t' type-id='type-id-431' size-in-bits='384' hash='1e04e926e6ccffd2' id='type-id-172'/>
-    <typedef-decl name='clap_plugin_posix_fd_support_t' type-id='type-id-433' size-in-bits='64' hash='57033a18e1128c39' id='type-id-175'/>
-    <typedef-decl name='clap_plugin_preset_load_t' type-id='type-id-435' size-in-bits='64' hash='a1c2d515dd9368dc' id='type-id-178'/>
-    <typedef-decl name='clap_plugin_remote_controls_t' type-id='type-id-436' size-in-bits='128' hash='a28c100a8744581e' id='type-id-181'/>
-    <typedef-decl name='clap_plugin_state_t' type-id='type-id-437' size-in-bits='128' hash='6e9a222e7b27b666' id='type-id-184'/>
-    <typedef-decl name='clap_plugin_surround_t' type-id='type-id-438' size-in-bits='128' hash='f9ae4cab4968a02a' id='type-id-187'/>
+    <typedef-decl name='clap_param_info_flags' type-id='type-id-243' size-in-bits='32' hash='01b265816e53dd71' id='type-id-416'/>
+    <typedef-decl name='clap_param_info_t' type-id='type-id-415' size-in-bits='10560' hash='f5a9efb710522572' id='type-id-82'/>
+    <typedef-decl name='clap_plugin_ambisonic_t' type-id='type-id-419' size-in-bits='128' hash='f9128d6afbb0cc44' id='type-id-145'/>
+    <typedef-decl name='clap_plugin_audio_ports_config_t' type-id='type-id-422' size-in-bits='192' hash='d83cf08f8cf36820' id='type-id-148'/>
+    <typedef-decl name='clap_plugin_audio_ports_t' type-id='type-id-420' size-in-bits='128' hash='aa427aa4e72ff35c' id='type-id-151'/>
+    <typedef-decl name='clap_plugin_configurable_audio_ports_t' type-id='type-id-424' size-in-bits='128' hash='f4254456b3319d9b' id='type-id-154'/>
+    <typedef-decl name='clap_plugin_descriptor_t' type-id='type-id-425' size-in-bits='704' hash='22b0b18c7f2567a8' id='type-id-157'/>
+    <typedef-decl name='clap_plugin_entry_t' type-id='type-id-426' size-in-bits='320' hash='ce019624418527da' id='type-id-160'/>
+    <typedef-decl name='clap_plugin_latency_t' type-id='type-id-429' size-in-bits='64' hash='135a5f926b8ee7cf' id='type-id-163'/>
+    <typedef-decl name='clap_plugin_note_ports_t' type-id='type-id-431' size-in-bits='128' hash='39ab551e227ca822' id='type-id-169'/>
+    <typedef-decl name='clap_plugin_params_t' type-id='type-id-432' size-in-bits='384' hash='1e04e926e6ccffd2' id='type-id-172'/>
+    <typedef-decl name='clap_plugin_posix_fd_support_t' type-id='type-id-434' size-in-bits='64' hash='57033a18e1128c39' id='type-id-175'/>
+    <typedef-decl name='clap_plugin_preset_load_t' type-id='type-id-436' size-in-bits='64' hash='a1c2d515dd9368dc' id='type-id-178'/>
+    <typedef-decl name='clap_plugin_remote_controls_t' type-id='type-id-437' size-in-bits='128' hash='a28c100a8744581e' id='type-id-181'/>
+    <typedef-decl name='clap_plugin_state_t' type-id='type-id-438' size-in-bits='128' hash='6e9a222e7b27b666' id='type-id-184'/>
+    <typedef-decl name='clap_plugin_surround_t' type-id='type-id-439' size-in-bits='128' hash='f9ae4cab4968a02a' id='type-id-187'/>
     <typedef-decl name='clap_plugin_t' type-id='type-id-142' size-in-bits='768' hash='1a1507a053280e72' id='type-id-190'/>
-    <typedef-decl name='clap_plugin_tail_t' type-id='type-id-440' size-in-bits='64' hash='a473587ee0d7b1ac' id='type-id-193'/>
-    <typedef-decl name='clap_plugin_thread_pool_t' type-id='type-id-441' size-in-bits='64' hash='09503e54c3c267f1' id='type-id-196'/>
-    <typedef-decl name='clap_plugin_timer_support_t' type-id='type-id-443' size-in-bits='64' hash='443d69e339bba0d3' id='type-id-199'/>
-    <typedef-decl name='clap_plugin_track_info_t' type-id='type-id-445' size-in-bits='64' hash='1f84437319171b89' id='type-id-202'/>
-    <typedef-decl name='clap_posix_fd_flags_t' type-id='type-id-243' size-in-bits='32' hash='01b265816e53dd71' id='type-id-329'/>
-    <typedef-decl name='clap_process_status' type-id='type-id-288' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-245'/>
-    <typedef-decl name='clap_process_t' type-id='type-id-447' size-in-bits='512' hash='1f3d980ffbfea679' id='type-id-205'/>
-    <typedef-decl name='clap_remote_controls_page_t' type-id='type-id-448' size-in-bits='4416' hash='0c5c2b6bdd85a265' id='type-id-86'/>
-    <typedef-decl name='clap_sectime' type-id='type-id-306' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-406'/>
-    <typedef-decl name='clap_track_info_t' type-id='type-id-449' size-in-bits='2240' hash='cd4dfe9d9622d8a7' id='type-id-454'/>
-    <typedef-decl name='clap_version_t' type-id='type-id-450' size-in-bits='96' hash='04ee29fe076142f8' id='type-id-407'/>
-    <typedef-decl name='int16_t' type-id='type-id-469' size-in-bits='16' hash='bfcf8c53a7e22b05' id='type-id-400'/>
-    <typedef-decl name='int32_t' type-id='type-id-470' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-288'/>
-    <typedef-decl name='int64_t' type-id='type-id-471' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-306'/>
-    <typedef-decl name='omx_clap_audio_role_fn' type-id='type-id-350' size-in-bits='64' hash='836d3d6d113f5ba7' id='type-id-343'/>
-    <typedef-decl name='omx_clap_param_contract_entry_t' type-id='type-id-464' size-in-bits='704' hash='38231c1a80ab3be6' id='type-id-368'/>
-    <typedef-decl name='omx_clap_preset_fn' type-id='type-id-349' size-in-bits='64' hash='072016b64905a146' id='type-id-258'/>
-    <typedef-decl name='pthread_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-304'/>
-    <typedef-decl name='size_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-268'/>
-    <typedef-decl name='uint16_t' type-id='type-id-473' size-in-bits='16' hash='012767b19cd3b7f4' id='type-id-393'/>
-    <typedef-decl name='uint32_t' type-id='type-id-474' size-in-bits='32' hash='01b265816e53dd71' id='type-id-243'/>
-    <typedef-decl name='uint64_t' type-id='type-id-475' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-244'/>
-    <typedef-decl name='uint8_t' type-id='type-id-477' size-in-bits='8' hash='7948234ee9eb1041' id='type-id-229'/>
-    <array-type-def dimensions='1' type-id='type-id-393' size-in-bits='4096' hash='bd4fcab714c3a14c' id='type-id-463'>
+    <typedef-decl name='clap_plugin_tail_t' type-id='type-id-441' size-in-bits='64' hash='a473587ee0d7b1ac' id='type-id-193'/>
+    <typedef-decl name='clap_plugin_thread_pool_t' type-id='type-id-442' size-in-bits='64' hash='09503e54c3c267f1' id='type-id-196'/>
+    <typedef-decl name='clap_plugin_timer_support_t' type-id='type-id-444' size-in-bits='64' hash='443d69e339bba0d3' id='type-id-199'/>
+    <typedef-decl name='clap_plugin_track_info_t' type-id='type-id-446' size-in-bits='64' hash='1f84437319171b89' id='type-id-202'/>
+    <typedef-decl name='clap_posix_fd_flags_t' type-id='type-id-243' size-in-bits='32' hash='01b265816e53dd71' id='type-id-330'/>
+    <typedef-decl name='clap_process_status' type-id='type-id-289' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-245'/>
+    <typedef-decl name='clap_process_t' type-id='type-id-448' size-in-bits='512' hash='1f3d980ffbfea679' id='type-id-205'/>
+    <typedef-decl name='clap_remote_controls_page_t' type-id='type-id-449' size-in-bits='4416' hash='0c5c2b6bdd85a265' id='type-id-86'/>
+    <typedef-decl name='clap_sectime' type-id='type-id-307' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-407'/>
+    <typedef-decl name='clap_track_info_t' type-id='type-id-450' size-in-bits='2240' hash='cd4dfe9d9622d8a7' id='type-id-455'/>
+    <typedef-decl name='clap_version_t' type-id='type-id-451' size-in-bits='96' hash='04ee29fe076142f8' id='type-id-408'/>
+    <typedef-decl name='int16_t' type-id='type-id-470' size-in-bits='16' hash='bfcf8c53a7e22b05' id='type-id-401'/>
+    <typedef-decl name='int32_t' type-id='type-id-471' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-289'/>
+    <typedef-decl name='int64_t' type-id='type-id-472' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-307'/>
+    <typedef-decl name='omx_clap_audio_role_fn' type-id='type-id-351' size-in-bits='64' hash='836d3d6d113f5ba7' id='type-id-344'/>
+    <typedef-decl name='omx_clap_param_contract_entry_t' type-id='type-id-465' size-in-bits='704' hash='38231c1a80ab3be6' id='type-id-369'/>
+    <typedef-decl name='omx_clap_preset_fn' type-id='type-id-350' size-in-bits='64' hash='072016b64905a146' id='type-id-260'/>
+    <typedef-decl name='pthread_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-305'/>
+    <typedef-decl name='size_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-251'/>
+    <typedef-decl name='uint16_t' type-id='type-id-474' size-in-bits='16' hash='012767b19cd3b7f4' id='type-id-394'/>
+    <typedef-decl name='uint32_t' type-id='type-id-475' size-in-bits='32' hash='01b265816e53dd71' id='type-id-243'/>
+    <typedef-decl name='uint64_t' type-id='type-id-476' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-244'/>
+    <typedef-decl name='uint8_t' type-id='type-id-478' size-in-bits='8' hash='7948234ee9eb1041' id='type-id-229'/>
+    <array-type-def dimensions='1' type-id='type-id-394' size-in-bits='4096' hash='bd4fcab714c3a14c' id='type-id-464'>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-5'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-309' size-in-bits='64' hash='7ad9a648f11390cd' id='type-id-410'/>
-    <pointer-type-def type-id='type-id-310' size-in-bits='64' hash='c0be03f652acabd8' id='type-id-422'/>
-    <pointer-type-def type-id='type-id-311' size-in-bits='64' hash='1124186897679cdc' id='type-id-420'/>
-    <pointer-type-def type-id='type-id-312' size-in-bits='64' hash='614c92ad1b1a037d' id='type-id-439'/>
-    <pointer-type-def type-id='type-id-314' size-in-bits='64' hash='d5a226044d981b46' id='type-id-429'/>
-    <pointer-type-def type-id='type-id-243' size-in-bits='64' hash='e0052ce3dc4c319c' id='type-id-263'/>
-    <array-type-def dimensions='1' type-id='type-id-243' size-in-bits='128' hash='7862ab2a4a69ef93' id='type-id-397'>
+    <pointer-type-def type-id='type-id-310' size-in-bits='64' hash='7ad9a648f11390cd' id='type-id-411'/>
+    <pointer-type-def type-id='type-id-311' size-in-bits='64' hash='c0be03f652acabd8' id='type-id-423'/>
+    <pointer-type-def type-id='type-id-312' size-in-bits='64' hash='1124186897679cdc' id='type-id-421'/>
+    <pointer-type-def type-id='type-id-313' size-in-bits='64' hash='614c92ad1b1a037d' id='type-id-440'/>
+    <pointer-type-def type-id='type-id-315' size-in-bits='64' hash='d5a226044d981b46' id='type-id-430'/>
+    <pointer-type-def type-id='type-id-243' size-in-bits='64' hash='e0052ce3dc4c319c' id='type-id-265'/>
+    <array-type-def dimensions='1' type-id='type-id-243' size-in-bits='128' hash='7862ab2a4a69ef93' id='type-id-398'>
       <subrange length='4' lower-bound='0' upper-bound='3' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='cee611f4a73e486c' id='type-id-9'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-243' size-in-bits='2048' hash='daafbb0707a411e1' id='type-id-452'>
+    <array-type-def dimensions='1' type-id='type-id-243' size-in-bits='2048' hash='daafbb0707a411e1' id='type-id-453'>
       <subrange length='64' lower-bound='0' upper-bound='63' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6066f2053fe47763' id='type-id-11'/>
     </array-type-def>
-    <pointer-type-def type-id='type-id-244' size-in-bits='64' hash='b7047e26270e9fce' id='type-id-264'/>
-    <pointer-type-def type-id='type-id-229' size-in-bits='64' hash='23767c3e41bf1927' id='type-id-313'/>
-    <array-type-def dimensions='2' type-id='type-id-229' size-in-bits='256' hash='e39c015e3bc14409' id='type-id-462'>
+    <pointer-type-def type-id='type-id-244' size-in-bits='64' hash='b7047e26270e9fce' id='type-id-266'/>
+    <pointer-type-def type-id='type-id-229' size-in-bits='64' hash='23767c3e41bf1927' id='type-id-314'/>
+    <array-type-def dimensions='2' type-id='type-id-229' size-in-bits='256' hash='e39c015e3bc14409' id='type-id-463'>
       <subrange length='16' lower-bound='0' upper-bound='15' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6c35b1e999eba398' id='type-id-4'/>
       <subrange length='2' lower-bound='0' upper-bound='1' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='95f31efc53154467' id='type-id-6'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-229' size-in-bits='24' hash='2d75f8b71e609a81' id='type-id-395'>
+    <array-type-def dimensions='1' type-id='type-id-229' size-in-bits='24' hash='2d75f8b71e609a81' id='type-id-396'>
       <subrange length='3' lower-bound='0' upper-bound='2' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='30d99d19f0f4b2ea' id='type-id-7'/>
     </array-type-def>
-    <array-type-def dimensions='1' type-id='type-id-229' size-in-bits='512' hash='3e73cae45c5041d9' id='type-id-465'>
+    <array-type-def dimensions='1' type-id='type-id-229' size-in-bits='512' hash='3e73cae45c5041d9' id='type-id-466'>
       <subrange length='64' lower-bound='0' upper-bound='63' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6066f2053fe47763' id='type-id-11'/>
     </array-type-def>
-    <array-type-def dimensions='2' type-id='type-id-229' size-in-bits='16384' hash='d8f24f7e2bebe311' id='type-id-467'>
+    <array-type-def dimensions='2' type-id='type-id-229' size-in-bits='16384' hash='d8f24f7e2bebe311' id='type-id-468'>
       <subrange length='8' lower-bound='0' upper-bound='7' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='6e87a8ff484907ad' id='type-id-13'/>
       <subrange length='256' lower-bound='0' upper-bound='255' type-id='type-id-1' size-in-bits='64' is-anonymous='yes' hash='5cb16198282e86c6' id='type-id-5'/>
     </array-type-def>
-    <union-decl name='omx_clap_note' visibility='default' size-in-bits='320' hash='cda4a5d0ddaf93a3' id='type-id-362'>
+    <union-decl name='omx_clap_note' visibility='default' size-in-bits='320' hash='cda4a5d0ddaf93a3' id='type-id-363'>
       <data-member access='public'>
         <var-decl name='header' type-id='type-id-107' visibility='default'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='note' type-id='type-id-482' visibility='default'/>
+        <var-decl name='note' type-id='type-id-483' visibility='default'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='midi' type-id='type-id-480' visibility='default'/>
+        <var-decl name='midi' type-id='type-id-481' visibility='default'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='expr' type-id='type-id-481' visibility='default'/>
+        <var-decl name='expr' type-id='type-id-482' visibility='default'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='sysex' type-id='type-id-479' visibility='default'/>
+        <var-decl name='sysex' type-id='type-id-480' visibility='default'/>
       </data-member>
       <data-member access='public'>
-        <var-decl name='midi2' type-id='type-id-478' visibility='default'/>
+        <var-decl name='midi2' type-id='type-id-479' visibility='default'/>
       </data-member>
     </union-decl>
-    <type-decl name='unsigned char' size-in-bits='8' hash='6ebac62b3366db68' id='type-id-476'/>
-    <type-decl name='unsigned int' size-in-bits='32' hash='e66b43f97c38e87a' id='type-id-254'/>
+    <type-decl name='unsigned char' size-in-bits='8' hash='6ebac62b3366db68' id='type-id-477'/>
+    <type-decl name='unsigned int' size-in-bits='32' hash='e66b43f97c38e87a' id='type-id-256'/>
     <type-decl name='unsigned long int' size-in-bits='64' hash='da551c1631705dfe' id='type-id-1'/>
-    <type-decl name='unsigned short int' size-in-bits='16' hash='e3133321c12b1361' id='type-id-472'/>
-    <type-decl name='void' hash='8dcbc64750c3d4e3' id='type-id-323'/>
-    <pointer-type-def type-id='type-id-322' size-in-bits='64' hash='2e067d90ce2d2a6e' id='type-id-409'/>
-    <pointer-type-def type-id='type-id-324' size-in-bits='64' hash='591e197eb8f9a238' id='type-id-416'/>
-    <pointer-type-def type-id='type-id-325' size-in-bits='64' hash='d4218fdfa0140d16' id='type-id-446'/>
-    <pointer-type-def type-id='type-id-326' size-in-bits='64' hash='d4fcdfc6b18fe46b' id='type-id-444'/>
-    <pointer-type-def type-id='type-id-327' size-in-bits='64' hash='3848dc30df819f67' id='type-id-432'/>
-    <pointer-type-def type-id='type-id-328' size-in-bits='64' hash='9c975091f7848e82' id='type-id-434'/>
-    <pointer-type-def type-id='type-id-330' size-in-bits='64' hash='6c9f3d550c152a5a' id='type-id-442'/>
-    <pointer-type-def type-id='type-id-345' size-in-bits='64' hash='9e2dde4e1827ba48' id='type-id-426'/>
-    <pointer-type-def type-id='type-id-323' hash='19e246ce75ee6a42' id='type-id-259'/>
-    <pointer-type-def type-id='type-id-346' size-in-bits='64' hash='8aacbeda95355df9' id='type-id-427'/>
-    <pointer-type-def type-id='type-id-347' size-in-bits='64' hash='39c027fda290099c' id='type-id-408'/>
-    <pointer-type-def type-id='type-id-348' size-in-bits='64' hash='7eb0e0fedee2349a' id='type-id-417'/>
+    <type-decl name='unsigned short int' size-in-bits='16' hash='e3133321c12b1361' id='type-id-473'/>
+    <type-decl name='void' hash='8dcbc64750c3d4e3' id='type-id-324'/>
+    <pointer-type-def type-id='type-id-323' size-in-bits='64' hash='2e067d90ce2d2a6e' id='type-id-410'/>
+    <pointer-type-def type-id='type-id-325' size-in-bits='64' hash='591e197eb8f9a238' id='type-id-417'/>
+    <pointer-type-def type-id='type-id-326' size-in-bits='64' hash='d4218fdfa0140d16' id='type-id-447'/>
+    <pointer-type-def type-id='type-id-327' size-in-bits='64' hash='d4fcdfc6b18fe46b' id='type-id-445'/>
+    <pointer-type-def type-id='type-id-328' size-in-bits='64' hash='3848dc30df819f67' id='type-id-433'/>
+    <pointer-type-def type-id='type-id-329' size-in-bits='64' hash='9c975091f7848e82' id='type-id-435'/>
+    <pointer-type-def type-id='type-id-331' size-in-bits='64' hash='6c9f3d550c152a5a' id='type-id-443'/>
+    <pointer-type-def type-id='type-id-346' size-in-bits='64' hash='9e2dde4e1827ba48' id='type-id-427'/>
+    <pointer-type-def type-id='type-id-324' hash='19e246ce75ee6a42' id='type-id-261'/>
+    <pointer-type-def type-id='type-id-347' size-in-bits='64' hash='8aacbeda95355df9' id='type-id-428'/>
+    <pointer-type-def type-id='type-id-348' size-in-bits='64' hash='39c027fda290099c' id='type-id-409'/>
+    <pointer-type-def type-id='type-id-349' size-in-bits='64' hash='7eb0e0fedee2349a' id='type-id-418'/>
   </abi-types>
-  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/home/pau/Devel/audio/wt/aux-input-node' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/home/pau/Devel/audio/wt/bundle-object' language='LANG_C99'>
       <function-decl name='omx_clap_host_log_take' type-id='type-id-246' mangled-name='omx_clap_host_log_take' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_log_take@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_param_scale_name' type-id='type-id-248' mangled-name='omx_clap_param_scale_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_scale_name@@OMX_CLAP_CORE_0.10'/>
       <function-decl name='omx_clap_param_unit_name' type-id='type-id-248' mangled-name='omx_clap_param_unit_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_unit_name@@OMX_CLAP_CORE_0.10'/>
       <function-decl name='omx_clap_host_binary_descriptor' type-id='type-id-249' mangled-name='omx_clap_host_binary_descriptor' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_descriptor@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_activate' type-id='type-id-286' mangled-name='omx_clap_host_activate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_activate@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_bind_aux_input' type-id='type-id-294' mangled-name='omx_clap_host_bind_aux_input' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_input@@OMX_CLAP_CORE_0.13'/>
-      <function-decl name='omx_clap_host_bind_aux_output' type-id='type-id-294' mangled-name='omx_clap_host_bind_aux_output' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_output@@OMX_CLAP_CORE_0.13'/>
-      <function-decl name='omx_clap_host_bypassed' type-id='type-id-261' mangled-name='omx_clap_host_bypassed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_configure' type-id='type-id-260' mangled-name='omx_clap_host_configure' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_configure@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_create' type-id='type-id-269' mangled-name='omx_clap_host_create' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_create@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_entry_presets' type-id='type-id-257' mangled-name='omx_clap_host_entry_presets' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_entry_presets@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_has_feature' type-id='type-id-255' mangled-name='omx_clap_host_has_feature' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_has_feature@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_meter_info' type-id='type-id-265' mangled-name='omx_clap_host_meter_info' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_meter_info@@OMX_CLAP_CORE_0.7'/>
-      <function-decl name='omx_clap_host_note_name' type-id='type-id-292' mangled-name='omx_clap_host_note_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_name@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_note_names_changed' type-id='type-id-272' mangled-name='omx_clap_host_note_names_changed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_names_changed@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_open' type-id='type-id-250' mangled-name='omx_clap_host_open' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_open_entry' type-id='type-id-256' mangled-name='omx_clap_host_open_entry' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_entry@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_open_timed' type-id='type-id-253' mangled-name='omx_clap_host_open_timed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_timed@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_compare' type-id='type-id-276' mangled-name='omx_clap_host_param_compare' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_compare@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_contract' type-id='type-id-291' mangled-name='omx_clap_host_param_contract' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_contract@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_flush' type-id='type-id-272' mangled-name='omx_clap_host_param_flush' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_flush@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_gesture' type-id='type-id-278' mangled-name='omx_clap_host_param_gesture' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_gesture@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_is_row' type-id='type-id-273' mangled-name='omx_clap_host_param_is_row' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_is_row@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_meaning' type-id='type-id-279' mangled-name='omx_clap_host_param_meaning' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_meaning@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_modulate' type-id='type-id-275' mangled-name='omx_clap_host_param_modulate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_modulate@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_parse' type-id='type-id-274' mangled-name='omx_clap_host_param_parse' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_parse@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_read' type-id='type-id-276' mangled-name='omx_clap_host_param_read' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_read@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_readable' type-id='type-id-273' mangled-name='omx_clap_host_param_readable' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_readable@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_roster' type-id='type-id-289' mangled-name='omx_clap_host_param_roster' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_roster@@OMX_CLAP_CORE_0.3'/>
-      <function-decl name='omx_clap_host_param_row' type-id='type-id-295' mangled-name='omx_clap_host_param_row' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_row_of' type-id='type-id-281' mangled-name='omx_clap_host_param_row_of' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row_of@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_text' type-id='type-id-277' mangled-name='omx_clap_host_param_text' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_text@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_value' type-id='type-id-276' mangled-name='omx_clap_host_param_value' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_value@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_write' type-id='type-id-275' mangled-name='omx_clap_host_param_write' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_write@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_ports_rescanned' type-id='type-id-272' mangled-name='omx_clap_host_ports_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_ports_rescanned@@OMX_CLAP_CORE_0.13'/>
-      <function-decl name='omx_clap_host_preset_load' type-id='type-id-283' mangled-name='omx_clap_host_preset_load' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_preset_load_key' type-id='type-id-293' mangled-name='omx_clap_host_preset_load_key' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load_key@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_presets' type-id='type-id-271' mangled-name='omx_clap_host_presets' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_presets@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_remote_controls_changed' type-id='type-id-272' mangled-name='omx_clap_host_remote_controls_changed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_remote_controls_changed@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_request_layout' type-id='type-id-285' mangled-name='omx_clap_host_request_layout' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_request_layout@@OMX_CLAP_CORE_0.13'/>
-      <function-decl name='omx_clap_host_restart' type-id='type-id-272' mangled-name='omx_clap_host_restart' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_restart@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_set_rate' type-id='type-id-286' mangled-name='omx_clap_host_set_rate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_rate@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_set_render' type-id='type-id-287' mangled-name='omx_clap_host_set_render' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_render@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_state_load' type-id='type-id-300' mangled-name='omx_clap_host_state_load' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_load@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_state_load_context' type-id='type-id-296' mangled-name='omx_clap_host_state_load_context' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_load_context@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_state_save' type-id='type-id-301' mangled-name='omx_clap_host_state_save' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_save@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_state_save_context' type-id='type-id-297' mangled-name='omx_clap_host_state_save_context' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_save_context@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_tick' type-id='type-id-272' mangled-name='omx_clap_host_tick' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_tick@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_track_info_set' type-id='type-id-284' mangled-name='omx_clap_host_track_info_set' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_track_info_set@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_unpublish' type-id='type-id-299' mangled-name='omx_clap_host_unpublish' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_unpublish@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_voice_info' type-id='type-id-262' mangled-name='omx_clap_host_voice_info' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_voice_info@@OMX_CLAP_CORE_0.11'/>
-      <function-decl name='omx_clap_param_number' type-id='type-id-267' mangled-name='omx_clap_param_number' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_number@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_binary_open' type-id='type-id-308' mangled-name='omx_clap_host_binary_open' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_open@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_core_version' type-id='type-id-321' mangled-name='omx_clap_core_version' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_core_version@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_binaries_open' type-id='type-id-321' mangled-name='omx_clap_host_binaries_open' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binaries_open@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_binary_count' type-id='type-id-315' mangled-name='omx_clap_host_binary_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_count@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_latency' type-id='type-id-316' mangled-name='omx_clap_host_latency' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_latency@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_meter_count' type-id='type-id-316' mangled-name='omx_clap_host_meter_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_meter_count@@OMX_CLAP_CORE_0.7'/>
-      <function-decl name='omx_clap_host_meter_values' type-id='type-id-318' mangled-name='omx_clap_host_meter_values' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_meter_values@@OMX_CLAP_CORE_0.7'/>
-      <function-decl name='omx_clap_host_note_name_count' type-id='type-id-317' mangled-name='omx_clap_host_note_name_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_name_count@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_note_ports_rescanned' type-id='type-id-317' mangled-name='omx_clap_host_note_ports_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_ports_rescanned@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_param_count' type-id='type-id-317' mangled-name='omx_clap_host_param_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_count@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_events_dropped' type-id='type-id-316' mangled-name='omx_clap_host_param_events_dropped' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_events_dropped@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_param_events_take' type-id='type-id-319' mangled-name='omx_clap_host_param_events_take' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_events_take@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_params_rescanned' type-id='type-id-317' mangled-name='omx_clap_host_params_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_params_rescanned@@OMX_CLAP_CORE_0.10'/>
-      <function-decl name='omx_clap_host_tail' type-id='type-id-316' mangled-name='omx_clap_host_tail' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_tail@@OMX_CLAP_CORE_0.12'/>
-      <function-decl name='omx_clap_host_arm' type-id='type-id-334' mangled-name='omx_clap_host_arm' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_arm@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_binary_close' type-id='type-id-331' mangled-name='omx_clap_host_binary_close' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_close@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_bypass' type-id='type-id-338' mangled-name='omx_clap_host_bypass' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypass@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_close' type-id='type-id-334' mangled-name='omx_clap_host_close' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_close@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_config_default' type-id='type-id-332' mangled-name='omx_clap_host_config_default' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_config_default@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_deactivate' type-id='type-id-334' mangled-name='omx_clap_host_deactivate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_deactivate@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_param_deliver' type-id='type-id-334' mangled-name='omx_clap_host_param_deliver' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_deliver@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_publish' type-id='type-id-341' mangled-name='omx_clap_host_publish' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_publish_role' type-id='type-id-342' mangled-name='omx_clap_host_publish_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish_role@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_release_role' type-id='type-id-335' mangled-name='omx_clap_host_release_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_release_role@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_set_audio_role' type-id='type-id-342' mangled-name='omx_clap_host_set_audio_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_role@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_set_audio_thread' type-id='type-id-341' mangled-name='omx_clap_host_set_audio_thread' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_thread@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_set_tempo' type-id='type-id-336' mangled-name='omx_clap_host_set_tempo' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_tempo@@OMX_CLAP_CORE_0.3'/>
-      <function-decl name='omx_clap_host_set_transport' type-id='type-id-337' mangled-name='omx_clap_host_set_transport' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_transport@@OMX_CLAP_CORE_0.7'/>
-      <function-decl name='omx_clap_host_settle' type-id='type-id-344' mangled-name='omx_clap_host_settle' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_settle@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_stop' type-id='type-id-334' mangled-name='omx_clap_host_stop' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_stop@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_take_role' type-id='type-id-339' mangled-name='omx_clap_host_take_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_take_role@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_activate' type-id='type-id-287' mangled-name='omx_clap_host_activate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_activate@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_bind_aux_input' type-id='type-id-295' mangled-name='omx_clap_host_bind_aux_input' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_input@@OMX_CLAP_CORE_0.13'/>
+      <function-decl name='omx_clap_host_bind_aux_output' type-id='type-id-295' mangled-name='omx_clap_host_bind_aux_output' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_output@@OMX_CLAP_CORE_0.13'/>
+      <function-decl name='omx_clap_host_bundle_object' type-id='type-id-250' mangled-name='omx_clap_host_bundle_object' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bundle_object@@OMX_CLAP_CORE_0.13'/>
+      <function-decl name='omx_clap_host_bypassed' type-id='type-id-263' mangled-name='omx_clap_host_bypassed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_configure' type-id='type-id-262' mangled-name='omx_clap_host_configure' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_configure@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_create' type-id='type-id-270' mangled-name='omx_clap_host_create' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_create@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_entry_presets' type-id='type-id-259' mangled-name='omx_clap_host_entry_presets' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_entry_presets@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_has_feature' type-id='type-id-257' mangled-name='omx_clap_host_has_feature' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_has_feature@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_meter_info' type-id='type-id-267' mangled-name='omx_clap_host_meter_info' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_meter_info@@OMX_CLAP_CORE_0.7'/>
+      <function-decl name='omx_clap_host_note_name' type-id='type-id-293' mangled-name='omx_clap_host_note_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_name@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_note_names_changed' type-id='type-id-273' mangled-name='omx_clap_host_note_names_changed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_names_changed@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_open' type-id='type-id-253' mangled-name='omx_clap_host_open' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_open_entry' type-id='type-id-258' mangled-name='omx_clap_host_open_entry' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_entry@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_open_timed' type-id='type-id-255' mangled-name='omx_clap_host_open_timed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_open_timed@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_compare' type-id='type-id-277' mangled-name='omx_clap_host_param_compare' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_compare@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_contract' type-id='type-id-292' mangled-name='omx_clap_host_param_contract' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_contract@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_flush' type-id='type-id-273' mangled-name='omx_clap_host_param_flush' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_flush@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_gesture' type-id='type-id-279' mangled-name='omx_clap_host_param_gesture' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_gesture@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_is_row' type-id='type-id-274' mangled-name='omx_clap_host_param_is_row' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_is_row@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_meaning' type-id='type-id-280' mangled-name='omx_clap_host_param_meaning' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_meaning@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_modulate' type-id='type-id-276' mangled-name='omx_clap_host_param_modulate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_modulate@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_parse' type-id='type-id-275' mangled-name='omx_clap_host_param_parse' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_parse@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_read' type-id='type-id-277' mangled-name='omx_clap_host_param_read' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_read@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_readable' type-id='type-id-274' mangled-name='omx_clap_host_param_readable' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_readable@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_roster' type-id='type-id-290' mangled-name='omx_clap_host_param_roster' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_roster@@OMX_CLAP_CORE_0.3'/>
+      <function-decl name='omx_clap_host_param_row' type-id='type-id-296' mangled-name='omx_clap_host_param_row' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_row_of' type-id='type-id-282' mangled-name='omx_clap_host_param_row_of' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_row_of@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_text' type-id='type-id-278' mangled-name='omx_clap_host_param_text' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_text@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_value' type-id='type-id-277' mangled-name='omx_clap_host_param_value' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_value@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_write' type-id='type-id-276' mangled-name='omx_clap_host_param_write' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_write@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_ports_rescanned' type-id='type-id-273' mangled-name='omx_clap_host_ports_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_ports_rescanned@@OMX_CLAP_CORE_0.13'/>
+      <function-decl name='omx_clap_host_preset_load' type-id='type-id-284' mangled-name='omx_clap_host_preset_load' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_preset_load_key' type-id='type-id-294' mangled-name='omx_clap_host_preset_load_key' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load_key@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_presets' type-id='type-id-272' mangled-name='omx_clap_host_presets' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_presets@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_remote_controls_changed' type-id='type-id-273' mangled-name='omx_clap_host_remote_controls_changed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_remote_controls_changed@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_request_layout' type-id='type-id-286' mangled-name='omx_clap_host_request_layout' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_request_layout@@OMX_CLAP_CORE_0.13'/>
+      <function-decl name='omx_clap_host_restart' type-id='type-id-273' mangled-name='omx_clap_host_restart' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_restart@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_set_rate' type-id='type-id-287' mangled-name='omx_clap_host_set_rate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_rate@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_set_render' type-id='type-id-288' mangled-name='omx_clap_host_set_render' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_render@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_state_load' type-id='type-id-301' mangled-name='omx_clap_host_state_load' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_load@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_state_load_context' type-id='type-id-297' mangled-name='omx_clap_host_state_load_context' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_load_context@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_state_save' type-id='type-id-302' mangled-name='omx_clap_host_state_save' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_save@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_state_save_context' type-id='type-id-298' mangled-name='omx_clap_host_state_save_context' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_state_save_context@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_tick' type-id='type-id-273' mangled-name='omx_clap_host_tick' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_tick@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_track_info_set' type-id='type-id-285' mangled-name='omx_clap_host_track_info_set' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_track_info_set@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_unpublish' type-id='type-id-300' mangled-name='omx_clap_host_unpublish' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_unpublish@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_voice_info' type-id='type-id-264' mangled-name='omx_clap_host_voice_info' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_voice_info@@OMX_CLAP_CORE_0.11'/>
+      <function-decl name='omx_clap_param_number' type-id='type-id-269' mangled-name='omx_clap_param_number' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_number@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_binary_open' type-id='type-id-309' mangled-name='omx_clap_host_binary_open' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_open@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_core_version' type-id='type-id-322' mangled-name='omx_clap_core_version' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_core_version@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_binaries_open' type-id='type-id-322' mangled-name='omx_clap_host_binaries_open' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binaries_open@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_binary_count' type-id='type-id-316' mangled-name='omx_clap_host_binary_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_count@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_latency' type-id='type-id-317' mangled-name='omx_clap_host_latency' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_latency@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_meter_count' type-id='type-id-317' mangled-name='omx_clap_host_meter_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_meter_count@@OMX_CLAP_CORE_0.7'/>
+      <function-decl name='omx_clap_host_meter_values' type-id='type-id-319' mangled-name='omx_clap_host_meter_values' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_meter_values@@OMX_CLAP_CORE_0.7'/>
+      <function-decl name='omx_clap_host_note_name_count' type-id='type-id-318' mangled-name='omx_clap_host_note_name_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_name_count@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_note_ports_rescanned' type-id='type-id-318' mangled-name='omx_clap_host_note_ports_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_note_ports_rescanned@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_param_count' type-id='type-id-318' mangled-name='omx_clap_host_param_count' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_count@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_events_dropped' type-id='type-id-317' mangled-name='omx_clap_host_param_events_dropped' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_events_dropped@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_param_events_take' type-id='type-id-320' mangled-name='omx_clap_host_param_events_take' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_events_take@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_params_rescanned' type-id='type-id-318' mangled-name='omx_clap_host_params_rescanned' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_params_rescanned@@OMX_CLAP_CORE_0.10'/>
+      <function-decl name='omx_clap_host_tail' type-id='type-id-317' mangled-name='omx_clap_host_tail' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_tail@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_arm' type-id='type-id-335' mangled-name='omx_clap_host_arm' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_arm@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_binary_close' type-id='type-id-332' mangled-name='omx_clap_host_binary_close' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_close@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_bypass' type-id='type-id-339' mangled-name='omx_clap_host_bypass' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypass@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_close' type-id='type-id-335' mangled-name='omx_clap_host_close' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_close@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_config_default' type-id='type-id-333' mangled-name='omx_clap_host_config_default' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_config_default@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_deactivate' type-id='type-id-335' mangled-name='omx_clap_host_deactivate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_deactivate@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_param_deliver' type-id='type-id-335' mangled-name='omx_clap_host_param_deliver' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_param_deliver@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_publish' type-id='type-id-342' mangled-name='omx_clap_host_publish' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_publish_role' type-id='type-id-343' mangled-name='omx_clap_host_publish_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_publish_role@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_release_role' type-id='type-id-336' mangled-name='omx_clap_host_release_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_release_role@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_set_audio_role' type-id='type-id-343' mangled-name='omx_clap_host_set_audio_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_role@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_set_audio_thread' type-id='type-id-342' mangled-name='omx_clap_host_set_audio_thread' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_audio_thread@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_set_tempo' type-id='type-id-337' mangled-name='omx_clap_host_set_tempo' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_tempo@@OMX_CLAP_CORE_0.3'/>
+      <function-decl name='omx_clap_host_set_transport' type-id='type-id-338' mangled-name='omx_clap_host_set_transport' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_transport@@OMX_CLAP_CORE_0.7'/>
+      <function-decl name='omx_clap_host_settle' type-id='type-id-345' mangled-name='omx_clap_host_settle' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_settle@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_stop' type-id='type-id-335' mangled-name='omx_clap_host_stop' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_stop@@OMX_CLAP_CORE_0'/>
+      <function-decl name='omx_clap_host_take_role' type-id='type-id-340' mangled-name='omx_clap_host_take_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_take_role@@OMX_CLAP_CORE_0'/>
   </abi-instr>
 </abi-corpus>
