@@ -268,8 +268,12 @@ class Host:
             elif time.time() - last_change >= quiet:
                 break
 
-    def dead(self):
-        return self.p.poll()
+    def dead(self, wait=0.0):
+        """the exit status, or None while it runs; a host whose socket closed is given `wait` seconds to end"""
+        try:
+            return self.p.wait(wait) if wait and SABOTAGE != 'slow-death-blind' else self.p.poll()
+        except subprocess.TimeoutExpired:
+            return None
 
     def kill(self):
         try:
@@ -316,7 +320,7 @@ def host_loop(a, env):
         reply, err = h.send(f"add clap:{r['file']}#{r['id']} {n}")
         row['seconds'] = f'{time.time() - t0:.2f}'
         if err:
-            rc = h.dead()
+            rc = h.dead(2.0 if err != 'timeout' else 0.0)
             row.update(answer='crash' if rc is not None else 'hang', code=f"at add: {status_of(rc) if rc is not None else err}")
             append_tsv(hostp, HOST_COLS, row)
             h.kill()
@@ -329,8 +333,7 @@ def host_loop(a, env):
             for ext in unoffered_of(h.log_since(offset), r['id']):
                 append_tsv(missp, MISSING_COLS, dict(file=r['file'], id=r['id'], extension=ext))
             _, err = h.send(f'remove {n}')
-            time.sleep(0.05)
-            rc = h.dead()
+            rc = h.dead(2.0 if err and err != 'timeout' else 0.05)
             if (err or rc is not None) and SABOTAGE != 'crash-blind':
                 row.update(answer='crash' if rc is not None else 'hang',
                            code=f"at remove: {status_of(rc) if rc is not None else err}")
@@ -532,6 +535,8 @@ while True:
                 os.kill(os.getpid(), signal.SIGSEGV)
             if 'hang' in pid:
                 time.sleep(60)
+            if 'slowdeath' in pid:
+                c.close(); time.sleep(0.5); os.kill(os.getpid(), signal.SIGABRT)
             if 'refuse' in pid:
                 c.sendall(b'resp -102 hosting.clap.note-input\0')
                 continue
@@ -606,7 +611,7 @@ def self_test():
             f.write(f'#!{sys.executable} -I\n' + FAKE_HOST)
         os.chmod(fake, 0o755)
         plist = [dict(file='/x/a.clap', id=i, scan='ok') for i in
-                 ('p.ok1', 'p.refuse', 'p.crash', 'p.ok2', 'p.bare', 'p.hang', 'p.ok3')]
+                 ('p.ok1', 'p.refuse', 'p.crash', 'p.ok2', 'p.bare', 'p.hang', 'p.ok3', 'p.slowdeath')]
         plist.append(dict(file='/x/b.clap', scan='crash', name='signal 11'))
         write_tsv(os.path.join(out, 'plugins.tsv'), PLUGIN_COLS, plist)
         a = argparse.Namespace(out=out, omx_clap_host=fake, batch=2, timeout=1.5, port=free_port(), sandbox=False)
@@ -618,6 +623,8 @@ def self_test():
         t('host: refused with its code', by.get('p.refuse', {}).get('code') == 'hosting.clap.note-input')
         t('host: a crash at add', by.get('p.crash', {}).get('answer') == 'crash' and 'signal 11' in by['p.crash'].get('code', ''))
         t('host: a hang at add', by.get('p.hang', {}).get('answer') == 'hang')
+        t('host: a host that closes its socket and dies after is a crash, not a hang',
+          by.get('p.slowdeath', {}).get('answer') == 'crash' and 'signal 6' in by['p.slowdeath'].get('code', ''))
         t('host: a fresh host after the crash and per batch of 2', len({r['batch'] for r in host}) >= 4)
         missing = read_tsv(os.path.join(out, 'missing.tsv'))
         t('host: the unoffered ids of a hosted plugin, each once',
@@ -642,14 +649,14 @@ def self_test():
         t('offered: the declared list and the configured ones',
           {'clap.log', 'clap.params', 'clap.tail', 'clap.preset-load/2', 'clap.track-info/1'} <= offered and 'clap.gui' not in offered)
         c = classify(read_tsv(os.path.join(out, 'plugins.tsv')), host, missing, exts, offered)
-        t('classify: hosted 3 of 7, the failed file apart', c['hosted'] == 3 and c['total'] == 7 and len(c['failed_files']) == 1)
+        t('classify: hosted 3 of 8, the failed file apart', c['hosted'] == 3 and c['total'] == 8 and len(c['failed_files']) == 1)
         t('classify: refusals by code', dict((k, len(v)) for k, v in c['refusals'].items()) == {'hosting.clap.note-input': 1, 'resp -101': 1})
-        t('classify: crashes and hangs by file', len(c['broken'].get('/x/a.clap', [])) == 2)
+        t('classify: crashes and hangs by file', len(c['broken'].get('/x/a.clap', [])) == 3)
         e = {r['extension']: r for r in c['extensions']}
         t('classify: per extension, the plugins that asked (each plugin once)', e['clap.gui']['asked'] == 3 and e['clap.render']['asked'] == 3)
         t('classify: offered or not', e['clap.log']['offered'] == 'yes' and e['clap.gui']['offered'] == 'no')
         md = render(c)
-        t('report: hosted N of M', md.startswith('# CLAP coverage\n\nHosted 3 of 7 plugins scanned'))
+        t('report: hosted N of M', md.startswith('# CLAP coverage\n\nHosted 3 of 8 plugins scanned'))
         t('report: the refusal row with its examples', '| hosting.clap.note-input | 1 | p.refuse |' in md)
         t('report: the extension row', '| clap.gui | CLAP_EXT_GUI | no | 3 |' in md)
         t('report: the failed file', '| /x/b.clap | crash | signal 11 |' in md)
@@ -667,7 +674,7 @@ def self_test_with_sabotage():
     if SABOTAGE:
         return rc
     red = 0
-    sabotages = ['scan-fail-blind', 'refusal-blind', 'attribution-blind', 'dedupe-blind', 'crash-blind', 'offered-blind']
+    sabotages = ['scan-fail-blind', 'refusal-blind', 'attribution-blind', 'dedupe-blind', 'crash-blind', 'offered-blind', 'slow-death-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, '-I', os.path.abspath(__file__), '--self-test'],
                            env=dict(os.environ, CLAP_COVERAGE_SABOTAGE=s), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
