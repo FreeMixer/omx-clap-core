@@ -47,12 +47,16 @@ enum lv2_feature_kind
     // state:mapPath and state:freePath: the same, offered by the configuration's list alone (no root needed)
     F_MAP_PATH,
     F_FREE_PATH,
+    // uri-map and event, the event extension's two features (an ev:EventPort plugin requires them): the same, offered by
+    // the configuration's list alone
+    F_URI_MAP,
+    F_EVENT,
     LV2_INSTANCE_KINDS
 };
 
-/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, and the three state path
- * features */
-#define LV2_FEATURE_SLOTS               (OMX_LV2_FEATURE_SLOTS + 3)
+/* the features an array may hold: the public kinds, the buf-size declarations beyond bounded, the three state path
+ * features, uri-map and event */
+#define LV2_FEATURE_SLOTS               (OMX_LV2_FEATURE_SLOTS + 5)
 
 /* the URI of a provider */
 extern const char *const lv2_feature_uri[LV2_FEATURE_KINDS];
@@ -73,9 +77,9 @@ uint32_t lv2_features_configured(void);
 int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t allowed, const char *uri);
 
 /* `features` and the NULL-terminated `ptrs` filled with what `o` offers among the kinds `allowed`, in the kinds' order,
- * the buf-size declarations after them, then state:makePath, state:mapPath and state:freePath where `allowed` holds
- * their kind and data[] carries them, kind k carrying data[k]: the count. `features` holds LV2_FEATURE_SLOTS
- * (OMX_LV2_FEATURE_SLOTS when `allowed` has none of the three), `ptrs` one more. */
+ * the buf-size declarations after them, then state:makePath, state:mapPath, state:freePath, uri-map and event where
+ * `allowed` holds their kind and data[] carries them, kind k carrying data[k]: the count. `features` holds
+ * LV2_FEATURE_SLOTS (OMX_LV2_FEATURE_SLOTS when `allowed` has none of the five), `ptrs` one more. */
 uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, const struct omx_lv2_feature_options *o,
                            uint32_t allowed, void *const data[LV2_INSTANCE_KINDS]);
 
