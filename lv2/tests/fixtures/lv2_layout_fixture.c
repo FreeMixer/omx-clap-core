@@ -49,6 +49,7 @@ enum twin
     FIVE_ONE,       // a 5.1 group each side, its members in scrambled port order: each output is the input of its designation
     AMBI_FIRST,     // a first-order ambisonic group each side, in 0-3 scrambled, out 4-7 in ACN order: out ACN k = in ACN k
     AMBI_MIXED,     // a mixed-order (BH2P1) ambisonic group each side, in 0-5, out 6-11: out_c = in_c
+    WIDE_SIXTY_FIVE,// in 0-64 one group, out 65: refused before it runs
     N_TWINS
 };
 
@@ -71,6 +72,7 @@ static const LV2_Descriptor descriptors[N_TWINS] =
     [BANDS] = TWIN("#bands"), [SIXTY_FOUR] = TWIN("#sixty-four"), [SIXTY_FIVE] = TWIN("#sixty-five"),
     [CV_SIXTY_FOUR] = TWIN("#cv-sixty-four"), [CV_SIXTY_FIVE] = TWIN("#cv-sixty-five"), [EMPTY_MAIN] = TWIN("#empty-main"),
     [FIVE_ONE] = TWIN("#five-one"), [AMBI_FIRST] = TWIN("#ambi-first"), [AMBI_MIXED] = TWIN("#ambi-mixed"),
+    [WIDE_SIXTY_FIVE] = TWIN("#wide-sixty-five"),
 };
 
 /* five-one: the output port of each designation, then the input port of the same one (L C R BL BR LFE) */
