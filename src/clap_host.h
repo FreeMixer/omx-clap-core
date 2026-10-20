@@ -560,7 +560,9 @@ OMX_CLAP_EXPORT int omx_clap_host_open_timed(const char *path, const char *id, u
  * role and restart the plugin after it; read latency.get() and publish it. The stage is left IDLE: publishing is
  * omx_clap_host_publish or omx_clap_host_arm. -1 with `why` (CLAP_HOST_CODE_WIDER_THAN_STRIP when a main port is wider
  * than the configuration's lane_channels, CLAP_HOST_CODE_HEADLESS_FAILED when activate refuses,
- * CLAP_HOST_CODE_OUTPUT_NON_FINITE when the warm-up did).
+ * CLAP_HOST_CODE_OUTPUT_NON_FINITE when the warm-up did). A carrier whose cycles keep running shuts them out of the
+ * instance across activate, deactivate and restart (omx-clap-host's cycle_gate.h): the active flag, the stage and the
+ * bounce change under them, and the flag is set before the stage is bound.
  */
 OMX_CLAP_EXPORT int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX]);
 
@@ -597,10 +599,12 @@ OMX_CLAP_EXPORT void omx_clap_host_stop(struct omx_clap_instance *in);
  * not activate it and returns OMX_CLAP_RESTART_RESCANNED with the instance inactive, its audio role kept and the rescan
  * reported (omx_clap_host_ports_rescanned); the caller reads the description again (omx_clap_host_request_layout, `n` 0
  * allowed) before omx_clap_host_activate and omx_clap_host_arm. 0 once restarted; -1 when it could not (the instance
- * not active, or the activate refused), a failure. */
+ * not active, or the activate refused), a failure. The carrier shuts its cycles out of the instance across the call, as
+ * for omx_clap_host_activate. */
 OMX_CLAP_EXPORT int omx_clap_host_restart(struct omx_clap_instance *in);
 
-/** Deactivate a STOPPED (or never published) instance and release the bounce and the ring. */
+/** Deactivate a STOPPED (or never published) instance and release the bounce and the ring; the carrier's cycles are shut
+ * out of the instance across the call, as for omx_clap_host_activate. */
 OMX_CLAP_EXPORT void omx_clap_host_deactivate(struct omx_clap_instance *in);
 
 /** A rate change, off the RT: the instance must be unpublished; deactivate, activate at the new rate, re-read the latency. */
