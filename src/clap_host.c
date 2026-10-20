@@ -755,7 +755,8 @@ static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *in
 /*
  * What a surround or an ambisonic port's channels are, from the plugin's extension, at open. A surround port's map is
  * clap.surround's get_channel_map: a count other than the port's channels, or an id past CLAP_SURROUND_TSR, refuses it
- * (channel-map-unknown); with no clap.surround the channels are mapped in index order, 0 to channels - 1. An ambisonic
+ * (channel-map-unknown); with no clap.surround the channels are mapped in index order, 0 to channels - 1, and a port of
+ * more than CLAP_SURROUND_TSR + 1 channels, whose index order would name ids the map cannot, is refused the same. An ambisonic
  * port must hold a full order, (order+1)² channels, or it is refused (port-too-wide); its ordering and normalisation
  * are clap.ambisonic's get_config, and without the extension, or when get_config fails, ACN and SN3D (AmbiX) with
  * ambisonic_assumed set: the core read a convention the plugin did not state. Returns the hosting code that refuses, or NULL.
@@ -768,6 +769,8 @@ static const char *read_layout(const struct omx_clap_instance *in, struct omx_cl
 
         if (!in->surround || !in->surround->get_channel_map)
         {
+            if (port->channels > CLAP_SURROUND_TSR + 1u)    // index order names ids up to channels - 1
+                return CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN;
             for (c = 0; c < port->channels; c++)
                 port->map[c] = (uint8_t)c;
             return NULL;
