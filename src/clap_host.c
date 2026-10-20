@@ -587,12 +587,16 @@ static const char *const g_extension_ids[] = CLAP_HOST_EXTENSIONS_INIT;
 
 /* The extensions a plugin asked for and the host did not offer, once per (instance, id): a fixed table shared by every
  * instance, so the public instance keeps its layout and nothing is allocated where get_extension runs, which may be any
- * thread. A slot is claimed by its owner, filled, then marked pending; the owner's tick says one pending id per log
- * line ("extension not offered: <id>"), and the instance's end frees its slots. An id past the table goes unsaid. */
+ * thread. The lookup and the claim of a slot are one step under a flag, so an id asked from two threads at once is
+ * claimed once; the audio role never waits on the flag, and an id it finds the flag busy for, or one past the table,
+ * is counted unsaid. The owner's tick says one pending id per log line ("extension not offered: <id>"), then the
+ * unsaid count ("<N> unoffered ids unsaid, table full or busy"), and the instance's end frees its slots. */
 #define UNOFFERED_SLOTS 256
 #define UNOFFERED_ID_BYTES 64
 
-enum { UNOFFERED_FREE, UNOFFERED_FILLING, UNOFFERED_PENDING, UNOFFERED_SAID };
+_Static_assert(ATOMIC_POINTER_LOCK_FREE == 2 && ATOMIC_INT_LOCK_FREE == 2, "the unoffered table's atomics are lock-free");
+
+enum { UNOFFERED_FREE, UNOFFERED_PENDING, UNOFFERED_SAID };
 
 static struct
 {
@@ -600,47 +604,64 @@ static struct
     _Atomic uint32_t state;
     char id[UNOFFERED_ID_BYTES];
 } g_unoffered[UNOFFERED_SLOTS];
+static atomic_flag g_unoffered_lock = ATOMIC_FLAG_INIT;
+static _Atomic uint32_t g_unoffered_unsaid;
 
 static void unoffered_note(struct omx_clap_instance *in, const char *id)
 {
-    size_t i, k;
-    struct omx_clap_instance *none;
+    size_t i, k, free_slot = UNOFFERED_SLOTS;
 
     if (!in)
         return;
-    for (i = 0; i < UNOFFERED_SLOTS; i++)
-        if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire) == in
-            && atomic_load_explicit(&g_unoffered[i].state, memory_order_acquire) >= UNOFFERED_PENDING
-            && strncmp(g_unoffered[i].id, id, UNOFFERED_ID_BYTES - 1) == 0)
-            return;
-    for (i = 0; i < UNOFFERED_SLOTS; i++)
-    {
-        none = NULL;
-        if (atomic_compare_exchange_strong_explicit(&g_unoffered[i].owner, &none, in, memory_order_acq_rel, memory_order_relaxed))
+    while (atomic_flag_test_and_set_explicit(&g_unoffered_lock, memory_order_acquire))
+        if (on_audio_role(in))
         {
-            for (k = 0; k < UNOFFERED_ID_BYTES - 1 && id[k]; k++)
-                g_unoffered[i].id[k] = id[k];
-            g_unoffered[i].id[k] = '\0';
-            atomic_store_explicit(&g_unoffered[i].state, UNOFFERED_PENDING, memory_order_release);
+            atomic_fetch_add_explicit(&g_unoffered_unsaid, 1u, memory_order_relaxed);
             return;
         }
+    for (i = 0; i < UNOFFERED_SLOTS; i++)
+    {
+        struct omx_clap_instance *owner = atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire);
+
+        if (owner == in && strncmp(g_unoffered[i].id, id, UNOFFERED_ID_BYTES - 1) == 0)
+            break;
+        if (!owner && free_slot == UNOFFERED_SLOTS)
+            free_slot = i;
     }
+    if (i == UNOFFERED_SLOTS && free_slot == UNOFFERED_SLOTS)
+        atomic_fetch_add_explicit(&g_unoffered_unsaid, 1u, memory_order_relaxed);
+    else if (i == UNOFFERED_SLOTS)
+    {
+        // the id and the state first, the owner last: a tick that sees its owner sees the id whole
+        for (k = 0; k < UNOFFERED_ID_BYTES - 1 && id[k]; k++)
+            g_unoffered[free_slot].id[k] = id[k];
+        g_unoffered[free_slot].id[k] = '\0';
+        atomic_store_explicit(&g_unoffered[free_slot].state, UNOFFERED_PENDING, memory_order_relaxed);
+        atomic_store_explicit(&g_unoffered[free_slot].owner, in, memory_order_release);
+    }
+    atomic_flag_clear_explicit(&g_unoffered_lock, memory_order_release);
 }
 
-/* the control thread's tick: one pending id into the log, when the log's one slot is free */
-static void unoffered_say(struct omx_clap_instance *in)
+/* the control thread's tick, the log's one slot free: one pending id of this instance, else the unsaid count; 1 when it
+ * said one */
+static int unoffered_say(struct omx_clap_instance *in)
 {
     size_t i;
+    uint32_t unsaid;
 
     for (i = 0; i < UNOFFERED_SLOTS; i++)
         if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire) == in
-            && atomic_load_explicit(&g_unoffered[i].state, memory_order_acquire) == UNOFFERED_PENDING)
+            && atomic_load_explicit(&g_unoffered[i].state, memory_order_relaxed) == UNOFFERED_PENDING)
         {
             snprintf(in->last_log, sizeof(in->last_log), "extension not offered: %s", g_unoffered[i].id);
             atomic_store_explicit(&g_unoffered[i].state, UNOFFERED_SAID, memory_order_relaxed);
-            atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
-            return;
+            return 1;
         }
+    unsaid = atomic_exchange_explicit(&g_unoffered_unsaid, 0u, memory_order_relaxed);
+    if (!unsaid)
+        return 0;
+    snprintf(in->last_log, sizeof(in->last_log), "%u unoffered ids unsaid, table full or busy", unsaid);
+    return 1;
 }
 
 /* the instance ends, its plugin destroyed: its slots are free for the next */
@@ -648,12 +669,15 @@ static void unoffered_forget(struct omx_clap_instance *in)
 {
     size_t i;
 
+    while (atomic_flag_test_and_set_explicit(&g_unoffered_lock, memory_order_acquire))
+        ;
     for (i = 0; i < UNOFFERED_SLOTS; i++)
-        if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire) == in)
+        if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_relaxed) == in)
         {
             atomic_store_explicit(&g_unoffered[i].state, UNOFFERED_FREE, memory_order_relaxed);
-            atomic_store_explicit(&g_unoffered[i].owner, NULL, memory_order_release);
+            atomic_store_explicit(&g_unoffered[i].owner, NULL, memory_order_relaxed);
         }
+    atomic_flag_clear_explicit(&g_unoffered_lock, memory_order_release);
 }
 
 /* only what the declared list offers, and the preset-load extension where the configuration adds it: a verdict
@@ -3199,13 +3223,15 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     fds_serve(in);
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         in->plugin->on_main_thread(in->plugin);
-    if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))
+    // an unoffered id has its turn ahead of the plugin's line, which waits in log_ring for the next free slot: the ids
+    // are each said once, so a plugin that logs every tick neither starves them nor is starved for long
+    if (!atomic_load_explicit(&in->log_fresh, memory_order_acquire) && unoffered_say(in))
+        atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
+    else if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))
     {
         snprintf(in->last_log, sizeof(in->last_log), "%s", in->log_ring);
         atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
     }
-    else if (!atomic_load_explicit(&in->log_fresh, memory_order_acquire))
-        unoffered_say(in);
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
     return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;
