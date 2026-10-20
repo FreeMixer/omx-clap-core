@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_CLAP_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the clap dimension: hosting.clap.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "clapExtensionsNotCovered": {
+        "code": "hosting.clap.extensions-not-covered"
+      },
+      "clapFormatNotHosted": {
+        "code": "hosting.clap.format-not-hosted"
+      },
+      "clapHeadlessFailed": {
+        "code": "hosting.clap.headless-failed"
+      },
+      "clapLatencyMismatch": {
+        "code": "hosting.clap.latency-mismatch"
+      },
+      "clapNotAudioEffect": {
+        "code": "hosting.clap.not-audio-effect",
+        "doc": "the plugin is not an audio effect"
+      },
+      "clapNoteInput": {
+        "code": "hosting.clap.note-input",
+        "doc": "the plugin declares a note input the configuration refuses"
+      },
+      "clapProcessError": {
+        "code": "hosting.clap.process-error"
+      },
+      "clapThreadViolation": {
+        "code": "hosting.clap.thread-violation"
+      },
+      "clapUnqualified": {
+        "code": "hosting.clap.unqualified"
+      }
+    }
+  }
+}

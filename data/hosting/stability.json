@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_STABILITY_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the stability dimension: hosting.stability.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "stabilityBelowFloor": {
+        "code": "hosting.stability.cycles-below-floor"
+      },
+      "stabilityCrashUnattributed": {
+        "code": "hosting.stability.crash-unattributed"
+      },
+      "stabilityCrashedAttributed": {
+        "code": "hosting.stability.crashed-attributed-plugin"
+      },
+      "stabilityCrashedLive": {
+        "code": "hosting.stability.crashed-live-on-this-rig",
+        "doc": "the plugin crashed live on this rig"
+      },
+      "stabilityLinksGuiToolkit": {
+        "code": "hosting.stability.links-gui-toolkit"
+      },
+      "stabilitySoakFailedAtRate": {
+        "code": "hosting.stability.soak-failed-at-rate"
+      },
+      "stabilitySoaked": {
+        "code": "hosting.stability.soaked"
+      },
+      "stabilitySpawnsThreads": {
+        "code": "hosting.stability.spawns-threads"
+      },
+      "stabilityUnmeasured": {
+        "code": "hosting.stability.unmeasured"
+      },
+      "stabilityUnsoaked": {
+        "code": "hosting.stability.unsoaked"
+      }
+    }
+  }
+}

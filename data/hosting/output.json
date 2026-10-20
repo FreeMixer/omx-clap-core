@@ -1,0 +1,17 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_OUTPUT_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the output dimension: hosting.output.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "outputNonFinite": {
+        "code": "hosting.output.non-finite",
+        "doc": "the plugin produced non-finite output"
+      }
+    }
+  }
+}

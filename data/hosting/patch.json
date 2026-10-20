@@ -1,0 +1,22 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_PATCH_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the patch dimension: hosting.patch.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "patchBusy": {
+        "code": "hosting.patch.busy"
+      },
+      "patchNotWritable": {
+        "code": "hosting.patch.not-writable"
+      },
+      "patchTooLarge": {
+        "code": "hosting.patch.too-large"
+      }
+    }
+  }
+}
