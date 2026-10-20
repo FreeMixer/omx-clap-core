@@ -1,0 +1,48 @@
+ModuleEntry                        ok
+IPluginFactory::getFactoryInfo     ok (0)
+factory vendor "LSP VST3", 388 classes
+  194 audio module classes, 194 controller classes
+class "Compressor Stereo"
+createInstance(IComponent)         ok (0)
+IComponent::initialize             ok (0)
+createInstance(IEditController)    ok (0)
+IEditController::initialize        ok (0)
+IConnectionPoint::connect comp     ok (0)
+IConnectionPoint::connect ctrl     ok (0)
+IComponent::getState               ok (0)
+  component state 517 bytes
+IEditController::setComponentState ok (0)
+  bus audio in 0: "stereo_in" channels 2 type main flags 0x1
+  bus audio out 0: "stereo_out" channels 2 type main flags 0x1
+  param   0 id  170483537 "Show pre-mix overlay" default 0.0000 ("off" ) steps 1 flags 0x1
+  param   1 id  648138769 "Input to Link mix" default 0.0000 ("-inf" dB) steps 0 flags 0x1
+  param   2 id 1030039043 "Link to Input mix" default 0.0000 ("-inf" dB) steps 0 flags 0x1
+  param   3 id    4482790 "Link to Sidechain mix" default 0.0000 ("-inf" dB) steps 0 flags 0x1
+  param   4 id  490312032 "Bypass" default 0.0000 ("off" ) steps 1 flags 0x10001
+  param   5 id  536350147 "Input gain" default 0.5716 ("0.00" dB) steps 0 flags 0x1
+  param   6 id  409613204 "Output gain" default 0.5716 ("0.00" dB) steps 0 flags 0x1
+  param   7 id  263138169 "Show mix overlay" default 0.0000 ("off" ) steps 1 flags 0x1
+  48 parameters (0 read-only, 1 bypass)
+query IAudioProcessor              ok (0)
+setBusArrangements(stereo)         0
+canProcessSampleSize(32)           ok (0)
+setupProcessing(48000, 512)        ok (0)
+IComponent::setState (restore)     ok (0)
+IComponent::getState (again)       ok (0)
+  state round trip: 517 bytes, identical
+activateBus(audio in 0)            ok (0)
+activateBus(audio out 0)           ok (0)
+IComponent::setActive(1)           ok (0)
+  latency 0 samples, tail 0 samples
+setProcessing(1)                   3
+process(silence)                   ok (0)
+  out    ch0 peak     -inf dBFS  rms     -inf dBFS
+  out    ch1 peak     -inf dBFS  rms     -inf dBFS
+  output silenceFlags 0x0
+process(noise)                     ok (8 blocks)
+  in     ch0 peak    -6.04 dBFS  rms   -10.84 dBFS
+  in     ch1 peak    -6.04 dBFS  rms   -10.98 dBFS
+  out    ch0 peak    -6.57 dBFS  rms   -11.37 dBFS
+  out    ch1 peak    -6.57 dBFS  rms   -11.51 dBFS
+ModuleExit                         ok
+host IMessage objects made 1, still alive 0; other createInstance requests refused 0
