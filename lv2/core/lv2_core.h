@@ -204,6 +204,7 @@ struct lv2_plugin
     uint32_t cv_in[LV2_CORE_CV_PORTS], cv_out[LV2_CORE_CV_PORTS];          // the plugin's port index of each
     char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
     int32_t latency_port;           // -1: none
+    float latency_def;              // where its buffer starts: lv2:default, else lv2:minimum, else 0, as every control's
     int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
     int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
     int32_t midi_out_port;          // the one MIDI output atom port, -1: none
@@ -363,6 +364,13 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *plugin);
  * `why`. */
 int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames,
                           char why[LV2_CORE_WHY_MAX]);
+
+/* Whether an activate at this rate and these block lengths may keep the instance as it runs: 1 when it is still LV2
+ * active (no lv2_instance_deactivate since its last activate), at the rate and the block lengths that activate told the
+ * plugin (a shorter block told through options:interface included), with no state load
+ * held for the next activate. The caller then skips lv2_instance_activate: no LV2 deactivate or activate, the worker left
+ * running, the plugin's history whole. 0 otherwise: lv2_instance_activate, which deactivates first. */
+int lv2_instance_keep(const struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames);
 
 /* Stop and join the worker, then LV2 deactivate. The instance is kept for the next activate. */
 void lv2_instance_deactivate(struct lv2_instance *in);
