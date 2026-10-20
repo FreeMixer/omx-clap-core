@@ -198,6 +198,33 @@ calls=$(send "param_get 5 2"); sleep 0.3
 [ "$(send "param_get 5 2")" != "$calls" ]; step $? "and it runs again: its process calls move past $calls"
 sleep 0.3
 [ "$(selected)" = 2 ]; step $? "and no relayout loop follows ($(selected))"
+run pw-link jack_meter_source:out_l effect_5:in_1 && run pw-link jack_meter_source:out_r effect_5:in_2
+step $? "the source's 0.5 into effect_5:in_1 and 0.25 into effect_5:in_2"
+sleep 0.3
+# the configs plugin writes each output half its input: a dry pass would read 0.5 and 0.25
+w=$(level effect_5:out_1); near "${w%% *}" 0.25 0.0001 && near "${w##* }" 0.25 0.0001; step $? "effect_5:out_1 is half in_1, the stereo config ran ($w)"
+w=$(level effect_5:out_2); near "${w%% *}" 0.125 0.0001; step $? "effect_5:out_2 is half in_2 ($w)"
+off_role() { grep -c -x -F "org.omx-clap-host.test.configs process off the audio role" "$runtime/fake.log"; }
+[ "$(off_role)" = 0 ]; step $? "after the relayout process() runs on the audio role (thread-check)"
+pw-metadata -n settings 0 clock.force-quantum 128 >/dev/null 2>&1; step $? "the quantum forced to 128"
+sleep 0.5
+pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1; step $? "and unforced"
+sleep 0.5
+w=$(level effect_5:out_1); near "${w%% *}" 0.25 0.0001; step $? "after the buffer size changed, effect_5:out_1 is still half in_1 ($w)"
+[ "$(off_role)" = 0 ]; step $? "and process() still runs on the audio role"
+# a rescan the plugin makes in the activate of a relayout is reported, and answered by one more relayout
+expect "param_set 5 0 103" "resp 0"
+for _ in $(seq 30); do [ "$(selected)" = 4 ] && break; sleep 0.1; done
+sleep 0.3
+[ "$(selected)" = 4 ]; step $? "a rescan made in the relayout's activate is answered too: two relayouts ($(selected))"
+# a plugin that rescans in every activate: the relayouts in a row that find its layout unchanged stop, said once
+expect "param_set 5 0 104" "resp 0"
+for _ in $(seq 50); do grep -q "relayouts in a row" "$runtime/host.log" && break; sleep 0.1; done
+grep -q "relayouts in a row" "$runtime/host.log"; step $? "relayouts in a row with the layout unchanged are capped, said on stderr"
+n=$(selected); sleep 0.5
+[ "$(selected)" = "$n" ] && [ "$(grep -c "relayouts in a row" "$runtime/host.log")" = 1 ]; step $? "and no more follow ($n)"
+w=$(level effect_5:out_1); near "${w%% *}" 0.25 0.0001; step $? "the plugin still runs: effect_5:out_1 half in_1 ($w)"
+r=$(send "param_get 5 1"); [ "${r%% *}" = resp ] && [ "$(echo "$r" | cut -d' ' -f2)" = 0 ]; step $? "the host still answers for effect_5 ($r)"
 expect "remove 5" "resp 0"
 kill "$source_pid" 2>/dev/null
 wait "$source_pid" 2>/dev/null
