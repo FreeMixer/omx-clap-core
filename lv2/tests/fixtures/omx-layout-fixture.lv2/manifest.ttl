@@ -25,6 +25,21 @@
     lv2:binary <omx-layout-fixture.so> ;
     rdfs:seeAlso <omx-layout-fixture.ttl> .
 
+<urn:openmixer:test:layout-fixture#four-group-four>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-two-two>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-side>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
 <urn:openmixer:test:layout-fixture#mono-stereo>
     a lv2:Plugin ;
     lv2:binary <omx-layout-fixture.so> ;
