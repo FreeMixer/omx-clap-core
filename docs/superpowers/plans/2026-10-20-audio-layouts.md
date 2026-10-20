@@ -34,8 +34,10 @@ configurable-audio-ports), lilv, JACK/PipeWire e2e under `unshare`, omx-contract
 - JACK names of the main pair stay `in_<k>`/`out_<k>`; aux ports are `aux_in_<p>_<k>`/`aux_out_<p>_<k>`, `p` and `k`
   1-based.
 - A field of a public struct is never edited by hand into a different offset without the new major: this lane IS the
-  new major (ABI 11, `OMX_CLAP_CORE_ABI_OLDEST` 11, `CORE_MAJOR` 1, `VERSION` 0.13.0, map node `OMX_CLAP_CORE_0.13`,
-  baseline `abi/libomx-clap-core.so.1.abi` + `.layout` recorded by `make abi-baseline`, the `.so.0` baselines removed).
+  new major (ABI 11, `OMX_CLAP_CORE_ABI_OLDEST` 11, `CORE_MAJOR` 1, baseline `abi/libomx-clap-core.so.1.abi` +
+  `.layout` recorded by `make abi-baseline`, the `.so.0` baselines removed). `VERSION` is never touched by a PR: the
+  release commit sets it (coordinator 2026-10-20); new exported symbols go into the map's latest existing node, no new
+  node.
 - Every refusal test names the code string, never the macro alone (`check_refused(path, id, "hosting.topology.…")`
   is fine through the macro; the string must appear in the test file once so a reworded macro goes red).
 - Real-time rules of the repository: nothing allocated, locked or logged inside `process()`/the RT cycle.
@@ -90,8 +92,8 @@ retires `hosting.topology.extra-inputs-fed-silence`.
 
 **Files:**
 - Modify: `src/clap_host.h:70-80` (ABI), `:114-128` (config), `:262-345` (instance), `src/clap_stage.h:178-200`,
-  `:320-335` (stage, aux_in), `:640-770` (bind functions), `Makefile:17` (`CORE_MAJOR`), `VERSION`,
-  `src/omx-clap-core.map` (new node `OMX_CLAP_CORE_0.13`), `abi/` (baselines), `tests/clap_core_test.c:81-83`.
+  `:320-335` (stage, aux_in), `:640-770` (bind functions), `Makefile:17` (`CORE_MAJOR`),
+  `src/omx-clap-core.map` (the latest node), `abi/` (baselines), `tests/clap_core_test.c:81-83`.
 
 **Interfaces:**
 - Produces, in `clap_host.h`:
@@ -488,7 +490,7 @@ Codes: none new (`channel-map-unknown` and `ambisonic-config` gain their `reques
 ### Task 5.1: the call
 
 **Files:** `src/clap_host.h`, `src/clap_host.c`, `src/omx-clap-core.map` (`omx_clap_host_request_layout` in the
-0.13 node), `tests/fake_plugin.c` (fakes `configs`: two `audio-ports-config`s, id 1 mono-in/stereo-out and id 2
+latest node), `tests/fake_plugin.c` (fakes `configs`: two `audio-ports-config`s, id 1 mono-in/stereo-out and id 2
 stereo/stereo, declared layout id 1; `configurable`: `configurable-audio-ports` accepting any main of 1 or 2 each
 side; `surround-refuses`: a surround 6-ch main whose `is_channel_mask_supported` answers false for every mask but
 its own), `tests/clap_host_test.c`.
