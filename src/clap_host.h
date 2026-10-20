@@ -858,8 +858,11 @@ OMX_CLAP_EXPORT void omx_clap_host_set_transport(struct omx_clap_instance *in, c
  * at a larger block, and omx_clap_host_activate (and so omx_clap_host_set_rate) refuses a larger block while it is
  * bound. The caller keeps them alive until it unbinds or closes the instance, and fills them on the audio role before
  * each block that runs the instance. The binding outlives a deactivate and activate. Returns 0, or -1 when `port` is not
- * an auxiliary input, `channels` is not the port's, `frames` is shorter than the active instance's largest block, or
- * the instance is running.
+ * an auxiliary input, `channels` is not the port's (an unbind, `bufs` NULL, names none), `frames` is shorter than the
+ * active instance's largest block, the instance is running, or the activation below refuses. On an active instance
+ * whose plugin has clap.audio-ports-activation, a port that changes between bound and unbound is set active or inactive
+ * at once: by set_active holding the audio role when the plugin can activate a port while processing, else by a
+ * deactivate and an activate (the stage is then IDLE, to publish again; a refused activate leaves it inactive).
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs,
                                                  uint32_t channels, uint32_t frames);
@@ -868,8 +871,8 @@ OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, u
  * Control thread, while the instance is not running: bind the buffers auxiliary output `port` writes, `bufs[c]` for its
  * channel c, `channels` of them (the port's own count), each `frames` long; the plugin writes them directly while they
  * are bound, and its scratch otherwise. `bufs` NULL unbinds it; a NULL `bufs[c]` leaves that channel on its scratch.
- * The same rules as omx_clap_host_bind_aux_input: the caller reads them on the audio role after each block that runs
- * the instance. Returns 0, or -1 when `port` is not an auxiliary output, `channels` is not the port's, `frames` is
+ * The same rules as omx_clap_host_bind_aux_input, the activation of a port included: the caller reads them on the
+ * audio role after each block that runs the instance. Returns 0, or -1 when `port` is not an auxiliary output, `channels` is not the port's, `frames` is
  * shorter than the active instance's largest block, or the instance is running.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs,

@@ -34,7 +34,8 @@
  *    adds 0.25 to its output, sounding on a silent input;
  *  - saves "plain" through clap.state and "preset", "duplicate" or "project" through clap.state-context, and records
  *    the context of a load;
- *  - records audio-ports-activation.set_active for its auxiliary output.
+ *  - records audio-ports-activation.set_active for its auxiliary output, and answers can_activate_while_processing with
+ *    `while_processing`; counts its activate calls.
  * Everything it records is in the struct fake_ext_stats returns, for a test that dlsyms it.
  */
 
@@ -71,6 +72,8 @@ typedef struct FAKE_EXT_STATS_T {
     uint32_t aux_out_set;       ///< set_active calls for the auxiliary output
     uint32_t aux_out_active;    ///< its last is_active
     uint32_t ring;              ///< process() calls left that add 0.25 to the output, as a voice or a tail still sounding
+    uint32_t while_processing;  ///< what can_activate_while_processing answers (the test sets it)
+    uint32_t activations;       ///< activate calls
 } fake_ext_stats_t;
 
 static fake_ext_stats_t g_stats;
@@ -140,6 +143,7 @@ static void plugin_destroy(const clap_plugin_t *plugin)
 
 static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t min_frames, uint32_t max_frames)
 {
+    g_stats.activations++;
     (void)plugin;
     (void)rate;
     (void)min_frames;
@@ -251,7 +255,7 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
     return true;
 }
 
-static bool activation_while_processing(const clap_plugin_t *plugin) { (void)plugin; return false; }
+static bool activation_while_processing(const clap_plugin_t *plugin) { (void)plugin; return g_stats.while_processing != 0; }
 
 static bool activation_set(const clap_plugin_t *plugin, bool is_input, uint32_t index, bool is_active, uint32_t sample_size)
 {
