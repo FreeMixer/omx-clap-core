@@ -99,27 +99,27 @@
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
       LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, NULL }
 
-/* the refusals, the verdict's spelling */
-#define LV2_CODE_NO_REALISATION         "hosting.no-realisation"
-#define LV2_CODE_MIDI_IN                "hosting.features.midi-in-fed-empty"
-#define LV2_CODE_ATOM_IN                "hosting.features.atom-in-unfed"    // a non-MIDI atom input no buffer here can feed
-#define LV2_CODE_CV_PORTS               "hosting.features.cv-ports"
-#define LV2_CODE_FEATURES_MISSING       "hosting.features.missing"
-#define LV2_CODE_NO_AUDIO_OUTPUT        "hosting.topology.no-audio-output"
-#define LV2_CODE_EXTRA_INPUTS           "hosting.topology.extra-inputs-fed-silence"
-#define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
-#define LV2_CODE_STATE_UNREADABLE       "hosting.state.unreadable"
-#define LV2_CODE_PRESET_NOT_FOUND       "hosting.preset.not-found"
-#define LV2_CODE_PATH_OUTSIDE           "hosting.state.path-outside"       // makePath: empty, absolute, or a `..` component
-#define LV2_CODE_PATH_SYMLINK           "hosting.state.path-symlink"       // makePath: a component is a symbolic link
-#define LV2_CODE_PATH_TOO_LONG          "hosting.state.path-too-long"      // makePath: PATH_MAX or more, or a long component
-#define LV2_CODE_PATH_ON_AUDIO          "hosting.state.path-on-audio"      // makePath: called on the audio role
-#define LV2_CODE_PATH_UNMAKEABLE        "hosting.state.path-unmakeable"    // makePath: a directory could not be made
-#define LV2_CODE_NOT_A_COPY             "hosting.state.not-a-copy"         // not a save's copy directory of the root
+/* the refusals, the verdict's spelling: each the code omx-contract declares, from its omx_vocabulary.h */
+#define LV2_CODE_NO_REALISATION         OMX_HOSTING_NO_REALISATION
+#define LV2_CODE_MIDI_IN                OMX_HOSTING_FEATURES_MIDI_IN_FED_EMPTY
+#define LV2_CODE_ATOM_IN                OMX_HOSTING_FEATURES_ATOM_IN_UNFED  // a non-MIDI atom input no buffer here can feed
+#define LV2_CODE_CV_PORTS               OMX_HOSTING_FEATURES_CV_PORTS
+#define LV2_CODE_FEATURES_MISSING       OMX_HOSTING_FEATURES_MISSING
+#define LV2_CODE_NO_AUDIO_OUTPUT        OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT
+#define LV2_CODE_EXTRA_INPUTS           OMX_HOSTING_TOPOLOGY_EXTRA_INPUTS_FED_SILENCE
+#define LV2_CODE_WIDER_THAN_STRIP       OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP
+#define LV2_CODE_STATE_UNREADABLE       OMX_HOSTING_STATE_UNREADABLE
+#define LV2_CODE_PRESET_NOT_FOUND       OMX_HOSTING_PRESET_NOT_FOUND
+#define LV2_CODE_PATH_OUTSIDE           OMX_HOSTING_STATE_PATH_OUTSIDE     // makePath: empty, absolute, or a `..` component
+#define LV2_CODE_PATH_SYMLINK           OMX_HOSTING_STATE_PATH_SYMLINK     // makePath: a component is a symbolic link
+#define LV2_CODE_PATH_TOO_LONG          OMX_HOSTING_STATE_PATH_TOO_LONG    // makePath: PATH_MAX or more, or a long component
+#define LV2_CODE_PATH_ON_AUDIO          OMX_HOSTING_STATE_PATH_ON_AUDIO    // makePath: called on the audio role
+#define LV2_CODE_PATH_UNMAKEABLE        OMX_HOSTING_STATE_PATH_UNMAKEABLE  // makePath: a directory could not be made
+#define LV2_CODE_NOT_A_COPY             OMX_HOSTING_STATE_NOT_A_COPY       // not a save's copy directory of the root
 
-#define LV2_CODE_PATCH_NOT_WRITABLE     "hosting.patch.not-writable"
-#define LV2_CODE_PATCH_TOO_LARGE        "hosting.patch.too-large"
-#define LV2_CODE_PATCH_BUSY             "hosting.patch.busy"
+#define LV2_CODE_PATCH_NOT_WRITABLE     OMX_HOSTING_PATCH_NOT_WRITABLE
+#define LV2_CODE_PATCH_TOO_LARGE        OMX_HOSTING_PATCH_TOO_LARGE
+#define LV2_CODE_PATCH_BUSY             OMX_HOSTING_PATCH_BUSY
 
 /* what a control port declares, as lv2_control.props reads it */
 #define LV2_PROP_INTEGER                (1u << 0)
