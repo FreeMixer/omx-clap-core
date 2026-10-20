@@ -131,7 +131,7 @@ for k in $(seq 0 $((n_fx - 1))); do
             echo "effect_$k $st" >>"$raw/inproc-stats.txt"
             run_stats="$(echo "$st" | field run_p50),$(echo "$st" | field run_p99),$(echo "$st" | field run_max)" ;;
     esac
-    echo "$path,$rate,$quantum,$rep,${names[$k]},${add_ms[$k]},${link_ms[$k]},$first_ms,$(echo "$prof" | field cycles),$(echo "$prof" | field dur_p50),$(echo "$prof" | field dur_p99),$(echo "$prof" | field dur_max),$(echo "$prof" | field sched_p50),$(echo "$prof" | field sched_p99),$(err_delta "effect_$k"),$silent,$run_stats" >>"$out/plugins.csv"
+    echo "$path,$rate,$quantum,$rep,${names[$k]},${add_ms[$k]},${link_ms[$k]},$first_ms,$(echo "$prof" | field cycles),$(echo "$prof" | field dur_p50),$(echo "$prof" | field dur_p99),$(echo "$prof" | field dur_max),$(echo "$prof" | field sched_p50),$(echo "$prof" | field sched_p99),$(err_delta "effect_$k"),$silent,$run_stats,$idle_hold" >>"$out/plugins.csv"
 done
 
 drv=$(grep "^driver " "$raw/profile.txt")

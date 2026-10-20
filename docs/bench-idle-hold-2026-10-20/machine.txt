@@ -1,0 +1,23 @@
+date: 2026-10-20T19:52:58Z
+host: msi 7.2.9-201.fc44.x86_64
+cpu: Intel(R) Core(TM) Ultra 9 275HX, 24 threads
+governor: performance
+load before: 0.76 1.00 1.22
+container: none
+pipewire: Linked with libpipewire 1.6.9
+mod-host: mod-host-0.10.6.f14a230-11.1.fmx.fc44.x86_64
+omx-clap-host: v0.12.0-296-g6f59f18-dirty (built from this tree)
+omx-plugins: omx-plugins-clap-0.12.0-1.fc44.x86_64 omx-plugins-lv2-0.12.0-1.fc44.x86_64 
+stock: lsp-plugins-clap-1.2.29-1.fc44.x86_64 lsp-plugins-lv2-1.2.29-1.fc44.x86_64 clap-dragonfly-reverb-3.2.10-3.fc44.x86_64 lv2-dragonfly-reverb-3.2.10-3.fc44.x86_64 lv2-x42-plugins-0.21.0-0.3.20250512.fc44.x86_64 
+rtprio limit: 70
+idle hold: 0
+cpu_dma_latency at rest: 4000 us
+cpuidle: intel_idle; states: POLL=0us C1_ACPI=1us C2_ACPI=127us C3_ACPI=1048us 
+plugin-hostd: plugin-hostd-0.6.0-1.fc44.x86_64; jalv: jalv-1.8.0-1.fc44.x86_64
+load after: 0.60 0.78 1.02
+jalv pass: the same harness, jalv alone, 3 reps x holds off/10/0, headless and with -s on Xvfb (jalv-ui), after the main run
+placement check: one adapter run per hold with the SCHED_FIFO threads' CPU sampled twice a second: P-core share off 65 %, 10 77 %, 0 61 %
+clock check: one adapter run per hold, uncore (intel_uncore_frequency package_00_die_00, sudo) and cpu0/3/8/16 scaling_cur_freq twice a second
+  hold off: uncore 3800 MHz; cpu0 4014 (1406..5200) cpu3 3821 (1850..5200) cpu8 4561 (1286..4611) cpu16 4542 (800..4620) MHz, medians
+  hold 10:  uncore 3800 MHz; cpu0 4355 (1820..5197) cpu3 4608 (800..5200) cpu8 4416 (1121..4606) cpu16 4303 (800..4611)
+  hold 0:   uncore 3800 MHz; cpu0 4875 (2187..5188) cpu3 4900 (2200..5108) cpu8 4501 (4243..4632) cpu16 4409 (4243..4574)
