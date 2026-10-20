@@ -324,10 +324,12 @@ for (512 messages, which only a stopped graph fills) is not queued at all
 and answers `-517`, plugin-hostd's code for a full note queue.
 
 A main port wider than stereo, a main pair of different widths, a second
-note input, a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects, or
-no audio input and no note input is refused at `add` with `resp -102` followed
+note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects
+is refused at `add` with `resp -102` followed
 by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
-`hosting.clap.note-input`, `hosting.topology.no-audio-input`. An extra audio
+`hosting.clap.note-input`. A plugin with no main input is a source, its output its
+own: an instrument when it has a note input, a generator (an oscillator, a noise
+source) when it has none; the client has `out_<k>` and no `in_<k>`. An extra audio
 input (a sidechain, one or two channels, up to eight) is admitted and fed
 silence: the command line has no verb that binds it, so the plugin reads
 zeros on it. The library's caller binds a buffer to it with

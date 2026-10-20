@@ -380,6 +380,20 @@ static int process(jack_nframes_t nframes, void *arg)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
     for (c = 0; c < effect->clap->channels; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
+    // a cycle while the instance is deactivated (buffer_size re-activating it; JACK stops this client's cycle for the
+    // callback, but this thread waits on nothing of it): the audio passes dry, a source's output silent, and the
+    // plugin is not run
+    if (!effect->clap->active)
+    {
+        for (c = 0; c < effect->clap->channels; c++)
+        {
+            if (effect->clap->in_channels == 0)
+                memset(outputs[c], 0, nframes * sizeof(float));
+            else if (outputs[c] != inputs[c < effect->clap->in_channels ? c : effect->clap->in_channels - 1])
+                memcpy(outputs[c], inputs[c < effect->clap->in_channels ? c : effect->clap->in_channels - 1], nframes * sizeof(float));
+        }
+        return 0;
+    }
 
     if (effect->gain_adjustment)
         runs = atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed);
@@ -445,17 +459,27 @@ static void publish_latency(effect_t *effect)
     jack_recompute_total_latencies(effect->jack_client);
 }
 
-/* jack stops the process cycle while this runs, so the control thread can take the audio thread's place */
+/* One effect is one JACK client, so a change of the buffer size calls this on as many client threads at once as there
+ * are effects. A re-activation is a main-thread call of the plugin (CLAP's own rule) and, for an LV2 plugin, a lilv call
+ * on the adapter's one world (the default state is loaded at activate), and neither bears two threads at a time: two
+ * effects re-activating together crashed in sord's node table (jack_lv2_e2e, the shrink). One lock serialises them. */
+static pthread_mutex_t g_reactivate = PTHREAD_MUTEX_INITIALIZER;
+
+/* jack stops this client's process cycle while this runs, so this thread can take the audio thread's place */
 static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
 
-    if (effect && effect->clap && effect->clap->active && nframes > effect->clap->max_block)
+    // any change, a shrink too: the adapter promised the plugin the activation's length (bufsz:fixedBlockLength) and
+    // refuses a cycle of another one, so an instance left at the old size would run no block at all
+    if (effect && effect->clap && effect->clap->active && nframes != effect->clap->max_block)
     {
+        pthread_mutex_lock(&g_reactivate);
         omx_clap_host_stop(effect->clap);
         omx_clap_host_deactivate(effect->clap);
         if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes, NULL) == 0)
             omx_clap_host_arm(effect->clap);
+        pthread_mutex_unlock(&g_reactivate);
     }
     return 0;
 }
@@ -1223,7 +1247,18 @@ static int configure_lv2_with(const char *root, char why[OMX_CLAP_LV2_WHY_MAX])
     config.latency_hold_ms = CLAP_HOST_LATENCY_HOLD_MS;
     config.lilv_soname = NULL;
     config.state_root = root;
-    return omx_clap_lv2_configure(&config, why);
+    if (omx_clap_lv2_configure(&config, why) != 0)
+        return -1;
+    // Under JACK every process() gets the buffer size and any change of it, up or down, re-activates (buffer_size
+    // above), so within one activation the block length is fixed: declared, and the adapter refuses a cycle of another
+    // length, counted apart from the plugin's own faults (#192).
+    {
+        struct omx_lv2_feature_options options;
+
+        omx_lv2_feature_options_init(&options);
+        options.block.declares |= OMX_LV2_BLOCK_FIXED;
+        return omx_clap_lv2_feature_options(&options, why);
+    }
 }
 
 /* the adapter with a state root, so state:makePath is offered; a root that cannot be made or written leaves it

@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.15.0
+Version:        0.12.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -141,28 +141,6 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
-* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.15.0-1
-- The LV2 adapter: the worker woken, options:interface, state:threadSafeRestore,
-  state:mapPath and state:freePath, units and log scale and steps through the
-  param contract, pprops:trigger reset, time:Position at every block while
-  playing, lv2:inPlaceBroken admitted.
-* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
-- The host offers clap.timer-support, clap.posix-fd-support, clap.thread-pool
-  and clap.tail; the tick serves timers and descriptors, request_exec runs
-  every task inside process(), the tail is read at activate and after it
-  changes.
-- A plugin that says it needs no processing sleeps on silent blocks until
-  sound, an event or its request_process wakes it.
-- omx_clap_host_set_render and the state-context save and load; unused
-  auxiliary ports are set inactive. Version node OMX_CLAP_CORE_0.14, ABI 11.
-* Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
-- Preset listing: omx_clap_host_presets and omx_clap_host_entry_presets read a
-  plugin file's preset-discovery factory; omx_clap_host_preset_load_key loads a
-  listed preset. The calls are in the version node OMX_CLAP_CORE_0.13.
-- The LV2 adapter's entry offers a preset-discovery factory for pset:Preset.
-- The host offers clap.event-registry.
-- omx-clap-scan lists a file's presets.
-- doc/reference.md tables every CLAP extension header with its status.
 * Mon Oct 19 2026 Pau Aliagas <linuxnow@gmail.com> - 0.12.0-1
 - The host offers a plugin clap.note-ports, clap.note-name and clap.voice-info:
   supported_dialects answers CLAP, MIDI, MIDI MPE and MIDI 2.0; a rescan of

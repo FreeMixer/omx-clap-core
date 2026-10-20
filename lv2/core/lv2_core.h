@@ -78,11 +78,11 @@
 
 /* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
  * may have: each gets a sequence buffer of its own, emptied before every block; one more is refused */
-#define LV2_CORE_ATOM_IN_PORTS          4
+#define LV2_CORE_ATOM_IN_PORTS          16
 
 /* the atom outputs that are neither MIDI nor the patch output (a notify port for the plugin's GUI) a plugin may have: each
  * gets a buffer of its own, offered every block and discarded after it; one more is refused */
-#define LV2_CORE_NOTIFY_PORTS           4
+#define LV2_CORE_NOTIFY_PORTS           16
 
 /* the longest string or path property value, with its NUL, the patch port carries either way */
 #define LV2_CORE_TEXT_MAX               4096u
@@ -104,7 +104,6 @@
 #define LV2_CODE_ATOM_IN                "hosting.features.atom-in-unfed"    // a non-MIDI atom input no buffer here can feed
 #define LV2_CODE_CV_PORTS               "hosting.features.cv-ports"
 #define LV2_CODE_FEATURES_MISSING       "hosting.features.missing"
-#define LV2_CODE_NO_AUDIO_INPUT         "hosting.topology.no-audio-input"
 #define LV2_CODE_NO_AUDIO_OUTPUT        "hosting.topology.no-audio-output"
 #define LV2_CODE_EXTRA_INPUTS           "hosting.topology.extra-inputs-fed-silence"
 #define LV2_CODE_WIDER_THAN_STRIP       "hosting.topology.wider-than-strip"
@@ -189,7 +188,7 @@ struct lv2_plugin
     char *bundle_path;              // the directory, with its trailing '/'
     uint32_t n_ports;
     uint32_t legs;                  // the main channels: 1 or 2, the output's and, for an effect, the input's
-    uint32_t in_legs;               // the main input's channels: legs, or 0 for an instrument (a MIDI input, no audio input)
+    uint32_t in_legs;               // the main input's channels: legs, or 0 for a source (an instrument or a generator: no audio input)
     uint32_t in_ports[2], out_ports[2];
     uint32_t n_side;                // the side chains: CLAP inputs after the main one, each of one or two legs
     uint32_t n_side_legs;           // the legs of all of them
@@ -209,6 +208,11 @@ struct lv2_plugin
     uint32_t n_controls;
     int32_t patch_in, patch_out;    // the atom ports carrying patch:Message, -1: none
     int patch_time;                 // the patch input also supports time:Position: the transport is forged into it
+    int passthrough;                // no audio output: hosted with the strip's audio passing through it untouched, the
+                                    // host's placement (a MIDI tool, or an analyser with audio inputs); legs is then
+                                    // the input count, 0 for a tool with no audio at all
+    int patch_in_shared;            // the patch input IS the MIDI input: one sequence both writers fill, in frame order
+    int patch_out_shared;           // the patch output IS the MIDI output: one sequence both readers read
     uint32_t atom_min;              // the largest rsz:minimumSize of those ports, 0: none
     struct lv2_patch *patches;      // the numeric patch:writable properties, in their URIs' order
     uint32_t n_patches;

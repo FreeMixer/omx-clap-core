@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # lv2_midi_echo.c's ports: one audio pair and one MIDI input and output, each an atom:Sequence that supports
-# midi:MidiEvent. The twin has two MIDI inputs, which the adapter refuses from this TTL before it opens the binary.
+# midi:MidiEvent. The #two-in twin has two MIDI inputs (the first is the note path's, the second fed empty) and
+# #two-out two MIDI outputs (the first is the note output's, the second drained).
 @prefix atom:  <http://lv2plug.in/ns/ext/atom#> .
 @prefix doap:  <http://usefulinc.com/ns/doap#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
@@ -41,6 +42,24 @@
         lv2:index 3 ; lv2:symbol "midi_b" ; lv2:name "MIDI B"
     ] .
 
+<urn:openmixer:test:midi-echo#two-out>
+    a lv2:Plugin ;
+    doap:name "openmixer midi echo (two MIDI outputs twin)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 2 ; lv2:symbol "midi_in" ; lv2:name "MIDI In"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 3 ; lv2:symbol "midi_out_a" ; lv2:name "MIDI Out A"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 4 ; lv2:symbol "midi_out_b" ; lv2:name "MIDI Out B"
+    ] .
+
 # the instrument: a MIDI input and a stereo output, no audio input
 <urn:openmixer:test:midi-echo#synth>
     a lv2:Plugin , lv2:InstrumentPlugin ;
@@ -54,4 +73,30 @@
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out_l" ; lv2:name "Out L"
     ] , [
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+# the MIDI source: a MIDI output and no input of any kind (an arpeggio or sequence generator's shape); hosted with the
+# strip's audio passing through it untouched, its notes on the note output
+<urn:openmixer:test:midi-echo#source>
+    a lv2:Plugin ;
+    doap:name "openmixer midi echo (MIDI source twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 0 ; lv2:symbol "midi_out" ; lv2:name "MIDI Out"
+    ] .
+
+# the MIDI tool: a MIDI input and a MIDI output, no audio port at all (gareus midifilter's shape); hosted with the
+# strip's audio passing through it untouched
+<urn:openmixer:test:midi-echo#tool>
+    a lv2:Plugin ;
+    doap:name "openmixer midi echo (MIDI tool twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 0 ; lv2:symbol "midi_in" ; lv2:name "MIDI In"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        lv2:index 1 ; lv2:symbol "midi_out" ; lv2:name "MIDI Out"
     ] .
