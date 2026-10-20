@@ -86,6 +86,20 @@ static int count(const char *out, const char *text)
     return n;
 }
 
+/* whether the entry of plugin org.omx-clap-host.test.<id> (up to the next plugin's) holds `text` */
+static int plugin_has(const char *out, const char *id, const char *text)
+{
+    char key[128];
+    const char *a, *b, *t;
+
+    snprintf(key, sizeof(key), "\"id\":\"org.omx-clap-host.test.%s\"", id);
+    if (!(a = strstr(out, key)))
+        return 0;
+    b = strstr(a + strlen(key), "\"id\":\"org.omx-clap-host.test.");
+    t = strstr(a, text);
+    return t && (!b || t < b);
+}
+
 static void fake_checks(const char *scan, const char *fake, char *out)
 {
     int status = run(out, "%s --json %s", scan, fake);
@@ -108,8 +122,13 @@ static void fake_checks(const char *scan, const char *fake, char *out)
                    "\"jack\":[\"aux_in_1_1\",\"aux_in_1_2\",\"aux_in_1_3\",\"aux_in_1_4\"]}"), "the aux-wide plugin's 4-channel aux input");
     CHECK(has(out, "{\"id\":1,\"name\":\"out 1\",\"role\":\"aux\",\"channels\":2,\"kind\":\"stereo\",\"jack\":[\"aux_out_1_1\",\"aux_out_1_2\"]}"),
           "the auxout plugin's stereo aux output, aux_out_1_1 and aux_out_1_2");
-    CHECK(count(out, "\"jack\":[\"aux_in_64_1\"]}") == 1 && !has(out, "aux_in_65_"),
-          "many-aux: its 64th aux input is aux_in_64_1, its 65th, past the limit, has no JACK port (%i)", count(out, "\"jack\":[\"aux_in_64_1\"]}"));
+    CHECK(plugin_has(out, "many-aux", "\"name\":\"in 65\"") && !plugin_has(out, "many-aux", "\"jack\"") && !has(out, "aux_in_65_"),
+          "many-aux, refused too-many-ports: none of its 65 aux inputs is named");
+    CHECK(plugin_has(out, "too-wide", "\"name\":\"in 0\"") && !plugin_has(out, "too-wide", "\"jack\""),
+          "too-wide, refused port-too-wide: its admissible main pair is not named either");
+    CHECK(plugin_has(out, "two-mains", "\"name\":\"out 0\"") && !plugin_has(out, "two-mains", "\"jack\""),
+          "two-mains, refused too-many-ports: no port named");
+    CHECK(plugin_has(out, "aux-max", "\"jack\":[\"aux_in_64_1\","), "aux-max, admitted: its 64th aux input is named");
     CHECK(has(out, "\"role\":\"aux\",\"channels\":65,\"kind\":\"unknown\"}"), "too-wide: a 65-channel port has no JACK port");
     CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,9,10],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}") == 1,
           "the surround plugin's 5.1 map by clap.surround, SL and SR as 9 and 10 (%i)",
@@ -117,7 +136,7 @@ static void fake_checks(const char *scan, const char *fake, char *out)
     CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}") == 1,
           "the plain surround plugin's map in index order, no clap.surround (%i)",
           count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}"));
-    CHECK(has(out, "\"kind\":\"surround\",\"map\":[0,1,2,3,9,25],\"jack\":["), "surround-bad's map, its id 25 as the plugin names it");
+    CHECK(has(out, "\"kind\":\"surround\",\"map\":[0,1,2,3,9,25]}"), "surround-bad's map, its id 25 as the plugin names it, and no JACK name: refused");
     CHECK(has(out, "{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4,\"kind\":\"ambisonic\",\"ordering\":\"acn\","
                    "\"normalization\":\"sn3d\",\"jack\":[\"in_1\",\"in_2\",\"in_3\",\"in_4\"]}"),
           "the ambisonic plugin's ordering and normalisation by clap.ambisonic");

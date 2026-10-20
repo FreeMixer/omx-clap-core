@@ -2196,7 +2196,7 @@ int effects_remote_pages(int effect_id)
 }
 
 /* a name a plugin reports as one quoted word: a byte below 0x20 a space, cut at the last whole UTF-8 character within
- * PHD_STRING_MAX bytes, '"' written \" */
+ * PHD_STRING_MAX bytes, '"' written \" and a backslash \\ */
 static void quoted(char *out, size_t size, const char *name)
 {
     char clean[PHD_STRING_MAX + 1];
@@ -2211,7 +2211,7 @@ static void quoted(char *out, size_t size, const char *name)
     out[o++] = '"';
     for (n = 0; clean[n] && o + 3 < size; n++)
     {
-        if (clean[n] == '"')
+        if (clean[n] == '"' || clean[n] == '\\')
             out[o++] = '\\';
         out[o++] = clean[n];
     }
