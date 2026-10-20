@@ -763,11 +763,11 @@ this table does not; a row for a header an older CLAP lacks is kept.
 
 | Header | Status | What, or why not |
 |---|---|---|
-| `ext/ambisonic.h` | supported | `clap.ambisonic/3` (and its draft id): read at open, `get_config` gives an ambisonic port's ordering and normalisation (ACN and SN3D without the extension); the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_config_supported` is not asked at open |
+| `ext/ambisonic.h` | supported | `clap.ambisonic/3` (and its draft id): read at open, `get_config` gives an ambisonic port's ordering and normalisation (ACN and SN3D without the extension); the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_config_supported` is asked only by `omx_clap_host_request_layout`, with the carrier's configuration (`false`: `hosting.topology.ambisonic-config`) |
 | `ext/audio-ports-activation.h` | supported | A full host above: auxiliary ports set inactive while unused |
-| `ext/audio-ports-config.h` | not supported | #92 |
+| `ext/audio-ports-config.h` | supported | `clap.audio-ports-config`: read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive: the first config whose main channels, main port types and port counts are the carrier's requests is selected and the description read again; omx-clap-host asks for its lane's width (`-c`, 2 by default) at add and after a reported ports rescan |
 | `ext/audio-ports.h` | supported | the port layout, Port layout above; the host's `rescan`, any flags, is reported once by `omx_clap_host_ports_rescanned`, never a restart (`is_rescan_flag_supported` answers false) |
-| `ext/configurable-audio-ports.h` | not supported | #92 |
+| `ext/configurable-audio-ports.h` | supported | `clap.configurable-audio-ports/1` (and its draft id): read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive, before `clap.audio-ports-config`: `can_apply_configuration`, then `apply_configuration`, and the description read again; a plugin that cannot offer the layout keeps its declared one (`OMX_CLAP_LAYOUT_DECLARED`) |
 | `ext/context-menu.h` | not planned | the console draws its own menus (ruled 2026-10-19, #95) |
 | `ext/event-registry.h` | supported | the host offers it; no event space beyond the core one |
 | `ext/gui.h` | not planned in the console | never in the console (GUI ruling 2026-10-19); native windows in the standalone omx-clap-host are #180 |
@@ -783,7 +783,7 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/render.h` | supported | A full host above |
 | `ext/state-context.h` | supported | A full host above |
 | `ext/state.h` | supported | `state_save`, `state_load` |
-| `ext/surround.h` | supported | `clap.surround/4` (and its draft id): read at open, `get_channel_map` gives a surround port's map (index order without the extension), refused `channel-map-unknown` for an unknown id or a wrong count; the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_channel_mask_supported` is not asked at open |
+| `ext/surround.h` | supported | `clap.surround/4` (and its draft id): read at open, `get_channel_map` gives a surround port's map (index order without the extension), refused `channel-map-unknown` for an unknown id or a wrong count; the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_channel_mask_supported` is asked only by `omx_clap_host_request_layout`, with the mask of the carrier's map (`false`: `hosting.topology.channel-map-unknown`) |
 | `ext/tail.h` | supported | A full host above, and the sleep after it |
 | `ext/thread-check.h` | supported | the host offers it |
 | `ext/thread-pool.h` | supported | A full host above: tasks run in turn on the audio thread |
