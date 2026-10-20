@@ -212,8 +212,8 @@ def classify(rec):
     if m['ch_mod'] != m['ch_omx']:
         return 'DIFFERS', 'output count', f"mod-host {m['ch_mod']} outputs recorded, omx-clap-host {m['ch_omx']}"
     if po and po['mod'][1] != po['omx'][1] and SABOTAGE != 'midi-blind':
-        return ('DIFFERS', 'MIDI input count', f"a MIDI input through {'mod-host' if po['mod'][1] else 'omx-clap-host'} only "
-                f"(mod-host {po['mod'][1]}, omx-clap-host {po['omx'][1]}): no notes sent to either; {audio}")
+        return ('DIFFERS', 'MIDI input count', f"MIDI inputs: mod-host {po['mod'][1]}, omx-clap-host {po['omx'][1]}; "
+                f"no notes sent to either; {audio}")
     if not m['self_mod'] or not m['self_omx']:
         if m.get('equal') and m.get('equal_second'):
             return ('NONDETERMINISTIC', 'its own randomness; the hosts agree instance by instance',
@@ -225,7 +225,17 @@ def classify(rec):
             return ('DIFFERS', f'nondeterministic in {who} only',
                     f"{other}'s two instances bit-identical, {who}'s differ by {max(m['self_mod_max'], m['self_omx_max']):.3g}; "
                     f"across hosts {m.get('max_diff', 0):.3g}")
-        # random in both: the hosts may differ by as much as the plugin differs from itself, and no more
+        # random in both: first, an instance that makes no sound while another does is no randomness (an instance
+        # that does not run, a port left unconnected): its RMS is 0 and the level check below would have nothing
+        rms = {k: m[k] for k in ('rms_mod', 'rms_mod2', 'rms_omx', 'rms_omx2') if k in m}
+        silent = [k for k, v in rms.items() if v == 0.0]
+        if silent and len(silent) < len(rms) and SABOTAGE != 'silent-instance-blind':
+            names = {'rms_mod': "mod-host's first", 'rms_mod2': "mod-host's second", 'rms_omx': "omx-clap-host's first",
+                     'rms_omx2': "omx-clap-host's second"}
+            return ('DIFFERS', 'an instance silent', ', '.join(names[k] for k in silent) + ' instance silent, the others not; '
+                    f"RMS mod-host {m.get('rms_mod', 0):.3g} / {m.get('rms_mod2', 0):.3g}, omx-clap-host "
+                    f"{m.get('rms_omx', 0):.3g} / {m.get('rms_omx2', 0):.3g}")
+        # then the hosts may differ by as much as the plugin differs from itself, and no more
         spread = max(m['self_mod_max'], m['self_omx_max'])
         cross = m.get('max_diff', 0.0)
         import math
@@ -689,9 +699,9 @@ def one_pass(e, rate, a, env, work, logdir, tag, arms_of):
             return rec
         mark('settled')
         rec['ports'] = {l.split()[1]: l.split(' ', 2)[2] for l in out if l.startswith('linked ')}
-        midi = {c: ' midi=1' in p for c, p in rec['ports'].items()}
+        midi = {c: int(dict(x.split('=', 1) for x in p.split() if '=' in x).get('midi', 0)) for c, p in rec['ports'].items()}
         if len(set(midi.values())) > 1:
-            rec['note'] = 'a MIDI input through ' + ' and '.join(sorted({NAMES['mod' if c in ('effect_0', 'effect_1') else 'omx'] for c, v in midi.items() if v})) + ' only: no notes sent'
+            rec['note'] = 'MIDI inputs: ' + ', '.join(f'{c} {n}' for c, n in sorted(midi.items())) + '; no notes sent'
         # the adapter holds a latency the plugin reports after its first activate for 250 ms of blocks, then asks the
         # host for a restart, which the host's control thread runs in wall time: the first warm runs past the hold, the
         # pause gives the restart its wall time with the graph stopped, the second warm runs the restart's crossfade
@@ -1303,6 +1313,9 @@ def self_test():
         return ((sig + (g.standard_normal(sig.shape) * 0.01).astype(np.float32)) * np.float32(gain)).astype(np.float32)
     c = cls(noisy(1), noisy(2), noisy(3), noisy(4))
     t('random in both hosts, across hosts within its own spread: NONDETERMINISTIC', c[0] == 'NONDETERMINISTIC' and 'within its spread' in c[1])
+    c = cls(noisy(1), noisy(2), z, noisy(4))
+    t("random in both hosts, omx-clap-host's first instance silent: DIFFERS, an instance silent (not its randomness)",
+      c[:2] == ('DIFFERS', 'an instance silent') and c[2].startswith("omx-clap-host's first instance silent"))
     c = cls(noisy(1), noisy(2), noisy(3, 2.0), noisy(4, 2.0))
     t("random in both hosts, omx-clap-host twice as loud: DIFFERS, beyond the plugin's own spread",
       c[:2] == ('DIFFERS', "beyond the plugin's own spread"))
@@ -1312,6 +1325,8 @@ def self_test():
         return r
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (2, 1), (2, 0)))
     t('a MIDI input through mod-host only, the audio bit-identical: DIFFERS, MIDI input count', c[:2] == ('DIFFERS', 'MIDI input count') and 'bit-identical' in c[2])
+    c = classify(with_ports(rec_of(sig, sig, sig, sig), (2, 2), (2, 1)))
+    t('two MIDI inputs against one: DIFFERS, MIDI input count, both numbers named', c[:2] == ('DIFFERS', 'MIDI input count') and 'mod-host 2, omx-clap-host 1' in c[2])
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (4, 0), (2, 0)))
     t('four outputs against two, the first two bit-identical: DIFFERS, output count', c[:2] == ('DIFFERS', 'output count') and 'mod-host 4' in c[2])
     small = (sig * np.float32(1e-4)).astype(np.float32)
@@ -1398,7 +1413,7 @@ def self_test_with_sabotage():
     if SABOTAGE:
         return rc
     red = 0
-    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind']
+    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, os.path.abspath(__file__), '--self-test'], env=dict(os.environ, LV2_PARITY_SABOTAGE=s),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
