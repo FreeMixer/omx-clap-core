@@ -438,6 +438,14 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance,
         if (g_json)
             fputc(']', out);
     }
+    // a tool with no audio port at all is hosted on the host's placement, the stereo pair named for it (#270)
+    if (accepted && instance->passthrough)
+    {
+        if (g_json)
+            fputs(",\"passthrough\":\"host\"", out);
+        else
+            fputs("    passthrough: host (no audio port: the strip's stereo pair passes through untouched)\n", out);
+    }
     if (g_json)
         fputc('}', out);
 }
@@ -516,7 +524,7 @@ static void put_latency(FILE *out, const struct omx_clap_instance *instance)
 {
     uint32_t frames;
 
-    if (!instance->latency)
+    if (!instance->latency || instance->passthrough)   // a pass-through tool's latency applies to its notes: the host reads 0
         return;
     frames = instance->latency->get(instance->plugin);
     if (frames == 0)

@@ -289,10 +289,10 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
+test-fake: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
-	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap)
+	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap) $(abspath tests/fault-17.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
 # every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of omx-contract's omx_vocabulary.h, the one the build
@@ -484,7 +484,7 @@ bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_cla
 	for i in 1 2 3; do ./build/stage_bench_seq_cst; ./build/stage_bench_relaxed; done
 
 # the fault fixtures, one .clap per mode of tests/fault_clap.c: also what a consumer's tests load
-FAULT_MODES = 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+FAULT_MODES = 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
 FIXTURES = $(foreach m,$(FAULT_MODES),tests/fault-$(m).clap)
 fixtures: $(FIXTURES)
 
