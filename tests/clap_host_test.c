@@ -754,6 +754,29 @@ static void t_layout_description(const char *path)
               "the plugin wrote the caller's buffers, 0.125 and 0.0625 (%g, %g)", (double)aux[0][0], (double)aux[1][BLOCK - 1]);
         CHECK(omx_clap_host_bind_aux_output(in, 0, NULL, 2, 0) == -1, "an output binding while it runs is refused");
         omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // asleep, the plugin writes nothing: a bound auxiliary output reads silence, never its last block again
+    setenv("FAKE_PROCESS_SLEEP", "1", 1);
+    CHECK(open_ok(path, FAKE_AUXOUT, &in), "open %s answering SLEEP", FAKE_AUXOUT);
+    unsetenv("FAKE_PROCESS_SLEEP");
+    if (in)
+    {
+        CHECK(omx_clap_host_bind_aux_output(in, 0, auxbufs, 2, BLOCK) == 0 && activate(in), "bind its stereo auxiliary output and activate");
+        omx_clap_host_publish(in, pthread_self());
+        in->sleep.quiet_min_frames = 0;
+        memset(in_l, 0, sizeof(in_l));
+        memset(in_r, 0, sizeof(in_r));
+        omx_clap_host_run_io(in, inputs, outputs, BLOCK);
+        CHECK(aux[0][0] == 0.125f && in->sleep.asleep, "a silent block: the plugin wrote 0.125 and said SLEEP (%g, asleep %d)",
+              (double)aux[0][0], in->sleep.asleep);
+        omx_clap_host_run_io(in, inputs, outputs, BLOCK);
+        CHECK(in->sleep.asleep && atomic_load(&in->sleep.skipped) >= 1 && aux[0][0] == 0.0f && aux[0][BLOCK - 1] == 0.0f
+                  && aux[1][0] == 0.0f && aux[1][BLOCK - 1] == 0.0f,
+              "the next block it sleeps through: its auxiliary output reads silence (%g, %llu skipped)", (double)aux[0][0],
+              (unsigned long long)atomic_load(&in->sleep.skipped));
+        omx_clap_host_close(in);
     }
     CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the descriptions");
 }
