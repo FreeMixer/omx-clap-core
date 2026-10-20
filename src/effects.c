@@ -680,8 +680,8 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
                                   CLAP_HOST_ROLE_POLL_US, &blocks, &effect->pending, why))
     {
     case OMX_CYCLE_GATE_REBLOCK_FAILED:
-        fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; it passes dry until the next change of "
-                "the buffer size\n", effect->instance, nframes);
+        fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; it passes dry until %s\n", effect->instance,
+                nframes, effect->pending.set ? "the next change of the buffer size" : "it is added again");
         break;
     case OMX_CYCLE_GATE_REFUSED:
         fprintf(stderr, "%s: it does not activate again at %u frames: %s; it passes dry\n", effect->clap->desc->id, nframes, why);
