@@ -32,7 +32,7 @@ if [ -z "$header" ]; then
   header=$(printf '#include <omxcontract/omx_vocabulary.h>\n' | ${CC:-cc} ${CFLAGS:-} -E -x c - 2>/dev/null \
     | sed -n 's/^# [0-9]* "\(.*omxcontract\/omx_vocabulary\.h\)".*/\1/p' | head -1) || true
 fi
-[ -n "$header" ] && [ -f "$header" ] || { echo "hosting-codes-check: no omxcontract/omx_vocabulary.h (omx-contract-devel 2.18.0 or later)" >&2; exit 2; }
+[ -n "$header" ] && [ -f "$header" ] || { echo "hosting-codes-check: no omxcontract/omx_vocabulary.h (omx-contract-devel 2.19.0 or later)" >&2; exit 2; }
 
 # the check proper, over the sources under $1: one line per failure on stderr, the count of codes used on stdout
 check() {
