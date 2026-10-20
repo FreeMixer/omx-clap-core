@@ -71,6 +71,7 @@ for s in probe run classify report; do
         run) "${py[@]}" run --out "$out" --rates "$rates" --omx-clap-host "${OMX_CLAP_HOST:-$root/omx-clap-host}" \
                  --mod-host "${MOD_HOST:-/usr/bin/mod-host}" "${extra[@]}" || exit $? ;;
         classify) "${py[@]}" classify --out "$out" || exit $? ;;
-        report) "${py[@]}" report --out "$out" --full-count "$(full_count)" || exit $? ;;
+        report) cov=(); [ "${source_args[0]}" = --coverage ] && cov=("${source_args[@]}")
+                "${py[@]}" report --out "$out" --full-count "$(full_count)" "${cov[@]}" || exit $? ;;
     esac
 done
