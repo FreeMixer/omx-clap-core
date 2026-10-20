@@ -698,7 +698,9 @@ instance that is initialised, read and destroyed without being activated:
   surround ids `clap.surround` names (0 to n-1 in index order without the
   extension), and an ambisonic port its ordering (`acn`, `fuma`) and
   normalisation (`sn3d`, `n3d`, `maxn`, `sn2d`, `n2d`) from `clap.ambisonic`
-  (`acn` and `sn3d` without it, `"assumed":true` and `assumed` then); then
+  (`acn` and `sn3d` without it or when its `get_config` answers false,
+  `"assumed":true` and `assumed` then, as the description's `ambisonic_assumed`
+  says for an admitted plugin); then
   the JACK ports omx-clap-host registers for the port (`in_<k>`, `out_<k>`,
   `aux_in_<p>_<k>`, `aux_out_<p>_<k>`; `"jack"` in the JSON, after the name in
   the text form), and none for any port of a plugin the core refuses (the scan
