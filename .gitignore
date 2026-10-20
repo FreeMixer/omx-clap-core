@@ -7,6 +7,7 @@ omx-clap-scan
 tests/fake.clap
 tests/jack_latency_probe
 tests/jack_identity
+tests/jack_parity
 tests/fake_synth.clap
 tests/fake_mover.clap
 tests/jack_synth_probe
