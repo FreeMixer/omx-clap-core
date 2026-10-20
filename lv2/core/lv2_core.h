@@ -235,11 +235,14 @@ struct lv2_plugin
     int32_t latency_port;           // -1: none
     float latency_def;              // where its buffer starts: lv2:default, else lv2:minimum, else 0, as every control's
     int32_t midi_in_port;           // the one MIDI input port (an atom:Sequence or an ev:EventPort supporting
-                                    // midi:MidiEvent), -1: none
+                                    // midi:MidiEvent, or an llext:MidiPort), -1: none
     int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
     int32_t midi_out_port;          // the one MIDI output port, -1: none
     int midi_in_event;              // the MIDI input is an ev:EventPort: an LV2_Event_Buffer, not an atom sequence
     int midi_out_event;             // the MIDI output is an ev:EventPort
+    int midi_in_ll;                 // the MIDI input is an llext:MidiPort (ll-plugins' MIDI port, zynadd's): an LV2_MIDI
+                                    // (lv2_ll_midi.h), each event a double timestamp, a size_t size and the bytes
+    int midi_out_ll;                // the MIDI output is an llext:MidiPort
     uint32_t n_event_in;            // the ev:EventPort MIDI inputs after the MIDI input: fed an empty buffer
     uint32_t event_in[LV2_CORE_ATOM_IN_PORTS];
     uint32_t n_event_out;           // the ev:EventPort MIDI outputs after the MIDI output: offered a buffer, never read
