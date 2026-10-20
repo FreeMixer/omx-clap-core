@@ -1466,7 +1466,9 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     }
     for (k = 0; k < p->n_controls; k++)
     {
-        in->controls[k] = p->controls[k].kind == LV2_CONTROL_OUTPUT ? 0.0f : p->controls[k].def;
+        // an output as well: a plugin may read its own output port before it writes it, and mod-host starts each control
+        // port at lv2:default, else lv2:minimum (calf Equalizer30Band reads its gain10, -1 there, x its 18 dB scale)
+        in->controls[k] = p->controls[k].def;
         atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
     }
     in->schedule.handle = in;
