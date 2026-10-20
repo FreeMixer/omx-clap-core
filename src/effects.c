@@ -403,6 +403,9 @@ static void process_gated(effect_t *effect, jack_nframes_t nframes, int open)
             else if (outputs[c] != inputs[c < effect->in_ports ? c : effect->in_ports - 1])
                 memcpy(outputs[c], inputs[c < effect->in_ports ? c : effect->in_ports - 1], nframes * sizeof(float));
         }
+        // the note output says nothing this cycle: JACK hands the buffer back as the last cycle left it
+        if (effect->midi_out_port)
+            jack_midi_clear_buffer(jack_port_get_buffer(effect->midi_out_port, nframes));
         return;
     }
 
