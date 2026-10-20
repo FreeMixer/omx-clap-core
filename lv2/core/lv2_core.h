@@ -383,6 +383,32 @@ typedef int (*lv2_preset_fn)(void *ctx, const char *plugin_uri, const char *pres
  * the presets listed, or -1 for no bundle. */
 int lv2_bundle_presets(const struct lv2_bundle *bundle, lv2_preset_fn fn, void *ctx);
 
+/* The field dump (omx-clap-scan --fields): one predicate the dump asks a plugin and its ports about, by its absolute URI;
+ * by_label: a resource it names is passed by its label, not its URI (a port group) */
+struct lv2_field_ask
+{
+    const char *uri;
+    int by_label;
+};
+
+/* how a value is passed: a URI, a number literal in %.17g, any other text (a literal, a label, a scale point) */
+enum lv2_field_kind
+{
+    LV2_FIELD_URI,
+    LV2_FIELD_NUMBER,
+    LV2_FIELD_TEXT,
+};
+
+/* one value: port -1 for the plugin, else the port's lv2:index; ask the index into the asks */
+typedef void (*lv2_field_fn)(void *ctx, int32_t port, uint32_t ask, enum lv2_field_kind kind, const char *value);
+
+/* [main] Every value the plugin `uri` of `bundle` states for each ask, then every value each of its ports states, in
+ * index order: read from the world alone, no binary opened and nothing instantiated, whatever the adapter would refuse.
+ * A resource that is no URI (a blank node) is passed by its label (lv2:name, rdfs:label or foaf:name) and left out when
+ * it has none; lv2:scalePoint as "<value> <label>". 0, or -1 with `why` when the bundle holds no such plugin. */
+int lv2_bundle_fields(struct lv2_bundle *bundle, const char *uri, const struct lv2_field_ask *asks, uint32_t count,
+                      lv2_field_fn fn, void *ctx, char why[LV2_CORE_WHY_MAX]);
+
 /* Read the plugin `uri` of `bundle`: its ports and its required features, refused with the verdict's code before any
  * binary is opened, including, under strict feature options, a required feature the configured list and the options do
  * not offer between them. Takes a reference on the bundle. */
