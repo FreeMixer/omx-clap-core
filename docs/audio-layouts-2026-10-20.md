@@ -49,7 +49,7 @@ Non-goals
 - Carrying a main wider than two channels through the console's native lane or its strips: the console is two
   channels inside (`stereo-support.md`); its admission refuses such a plugin with `hosting.topology.wider-than-strip`
   as it does now. The bus widths of a future surround console are that console's design.
-- Binding auxiliary inputs from the console's UI (patching a side chain): a console feature, openmixer#2088. This note gives the library API and the JACK ports; what connects to them is the
+- Binding auxiliary inputs from the console's UI (patching a side chain): a console feature. This note gives the library API and the JACK ports; what connects to them is the
   carrier's.
 - Live layout changes: a plugin that rescans its ports while active is restarted into the new judgment, as today.
 - ev:EventPort (#52), control-only plugins and the ll-plugins bundles: their own lanes, in that order, after this.
@@ -128,7 +128,8 @@ Read, per side: `pg:mainInput`/`pg:mainOutput` on the plugin, `pg:group` on each
 2. **No main group, but groups**: the first group in port order is the main port; the rest and every ungrouped
    port are auxiliary as in 1. (lsp ab_tester_x2_mono: two mono groups, main a, aux b.)
 3. **No groups at all**: when the side has at most two ports, they are the main port (one mono, two stereo), as
-   today. When it has more than two and the other side has exactly as many, the side is one main port of that
+   today. When it has more than two and the other side's main is exactly as wide (its main group's members by
+   rule 1 or 2, else its ungrouped ports; side chains and aux groups never count), the side is one main port of that
    width (gareus surround meters, sisco, matrixmixer i8o8, essp, lufsmetermultichannel, patchbay N→N, mixtri,
    noise_generator_x4). Otherwise the first two ports are the main port and the rest are mono aux ports (xfade
    4→2: main a pair, aux b pair; sc3 3→2: main a pair, aux the side chain; bodeShifterCV 2→3: main pair out, aux
@@ -276,8 +277,9 @@ Decisions taken here, for the operator to check
   mod-host presents ungrouped ports flat, so any rule is ours; this one keeps every N→N multichannel tool whole
   and never widens a main past what the other side has.
 - The library stops raising `wider-than-strip`; the two-leg carriers raise it. The console's catalog already
-  judges width from `audioOutputs`; it should read the main port's channels instead of the port count (an
-  openmixer#2087).
+  judges width from `audioOutputs`; it should read the main port's channels instead of the port count (the console's
+  admission reads the main port's channel count, not the port count, and names `wider-than-strip` for a main
+  wider than the strip; and allows a main input and output of different widths).
 - `extra-inputs-fed-silence` is retired rather than kept for the 65th aux port; the new `too-many-ports` says
   what happened.
 - The limit 64 everywhere, one number for ports per side and channels per port.
@@ -287,6 +289,7 @@ Decisions taken here, for the operator to check
   groups are discrete channels with their ACN designations named. LV2 declares no normalisation, so the SN3D is
   an assumption the description marks.
 
-Openmixer issues filed with this note: openmixer#2087, the console's admission reads the main port's channel
-count (not the port count) and names `wider-than-strip` for a main wider than the strip; openmixer#2088, a
-strip's insert exposes its aux inputs for patching (unpatched = silence), the UI part of the ruling.
+The console's two follow-ups, which this note leaves to the console: its admission reads the main port's channel
+count (not the port count) and names `wider-than-strip` for a main wider than the strip, and allows a main input and
+output of different widths; and binding auxiliary inputs from the console's UI (patching a side chain), a console
+feature (a strip's insert exposes its aux inputs for patching, unpatched = silence).
