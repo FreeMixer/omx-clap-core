@@ -41,7 +41,8 @@
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
  *     block stays the plugin's output.
- *  7. THE ABI: configure accepts a consumer of the 0.2 header (ABI 1) and refuses 0 and a newer one.
+ *  7. THE ABI: configure accepts a consumer of the first header of libomx-clap-core.so.1 (ABI 11) and refuses 0, the
+ *     last header of libomx-clap-core.so.0 (ABI 10) and a newer one.
  *  8. THE SIDE CHAIN: a plugin with a stereo auxiliary input is admitted, reads silence until the caller binds a pair,
  *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
  *     binding while it runs, a bad port or a stereo port with one channel is refused; two auxiliary inputs beyond the
@@ -78,7 +79,7 @@ _Static_assert(OMX_HOSTED_STAGE_EVENTS_PER_BLOCK == CLAP_HOST_EVENTS_PER_BLOCK, 
 _Static_assert(OMX_HOSTED_STAGE_UNPUBLISH_POLL_US == CLAP_HOST_UNPUBLISH_POLL_US, "unpublish poll");
 _Static_assert(OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US == CLAP_HOST_UNPUBLISH_TIMEOUT_US, "unpublish timeout");
 _Static_assert(OMX_HOSTED_STAGE_NOTES_PER_BLOCK == CLAP_HOST_NOTES_PER_BLOCK, "notes per block");
-_Static_assert(OMX_HOSTED_STAGE_MAIN_PORT_CHANNELS == CLAP_HOST_MAIN_PORT_CHANNELS, "main port width");
+_Static_assert(OMX_HOSTED_STAGE_PORT_CHANNELS == CLAP_HOST_PORT_CHANNELS, "port width");
 _Static_assert(OMX_HOSTED_STAGE_AUX_OUTPUTS == CLAP_HOST_AUX_OUTPUTS, "auxiliary outputs");
 _Static_assert(OMX_HOSTED_STAGE_AUX_INPUTS == CLAP_HOST_AUX_INPUTS, "auxiliary inputs");
 _Static_assert(OMX_HOSTED_STAGE_STATE_MAX_BYTES == CLAP_HOST_STATE_MAX_BYTES, "state bytes");
@@ -118,7 +119,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 10u && OMX_CLAP_CORE_ABI_OLDEST == 1u, "this header is ABI 10, the oldest accepted 1 (%u)", config.abi);
+  CHECK(config.abi == 11u && OMX_CLAP_CORE_ABI_OLDEST == 11u, "this header is ABI 11, the oldest accepted 11 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
@@ -144,10 +145,12 @@ static void t_abi(void) {
         "the host's note details are the instance's last fields (%zu)", offsetof(struct omx_clap_instance, voice_info_changed));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
+  config.abi = 10;
+  CHECK(omx_clap_host_configure(&config) == -1, "a consumer of libomx-clap-core.so.0's last header (ABI 10) is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
   CHECK(omx_clap_host_configure(&config) == -1, "a consumer of a newer header is refused");
-  config.abi = 1;
-  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of the 0.2 header (ABI 1) is accepted");
+  config.abi = 11;
+  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of the first header of libomx-clap-core.so.1 (ABI 11) is accepted");
 }
 
 static void t_witness(void) {
@@ -586,8 +589,8 @@ static void t_side_chain(void) {
   g_sc_width = 2;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0, "a stereo effect with a stereo side chain is admitted (%s)", why);
   if (!in) return;
-  CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "one stereo auxiliary input beside the stereo pair (%u, %u, %u)",
-        in->aux_inputs, in->aux_in_channels[0], in->in_channels);
+  CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 2 && in->in_channels == 2, "one stereo auxiliary input beside the stereo pair (%u, %u, %u)",
+        in->aux_inputs, in->aux_in[0].channels, in->in_channels);
   CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate (%s)", why);
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, -0.25f);
@@ -629,7 +632,7 @@ static void t_side_chain_mono(void) {
 
   g_sc_side = 1;
   g_sc_width = 1;
-  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in_channels[0] == 1, "a mono side chain is admitted (%s)", why);
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in[0].channels == 1, "a mono side chain is admitted (%s)", why);
   if (!in) return;
   CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the mono side chain (%s)", why);
   for (uint32_t i = 0; i < 64; i++) side[i] = 0.25f;
@@ -649,7 +652,7 @@ static void t_side_chain_refused(void) {
   g_sc_side = CLAP_HOST_AUX_INPUTS + 1;
   g_sc_width = 2;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "one side chain past the core's count is refused");
-  CHECK(strcmp(why, CLAP_HOST_CODE_EXTRA_INPUTS) == 0, "and the code is %s (%s)", CLAP_HOST_CODE_EXTRA_INPUTS, why);
+  CHECK(strcmp(why, "hosting.topology.too-many-ports") == 0, "and the code is hosting.topology.too-many-ports (%s)", why);
   g_sc_side = 1;
   g_sc_width = 3;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of three channels is refused");

@@ -14,7 +14,7 @@ SCAN_PROG = omx-clap-scan
 
 # the hosting core, a shared library of its own: soname libomx-clap-core.so.<major>, the file <major>.<minor>.<patch>
 CORE = omx-clap-core
-CORE_MAJOR = 0
+CORE_MAJOR = 1
 CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
