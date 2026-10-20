@@ -78,7 +78,8 @@
  * lane_channels).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
- * whose instance lacks it. A removal or a reorder is a new major of the library. */
+ * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
+ * first libomx-clap-core.so.1 release, which freezes it. A removal or a reorder is a new major of the library. */
 #define OMX_CLAP_CORE_ABI               12u
 #define OMX_CLAP_CORE_ABI_OLDEST        12u  ///< the oldest header ABI the library accepts: the first of libomx-clap-core.so.1
 
