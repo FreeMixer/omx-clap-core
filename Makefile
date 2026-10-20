@@ -281,7 +281,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket
+test: tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-cycle-gate-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -342,6 +342,18 @@ tests/transport_seqlock_test: tests/transport_seqlock_test.c src/clap_stage.h sr
 
 tests/transport_seqlock_tsan: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror -fsanitize=thread -pthread -o $@ $< -lm
+
+# the sabotage of the cycle gate: a gate whose enter always answers open must let a cycle race the deactivate, which
+# ThreadSanitizer reports (needs libtsan; CI runs it beside test-transport-tsan)
+test-cycle-gate-sabotage: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS) tests/fake.clap
+	mkdir -p build/cycle-gate-sabotage
+	sed -e 's|    return atomic_load(&g->closed) == 0u;|    return 1;|' src/cycle_gate.h > build/cycle-gate-sabotage/cycle_gate.h
+	! cmp -s src/cycle_gate.h build/cycle-gate-sabotage/cycle_gate.h
+	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
+	    -Wextra -Werror -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u \
+	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) -ldl -lpthread -lm
+	! TSAN_OPTIONS=halt_on_error=1 ./build/cycle-gate-sabotage/test $(abspath tests/fake.clap) > build/cycle-gate-sabotage/log 2>&1
+	grep -q 'ThreadSanitizer: data race' build/cycle-gate-sabotage/log
 
 # the sabotage of test-transport: the read without its sequence re-check must let torn records through
 test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
