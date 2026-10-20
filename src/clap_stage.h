@@ -1638,8 +1638,15 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
     return omx_clap_run_plugin_status(s, n, NULL);
 }
 
+/** whether auxiliary output channel `k` (of the flat list, port by port) writes the caller's buffer, not its scratch:
+ * only a bound channel is read, so only a bound channel is guarded and silenced */
+static inline int omx_clap_aux_out_bound(const struct omx_clap_stage *s, uint32_t k)
+{
+    return s->aux_ptrs[k] != s->aux_scratch[k];
+}
+
 /**
- * RT, a live block the plugin ran with the verdict `usable` on its main output: every auxiliary output channel scanned
+ * RT, a live block the plugin ran with the verdict `usable` on its main output: every bound auxiliary output channel scanned
  * when the stage guards for non-finite output (one non-finite sample makes the block OMX_HOSTED_BLOCK_NONFINITE, which
  * strikes and delivers as a main one does) and, the block still usable, clamped when the stage clamps (counted in
  * clamped_samples). Returns the block's verdict.
@@ -1651,7 +1658,7 @@ static inline int omx_clap_aux_out_guard(struct omx_clap_stage *s, int usable, u
     if (usable == OMX_HOSTED_BLOCK_USABLE && (s->h.guards & OMX_HOSTED_GUARD_NONFINITE))
         for (i = 0; i < s->n_aux && usable == OMX_HOSTED_BLOCK_USABLE; i++)
             for (c = 0; c < s->aout[1 + i].channel_count; c++)
-                if (!omx_block_finite(s->aout[1 + i].data32[c], n))
+                if (omx_clap_aux_out_bound(s, s->aux_base[i] + c) && !omx_block_finite(s->aout[1 + i].data32[c], n))
                 {
                     usable = OMX_HOSTED_BLOCK_NONFINITE;
                     break;
@@ -1660,7 +1667,8 @@ static inline int omx_clap_aux_out_guard(struct omx_clap_stage *s, int usable, u
         return usable;
     for (i = 0; i < s->n_aux; i++)
         for (c = 0; c < s->aout[1 + i].channel_count; c++)
-            moved += omx_hosted_clamp(s->aout[1 + i].data32[c], n);
+            if (omx_clap_aux_out_bound(s, s->aux_base[i] + c))
+                moved += omx_hosted_clamp(s->aout[1 + i].data32[c], n);
     if (moved)
         omx_hosted_count(&s->h.clamped_samples, moved);
     return usable;
@@ -1668,8 +1676,9 @@ static inline int omx_clap_aux_out_guard(struct omx_clap_stage *s, int usable, u
 
 /**
  * RT, a block whose auxiliary outputs the plugin did not write usable (not processing, a block longer than the bounce,
- * a bypass, a fault, an unusable block, a sleep): each auxiliary output channel silent for the block, never the last
- * block's samples again. At most max_block frames, the length every bound block has.
+ * a bypass, a fault, an unusable block, a sleep): each bound auxiliary output channel silent for the block, never the
+ * last block's samples again; a scratch block nothing reads is left. At most max_block frames, the length every bound
+ * block has.
  */
 static inline void omx_clap_aux_out_silence(struct omx_clap_stage *s, uint32_t n)
 {
@@ -1678,7 +1687,8 @@ static inline void omx_clap_aux_out_silence(struct omx_clap_stage *s, uint32_t n
 
     for (i = 0; i < s->n_aux; i++)
         for (c = 0; c < s->aout[1 + i].channel_count; c++)
-            memset(s->aout[1 + i].data32[c], 0, m * sizeof(float));
+            if (omx_clap_aux_out_bound(s, s->aux_base[i] + c))
+                memset(s->aout[1 + i].data32[c], 0, m * sizeof(float));
 }
 
 /**
