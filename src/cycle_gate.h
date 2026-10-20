@@ -47,7 +47,22 @@
 struct omx_cycle_gate {
     _Atomic uint32_t closed;    ///< the control thread shut the cycles out
     _Atomic uint32_t in_cycle;  ///< a cycle is inside the gate
+    _Atomic uint32_t resize_to; ///< a block size the carrier changed to, for the control thread's next tick; 0: none
 };
+
+/** The carrier's own thread (JACK's buffer-size callback): the new block size recorded, and nothing of the plugin done
+ * there, since a deactivate and an activate are main-thread calls. A later change before the tick replaces it. */
+static inline void omx_cycle_gate_resize_record(struct omx_cycle_gate *g, uint32_t nframes)
+{
+    atomic_store(&g->resize_to, nframes);
+}
+
+/** RT, inside the gate: nonzero while a recorded size waits for its tick; the cycle passes dry until it lands, since the
+ * instance is still activated for the old size. */
+static inline int omx_cycle_gate_resizing(struct omx_cycle_gate *g)
+{
+    return atomic_load_explicit(&g->resize_to, memory_order_acquire) != 0u;
+}
 
 /** RT, before the cycle touches the instance: nonzero when it may; either way omx_cycle_gate_leave follows. */
 static inline int omx_cycle_gate_enter(struct omx_cycle_gate *g)
@@ -119,38 +134,133 @@ static inline int omx_cycle_gate_deactivate(struct omx_cycle_gate *g, struct omx
     return 0;
 }
 
-/** A change of the block size, on the carrier's own thread (JACK's buffer-size callback): under `lock`, the lock every
- * restart and relayout of the instance holds, an instance still active at another block is stopped, deactivated and
- * activated at `nframes`, the cycles shut out around it, and armed with the audio role it had. Its state is read under
- * the lock only: an instance a relayout or restart left inactive meanwhile (a layout refused, ports no longer the
- * carrier's, a rescan waiting for its relayout) is the relayout's to activate, at the size the carrier then reads, and
- * this leaves it inactive. Nonzero when it activated the instance again. */
+/** An activation a relayout left waiting for the carrier's next block-size change (its blocks were shorter than the new
+ * block): set, with the audio role the relayout saved, under the lock every restart, relayout and resize holds. */
+struct omx_cycle_gate_pending {
+    int set;
+    pthread_t thread;   ///< the audio role to give back
+    int held;
+};
+
+/** What a carrier keeps beside the instance across a change of the block size: buffers sized by the block (omx-clap-host's
+ * auxiliary blocks). `stale(ctx, nframes)` says whether they need making again for `nframes`; `reblock(ctx, nframes)`
+ * makes and binds them, the instance deactivated and the cycles shut out, 0 or -1 when it cannot. Either may be NULL:
+ * nothing kept. */
+struct omx_cycle_gate_blocks {
+    int (*stale)(void *ctx, uint32_t nframes);
+    int (*reblock)(void *ctx, uint32_t nframes);
+    void *ctx;
+};
+
+/** omx_cycle_gate_resize's answers */
+#define OMX_CYCLE_GATE_RESIZED          1   ///< activated at the new size
+#define OMX_CYCLE_GATE_UNCHANGED        0   ///< nothing to do, or an inactive instance left to its relayout
+#define OMX_CYCLE_GATE_REFUSED          (-1)    ///< the activation refused, `why` says why; the instance inactive
+#define OMX_CYCLE_GATE_REBLOCK_FAILED   (-2)    ///< the carrier's blocks could not be made; the instance inactive, pending
+#define OMX_CYCLE_GATE_RESCANNED        2   ///< the plugin rescanned its ports (in the deactivate, or before): inactive,
+                                            ///< the rescan reported, for the carrier's relayout to read again
+
+/**
+ * A change of the block size, on the control thread (the plugin's deactivate and activate are main-thread calls; the
+ * carrier records the size, omx_cycle_gate_resize_record, and its tick applies it, omx_cycle_gate_resize_tick), under
+ * `lock`, the lock every restart and relayout of the instance holds. When the instance is active at another block, the carrier's blocks of an
+ * active or pending instance are stale, or `pending` holds a relayout's waiting activation, the cycles are shut out: an active instance is stopped and
+ * deactivated, the carrier's blocks made again (`blocks`, inside the closed gate, for the cycles copy them), and the
+ * instance activated at `nframes` when it was active or pending, armed with the audio role it had (the pending one's
+ * saved role), then the gate opened. A failed reblock leaves the instance inactive and pending, its role saved, for the
+ * next change to try again; a refused activation leaves it inactive with `why` set. A ports rescan the plugin raised in
+ * the deactivate (or one not yet answered) leaves it inactive with the rescan reported, its audio role kept and nothing
+ * pending: its blocks are still made at `nframes`, and the carrier's relayout reads the description again and
+ * activates. An instance a relayout left inactive and not pending is the relayout's to activate, at the size the carrier then reads. Its state is read under the lock
+ * only. Returns one of OMX_CYCLE_GATE_*.
+ */
 static inline int omx_cycle_gate_resize(struct omx_cycle_gate *g, struct omx_clap_instance *in, pthread_mutex_t *lock, double rate,
-                                        uint32_t nframes, unsigned poll_us)
+                                        uint32_t nframes, unsigned poll_us, const struct omx_cycle_gate_blocks *blocks,
+                                        struct omx_cycle_gate_pending *pending, char why[OMX_CLAP_WHY_MAX])
 {
-    int ok = 0;
+    int ret = OMX_CYCLE_GATE_UNCHANGED;
 
     pthread_mutex_lock(lock);
-    if (in->active && nframes != in->max_block)
     {
-        // stop takes the audio role for this thread and releases it: the cycle's is given back after
-        const pthread_t thread = in->audio_thread;
-        const int held = in->audio_role_held;
+        const int active = in->active;
+        const int waiting = pending && pending->set;
+        // an instance a relayout left inactive and not pending is not run again until it is added again: its blocks are
+        // not made either
+        const int stale = (active || waiting) && blocks && blocks->stale && blocks->stale(blocks->ctx, nframes);
 
-        omx_cycle_gate_close(g, poll_us);
-        omx_clap_host_stop(in);
-        omx_clap_host_deactivate(in);
-        if (omx_clap_host_activate(in, rate, nframes, NULL) == 0)
+        if ((active && nframes != in->max_block) || stale || waiting)
         {
-            if (held)
-                omx_clap_host_set_audio_thread(in, thread);
-            omx_clap_host_arm(in);
-            ok = 1;
+            // stop takes the audio role for this thread and releases it: the cycle's is given back after, a pending
+            // relayout's is the one it saved
+            const pthread_t thread = active ? in->audio_thread : waiting ? pending->thread : in->audio_thread;
+            const int held = active ? in->audio_role_held : waiting ? pending->held : 0;
+
+            if (pending)
+                pending->set = 0;
+            omx_cycle_gate_close(g, poll_us);
+            if (active)
+            {
+                omx_clap_host_stop(in);
+                omx_clap_host_deactivate(in);
+            }
+            if (stale && blocks->reblock && blocks->reblock(blocks->ctx, nframes) != 0)
+            {
+                ret = OMX_CYCLE_GATE_REBLOCK_FAILED;
+                if (pending)
+                {
+                    pending->set = 1;
+                    pending->thread = thread;
+                    pending->held = held;
+                }
+            }
+            // a ports rescan the plugin raised in that deactivate, or one still unanswered: the description is stale, so the
+            // instance stays inactive and the rescan reported (omx_clap_host_ports_rescanned), as a restart leaves it;
+            // the carrier's relayout reads it again and activates, nothing pends here
+            else if ((active || waiting) && atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
+            {
+                atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
+                in->audio_thread = thread;      // the relayout's activate gives back the role the cycles held
+                in->audio_role_held = held;
+                ret = OMX_CYCLE_GATE_RESCANNED;
+            }
+            else if (active || waiting)
+            {
+                if (omx_clap_host_activate(in, rate, nframes, why) == 0)
+                {
+                    if (held)
+                        omx_clap_host_set_audio_thread(in, thread);
+                    omx_clap_host_arm(in);
+                    ret = OMX_CYCLE_GATE_RESIZED;
+                }
+                else
+                    ret = OMX_CYCLE_GATE_REFUSED;
+            }
+            omx_cycle_gate_open(g);
         }
-        omx_cycle_gate_open(g);
     }
     pthread_mutex_unlock(lock);
-    return ok;
+    return ret;
+}
+
+/**
+ * Control thread, its tick, before the relayout: a block size the carrier recorded applied by omx_cycle_gate_resize (the
+ * last one when it changed twice before the tick), then the record cleared, unless the carrier recorded another
+ * meanwhile, which the next tick applies. `*nframes` is the size applied. Returns OMX_CYCLE_GATE_UNCHANGED with nothing
+ * recorded, else the resize's answer.
+ */
+static inline int omx_cycle_gate_resize_tick(struct omx_cycle_gate *g, struct omx_clap_instance *in, pthread_mutex_t *lock, double rate,
+                                             unsigned poll_us, const struct omx_cycle_gate_blocks *blocks,
+                                             struct omx_cycle_gate_pending *pending, char why[OMX_CLAP_WHY_MAX], uint32_t *nframes)
+{
+    uint32_t to = atomic_load(&g->resize_to);
+    int ret;
+
+    *nframes = to;
+    if (to == 0u)
+        return OMX_CYCLE_GATE_UNCHANGED;
+    ret = omx_cycle_gate_resize(g, in, lock, rate, to, poll_us, blocks, pending, why);
+    (void)atomic_compare_exchange_strong(&g->resize_to, &to, 0u);
+    return ret;
 }
 
 #endif

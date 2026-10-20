@@ -133,6 +133,8 @@ struct fake {
   uint32_t saw_tflags;   /* its flags */
   int saw_theader_ok;    /* size, space, type and time 0 as CLAP fixes them */
   uint32_t flood;        /* K_NOTES: note ons pushed on top of the block's own events */
+  float aux_level;       /* every auxiliary output channel written this level each block; 0: auxiliary outputs untouched */
+  int aux_nan;           /* the auxiliary outputs written NaN instead, the main output still finite */
 };
 
 #define PAD_GAIN 0.1f /* -20 dB, the fake's own definition */
@@ -266,6 +268,9 @@ static clap_process_status f_process(const clap_plugin_t *p, const clap_process_
     pr->out_events->try_push(pr->out_events, &other);
   }
   if (f->kind == K_NOTES && pr->out_events) notes_push(f, pr->out_events, n);
+  for (uint32_t k = 1; (f->aux_level != 0.0f || f->aux_nan) && k < pr->audio_outputs_count; k++)
+    for (uint32_t c = 0; c < pr->audio_outputs[k].channel_count; c++)
+      for (uint32_t i = 0; i < n; i++) pr->audio_outputs[k].data32[c][i] = f->aux_nan ? NAN : f->aux_level;
   return f->kind == K_TALK ? CLAP_PROCESS_TAIL : CLAP_PROCESS_CONTINUE;
 }
 
@@ -1679,19 +1684,177 @@ static void t_aux_bind_wide(void) {
   omx_clap_set_aux_in(&a, 0, 4, NULL);
   CHECK(a.ains[1].data32[3] == silence, "aux: unbound again, back to the silence");
 
+  CHECK(g.st.aux_bound_channels == 0, "aux: no output channel bound after bind_aux (%u)", g.st.aux_bound_channels);
   omx_clap_set_aux_out(&g.st, 1, 6, bufs);
   CHECK(g.st.aout[2].data32[3] == bufs[3], "aux: a bound output writes the caller's buffers");
+  CHECK(g.st.aux_bound_channels == 6, "aux: its six channels counted bound (%u)", g.st.aux_bound_channels);
+  omx_clap_set_aux_out(&g.st, 1, 6, bufs);
+  CHECK(g.st.aux_bound_channels == 6, "aux: bound again to the same buffers, still six (%u)", g.st.aux_bound_channels);
+  float *two[2] = {bufs[0], NULL};
+  omx_clap_set_aux_out(&g.st, 2, 2, two);
+  CHECK(g.st.aux_bound_channels == 7, "aux: one channel of the stereo output bound, its NULL one left on scratch (%u)",
+        g.st.aux_bound_channels);
   omx_clap_set_aux_out(&g.st, 1, 6, NULL);
   CHECK(g.st.aout[2].data32[3] == scratch[4], "aux: unbound, back to its scratch");
+  CHECK(g.st.aux_bound_channels == 1, "aux: unbound, the count falls back (%u)", g.st.aux_bound_channels);
+  omx_clap_set_aux_out(&g.st, 2, 2, NULL);
+  CHECK(g.st.aux_bound_channels == 0, "aux: none bound (%u)", g.st.aux_bound_channels);
 }
 
-/* ---- the wide path: a 6-channel main pair over blocks of its own, every channel carried, bypass switched hard ---- */
 static int wide_wet(float (*outs)[MAXB], float (*ins)[MAXB], float gain) {
   for (uint32_t c = 0; c < 6; c++)
     for (uint32_t i = 0; i < MAXB; i++)
       if (outs[c][i] != ins[c][i] * gain) return 0;
   return 1;
 }
+static int wide_wet_dry(float (*outs)[MAXB], float (*ins)[MAXB]) { return wide_wet(outs, ins, 1.0f); }
+
+/* ---- the auxiliary outputs on every dry path: silent, never the last wet block again; guarded as a main output ---- */
+#define AUX_LEVEL 0.25f
+static float g_aux[2][MAXB];
+
+static int aux_all(float v) {
+  for (uint32_t c = 0; c < 2; c++)
+    for (uint32_t i = 0; i < MAXB; i++)
+      if (g_aux[c][i] != v) return 0;
+  return 1;
+}
+
+/** A stage with one stereo auxiliary output bound to g_aux, the main pair two-leg (`wide` 0, 2/2) or 6/6 wide over `wi`/`wo`. */
+static void aux_rig_up_bound(struct rig *g, float (*scratch)[MAXB], int wide, float **wi, float **wo, int bind) {
+  const struct omx_clap_port port = {.channels = 2};
+  float *sp[2] = {scratch[0], scratch[1]}, *bp[2] = {g_aux[0], g_aux[1]};
+
+  memset(g, 0, sizeof *g);
+  fake_up(&g->f, K_PAD, wide ? 6 : 2);
+  g->f.aux_level = AUX_LEVEL;
+  CHECK(omx_clap_stage_init(&g->st, &(struct omx_hosted_bounce){g->in_l, g->in_r, g->out_l, g->out_r, MAXB}, g->recs, QCAP) == 0,
+        "aux out: stage_init");
+  CHECK(g->f.plugin.init(&g->f.plugin) && g->f.plugin.activate(&g->f.plugin, (double)g_rate, 1, MAXB), "aux out: init, activate");
+  CHECK(omx_clap_bind_aux(&g->st, sp, 1, &port) == 0, "aux out: one stereo auxiliary output");
+  if (bind) omx_clap_set_aux_out(&g->st, 0, 2, bp);
+  if (wide)
+    CHECK(omx_clap_bind_wide(&g->st, wi, 6, wo, 6) == 0 && omx_clap_bind_ports(&g->st, &g->f.plugin, 6, 6) == 0, "aux out: bind 6/6 wide");
+  else
+    CHECK(omx_clap_bind(&g->st, &g->f.plugin, 2) == 0, "aux out: bind the two legs");
+}
+static void aux_rig_up(struct rig *g, float (*scratch)[MAXB], int wide, float **wi, float **wo) { aux_rig_up_bound(g, scratch, wide, wi, wo, 1); }
+
+static void t_aux_out_dry(void) {
+  static struct rig g;
+  static float scratch[2][MAXB], l[MAXB], r[MAXB], win[6][MAXB], wout[6][MAXB], ins[6][MAXB], outs[6][MAXB];
+  const float ceiling = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+  float *wi[6], *wo[6], *op[6];
+  const float *ip[6];
+  uint32_t runs;
+
+  /* the two legs */
+  aux_rig_up(&g, scratch, 0, NULL, NULL);
+  fill(g_aux[0], MAXB, 9.0f);
+  fill(g_aux[1], MAXB, 9.0f);
+  fill(l, MAXB, 0.5f);
+  fill(r, MAXB, 0.5f);
+  run(&g, l, r, MAXB);
+  CHECK(aux_all(0.0f), "aux out: not yet armed, the auxiliary outputs are silent, not what they held (%g)", (double)g_aux[0][0]);
+  omx_clap_arm(&g.st);
+  run(&g, l, r, MAXB);
+  CHECK(aux_all(AUX_LEVEL), "aux out: processing, the plugin's %g on both auxiliary channels (%g)", (double)AUX_LEVEL, (double)g_aux[1][0]);
+  g.f.aux_level = 100.0f;
+  run(&g, l, r, MAXB);
+  CHECK(aux_all(ceiling) && atomic_load(&g.st.h.clamped_samples) == 2 * MAXB,
+        "aux out: a hot auxiliary output clamped at +24 dBFS, every sample counted (%g, %u)", (double)g_aux[0][0],
+        atomic_load(&g.st.h.clamped_samples));
+  g.f.aux_level = AUX_LEVEL;
+  run(&g, l, r, MAXB);
+  omx_clap_set_bypass(&g.st, 1);
+  for (int k = 0; k < 3; k++) {
+    fill(l, MAXB, 0.5f);
+    fill(r, MAXB, 0.5f);
+    run(&g, l, r, MAXB);
+  }
+  runs = g.f.runs;
+  run(&g, l, r, MAXB);
+  CHECK(g.f.runs == runs && aux_all(0.0f), "aux out: bypassed, the plugin idles and its auxiliary outputs are silent (%g)", (double)g_aux[0][0]);
+  run(&g, l, r, 2 * MAXB);
+  CHECK(aux_all(0.0f), "aux out: a block longer than the bounce leaves them silent too");
+  g.f.aux_nan = 1;
+  omx_clap_set_bypass(&g.st, 0);
+  fill(g_aux[0], MAXB, 9.0f);
+  fill(g_aux[1], MAXB, 9.0f);
+  for (int k = 0; k < 2; k++) {
+    fill(l, MAXB, 0.5f);
+    fill(r, MAXB, 0.5f);
+    run(&g, l, r, MAXB);
+  }
+  CHECK(aux_all(0.0f) && atomic_load(&g.st.h.nonfinite_blocks) >= 1,
+        "aux out: a NaN on an auxiliary output alone: the block is unusable, struck, and the auxiliary outputs silent (%u, %g)",
+        atomic_load(&g.st.h.nonfinite_blocks), (double)g_aux[0][0]);
+  CHECK(l[0] == 0.5f, "aux out: and the main lane dry (%g)", (double)l[0]);
+
+  /* an auxiliary output nobody bound writes its scratch, which nothing reads: never scanned, clamped nor silenced */
+  aux_rig_up_bound(&g, scratch, 0, NULL, NULL, 0);
+  omx_clap_arm(&g.st);
+  g.f.aux_nan = 1;
+  for (int k = 0; k < 2; k++) {
+    fill(l, MAXB, 0.5f);
+    fill(r, MAXB, 0.5f);
+    run(&g, l, r, MAXB);
+  }
+  CHECK(atomic_load(&g.st.h.nonfinite_blocks) == 0 && l[0] == 0.5f * PAD_GAIN,
+        "aux out: a NaN on an unbound auxiliary output strikes nothing and the mains stay wet (%u, %g)",
+        atomic_load(&g.st.h.nonfinite_blocks), (double)l[0]);
+  g.f.aux_nan = 0;
+  g.f.aux_level = 100.0f;
+  run(&g, l, r, MAXB);
+  CHECK(atomic_load(&g.st.h.clamped_samples) == 0 && scratch[0][0] == 100.0f,
+        "aux out: an unbound hot auxiliary output is not clamped nor counted (%u, %g)", atomic_load(&g.st.h.clamped_samples), (double)scratch[0][0]);
+
+  /* the wide path */
+  for (uint32_t c = 0; c < 6; c++) {
+    wi[c] = win[c];
+    wo[c] = wout[c];
+    ip[c] = ins[c];
+    op[c] = outs[c];
+    fill(ins[c], MAXB, (float)c * 0.1f);
+  }
+  aux_rig_up(&g, scratch, 1, wi, wo);
+  fill(g_aux[0], MAXB, 9.0f);
+  fill(g_aux[1], MAXB, 9.0f);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(aux_all(0.0f), "aux out wide: not yet armed, silent (%g)", (double)g_aux[0][0]);
+  omx_clap_arm(&g.st);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(aux_all(AUX_LEVEL), "aux out wide: processing, the plugin's level (%g)", (double)g_aux[0][0]);
+  g.f.aux_level = 100.0f;
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(aux_all(ceiling) && atomic_load(&g.st.h.clamped_samples) == 2 * MAXB, "aux out wide: clamped at the ceiling (%g, %u)",
+        (double)g_aux[0][0], atomic_load(&g.st.h.clamped_samples));
+  g.f.aux_level = AUX_LEVEL;
+  omx_clap_set_bypass(&g.st, 1);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(aux_all(0.0f), "aux out wide: bypassed, silent on that block (%g)", (double)g_aux[0][0]);
+  omx_clap_set_bypass(&g.st, 0);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(aux_all(AUX_LEVEL), "aux out wide: wet again (%g)", (double)g_aux[0][0]);
+  g.f.aux_nan = 1;
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(aux_all(0.0f) && atomic_load(&g.st.h.nonfinite_blocks) == 1 && wide_wet_dry(outs, ins),
+        "aux out wide: a NaN on an auxiliary output: silent, struck, the mains dry (%u)", atomic_load(&g.st.h.nonfinite_blocks));
+}
+
+/* ---- the wide path: a 6-channel main pair over blocks of its own, every channel carried, bypass switched hard ---- */
 
 static void t_run_ports_wide(void) {
   static struct rig g;
@@ -1828,6 +1991,7 @@ int main(void) {
     t_notes_out();
     t_aux_bind_wide();
     t_run_ports_wide();
+    t_aux_out_dry();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

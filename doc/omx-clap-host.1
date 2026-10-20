@@ -26,7 +26,14 @@ and
 .BI out_ k
 from 1, exactly as
 .BR mod\-host (1)
-lays out an LV2 plugin. It is controlled over the same socket, with the
+lays out an LV2 plugin, and one per channel of each auxiliary port,
+.BI aux_in_ p _ k
+and
+.BI aux_out_ p _ k\fR,
+.I p
+the port's place among the side's auxiliary ports and
+.I k
+its channel, both from 1. It is controlled over the same socket, with the
 same line protocol and the same replies as mod\-host, from mod\-host's
 protocol library, so a controller that speaks to mod\-host can speak to
 this host unchanged.
@@ -47,15 +54,15 @@ system messages reach only an input that reads MIDI events. A plugin with a
 note output gets a JACK MIDI output port,
 .BR midi_out :
 the notes and MIDI the plugin sends out on its first note output are written
-there in the same cycle, at their frame. A wider main port,
-a main pair of different widths, a second note input or a note input read in
-none of those dialects is refused at
+there in the same cycle, at their frame. A port of no channels or of
+more than 64, more than 64 auxiliary ports on a side, a second main port on a side, a second note input
+or a note input read in none of those dialects is refused at
 .B add
 with
 .B resp \-102
-followed by its hosting code, which standard error carries too. An extra audio input (a sidechain) is
-admitted and fed silence: nothing on the command line binds it. An extra audio
-output is admitted and left unconnected.
+followed by its hosting code, which standard error carries too. An auxiliary
+audio input (a sidechain) reads its JACK ports, silence while nothing is
+linked to them; an auxiliary audio output writes its JACK ports.
 .PP
 An LV2 plugin is added by its URI,
 .BI lv2: uri
@@ -137,7 +144,7 @@ answered with
 .I code
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
-.BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", "
+.BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", " audio_ports ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", " note_out_drops ", "
 .BR note_input ", " note_on ", " note_off ", " all_notes_off ", "
 .BR set_bpm ", " set_bpb ", " transport ", " transport_sync ", " help ", " quit .
@@ -220,6 +227,23 @@ and when it differs destroys the instance and answers
 .BR "resp \-510" ;
 a scheme the host does not know answers
 .BR "resp \-508" .
+.BI "audio_ports " N
+answers on one line
+.BR "resp 0" ,
+.B dry
+while the instance passes dry, and a record per port registered at
+.BR add ,
+inputs first and each side's main port first, separated by spaces:
+.IB side : role : index : channels : kind\fR[\fB:\fIlayout\fR][\fB:assumed\fR]\fB:"\fIname\fB":\fIjack\fB,\fIjack ,
+the layout a surround port's CLAP surround ids or an ambisonic port's ordering
+and normalisation joined by
+.BR + ,
+the name's
+.B \(dq
+and
+.B \e
+escaped with a backslash, as in
+.BR "in:aux:1:1:mono:\(dqin 1\(dq:aux_in_1_1" .
 .BI "track_info " "N name color" " [" kind ]
 passes the strip's name, colour and kind to the plugin through
 .BR clap.track\-info ;

@@ -132,6 +132,10 @@ jobs:
       - name: Test the plugin lifecycle and the scanner against the fake plugins
         run: make test-fake
 
+      # each rule of the audio layouts broken in a copy of the sources, the test that guards it red (#92)
+      - name: The sabotage of the audio layouts
+        run: make test-layouts-sabotage
+
       - name: Test what a plugin reports about its parameters under AddressSanitizer
         run: make test-untrusted-asan
 
@@ -190,6 +194,15 @@ jobs:
             make test-jack-meters
           else
             echo "::warning::test-jack-meters SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The auxiliary ports over jack with the fake plugins: a side chain heard, an auxiliary output read, a bypassed one silent.
+      - name: Test the auxiliary ports over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-fake
+          else
+            echo "::warning::test-jack-fake SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # Layout pinning over jack: pin_expect before add, a layout that differs destroyed before activate.

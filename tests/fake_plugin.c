@@ -21,10 +21,13 @@
 /* A .clap holding the port layouts the host refuses and one it accepts:
  *   org.omx-clap-host.test.wide        one main pair, 6 channels each, no port type; process() writes the channels
  *                                      reversed, in[5 - c] to out[c]
- *   org.omx-clap-host.test.sidechain   a stereo main pair and one more input
+ *   org.omx-clap-host.test.sidechain   a stereo main pair and a mono auxiliary input; process() adds that input onto
+ *                                      the main output's channel 1
  *   org.omx-clap-host.test.notes       a stereo main pair and a note input
  *   org.omx-clap-host.test.widen       a mono main input and a stereo main output
- *   org.omx-clap-host.test.auxout      a stereo main pair and a stereo auxiliary output
+ *   org.omx-clap-host.test.auxout      a stereo main pair and a stereo auxiliary output; process() writes
+ *                                      FAKE_AUX_OUT_LEVEL / k on its channel k, as on every auxiliary output
+ *   (any of them, with FAKE_PROCESS_SLEEP set, answers CLAP_PROCESS_SLEEP from process())
  *   org.omx-clap-host.test.zero-port   a stereo main pair and an auxiliary input of 0 channels
  *   org.omx-clap-host.test.too-wide    a stereo main pair and an auxiliary output of 65 channels
  *   org.omx-clap-host.test.two-mains   a stereo main pair and a second stereo output flagged main
@@ -137,7 +140,8 @@ typedef struct FAKE_T {
     uint32_t aux_in_channels;   // the width of every auxiliary input
     uint32_t aux_out_channels;  // the width of every auxiliary output
     uint32_t two_mains;         // the first auxiliary output is flagged main too
-    uint32_t aux_wide;          // process() copies auxiliary input 1's channel 4 onto main output channel 1
+    uint32_t says_sleep;        // process() answers CLAP_PROCESS_SLEEP (FAKE_PROCESS_SLEEP)
+    uint32_t aux_mix;           // what process() takes of auxiliary input 1 onto main output channel 1: one FAKE_AUX_*
     uint32_t copies_nothing;    // process() leaves every buffer as it is
     uint32_t mix;               // what process() writes of the main pair: one FAKE_MIX_*
     uint32_t type;              // the main pair's port type and the layout extension it offers: one FAKE_TYPE_*
@@ -214,6 +218,11 @@ enum { FAKE_TYPE_BY_WIDTH, FAKE_TYPE_SURROUND, FAKE_TYPE_SURROUND_BAD, FAKE_TYPE
 /* the layout extensions a fake offers: clap.audio-ports-config, clap.configurable-audio-ports */
 #define FAKE_OFFERS_CONFIGS         1u
 #define FAKE_OFFERS_CONFIGURABLE    2u
+/* what process() takes of the first auxiliary input onto the main output's channel 1 */
+#define FAKE_AUX_COPY_FOURTH        1u  // its channel 4, copied over
+#define FAKE_AUX_ADD_FIRST          2u  // its channel 1, added
+/* what process() writes on channel k of every auxiliary output: this over k */
+#define FAKE_AUX_OUT_LEVEL          0.125f
 /* `named` once apply_configuration set the layout */
 #define FAKE_CONFIGURED             100u
 
@@ -221,11 +230,11 @@ enum { FAKE_TYPE_BY_WIDTH, FAKE_TYPE_SURROUND, FAKE_TYPE_SURROUND_BAD, FAKE_TYPE
  * outputs and their widths, a second main output, what process() does beyond the main pair, how it writes that pair,
  * the pair's port type and the layout extensions it offers */
 static const struct FAKE_LAYOUT_T {
-    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix, type,
+    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_mix, copies_nothing, mix, type,
              offers;
 } g_layouts[] = {
     { 6, 6, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_REVERSE, 0, 0 },  // wide
-    { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 },      // sidechain
+    { 2, 2, 1, 1, 0, 0, 0, FAKE_AUX_ADD_FIRST, 0, 0, 0, 0 },      // sidechain
     { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
     { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
     { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // widen
@@ -234,7 +243,7 @@ static const struct FAKE_LAYOUT_T {
     { 2, 2, 0, 0, 1, 65, 0, 0, 0, 0, 0, 0 },     // too-wide
     { 2, 2, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0 },      // two-mains
     { 2, 2, 65, 1, 0, 0, 0, 0, 0, 0, 0, 0 },     // many-aux
-    { 2, 2, 1, 4, 0, 0, 0, 1, 0, 0, 0, 0 },      // aux-wide
+    { 2, 2, 1, 4, 0, 0, 0, FAKE_AUX_COPY_FOURTH, 0, 0, 0, 0 },    // aux-wide
     { 2, 2, 64, 64, 64, 64, 0, 0, 1, 0, 0, 0 },  // aux-max
     { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_NEGATE_RIGHT, 0, 0 },  // mono-stereo
     { 2, 1, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_SUM, 0, 0 },           // stereo-mono
@@ -888,13 +897,21 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         for (c = 0; c < out->channel_count; c++)
             memcpy(out->data32[c], in->data32[c < in->channel_count ? c : 0], sizeof(float) * process->frames_count);
     }
-    if (fake->aux_wide && process->audio_inputs_count == 2 && process->audio_inputs[1].channel_count == 4)
+    if (fake->aux_mix == FAKE_AUX_COPY_FOURTH && process->audio_inputs_count == 2 && process->audio_inputs[1].channel_count == 4)
         memcpy(out->data32[0], process->audio_inputs[1].data32[3], sizeof(float) * process->frames_count);
+    if (fake->aux_mix == FAKE_AUX_ADD_FIRST && process->audio_inputs_count == 2)
+        for (i = 0; i < process->frames_count; i++)
+            out->data32[0][i] += process->audio_inputs[1].data32[0][i];
     // an auxiliary output is the host's to hand over: a buffer it cannot write is a crash here
     for (c = 1; c < process->audio_outputs_count; c++)
-        for (i = 0; i < process->audio_outputs[c].channel_count; i++)
-            memset(process->audio_outputs[c].data32[i], 0, sizeof(float) * process->frames_count);
-    return CLAP_PROCESS_CONTINUE;
+    {
+        uint32_t k;
+
+        for (k = 0; k < process->audio_outputs[c].channel_count; k++)
+            for (i = 0; i < process->frames_count; i++)
+                process->audio_outputs[c].data32[k][i] = FAKE_AUX_OUT_LEVEL / (float)(k + 1);
+    }
+    return fake->says_sleep ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
 }
 
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
@@ -999,7 +1016,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->extra_outputs = g_layouts[i].aux_outputs;
     fake->aux_out_channels = g_layouts[i].aux_out_channels;
     fake->two_mains = g_layouts[i].two_mains;
-    fake->aux_wide = g_layouts[i].aux_wide;
+    fake->aux_mix = g_layouts[i].aux_mix;
     fake->copies_nothing = g_layouts[i].copies_nothing;
     fake->mix = g_layouts[i].mix;
     fake->type = g_layouts[i].type;
@@ -1015,6 +1032,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configs_twin = getenv("FAKE_CONFIGS_TWIN") != NULL;
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
+    fake->says_sleep = getenv("FAKE_PROCESS_SLEEP") != NULL;
     if (fake->type == FAKE_TYPE_SURROUND_PLAIN && getenv("FAKE_SURROUND_PLAIN_CHANNELS"))
         fake->main_channels = fake->out_channels = (uint32_t)atoi(getenv("FAKE_SURROUND_PLAIN_CHANNELS"));
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;

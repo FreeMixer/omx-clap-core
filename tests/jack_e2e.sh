@@ -229,6 +229,9 @@ expect "param_set 5 0 102" "resp 0"
 for _ in $(seq 30); do grep -q "is refused: hosting.topology.port-without-channels" "$runtime/host.log" && break; sleep 0.1; done
 grep -q "test.configs: its layout after the ports rescan is refused: hosting.topology.port-without-channels" "$runtime/host.log"
 step $? "a refused description after the restart is said on stderr"
+# audio_ports names what was registered, not the emptied description, and says the instance is dry
+r=$(send "audio_ports 5")
+[ "$r" = 'resp 0 dry in:main:1:2:unknown:"":in_1,in_2 out:main:1:2:unknown:"":out_1,out_2' ]; step $? "audio_ports 5 is dry, its registered ports named: $r"
 sleep 0.3
 w=$(level effect_5:out_1); near "${w%% *}" 0.5 0.0001; step $? "and effect_5 passes dry: out_1 is in_1 ($w)"
 w=$(level effect_5:out_2); near "${w%% *}" 0.25 0.0001; step $? "out_2 is in_2 ($w)"

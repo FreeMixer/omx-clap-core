@@ -224,6 +224,30 @@ for _ in $(seq 50); do grep -q playing "$runtime/source.log" && break; sleep 0.1
 grep -q playing "$runtime/source.log"; step $? "the source plays 0.5 into effect_0 and 0.25 into effect_3"
 pw-link effect_0:out_1 effect_1:in_1; step $? "effect_0:out_1 -> effect_1:in_1"
 
+# ---- auxiliary ports (#92): an LV2 plugin's auxiliary groups, a JACK port per channel, bound to the plugin ----
+layout=urn:openmixer:test:layout-fixture
+level() { echo | timeout 10 "$probe" - "$@" 2>>"$runtime/probe.log"; }
+expect "add lv2:$layout#main-aux 6" "resp 6"
+[ "$(ports effect_6 i)" = "effect_6:aux_in_1_1 effect_6:aux_in_1_2 effect_6:aux_in_2_1 effect_6:aux_in_2_2 effect_6:in_1 effect_6:in_2 " ]
+step $? "the main group and two stereo aux groups: $(ports effect_6 i)"
+pw-link jack_meter_source:out_l effect_6:aux_in_2_1; step $? "the source's 0.5 into effect_6:aux_in_2_1, nothing on the mains"
+expect "add lv2:$layout#bands 7" "resp 7"
+[ "$(ports effect_7 o)" = "effect_7:aux_out_1_1 effect_7:aux_out_1_2 effect_7:aux_out_2_1 effect_7:aux_out_2_2 effect_7:aux_out_3_1 effect_7:aux_out_3_2 effect_7:out_1 effect_7:out_2 " ]
+step $? "the main pair and three stereo band outputs: $(ports effect_7 o)"
+pw-link jack_meter_source:out_l effect_7:in_1; step $? "the source's 0.5 into effect_7:in_1"
+sleep 0.3
+# main-aux sums its main and both aux pairs: out_1 is the second aux group's left, a dry pass reads silence
+aux_reads() {
+    local w
+    w=$(level effect_6:out_1); near "${w%% *}" 0.5 0.0001; step $? "$1effect_6:out_1 carries aux_in_2_1, 0.5 ($w)"
+    w=$(level effect_6:out_2); near "${w%% *}" 0 0.000001; step $? "$1effect_6:out_2 is silent ($w)"
+    # band k writes in * k/4
+    w=$(level effect_7:aux_out_2_1); near "${w%% *}" 0.25 0.0001; step $? "$1effect_7:aux_out_2_1 is in * 2/4, 0.25 ($w)"
+    w=$(level effect_7:aux_out_3_1); near "${w%% *}" 0.375 0.0001; step $? "$1effect_7:aux_out_3_1 is in * 3/4, 0.375 ($w)"
+    w=$(level effect_7:aux_out_2_2); near "${w%% *}" 0 0.000001; step $? "$1effect_7:aux_out_2_2 is the silent right ($w)"
+}
+aux_reads ""
+
 # the default state: -20 dB from the port's default, -6 dB from state:loadDefaultState
 reads 3 meter "$(db 0.25 -26)" 0.00006 "the default state"
 reads 0 meter "$(db 0.5 -26)" 0.00006 "the default state"
@@ -237,6 +261,9 @@ pw-metadata -n settings 0 clock.force-quantum 2048 >/dev/null 2>&1; step $? "the
 reads 0 meter "$(db 0.5 -26)" 0.00006 "after the growth effect_0 still passes audio"
 pw-metadata -n settings 0 clock.force-quantum 1024 >/dev/null 2>&1; step $? "the quantum forced back to 1024"
 reads 0 meter "$(db 0.5 -26)" 0.00006 "and back at 1024, effect_0 still passes audio"
+aux_reads "after the shrink and the growth, "
+expect "remove 7" "resp 0"
+expect "remove 6" "resp 0"
 
 # ---- parameters by symbol, and by id ----
 expect "param_get 0 gain_db" "resp 0 -20.0000"
