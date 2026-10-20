@@ -42,6 +42,19 @@
 #define FAKE_LATENCY_NEXT   128
 #define SETTLE_US       50000
 
+/* every allocation of the process while g_count_allocs is set, the core's and a plugin's included: exported (the build
+ * hides everything by default), so the shared library and the .clap files bind to these and not to libc's */
+static volatile int g_count_allocs;
+static volatile unsigned g_allocs;
+extern void *__libc_malloc(size_t);
+extern void *__libc_calloc(size_t, size_t);
+extern void *__libc_realloc(void *, size_t);
+extern void __libc_free(void *);
+__attribute__((visibility("default"))) void *malloc(size_t n) { g_allocs += g_count_allocs; return __libc_malloc(n); }
+__attribute__((visibility("default"))) void *calloc(size_t a, size_t b) { g_allocs += g_count_allocs; return __libc_calloc(a, b); }
+__attribute__((visibility("default"))) void *realloc(void *p, size_t n) { g_allocs += g_count_allocs; return __libc_realloc(p, n); }
+__attribute__((visibility("default"))) void free(void *p) { g_allocs += g_count_allocs; __libc_free(p); }
+
 typedef struct MIDI_AT_T {
     uint32_t time;
     uint8_t data[3];
@@ -519,6 +532,55 @@ static void t_layout_description(const char *path)
         omx_clap_host_close(in);
     }
     CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the descriptions");
+}
+
+/*
+ * The bounce at the limits: 64 auxiliary inputs and 64 auxiliary outputs of 64 channels each, activated at blocks of
+ * 4096 frames, map one silence block, one scratch block per auxiliary output channel and the four legs, once, at
+ * activation; 64 blocks then run with no allocation anywhere in the process. The counter's witness: an open, which
+ * allocates inside the shared library, is counted.
+ */
+static void t_bounce_at_limits(const char *path)
+{
+    enum { MAX_BLOCK = 4096 };
+    struct omx_clap_instance *in = NULL;
+    char why[OMX_CLAP_WHY_MAX];
+    static float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    unsigned before;
+    uint32_t b;
+
+    before = g_allocs;
+    g_count_allocs = 1;
+    open_ok(path, FAKE_AUX_MAX, &in);
+    g_count_allocs = 0;
+    CHECK(in != NULL, "open %s", FAKE_AUX_MAX);
+    CHECK(g_allocs > before, "the counter sees the shared library's allocations (%u in the open)", g_allocs - before);
+    if (!in)
+        return;
+    CHECK(in->aux_inputs == CLAP_HOST_AUX_INPUTS && in->aux_outputs == CLAP_HOST_AUX_OUTPUTS && in->aux_in[63].channels == 64 &&
+              in->aux_out[63].channels == 64 && in->aux_out_base[63] == 63 * 64,
+          "64 auxiliary inputs and 64 auxiliary outputs of 64 channels each");
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, MAX_BLOCK, why) == 0, "activate at blocks of %u frames (%s)", MAX_BLOCK, why);
+    CHECK(in->bounce_blocks == 4 + 1 + 64 * 64, "the bounce: the legs, the silence and 4096 scratch blocks (%u)", in->bounce_blocks);
+    CHECK(in->bounce_map_len >= (size_t)in->bounce_blocks * MAX_BLOCK * sizeof(float), "and its mapping holds them (%zu bytes)", in->bounce_map_len);
+    CHECK(in->stage.aout[64].channel_count == 64 && in->stage.aout[64].data32[63] == in->stage.aux_scratch[64 * 64 - 1] &&
+              (const uint8_t *)in->stage.aout[64].data32[63] > (const uint8_t *)in->bounce_map &&
+              (const uint8_t *)(in->stage.aout[64].data32[63] + MAX_BLOCK) <= (const uint8_t *)in->bounce_map + in->bounce_map_len,
+          "the last output's last channel writes its own block inside the mapping");
+    omx_clap_host_publish(in, pthread_self());
+    memset(in_l, 0, sizeof(in_l));
+    memset(in_r, 0, sizeof(in_r));
+    before = g_allocs;
+    g_count_allocs = 1;
+    for (b = 0; b < 64; b++)
+        omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+    g_count_allocs = 0;
+    CHECK(g_allocs == before, "64 blocks at the limits allocate nothing (%u)", g_allocs - before);
+    CHECK(atomic_load(&in->stage.h.runs) == 64 && atomic_load(&in->stage.process_errors) == 0, "and every block ran the plugin (%u runs)",
+          atomic_load(&in->stage.h.runs));
+    omx_clap_host_close(in);
 }
 
 static void fake_plugin_checks(const char *path)
@@ -1392,6 +1454,7 @@ int main(int argc, char **argv)
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
+        t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
         if (synth_path)
@@ -1518,6 +1581,7 @@ int main(int argc, char **argv)
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
+        t_bounce_at_limits(fake_path);
     }
     if (synth_path)
     {

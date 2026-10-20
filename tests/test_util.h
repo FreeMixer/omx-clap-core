@@ -45,6 +45,7 @@
 #define FAKE_TWO_MAINS      "org.omx-clap-host.test.two-mains"
 #define FAKE_MANY_AUX       "org.omx-clap-host.test.many-aux"
 #define FAKE_AUX_WIDE       "org.omx-clap-host.test.aux-wide"
+#define FAKE_AUX_MAX        "org.omx-clap-host.test.aux-max"
 #define SYNTH               "org.omx-clap-host.test.synth"
 #define SYNTH_MIDI          "org.omx-clap-host.test.synth-midi"
 #define SYNTH_AUX           "org.omx-clap-host.test.synth-aux"
