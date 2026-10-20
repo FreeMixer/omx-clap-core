@@ -120,6 +120,8 @@ def measure(m0, m1, o0, o1, rate, signal_end):
         r['self_mod'] = r['self_omx'] = True
     r['peak_mod'] = float(np.nanmax(np.abs(m0))) if m0.size else 0.0
     r['peak_omx'] = float(np.nanmax(np.abs(o0))) if o0.size else 0.0
+    r['rms_mod'] = float(np.sqrt(np.nanmean(np.square(m0.astype(np.float64))))) if m0.size else 0.0
+    r['rms_omx'] = float(np.sqrt(np.nanmean(np.square(o0.astype(np.float64))))) if o0.size else 0.0
     r['nonfinite_mod'] = int(np.count_nonzero(~np.isfinite(m0)))
     r['nonfinite_omx'] = int(np.count_nonzero(~np.isfinite(o0)))
     r['sha_mod'] = hashlib.sha256(m0.tobytes()).hexdigest()[:16]
@@ -166,6 +168,24 @@ def measure(m0, m1, o0, o1, rate, signal_end):
 # ---------------------------------------------------------------- the rules (pure)
 
 
+REL_TOL = 1e-5      # WITHIN-TOLERANCE also stays under the peak times this (-100 dB): 1e-6 alone is 1 % of a 1e-4 peak
+SPREAD_K = 1.5      # two hosts of a random plugin may differ by this times the plugin's own spread, no more
+SPREAD_DB = 0.5     # ... and their levels (RMS) by this many dB
+
+
+def ports_of(rec):
+    """{'mod': (outputs, midi inputs), 'omx': (...)} from the feeder's link lines of instance 0 and 2 (None: unknown)."""
+    p = rec.get('ports') or {}
+    out = {}
+    for host, client in (('mod', 'effect_0'), ('omx', 'effect_2')):
+        line = p.get(client)
+        if not line:
+            return None
+        f = dict(x.split('=', 1) for x in line.split() if '=' in x)
+        out[host] = (int(f.get('out', 0)), int(f.get('midi', 0)))
+    return out
+
+
 def classify(rec):
     """(class, cause, detail) of one raw record."""
     tol = 1e-2 if SABOTAGE == 'tolerance' else TOL
@@ -181,29 +201,56 @@ def classify(rec):
     if st != 'ok':
         return 'ERROR', st, rec.get('detail', '')
     m = rec['m']
+    audio = 'the audio bit-identical' if m.get('equal') else 'the audio differs too'
+    # the port layout first: a port one host has and the other has not is a difference whatever the audio says
+    po = ports_of(rec)
+    if po and po['mod'][0] != po['omx'][0]:
+        return 'DIFFERS', 'output count', f"mod-host {po['mod'][0]} audio outputs, omx-clap-host {po['omx'][0]}; {audio}"
+    if m['ch_mod'] != m['ch_omx']:
+        return 'DIFFERS', 'output count', f"mod-host {m['ch_mod']} outputs recorded, omx-clap-host {m['ch_omx']}"
+    if po and po['mod'][1] != po['omx'][1] and SABOTAGE != 'midi-blind':
+        return ('DIFFERS', 'MIDI input count', f"a MIDI input through {'mod-host' if po['mod'][1] else 'omx-clap-host'} only "
+                f"(mod-host {po['mod'][1]}, omx-clap-host {po['omx'][1]}): no notes sent to either; {audio}")
     if not m['self_mod'] or not m['self_omx']:
-        who = ' and '.join(h for h, ok in (('mod-host', m['self_mod']), ('omx-clap-host', m['self_omx'])) if not ok)
         if m.get('equal') and m.get('equal_second'):
-            return ('NONDETERMINISTIC', f'differs from itself in {who}; the hosts agree instance by instance',
+            return ('NONDETERMINISTIC', 'its own randomness; the hosts agree instance by instance',
                     f"a per-instance seed: each host's first instance bit-identical to the other's first, the second to the "
                     f"second; self max diff {max(m['self_mod_max'], m['self_omx_max']):.3g}")
-        return ('NONDETERMINISTIC', f'differs from itself in {who}',
-                f"self max diff mod-host {m['self_mod_max']:.3g}, omx-clap-host {m['self_omx_max']:.3g}; "
-                f"across hosts {'equal' if m.get('equal') else 'differ'}")
+        if m['self_mod'] != m['self_omx'] and SABOTAGE != 'one-host-nondet':
+            # the plugin is deterministic in one host: the other host's spread is that host's, not the plugin's
+            who, other = ('omx-clap-host', 'mod-host') if m['self_mod'] else ('mod-host', 'omx-clap-host')
+            return ('DIFFERS', f'nondeterministic in {who} only',
+                    f"{other}'s two instances bit-identical, {who}'s differ by {max(m['self_mod_max'], m['self_omx_max']):.3g}; "
+                    f"across hosts {m.get('max_diff', 0):.3g}")
+        # random in both: the hosts may differ by as much as the plugin differs from itself, and no more
+        spread = max(m['self_mod_max'], m['self_omx_max'])
+        cross = m.get('max_diff', 0.0)
+        level = None
+        if m.get('rms_mod') and m.get('rms_omx'):
+            import math
+            level = 20 * math.log10(m['rms_mod'] / m['rms_omx'])
+        lv = f"level {level:+.2f} dB" if level is not None else 'level not measured'
+        if cross <= SPREAD_K * spread and (level is None or abs(level) <= SPREAD_DB):
+            return ('NONDETERMINISTIC', 'its own randomness, in both hosts; the hosts within its spread',
+                    f"across hosts max {cross:.3g} <= {SPREAD_K} x its own spread {spread:.3g}; {lv}")
+        return ('DIFFERS', "beyond the plugin's own spread",
+                f"random in both hosts, but across hosts max {cross:.3g} against its own spread {spread:.3g} "
+                f"(bound {SPREAD_K} x); {lv}")
     if m.get('equal'):
-        silent = m['peak_mod'] == 0.0
-        return 'IDENTICAL', 'silent' if silent else '', f"peak {m['peak_mod']:.3g}"
-    if m['ch_mod'] != m['ch_omx']:
-        return 'DIFFERS', 'output count', f"mod-host {m['ch_mod']} outputs, omx-clap-host {m['ch_omx']}"
+        if m['peak_mod'] == 0.0 and SABOTAGE != 'silent-pass':
+            return 'SILENT', 'proves nothing', 'silent through both hosts with the defaults'
+        return 'IDENTICAL', '', f"peak {m['peak_mod']:.3g}"
     where = _where(m, rec.get('rate', 48000))
     if m['nonfinite_mod'] != m['nonfinite_omx']:
         return 'DIFFERS', 'NaN or Inf in one host', f"mod-host {m['nonfinite_mod']}, omx-clap-host {m['nonfinite_omx']}; {where}"
-    if m['max_diff'] < tol:
-        if m['diff_mag_max'] < SUBNORMAL:
-            return 'WITHIN-TOLERANCE', 'subnormal values only (flush to zero)', f"max {m['max_diff']:.3g}; {where}"
-        return 'WITHIN-TOLERANCE', 'rounding', f"max {m['max_diff']:.3g}; {where}"
+    peak = max(m['peak_mod'], m['peak_omx'])
+    if m['max_diff'] < tol and m['diff_mag_max'] < SUBNORMAL:
+        return 'WITHIN-TOLERANCE', 'subnormal values only (flush to zero)', f"max {m['max_diff']:.3g}; {where}"
+    if m['max_diff'] < tol and m['max_diff'] <= REL_TOL * peak:
+        return 'WITHIN-TOLERANCE', 'rounding', f"max {m['max_diff']:.3g}, {m['max_diff'] / peak:.2g} of the peak; {where}"
     if m.get('lag') and m['max_diff_lagged'] < tol:
-        return ('WITHIN-TOLERANCE', f"latency offset of {m['lag']} samples",
+        # exact after a shift: an alignment difference, which a parallel path turns into a comb filter
+        return ('DIFFERS', f"offset of {m['lag']} samples, exact",
                 f"omx-clap-host {'late' if m['lag'] > 0 else 'early'} by {abs(m['lag'])}; max after the shift {m['max_diff_lagged']:.3g}")
     if m['peak_omx'] == 0.0 and m['peak_mod'] > 0:
         return 'DIFFERS', 'silent through omx-clap-host', f"mod-host peak {m['peak_mod']:.3g}"
@@ -213,12 +260,13 @@ def classify(rec):
         return 'DIFFERS', 'channels swapped', where
     if rec.get('param_diff'):
         return 'DIFFERS', 'a control starts at a different value', '; '.join(rec['param_diff'][:6]) + f'; {where}'
-    peak = max(m['peak_mod'], m['peak_omx'])
     if m.get('lag') and m['max_diff_lagged'] < 1e-3 * peak:
-        return 'DIFFERS', f"latency offset of {m['lag']} samples, not exact", f"max after the shift {m['max_diff_lagged']:.3g}; {where}"
+        return 'DIFFERS', f"offset of {m['lag']} samples, not exact", f"max after the shift {m['max_diff_lagged']:.3g}; {where}"
     if m['gain_residual'] < 1e-4 * peak and abs(m['gain'] - 1.0) > 1e-6 and m['gain'] > 0:
         import math
         return 'DIFFERS', 'level', f"mod-host / omx-clap-host = {20 * math.log10(m['gain']):+.3f} dB; {where}"
+    if m['max_diff'] < tol:
+        return 'DIFFERS', 'under 1e-6 but over -100 dB of a small peak', f"max {m['max_diff']:.3g}, peak {peak:.3g}; {where}"
     if m['max_diff_after_startup'] < tol:
         return 'DIFFERS', 'start-up only (the first 100 ms)', where
     if m['max_diff_signal'] < tol and m['max_diff_tail'] >= tol:
@@ -384,6 +432,23 @@ PLAN_COLS = ['uri', 'stratum', 'cls', 'audio_in', 'audio_out', 'midi_in', 'instr
              'presets', 'latency_port', 'sidechains', 'name']
 
 
+def coverage_of(rows, keep, skipped):
+    """The denominator: every row of the coverage table by bucket, the set run, the #92 skips, and the plugins
+    mod-host hosts that the adapter does not (no parity possible: the adapter refuses them)."""
+    by = {}
+    for r in rows:
+        by[r.get('bucket', '')] = by.get(r.get('bucket', ''), 0) + 1
+    modhost_only = [dict(uri=r['uri'], refusal=r.get('omx_clap_host', ''), scope=r.get('scope', ''), cls=r.get('class', ''),
+                         audio_in=r.get('audio_in', ''), audio_out=r.get('audio_out', ''), midi_in=r.get('midi_in', ''))
+                    for r in rows if r.get('bucket') == 'modhost-only']
+    mod_hosts = by.get('both', 0) + by.get('modhost-only', 0)
+    return dict(total=len(rows), buckets=by, run=len(keep), skipped_92=len(skipped), modhost_only=len(modhost_only),
+                mod_host_hosts=mod_hosts, no_parity=len(modhost_only) + len(skipped)), modhost_only
+
+
+MODHOST_ONLY_COLS = ['uri', 'refusal', 'scope', 'cls', 'audio_in', 'audio_out', 'midi_in']
+
+
 def cmd_probe(a):
     os.makedirs(a.out, exist_ok=True)
     if a.uris:
@@ -403,6 +468,11 @@ def cmd_probe(a):
         chosen = stratify(keep, a.sample, a.seed)
     write_tsv(os.path.join(a.out, 'plugins.tsv'), chosen, PLAN_COLS)
     write_tsv(os.path.join(a.out, 'skipped.tsv'), skipped, PLAN_COLS + ['cause'])
+    if not a.uris:
+        cov, mo = coverage_of(rows, keep, skipped)
+        write_tsv(os.path.join(a.out, 'modhost-only.tsv'), mo, MODHOST_ONLY_COLS)
+        with open(os.path.join(a.out, 'coverage.json'), 'w') as f:
+            json.dump(dict(cov, table=os.path.abspath(a.coverage)), f, indent=1)
     by = {}
     for e in chosen:
         by[e['stratum']] = by.get(e['stratum'], 0) + 1
@@ -939,7 +1009,7 @@ def cmd_classify(a):
     return 0
 
 
-CLASSES = ['IDENTICAL', 'WITHIN-TOLERANCE', 'DIFFERS', 'NONDETERMINISTIC', 'CRASH', 'HANG', 'REFUSED', 'ERROR']
+CLASSES = ['IDENTICAL', 'WITHIN-TOLERANCE', 'SILENT', 'DIFFERS', 'NONDETERMINISTIC', 'CRASH', 'HANG', 'REFUSED', 'ERROR']
 
 
 def report_text(rows, skipped, meta):
@@ -959,8 +1029,10 @@ def report_text(rows, skipped, meta):
               'noise + sine + an impulse per second on two channels for the first 60 % and silence for the tail (a fixed note '
               'sequence to a MIDI input). The cycles run back to back' + (' one quantum of wall time apart (paced).' if meta.get('paced') else
               ', as fast as the graph completes them.') + ' Compared from the first played sample: each host\'s two '
-              'instances with each other (NONDETERMINISTIC), then the first instance of each host bit for bit; under 1e-6 with a '
-              'named reason is WITHIN-TOLERANCE.', '']
+              'instances with each other, then the first instance of each host bit for bit. WITHIN-TOLERANCE: under 1e-6 '
+              f'and under {REL_TOL:g} of the peak, rounding or subnormals, at no offset. An offset, even exact, is DIFFERS. '
+              'NONDETERMINISTIC only when the plugin is random in both hosts and the hosts agree instance by instance, or '
+              f'differ by no more than {SPREAD_K} times its own spread and {SPREAD_DB} dB in level.', '']
     L += ['## Counts per class', '', '| class | ' + ' | '.join(f'{r // 1000 if r % 1000 == 0 else r / 1000} kHz' for r in rates) + ' |',
           '|---|' + '---:|' * len(rates)]
     for c in CLASSES:
@@ -968,10 +1040,32 @@ def report_text(rows, skipped, meta):
         if any(cells):
             L.append(f'| {c} | ' + ' | '.join(str(x) for x in cells) + ' |')
     L.append('| total | ' + ' | '.join(str(sum(1 for r in rows if int(r['rate']) == rt)) for rt in rates) + ' |')
-    silent = [r for r in rows if r['class'] == 'IDENTICAL' and r['cause'] == 'silent']
+    L += ['', 'IDENTICAL counts only sound compared: a plugin silent through both hosts with its defaults is SILENT, '
+          'which proves nothing; a port one host has and the other lacks (an output, a MIDI input) is DIFFERS whatever '
+          'the audio; a host that is random where the other is not is DIFFERS.']
+    silent = [r for r in rows if r['class'] == 'SILENT']
     if silent:
-        L += ['', f"Of the IDENTICAL, {len(silent)} measurements are silent through both hosts (weak evidence: "
-              "a generator or a gate whose defaults make no sound): " + ', '.join(sorted({r['uri'] for r in silent}))]
+        L += ['', f"SILENT ({len(silent)} measurements): " + ', '.join(sorted({r['uri'] for r in silent}))]
+    cov = meta.get('coverage')
+    if cov:
+        b = cov['buckets']
+        L += ['', '## The denominator', '',
+              f"Of the {cov['total']}-row coverage table: {b.get('both', 0)} both hosts add ({cov['run']} in the set run here, "
+              f"{cov['skipped_92']} skipped under omx-clap-core#92: more than two audio inputs, a sidechain or CV ports); "
+              f"{b.get('modhost-only', 0)} mod-host only (the adapter refuses them: no parity possible, each a gap for "
+              f"removing mod-host); {b.get('neither', 0)} neither; {b.get('adapter-only', 0)} the adapter only. "
+              f"**{cov['no_parity']} of the {cov['mod_host_hosts']} plugins mod-host hosts have no parity measurement** "
+              f"({cov['modhost_only']} mod-host only + {cov['skipped_92']} #92). Measured here: {len(uris)} plugins.", '']
+        mo = meta.get('modhost_only_rows') or []
+        if mo:
+            codes = {}
+            for r in mo:
+                codes.setdefault(r.get('refusal') or '?', []).append(r)
+            L += ['The mod-host-only plugins by the adapter\'s refusal (every one in `modhost-only.tsv`):', '',
+                  '| refusal | plugins | examples |', '|---|---:|---|']
+            for code, rs in sorted(codes.items(), key=lambda kv: -len(kv[1])):
+                L.append(f"| {code} | {len(rs)} | " + ', '.join(r['uri'] for r in rs[:4]) + (' ...' if len(rs) > 4 else '') + ' |')
+            L.append('')
     strata = sorted({r.get('stratum', '') for r in rows if r.get('stratum')})
     if len(strata) > 1:
         cls_here = [c for c in CLASSES if any(r['class'] == c for r in rows)]
@@ -979,8 +1073,9 @@ def report_text(rows, skipped, meta):
               '|---|' + '---:|' * len(cls_here)]
         for st in strata:
             L.append(f'| {st} | ' + ' | '.join(str(sum(1 for r in rows if r.get('stratum') == st and r['class'] == c)) for c in cls_here) + ' |')
-    L += ['', f'Plugins: {len(uris)}. Skipped before the run (omx-clap-core#92, more than two audio inputs, a '
-          f'sidechain or CV ports): {len(skipped)}.']
+    if not cov:
+        L += ['', f'Plugins: {len(uris)}. Skipped before the run (omx-clap-core#92, more than two audio inputs, a '
+              f'sidechain or CV ports): {len(skipped)}. No coverage table: the denominator is not known.']
     def table(cls, title):
         sel = [r for r in rows if r['class'] == cls]
         if not sel:
@@ -1076,6 +1171,19 @@ def cmd_report(a):
         meta = json.load(open(mp))
     if a.full_count:
         meta['full_count'] = a.full_count
+    cp = os.path.join(a.out, 'coverage.json')
+    if getattr(a, 'coverage', None) and os.path.exists(a.coverage):
+        # the denominator from the table itself (a run probed before probe wrote coverage.json)
+        crow = read_tsv(a.coverage)
+        keep, sk2 = plan(crow, lilv_facts([r['uri'] for r in crow if r.get('bucket') == 'both']))
+        cov, mo = coverage_of(crow, keep, sk2)
+        write_tsv(os.path.join(a.out, 'modhost-only.tsv'), mo, MODHOST_ONLY_COLS)
+        with open(cp, 'w') as f:
+            json.dump(dict(cov, table=os.path.abspath(a.coverage)), f, indent=1)
+    if os.path.exists(cp):
+        meta['coverage'] = json.load(open(cp))
+        mp2 = os.path.join(a.out, 'modhost-only.tsv')
+        meta['modhost_only_rows'] = read_tsv(mp2) if os.path.exists(mp2) else []
     text = report_text(rows, skipped, meta)
     with open(os.path.join(a.out, 'summary.md'), 'w') as f:
         f.write(text)
@@ -1116,7 +1224,7 @@ def self_test():
     c = cls(sig, sig.copy(), sig.copy(), sig.copy())
     t('the same samples through both hosts: IDENTICAL', c[0] == 'IDENTICAL' and c[1] == '')
     z = np.zeros_like(sig)
-    t('silence through both: IDENTICAL, cause silent', cls(z, z, z, z)[:2] == ('IDENTICAL', 'silent'))
+    t('silence through both: SILENT, which proves nothing (not IDENTICAL)', cls(z, z, z, z)[:2] == ('SILENT', 'proves nothing'))
     o = sig.copy()
     o[1, 30000] += np.float32(3e-7)
     c = cls(sig, sig, o, o.copy())
@@ -1128,7 +1236,7 @@ def self_test():
     late = np.zeros_like(sig)
     late[:, 64:] = sig[:, :-64]
     c = cls(sig, sig, late, late.copy())
-    t('omx-clap-host 64 samples late: WITHIN-TOLERANCE, latency offset of 64', c[:2] == ('WITHIN-TOLERANCE', 'latency offset of 64 samples'))
+    t('omx-clap-host 64 samples late, exact after the shift: DIFFERS, offset of 64 samples (never a pass)', c[:2] == ('DIFFERS', 'offset of 64 samples, exact'))
     t('... and its detail says late', 'late by 64' in c[2])
     q = (sig * np.float32(0.5)).astype(np.float32)
     c = cls(sig, sig, q, q.copy())
@@ -1164,12 +1272,33 @@ def self_test():
     c = cls(sig[:1].copy(), sig[:1].copy(), sig, sig)
     t('one output against two: DIFFERS, output count', c[:2] == ('DIFFERS', 'output count'))
     c = cls(sig, other, sig, sig)
-    t("mod-host's two instances differ: NONDETERMINISTIC in mod-host", c[0] == 'NONDETERMINISTIC' and c[1] == 'differs from itself in mod-host')
+    t("random in mod-host only: DIFFERS, nondeterministic in mod-host only", c[:2] == ('DIFFERS', 'nondeterministic in mod-host only'))
     c = cls(sig, sig, sig, other)
-    t("omx-clap-host's two instances differ: NONDETERMINISTIC in omx-clap-host", c[0] == 'NONDETERMINISTIC' and c[1].endswith('omx-clap-host'))
+    t("random in omx-clap-host only (dexed): DIFFERS, nondeterministic in omx-clap-host only", c[:2] == ('DIFFERS', 'nondeterministic in omx-clap-host only'))
     c = cls(sig, other, sig, other)
     t('a per-instance seed, the hosts agreeing instance by instance: NONDETERMINISTIC, named so',
       c[0] == 'NONDETERMINISTIC' and c[1].endswith('the hosts agree instance by instance'))
+    def noisy(seed, gain=1.0):
+        g = np.random.default_rng(seed)
+        return ((sig + (g.standard_normal(sig.shape) * 0.01).astype(np.float32)) * np.float32(gain)).astype(np.float32)
+    c = cls(noisy(1), noisy(2), noisy(3), noisy(4))
+    t('random in both hosts, across hosts within its own spread: NONDETERMINISTIC', c[0] == 'NONDETERMINISTIC' and 'within its spread' in c[1])
+    c = cls(noisy(1), noisy(2), noisy(3, 2.0), noisy(4, 2.0))
+    t("random in both hosts, omx-clap-host twice as loud: DIFFERS, beyond the plugin's own spread",
+      c[:2] == ('DIFFERS', "beyond the plugin's own spread"))
+    def with_ports(r, mod, omx):
+        r = dict(r)
+        r['ports'] = {'effect_0': f'in=2 out={mod[0]} midi={mod[1]} midi_fed=0', 'effect_2': f'in=2 out={omx[0]} midi={omx[1]} midi_fed=0'}
+        return r
+    c = classify(with_ports(rec_of(sig, sig, sig, sig), (2, 1), (2, 0)))
+    t('a MIDI input through mod-host only, the audio bit-identical: DIFFERS, MIDI input count', c[:2] == ('DIFFERS', 'MIDI input count') and 'bit-identical' in c[2])
+    c = classify(with_ports(rec_of(sig, sig, sig, sig), (4, 0), (2, 0)))
+    t('four outputs against two, the first two bit-identical: DIFFERS, output count', c[:2] == ('DIFFERS', 'output count') and 'mod-host 4' in c[2])
+    small = (sig * np.float32(1e-4)).astype(np.float32)
+    sm = small.copy()
+    sm[0, 30000] += np.float32(5e-7)
+    c = cls(small, small, sm, sm.copy())
+    t('5e-7 off at a peak of 4e-5: under 1e-6 but over -100 dB of the peak, DIFFERS', c[:2] == ('DIFFERS', 'under 1e-6 but over -100 dB of a small peak'))
     for st, want in (({'status': 'crash', 'host': 'mod-host', 'phase': 'add'}, ('CRASH', 'mod-host at add')),
                      ({'status': 'hang', 'host': 'omx-clap-host', 'phase': 'run'}, ('HANG', 'omx-clap-host at run')),
                      ({'status': 'refused', 'host': 'omx-clap-host', 'detail': 'resp -102 x'}, ('REFUSED', 'omx-clap-host: resp -102 x'))):
@@ -1215,7 +1344,8 @@ def self_test():
             f.writelines(json.dumps(r) + '\n' for r in recs[:2])
         with open(os.path.join(out, 'raw', '96000.jsonl'), 'w') as f:
             f.writelines(json.dumps(r) + '\n' for r in recs[2:])
-        ns = argparse.Namespace(out=out, full_count=700)
+        write_tsv(os.path.join(d, 'cov2.tsv'), rows, cols)
+        ns = argparse.Namespace(out=out, full_count=700, coverage=os.path.join(d, 'cov2.tsv'))
         with open(os.devnull, 'w') as dn:
             so, sys.stdout = sys.stdout, dn
             try:
@@ -1225,13 +1355,19 @@ def self_test():
                 sys.stdout = so
         pr = read_tsv(os.path.join(out, 'parity.tsv'))
         t('classify writes one row per measurement', len(pr) == 4)
-        t('classify rows carry class and cause', [r['class'] for r in pr] == ['IDENTICAL', 'DIFFERS', 'CRASH', 'WITHIN-TOLERANCE'])
+        t('classify rows carry class and cause', [r['class'] for r in pr] == ['IDENTICAL', 'DIFFERS', 'CRASH', 'DIFFERS'])
         sm = open(os.path.join(out, 'summary.md')).read()
         t('report counts per class and rate', '| IDENTICAL | 1 | 0 |' in sm and '| CRASH | 0 | 1 |' in sm and '| total | 2 | 2 |' in sm)
         t('report names the DIFFERS cause with its plugin', '| level | 1 | urn:b (48k) |' in sm)
         t('report lists a latency the hosts disagree on', '| urn:b | 48000 | 64,64 | 0,0 |' in sm)
         t('report flags omx-clap-host CPU above 1.5x', 'urn:b at 48000: 2.00' in sm)
         t('report gives the full-run estimate', 'Full run estimate: 700 plugins' in sm)
+        cov = json.load(open(os.path.join(out, 'coverage.json')))
+        t('the denominator: every row of the table counted by bucket, the mod-host-only ones named',
+          cov['total'] == 200 and cov['buckets'] == {'both': 180, 'modhost-only': 20} and len(read_tsv(os.path.join(out, 'modhost-only.tsv'))) == 20)
+        t('report states the denominator and the plugins mod-host hosts with no parity',
+          f"Of the 200-row coverage table: 180 both hosts add" in sm and f"**{cov['no_parity']} of the 200 plugins mod-host hosts have no parity measurement**" in sm
+          and '20 mod-host only' in sm)
 
     print(f"self-test: {oks} ok, {len(fails)} failed" + (f" ({SABOTAGE})" if SABOTAGE else ''))
     return 0 if not fails else 1
@@ -1242,7 +1378,7 @@ def self_test_with_sabotage():
     if SABOTAGE:
         return rc
     red = 0
-    sabotages = ['lag-blind', 'tolerance', 'nondet-blind']
+    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, os.path.abspath(__file__), '--self-test'], env=dict(os.environ, LV2_PARITY_SABOTAGE=s),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -1296,6 +1432,7 @@ def main():
         p = sub.add_parser(name)
         p.add_argument('--out', required=True)
         p.add_argument('--full-count', type=int, default=0)
+        p.add_argument('--coverage', help='the coverage table, for the denominator (else the out dir\'s coverage.json)')
     a = ap.parse_args()
     return {'probe': cmd_probe, 'run': cmd_run, 'classify': cmd_classify, 'report': cmd_report}[a.cmd](a)
 
