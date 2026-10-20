@@ -19,7 +19,8 @@
  */
 
 /* A .clap holding the port layouts the host refuses and one it accepts:
- *   org.omx-clap-host.test.wide        one main pair, 6 channels each, no port type
+ *   org.omx-clap-host.test.wide        one main pair, 6 channels each, no port type; process() writes the channels
+ *                                      reversed, in[5 - c] to out[c]
  *   org.omx-clap-host.test.sidechain   a stereo main pair and one more input
  *   org.omx-clap-host.test.notes       a stereo main pair and a note input
  *   org.omx-clap-host.test.widen       a mono main input and a stereo main output
@@ -126,15 +127,16 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
 };
 
 /* what process() writes of the main pair: each output channel a copy of its input (the last one past them), the mono
- * input to the left and its negation to the right, or the sum of the stereo input to the one output */
-enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM };
+ * input to the left and its negation to the right, the sum of the stereo input to the one output, or the channels
+ * reversed (the last input to the first output) */
+enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM, FAKE_MIX_REVERSE };
 
 /* each descriptor's ports, in the descriptors' order: the main input and output widths, the auxiliary inputs and
  * outputs and their widths, a second main output, what process() does beyond the main pair and how it writes that pair */
 static const struct FAKE_LAYOUT_T {
     uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix;
 } g_layouts[] = {
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0 },      // wide
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_REVERSE },  // wide
     { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0 },      // sidechain
     { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
     { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
@@ -517,6 +519,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     {
         for (i = 0; i < process->frames_count; i++)
             out->data32[0][i] = in->data32[0][i] + in->data32[1][i];
+    }
+    else if (fake->mix == FAKE_MIX_REVERSE)
+    {
+        for (c = 0; c < out->channel_count && c < in->channel_count; c++)
+            memcpy(out->data32[c], in->data32[in->channel_count - 1 - c], sizeof(float) * process->frames_count);
     }
     else
     {
