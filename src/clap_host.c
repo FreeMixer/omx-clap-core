@@ -923,6 +923,9 @@ static const char *ports_describe_again(struct omx_clap_instance *in)
         in_widths[i] = in->aux_in[i].channels;
     for (i = 0; i < outputs; i++)
         out_widths[i] = in->aux_out[i].channels;
+    // this read answers every ports rescan the plugin made up to here, an apply or a select included
+    atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);
+    atomic_store_explicit(&in->ports_rescanned, 0u, memory_order_relaxed);
     ports_forget(in);
     code = describe_ports(in);
     if (code)
@@ -979,7 +982,8 @@ static bool same_port_type(const char *a, const char *b)
 
 /* Whether an audio-ports-config is the requests: only main ports asked (index 0, one per side at most), the config's
  * port counts one for each side asked and none for a side not asked, and the main channels and port types the asked
- * ones. A config says nothing of an auxiliary port's width, so a request past the main ports matches none. */
+ * ones. A config says nothing of an auxiliary port's width, so a request past the main ports
+ * matches none. */
 static bool config_matches(const clap_audio_ports_config_t *config, const clap_audio_port_configuration_request_t *reqs, uint32_t n)
 {
     const clap_audio_port_configuration_request_t *in_req = NULL, *out_req = NULL;
@@ -2551,7 +2555,7 @@ static void ports_activate(struct omx_clap_instance *in)
 int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
 {
     struct omx_clap_role role;
-    uint32_t bad;
+    uint32_t bad, pending;
 
     if (!in || in->active || max_block == 0)
         return -1;
@@ -2595,9 +2599,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     }
     omx_clap_set_bypass(&in->stage, in->bypass_wanted);
     ports_activate(in);
-    // a ports rescan the plugin made in the deactivate before (a restart's) is answered by this activate; one it makes
-    // inside activate() is its own and reported
-    atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);
+    // a ports rescan the plugin made before is not this activate's to answer: a re-read of the description is
+    // (request_layout); what stands here is what the warm-up's own cycle below must leave as it found it
+    pending = atomic_load_explicit(&in->ports_rescan_requested, memory_order_relaxed);
     if (!in->plugin->activate(in->plugin, rate, 1, max_block))
     {
         drop_bounce(in);
@@ -2634,7 +2638,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
          * same cycle.
          */
         in->plugin->deactivate(in->plugin);
-        atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);  // answered by this cycle
+        // the warm-up's own deactivate raised nothing the plugin's layout needs; a rescan the first activate raised is
+        // raised again by the second, so it is still reported
+        atomic_store_explicit(&in->ports_rescan_requested, pending, memory_order_relaxed);
         if (!in->plugin->activate(in->plugin, rate, 1, max_block))
         {
             in->active = 0;
@@ -2751,6 +2757,15 @@ int omx_clap_host_restart(struct omx_clap_instance *in)
         return -1;
     omx_clap_host_stop(in);
     omx_clap_host_deactivate(in);
+    // the plugin said its ports changed (in its deactivate, as CLAP has it after request_restart): the description is
+    // the caller's to read again before an activate, so the instance stays inactive with the rescan reported
+    if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
+    {
+        atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
+        in->audio_thread = thread;
+        in->audio_role_held = held;
+        return -1;
+    }
     if (omx_clap_host_activate(in, rate, max_block, NULL) != 0)
         return -1;
     in->audio_thread = thread;
