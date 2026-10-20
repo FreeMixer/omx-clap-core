@@ -1684,10 +1684,21 @@ static void t_aux_bind_wide(void) {
   omx_clap_set_aux_in(&a, 0, 4, NULL);
   CHECK(a.ains[1].data32[3] == silence, "aux: unbound again, back to the silence");
 
+  CHECK(g.st.aux_bound_channels == 0, "aux: no output channel bound after bind_aux (%u)", g.st.aux_bound_channels);
   omx_clap_set_aux_out(&g.st, 1, 6, bufs);
   CHECK(g.st.aout[2].data32[3] == bufs[3], "aux: a bound output writes the caller's buffers");
+  CHECK(g.st.aux_bound_channels == 6, "aux: its six channels counted bound (%u)", g.st.aux_bound_channels);
+  omx_clap_set_aux_out(&g.st, 1, 6, bufs);
+  CHECK(g.st.aux_bound_channels == 6, "aux: bound again to the same buffers, still six (%u)", g.st.aux_bound_channels);
+  float *two[2] = {bufs[0], NULL};
+  omx_clap_set_aux_out(&g.st, 2, 2, two);
+  CHECK(g.st.aux_bound_channels == 7, "aux: one channel of the stereo output bound, its NULL one left on scratch (%u)",
+        g.st.aux_bound_channels);
   omx_clap_set_aux_out(&g.st, 1, 6, NULL);
   CHECK(g.st.aout[2].data32[3] == scratch[4], "aux: unbound, back to its scratch");
+  CHECK(g.st.aux_bound_channels == 1, "aux: unbound, the count falls back (%u)", g.st.aux_bound_channels);
+  omx_clap_set_aux_out(&g.st, 2, 2, NULL);
+  CHECK(g.st.aux_bound_channels == 0, "aux: none bound (%u)", g.st.aux_bound_channels);
 }
 
 static int wide_wet(float (*outs)[MAXB], float (*ins)[MAXB], float gain) {

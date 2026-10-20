@@ -2274,7 +2274,7 @@
         <var-decl name='have_last' type-id='type-id-252' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='689344' hash='76a4f2f6d01844e6' id='type-id-380'>
+    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='689344' hash='4c3896552c94d2a6' id='type-id-380'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='h' type-id='type-id-466' visibility='default'/>
       </data-member>
@@ -2361,6 +2361,9 @@
       </data-member>
       <data-member access='public' layout-offset-in-bits='689280'>
         <var-decl name='wide' type-id='type-id-243' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='689312'>
+        <var-decl name='aux_bound_channels' type-id='type-id-243' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='omx_clap_tempo' is-struct='yes' visibility='default' size-in-bits='64' hash='bbf53208d8c82bab' id='type-id-223'/>
@@ -2591,7 +2594,7 @@
     <pointer-type-def type-id='type-id-347' size-in-bits='64' hash='39c027fda290099c' id='type-id-408'/>
     <pointer-type-def type-id='type-id-348' size-in-bits='64' hash='7eb0e0fedee2349a' id='type-id-417'/>
   </abi-types>
-  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/home/pau/Devel/audio/wt/g92-5' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/home/pau/Devel/audio/wt/g92-6' language='LANG_C99'>
       <function-decl name='omx_clap_host_log_take' type-id='type-id-246' mangled-name='omx_clap_host_log_take' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_log_take@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_param_scale_name' type-id='type-id-248' mangled-name='omx_clap_param_scale_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_scale_name@@OMX_CLAP_CORE_0.10'/>
       <function-decl name='omx_clap_param_unit_name' type-id='type-id-248' mangled-name='omx_clap_param_unit_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_unit_name@@OMX_CLAP_CORE_0.10'/>

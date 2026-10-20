@@ -77,8 +77,8 @@
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
  * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
  * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, the ports rescan the
- * tick reports, and the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
- * omx_clap_host_request_layout asks).
+ * tick reports, the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
+ * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the

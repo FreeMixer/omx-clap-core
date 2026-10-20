@@ -260,6 +260,9 @@ struct omx_clap_stage
     float *wide_in[CLAP_HOST_PORT_CHANNELS],            ///< one block per main input channel: the caller's input is copied here
           *wide_out[CLAP_HOST_PORT_CHANNELS];           ///< one block per main output channel: the plugin writes here
     uint32_t wide;                                      ///< 1 while the wide bounce is bound: the main buffers are wide_in and wide_out
+    // ABI 14: the auxiliary output channels bound to the caller's buffers (omx_clap_set_aux_out); 0 spares a block every
+    // per-channel test of the auxiliary outputs' guard and silence
+    uint32_t aux_bound_channels;
 };
 
 /**
@@ -722,6 +725,7 @@ static inline int omx_clap_bind_aux(struct omx_clap_stage *s, float *const *scra
         s->aout[1 + i].constant_mask = 0;
     }
     s->n_aux = count;
+    s->aux_bound_channels = 0;
     return 0;
 }
 
@@ -735,7 +739,12 @@ static inline void omx_clap_set_aux_out(struct omx_clap_stage *s, uint32_t port,
     uint32_t c;
 
     for (c = 0; c < channels; c++)
+    {
+        const int was = s->aux_ptrs[base + c] != s->aux_scratch[base + c];
+
         s->aux_ptrs[base + c] = bufs && bufs[c] ? bufs[c] : s->aux_scratch[base + c];
+        s->aux_bound_channels += (uint32_t)(s->aux_ptrs[base + c] != s->aux_scratch[base + c]) - (uint32_t)was;
+    }
 }
 
 /**
@@ -1656,6 +1665,8 @@ static inline int omx_clap_aux_out_guard(struct omx_clap_stage *s, int usable, u
 {
     uint32_t i, c, moved = 0;
 
+    if (s->aux_bound_channels == 0)
+        return usable;
     if (usable == OMX_HOSTED_BLOCK_USABLE && (s->h.guards & OMX_HOSTED_GUARD_NONFINITE))
         for (i = 0; i < s->n_aux && usable == OMX_HOSTED_BLOCK_USABLE; i++)
             for (c = 0; c < s->aout[1 + i].channel_count; c++)
@@ -1686,6 +1697,8 @@ static inline void omx_clap_aux_out_silence(struct omx_clap_stage *s, uint32_t n
     const uint32_t m = n < s->h.max_block ? n : s->h.max_block;
     uint32_t i, c;
 
+    if (s->aux_bound_channels == 0)
+        return;
     for (i = 0; i < s->n_aux; i++)
         for (c = 0; c < s->aout[1 + i].channel_count; c++)
             if (omx_clap_aux_out_bound(s, s->aux_base[i] + c))

@@ -348,6 +348,7 @@ member struct omx_clap_stage releases_dropped 85132 4 _Atomic uint32_t releases_
 member struct omx_clap_stage wide_in 85136 512 float * wide_in[64]
 member struct omx_clap_stage wide_out 85648 512 float * wide_out[64]
 member struct omx_clap_stage wide 86160 4 uint32_t wide
+member struct omx_clap_stage aux_bound_channels 86164 4 uint32_t aux_bound_channels
 size struct omx_clap_stage 86168
 member struct omx_clap_tempo bpm_bits 0 8 _Atomic uint64_t bpm_bits
 size struct omx_clap_tempo 8
