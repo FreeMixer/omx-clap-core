@@ -8,18 +8,19 @@
 #      `#include "clap.h"` of all.h is a file name, not an id) has a row: the id in backticks in a table row's first
 #      cell. A missing id is named. Rows for ids the installed headers lack (an older CLAP than the desk's) are kept
 #      and listed, never failed;
-#   2. the host-side and plugin-side cells of every id row start with one status word: supported, lossy,
-#      offered, untested, read, untested, refused, out of scope, unruled, unsupported, or "—" where CLAP has no such half;
+#   2. every id row has exactly 5 cells, and its host-side and plugin-side cells start with one status word:
+#      supported, lossy, offered, untested, read, untested, refused, out of scope, unruled, unsupported, or "—" where
+#      CLAP has no such half;
 #   3. every table cell of the page that says "supported" names a test, and every test it names exists:
-#      `tests/<file>` or `lv2/tests/<file>`, with `:<function>` the file must hold when given, or `make <target>` the
-#      Makefile defines. A cell that names none, or names one the tree lacks, is named.
+#      `tests/<file>` or `lv2/tests/<file>` tracked by git, with `:<function>` a function the file defines when
+#      given, or `make <target>` the Makefile defines. A cell that names none, or names one the tree lacks, is named.
 #
 #   clap_doc_check.sh [--self-test] [--page <file>] [--include <dir holding clap/>]
 #
 # The headers are pkg-config's for clap, else /usr/include. --self-test runs the check on a copy of the page once clean
 # and once per sabotage (an id taken out, a supported cell pointing at a test file the tree lacks, at a function its
-# file does not hold, at a make target the Makefile lacks, a supported cell naming no test, a status word outside the
-# list); each sabotage must go red and name what it broke.
+# file does not define or only calls, at an untracked file, at a make target the Makefile lacks, a supported cell
+# naming no test, a status word outside the list, a row that lost a cell); each must go red and name what it broke.
 # Exit 0 held; 1 the page and the headers or the tree disagree; 2 usage, no page or no headers.
 set -euo pipefail
 
@@ -44,19 +45,30 @@ header_ids() {
   { grep -rhoE '"clap\.[A-Za-z0-9./_-]*"' "$inc/clap" || true; } | tr -d '"' | { grep -vE '\.h$' || true; } | sort -u
 }
 
-# the page's table rows, one per line: the first cell of the table's header row, then the row's cells, TAB-separated,
-# the outer pipes dropped; the header and separator rows themselves are not printed
+# the page's table rows, one per line: the first cell of the table's header row, then the row's cells, each trimmed,
+# separated by the unit separator (an empty cell stays a cell); the header and separator rows are not printed
 rows() { # <page>
   awk '
     !/^\|.*\|[[:space:]]*$/ { head = ""; next }
     /^\|[- |]+\|[[:space:]]*$/ { next }
     {
       line = $0
-      sub(/^\|[[:space:]]*/, "", line); sub(/[[:space:]]*\|[[:space:]]*$/, "", line)
-      gsub(/[[:space:]]+\|[[:space:]]+/, "\t", line)
-      if (head == "") { head = line; sub(/\t.*/, "", head); next }
-      print head "\t" line
+      sub(/^\|/, "", line); sub(/\|[[:space:]]*$/, "", line)
+      n = split(line, c, "|"); out = ""
+      for (i = 1; i <= n; i++) { gsub(/^[[:space:]]+|[[:space:]]+$/, "", c[i]); out = out (i > 1 ? "\037" : "") c[i] }
+      if (head == "") { head = c[1]; next }
+      print head "\037" out
     }' "$1"
+}
+
+# a file is in the tree: tracked by git, so build output beside the sources never passes; a plain file test only
+# where there is no git tree
+in_tree() { # <path relative to the root>
+  if git -c safe.directory="$root" -C "$root" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    git -c safe.directory="$root" -C "$root" ls-files --error-unmatch -- "$1" > /dev/null 2>&1
+  else
+    [ -f "$root/$1" ]
+  fi
 }
 
 # a test a cell names exists: `tests/<f>[:<fn>]`, `lv2/tests/<f>[:<fn>]` or `make <target>`; prints why not
@@ -70,10 +82,10 @@ ref_missing() { # <ref>
     *)
       file=${ref%%:*}
       fn=; [ "$file" = "$ref" ] || fn=${ref#*:}
-      if [ ! -f "$root/$file" ]; then
-        echo "'$file' does not exist"
-      elif [ -n "$fn" ] && ! grep -qE "(^|[^A-Za-z0-9_])${fn}[[:space:]]*\(" "$root/$file"; then
-        echo "'$file' holds no function '$fn'"
+      if ! in_tree "$file"; then
+        echo "'$file' is not a tracked file of this tree"
+      elif [ -n "$fn" ] && ! grep -qE "^(static[[:space:]]+)?[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]${fn}[[:space:]]*\(" "$root/$file"; then
+        echo "'$file' defines no function '$fn'"
       fi ;;
   esac
 }
@@ -88,7 +100,8 @@ check() { # <page>; prints the counts on success
 
   local n_rows=0 n_sup=0 n_lossy=0 n_untested=0 n_refused=0 n_oos=0 n_unruled=0 n_unsup=0 n_none=0
   while IFS= read -r line; do
-    IFS=$'\t' read -r -a cells <<< "$line"
+    # the closing separator keeps an empty last cell: read drops one empty field after the last separator
+    IFS=$'\037' read -r -a cells <<< "$line"$'\037'
     head=${cells[0]}
     cells=("${cells[@]:1}")
     first=${cells[0]}
@@ -96,6 +109,10 @@ check() { # <page>; prints the counts on success
     if [[ $head =~ ^(extension|factory|id)$ && $first =~ ^\`([a-z][A-Za-z0-9._/-]*)\`$ ]]; then
       id=${BASH_REMATCH[1]}
       row_of[$id]=1
+      if [ ${#cells[@]} -ne 5 ]; then
+        echo "clap_doc_check: $id: ${#cells[@]} cells, an id row has 5: $(grep -m1 -F -- "| \`$id\` |" "$p" | cut -c1-160)" >&2
+        bad=1
+      fi
       n_rows=$((n_rows + 1))
       for n in 1 2; do
         cell=${cells[$n]:-}
@@ -168,6 +185,21 @@ if [ $self -eq 1 ]; then
   sab make-target-gone "no-such-target"       "${sup_line}s|$(esc "$sup_ref")|\`make no-such-target\`|"
   sab no-test-named    "names no test"        "${sup_line}s/\`(make [a-z0-9-]+|(lv2\/)?tests\/[A-Za-z0-9_.\/:-]+)\`/a test/g"
   sab status-word      "no status word"       "${sup_line}s/^(\| \`[^\`]+\` \| )/\1maybe /"
+  # a row that lost a cell: the plugin-side cell deleted, the note moving into its column
+  sab cell-dropped     "an id row has 5"      "${sup_line}s/^(\| \`[^\`]+\` \|[^|]*\|)[^|]*\|/\1/"
+  # a function the test file only calls, never defines
+  grep -qE '[^A-Za-z0-9_]omx_clap_host_tick[[:space:]]*\(' "$root/$sup_file" \
+    || { echo "clap_doc_check self-test: $sup_file never calls omx_clap_host_tick" >&2; exit 1; }
+  sab call-site-only   "defines no function 'omx_clap_host_tick'" "${sup_line}s|$(esc "$sup_ref")|\`${sup_file}:omx_clap_host_tick\`|"
+  # a file on disk that git does not track, as build output is
+  if git -c safe.directory="$root" -C "$root" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    untracked=$(mktemp "$root/tests/clap_doc_check_untracked_XXXXXX.c")
+    trap 'rm -rf "$scratch" "$untracked"' EXIT
+    sab untracked-file "${untracked#"$root"/}"  "${sup_line}s|$(esc "$sup_ref")|\`${untracked#"$root"/}\`|"
+    rm -f "$untracked"
+  else
+    echo "SABOTAGE untracked-file: not run, no git tree here"
+  fi
   [ $fail -eq 0 ] || exit 1
   echo "clap_doc_check self-test: every sabotage red"
   exit 0
