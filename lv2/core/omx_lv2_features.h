@@ -62,6 +62,9 @@ enum omx_lv2_feature_kind
     OMX_LV2_F_WORKER,           /* worker:schedule */
     OMX_LV2_F_DEFAULT_STATE,    /* state:loadDefaultState */
     OMX_LV2_F_LOG,              /* log:log */
+    OMX_LV2_F_RTMEMPOOL,        /* rtmempool#Pool, lv2dynparam's realtime-safe memory pool, and under its deprecated URI
+                                 * (lv2dynparam/rtmempool/v1, the struct whose create orders its arguments differently),
+                                 * a slot of its own after the declarations: the same pool */
     OMX_LV2_FEATURE_KINDS
 };
 #define OMX_LV2_FEATURE_BIT(k)          (1u << (k))
@@ -74,8 +77,9 @@ enum omx_lv2_feature_kind
 #define OMX_LV2_BLOCK_POW2              (1u << 2)   /* bufsz:powerOf2BlockLength */
 #define OMX_LV2_BLOCK_ALL               (OMX_LV2_BLOCK_BOUNDED | OMX_LV2_BLOCK_FIXED | OMX_LV2_BLOCK_POW2)
 
-/* The features an array may hold: every kind, and the two buf-size declarations beyond bounded. */
-#define OMX_LV2_FEATURE_SLOTS           (OMX_LV2_FEATURE_KINDS + 2)
+/* The features an array may hold: every kind, the two buf-size declarations beyond bounded, and the pool's deprecated
+ * URI. */
+#define OMX_LV2_FEATURE_SLOTS           (OMX_LV2_FEATURE_KINDS + 3)
 
 /* What log:log does with a line. */
 enum omx_lv2_log_mode

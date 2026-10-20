@@ -20,6 +20,7 @@
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
 
+#include "../../core/lv2_rtmempool.h"
 #include "lv2_feature_probe.h"
 
 // uri-map and event are deprecated upstream: the probe reads them as the plugins written to them do
@@ -55,7 +56,45 @@ static const struct
     { LV2_STATE__makePath, LV2_FEATURE_PROBE_MAKE_PATH },
     { LV2_URI_MAP_URI, LV2_FEATURE_PROBE_URI_MAP },
     { LV2_EVENT_URI, LV2_FEATURE_PROBE_EVENT },
+    { LV2_RTSAFE_MEMORY_POOL__Pool, LV2_FEATURE_PROBE_RTMEMPOOL },
+    { LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, LV2_FEATURE_PROBE_RTMEMPOOL_V1 },
 };
+
+/* a pool of two 32-byte chunks through the current struct: created, a chunk taken atomically and given back, destroyed */
+static int pool_round_trip(const LV2_RtMemPool_Pool *pool)
+{
+    LV2_RtMemPool_Handle h = NULL;
+    void *chunk;
+
+    if (!pool->create(&h, "probe", 32, 2, 4) || !h)
+        return 0;
+    chunk = pool->allocate_atomic(h);
+    if (chunk)
+    {
+        memset(chunk, 0x5a, 32);
+        pool->deallocate(h, chunk);
+    }
+    pool->destroy(h);
+    return chunk != NULL;
+}
+
+/* the same through the deprecated struct, whose create takes the handle last */
+static int pool_v1_round_trip(const LV2_RtMemPool_Pool_Deprecated *pool)
+{
+    LV2_RtMemPool_Handle h = NULL;
+    void *chunk;
+
+    if (!pool->create("probe-v1", 32, 2, 4, &h) || !h)
+        return 0;
+    chunk = pool->allocate_atomic(h);
+    if (chunk)
+    {
+        memset(chunk, 0xa5, 32);
+        pool->deallocate(h, chunk);
+    }
+    pool->destroy(h);
+    return chunk != NULL;
+}
 
 static void *feature(const LV2_Feature *const *features, const char *uri)
 {
@@ -107,7 +146,7 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
             if (!strcmp(features[i]->URI, g_known[k].uri))
                 bit = g_known[k].bit;
         p->seen |= bit;
-        if (i < 12)
+        if (i < 16)
             strncpy(p->order[i], features[i]->URI, sizeof(p->order[i]) - 1);
         p->n_features++;
     }
@@ -134,6 +173,13 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
     if (log)
         p->log_answer = log->printf(log->handle, map ? map->map(map->handle, LV2_LOG__Note) : 0, LV2_FEATURE_PROBE_LINE,
                                     (int)rate);
+    {
+        const LV2_RtMemPool_Pool *pool = feature(features, LV2_RTSAFE_MEMORY_POOL__Pool);
+        const LV2_RtMemPool_Pool_Deprecated *pool_v1 = feature(features, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI);
+
+        p->pool_round_trip = pool ? pool_round_trip(pool) : -1;
+        p->pool_v1_round_trip = pool_v1 ? pool_v1_round_trip(pool_v1) : -1;
+    }
     return calloc(1, sizeof(struct fp));
 }
 
@@ -170,9 +216,14 @@ static const LV2_Descriptor g_needs_worker =
     LV2_FEATURE_PROBE_WORKER_URI, instantiate, connect_port, NULL, run, NULL, cleanup, NULL
 };
 
+static const LV2_Descriptor g_needs_rtmempool =
+{
+    LV2_FEATURE_PROBE_RTMEMPOOL_URI, instantiate, connect_port, NULL, run, NULL, cleanup, NULL
+};
+
 EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &g_probe : index == 1 ? &g_needs_worker : NULL;
+    return index == 0 ? &g_probe : index == 1 ? &g_needs_worker : index == 2 ? &g_needs_rtmempool : NULL;
 }
 
 LV2_RESTORE_WARNINGS
