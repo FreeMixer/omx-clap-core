@@ -13,3 +13,8 @@
     a lv2:Plugin ;
     lv2:binary <omx-path-fixture.so> ;
     rdfs:seeAlso <omx-path-fixture.ttl> .
+
+<urn:openmixer:test:path-fixture#mappath>
+    a lv2:Plugin ;
+    lv2:binary <omx-path-fixture.so> ;
+    rdfs:seeAlso <omx-path-fixture.ttl> .
