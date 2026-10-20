@@ -735,7 +735,8 @@ static void t_layout_description(const char *path)
         fill_tone(in_l, BLOCK, 0, 0.5f);
         memcpy(in_r, in_l, sizeof(in_l));
         omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
-        CHECK(aux[0][0] == 0.0f && aux[1][BLOCK - 1] == 0.0f, "the plugin wrote the caller's buffers (%g, %g)", (double)aux[0][0], (double)aux[1][BLOCK - 1]);
+        CHECK(aux[0][0] == 0.125f && aux[0][BLOCK - 1] == 0.125f && aux[1][0] == 0.0625f && aux[1][BLOCK - 1] == 0.0625f,
+              "the plugin wrote the caller's buffers, 0.125 and 0.0625 (%g, %g)", (double)aux[0][0], (double)aux[1][BLOCK - 1]);
         CHECK(omx_clap_host_bind_aux_output(in, 0, NULL, 2, 0) == -1, "an output binding while it runs is refused");
         omx_clap_host_close(in);
     }
