@@ -587,6 +587,62 @@ static void t_bounce_at_limits(const char *path)
     omx_clap_host_close(in);
 }
 
+/* `blocks` blocks in place on the legs, each refilled with `l` and `r` constant first */
+static void run_constant(struct omx_clap_instance *in, float *l, float *r, float lv, float rv, int blocks)
+{
+    for (int b = 0; b < blocks; b++)
+    {
+        for (int i = 0; i < BLOCK; i++)
+            l[i] = lv, r[i] = rv;
+        omx_clap_host_run(in, l, r, BLOCK);
+    }
+}
+
+static int legs_are(const float *l, const float *r, float lv, float rv)
+{
+    for (int i = 0; i < BLOCK; i++)
+        if (l[i] != lv || r[i] != rv)
+            return 0;
+    return 1;
+}
+
+/*
+ * A main pair of different widths on the two-leg lane: a mono input reads the left leg and a stereo output writes both
+ * (the right leg is the plugin's second output, never the dry right); a stereo input reads both legs and a mono output
+ * is carried to both. Bypassed, both legs carry the dry pair.
+ */
+static void t_main_widths(const char *path)
+{
+    struct omx_clap_instance *in = NULL;
+    float l[BLOCK], r[BLOCK];
+
+    CHECK(open_ok(path, FAKE_MONO_STEREO, &in) && in->in_channels == 1 && in->channels == 2, "%s opens: one channel in, two out", FAKE_MONO_STEREO);
+    if (in)
+    {
+        CHECK(activate(in), "and activates on the two-leg lane");
+        omx_clap_host_publish(in, pthread_self());
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.5f, -0.5f), "the left leg is the plugin's first output, the right its second (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_bypass(in, 1);
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.5f, 0.25f), "bypassed: both legs dry (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    CHECK(open_ok(path, FAKE_STEREO_MONO, &in) && in->in_channels == 2 && in->channels == 1, "%s opens: two channels in, one out", FAKE_STEREO_MONO);
+    if (in)
+    {
+        CHECK(activate(in), "and activates on the two-leg lane");
+        omx_clap_host_publish(in, pthread_self());
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.75f, 0.75f), "the plugin read both legs and its mono output is on both (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_bypass(in, 1);
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.5f, 0.25f), "bypassed: both legs dry (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_close(in);
+    }
+}
+
 static void fake_plugin_checks(const char *path)
 {
     struct omx_clap_instance *instance = NULL;
@@ -596,8 +652,12 @@ static void fake_plugin_checks(const char *path)
     double value;
 
     CHECK(CLAP_HOST_PORT_CHANNELS == 64, "CLAP_HOST_PORT_CHANNELS is %u", CLAP_HOST_PORT_CHANNELS);
-    check_refused(path, FAKE_WIDEN, CLAP_HOST_CODE_WIDER_THAN_STRIP);
-    CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
+    CHECK(open_ok(path, FAKE_WIDEN, &instance) && instance->in_channels == 1 && instance->channels == 2,
+          "open %s: a main pair of different widths is admitted", FAKE_WIDEN);
+    if (instance)
+        omx_clap_host_close(instance);
+    instance = NULL;
+    CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after it (%u open)", omx_clap_host_binaries_open());
 
     CHECK(open_ok(path, FAKE_SIDECHAIN, &instance), "open %s: a side chain is admitted", FAKE_SIDECHAIN);
     if (instance)
@@ -1676,6 +1736,7 @@ int main(int argc, char **argv)
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
+        t_main_widths(fake_path);
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
@@ -1804,6 +1865,7 @@ int main(int argc, char **argv)
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
+        t_main_widths(fake_path);
         t_bounce_at_limits(fake_path);
     }
     if (synth_path)

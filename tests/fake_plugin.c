@@ -32,6 +32,10 @@
  *                                      that input's channel 4 onto the main output's channel 1
  *   org.omx-clap-host.test.aux-max     a stereo main pair, 64 auxiliary inputs and 64 auxiliary outputs of 64
  *                                      channels each; process() copies nothing
+ *   org.omx-clap-host.test.mono-stereo a mono main input and a stereo main output; process() writes in[0] to out[0]
+ *                                      and -in[0] to out[1]
+ *   org.omx-clap-host.test.stereo-mono a stereo main input and a mono main output; process() writes in[0] + in[1]
+ *                                      to out[0]
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
@@ -71,6 +75,8 @@
 #define ID_MANY_AUX     "org.omx-clap-host.test.many-aux"
 #define ID_AUX_WIDE     "org.omx-clap-host.test.aux-wide"
 #define ID_AUX_MAX      "org.omx-clap-host.test.aux-max"
+#define ID_MONO_STEREO  "org.omx-clap-host.test.mono-stereo"
+#define ID_STEREO_MONO  "org.omx-clap-host.test.stereo-mono"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -86,6 +92,7 @@ typedef struct FAKE_T {
     uint32_t two_mains;         // the first auxiliary output is flagged main too
     uint32_t aux_wide;          // process() copies auxiliary input 1's channel 4 onto main output channel 1
     uint32_t copies_nothing;    // process() leaves every buffer as it is
+    uint32_t mix;               // what process() writes of the main pair: one FAKE_MIX_*
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
@@ -114,25 +121,33 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("many-aux", ID_MANY_AUX),
     DESCRIPTOR("aux-wide", ID_AUX_WIDE),
     DESCRIPTOR("aux-max", ID_AUX_MAX),
+    DESCRIPTOR("mono-stereo", ID_MONO_STEREO),
+    DESCRIPTOR("stereo-mono", ID_STEREO_MONO),
 };
 
+/* what process() writes of the main pair: each output channel a copy of its input (the last one past them), the mono
+ * input to the left and its negation to the right, or the sum of the stereo input to the one output */
+enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM };
+
 /* each descriptor's ports, in the descriptors' order: the main input and output widths, the auxiliary inputs and
- * outputs and their widths, a second main output, and what process() does beyond copying the main pair */
+ * outputs and their widths, a second main output, what process() does beyond the main pair and how it writes that pair */
 static const struct FAKE_LAYOUT_T {
-    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing;
+    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix;
 } g_layouts[] = {
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0 },      // wide
-    { 2, 2, 1, 1, 0, 0, 0, 0, 0 },      // sidechain
-    { 2, 2, 0, 0, 0, 0, 0, 0, 0 },      // notes
-    { 2, 2, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
-    { 1, 2, 0, 0, 0, 0, 0, 0, 0 },      // widen
-    { 2, 2, 0, 0, 1, 2, 0, 0, 0 },      // auxout
-    { 2, 2, 1, 0, 0, 0, 0, 0, 0 },      // zero-port
-    { 2, 2, 0, 0, 1, 65, 0, 0, 0 },     // too-wide
-    { 2, 2, 0, 0, 1, 2, 1, 0, 0 },      // two-mains
-    { 2, 2, 65, 1, 0, 0, 0, 0, 0 },     // many-aux
-    { 2, 2, 1, 4, 0, 0, 0, 1, 0 },      // aux-wide
-    { 2, 2, 64, 64, 64, 64, 0, 0, 1 },  // aux-max
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0 },      // wide
+    { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0 },      // sidechain
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // widen
+    { 2, 2, 0, 0, 1, 2, 0, 0, 0, 0 },      // auxout
+    { 2, 2, 1, 0, 0, 0, 0, 0, 0, 0 },      // zero-port
+    { 2, 2, 0, 0, 1, 65, 0, 0, 0, 0 },     // too-wide
+    { 2, 2, 0, 0, 1, 2, 1, 0, 0, 0 },      // two-mains
+    { 2, 2, 65, 1, 0, 0, 0, 0, 0, 0 },     // many-aux
+    { 2, 2, 1, 4, 0, 0, 0, 1, 0, 0 },      // aux-wide
+    { 2, 2, 64, 64, 64, 64, 0, 0, 1, 0 },  // aux-max
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_NEGATE_RIGHT },  // mono-stereo
+    { 2, 1, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_SUM },           // stereo-mono
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
@@ -490,8 +505,24 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         return CLAP_PROCESS_ERROR;
     if (fake->copies_nothing)
         return CLAP_PROCESS_CONTINUE;
-    for (c = 0; c < out->channel_count; c++)
-        memcpy(out->data32[c], in->data32[c < in->channel_count ? c : 0], sizeof(float) * process->frames_count);
+    if (fake->mix == FAKE_MIX_NEGATE_RIGHT)
+    {
+        for (i = 0; i < process->frames_count; i++)
+        {
+            out->data32[0][i] = in->data32[0][i];
+            out->data32[1][i] = -in->data32[0][i];
+        }
+    }
+    else if (fake->mix == FAKE_MIX_SUM)
+    {
+        for (i = 0; i < process->frames_count; i++)
+            out->data32[0][i] = in->data32[0][i] + in->data32[1][i];
+    }
+    else
+    {
+        for (c = 0; c < out->channel_count; c++)
+            memcpy(out->data32[c], in->data32[c < in->channel_count ? c : 0], sizeof(float) * process->frames_count);
+    }
     if (fake->aux_wide && process->audio_inputs_count == 2 && process->audio_inputs[1].channel_count == 4)
         memcpy(out->data32[0], process->audio_inputs[1].data32[3], sizeof(float) * process->frames_count);
     // an auxiliary output is the host's to hand over: a buffer it cannot write is a crash here
@@ -574,6 +605,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->two_mains = g_layouts[i].two_mains;
     fake->aux_wide = g_layouts[i].aux_wide;
     fake->copies_nothing = g_layouts[i].copies_nothing;
+    fake->mix = g_layouts[i].mix;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
     fake->latency_param = LATENCY_DEFAULT;
