@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_STATE_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the state dimension: hosting.state.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "stateNotACopy": {
+        "code": "hosting.state.not-a-copy",
+        "doc": "not a save's copy directory of the root"
+      },
+      "statePathOnAudio": {
+        "code": "hosting.state.path-on-audio",
+        "doc": "makePath: called on the audio role"
+      },
+      "statePathOutside": {
+        "code": "hosting.state.path-outside",
+        "doc": "makePath: empty, absolute, or a `..` component"
+      },
+      "statePathSymlink": {
+        "code": "hosting.state.path-symlink",
+        "doc": "makePath: a component is a symbolic link"
+      },
+      "statePathTooLong": {
+        "code": "hosting.state.path-too-long",
+        "doc": "makePath: PATH_MAX or more, or a long component"
+      },
+      "statePathUnmakeable": {
+        "code": "hosting.state.path-unmakeable",
+        "doc": "makePath: a directory could not be made"
+      },
+      "stateUnreadable": {
+        "code": "hosting.state.unreadable"
+      }
+    }
+  }
+}
