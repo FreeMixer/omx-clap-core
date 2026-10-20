@@ -1337,71 +1337,12 @@ static void instance_drop(struct lv2_instance *in)
     in->worker = NULL;
 }
 
-/* instantiate, connect every port, restore the default state: -1 with nothing left instantiated */
-static int instance_make(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames, char why[LV2_CORE_WHY_MAX])
+/* the MIDI, event, notify and atom buffers, each port's own, at the size its kind takes: -1 when one is not allocated */
+static int buffers_make(struct lv2_instance *in)
 {
     const struct lv2_plugin *p = in->plugin;
-    const LV2_Descriptor *d = p->desc;
-    float *audio;
-    uint32_t leg, k, i, c;
+    uint32_t k;
 
-    audio = calloc((in->blocks ? in->blocks : 1u) * (size_t)max_frames, sizeof(*audio));
-    if (!audio)
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    free(in->audio);
-    in->audio = audio;
-    if (!patch_buffers(in))
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    in->max_frames = max_frames;
-    in->rate = rate;
-    if (options_build(in, rate, min_frames, max_frames) != 0)
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    features_build(in);
-    if (time_make(in) != 0)
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    // an event's type is 16 bits and 0 is the event extension's reference-counted type: an ev:EventPort's MIDI id must
-    // be neither 0 (a table that could not map it) nor past 16 bits, or the plugin is refused before it is instantiated
-    in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
-    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out)
-        && (in->urid_midi == 0 || in->urid_midi > UINT16_MAX))
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    in->handle = d->instantiate(d, rate, p->bundle_path, in->feature_ptrs);
-    if (!in->handle)
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    in->worker = in->ring_mem && d->extension_data ? d->extension_data(LV2_WORKER__interface) : NULL;
-    in->options_iface = d->extension_data ? d->extension_data(LV2_OPTIONS__interface) : NULL;
-    if (in->options_iface && !in->options_iface->set)
-        in->options_iface = NULL;
-    if (in->worker && !in->worker->work)
-    {
-        d->cleanup(in->handle);
-        in->handle = NULL;
-        in->worker = NULL;
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
-    // every port in index order, to the instance's own memory: an LV2 plugin may dereference ANY port it declares, its
-    // own bypass held at the value that keeps it processing, the rows at their values, every other output into memory
-    // the host reads
-    in->latency_port = p->latency_def;
     in->midi_bytes = atom_bytes();
     // a shared port carries the patch messages too: the MIDI buffers are at least the patch capacity
     if ((p->patch_in_shared || p->patch_out_shared) && patch_cap(p) > in->midi_bytes)
@@ -1421,10 +1362,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         else if (port >= 0)
             in->midi[k] = calloc(1, in->midi_bytes);
         if (port >= 0 && !in->midi[k])
-        {
-            lv2_why_set(why, LV2_CODE_NO_REALISATION);
             return -1;
-        }
     }
     if (in->midi[0] && p->midi_in_ll)
         ll_reset((LV2_MIDI *)in->midi[0], in->midi_bytes);
@@ -1436,91 +1374,141 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     in->event_bufs = NULL;
     in->event_stride = EVENT_HEADER_BYTES + in->midi_bytes;      // both multiples of 8: every buffer 8-aligned
     if ((p->n_event_in || p->n_event_out) && !(in->event_bufs = calloc(p->n_event_in + p->n_event_out, in->event_stride)))
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
-    }
     for (k = 0; k < p->n_event_in + p->n_event_out; k++)
         event_reset((LV2_Event_Buffer *)(in->event_bufs + k * (size_t)in->event_stride), in->midi_bytes);
     free(in->notify);
     in->notify = NULL;
     in->notify_bytes = p->notify_min > in->midi_bytes ? (p->notify_min + 7u) & ~7u : in->midi_bytes;
     if (p->n_notify && !(in->notify = calloc(p->n_notify, in->notify_bytes)))
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
-    }
     free(in->atom_in_seq);
     in->atom_in_seq = NULL;
     in->atom_in_bytes = p->atom_in_min > in->midi_bytes ? (p->atom_in_min + 7u) & ~7u : in->midi_bytes;
     if (p->n_atom_in && !(in->atom_in_seq = calloc(p->n_atom_in, in->atom_in_bytes)))
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
-    }
     for (k = 0; k < p->n_atom_in; k++)
         sequence_clear((LV2_Atom_Sequence *)(in->atom_in_seq + k * (size_t)in->atom_in_bytes), in->urid_sequence);
-    for (i = 0, k = 0; i < p->n_ports; i++)
-    {
-        void *at = NULL;
+    return 0;
+}
 
-        for (c = 0; c < p->main_in.n && !at; c++)
-            if (p->main_in.port[c] == i)
-                at = in->audio + c * (size_t)max_frames;
-        for (c = 0; c < p->main_out.n && !at; c++)
-            if (p->main_out.port[c] == i)
-                at = in->audio + (in->at_out + c) * (size_t)max_frames;
-        if (!at && p->patch_in >= 0 && !p->patch_in_shared && (uint32_t)p->patch_in == i)
-            at = in->atom_in;
-        if (!at && p->patch_out >= 0 && !p->patch_out_shared && (uint32_t)p->patch_out == i)
-            at = in->atom_out;
-        if (!at && p->midi_in_port >= 0 && (uint32_t)p->midi_in_port == i)
-            at = in->midi[0];
-        if (!at && p->midi_out_port >= 0 && (uint32_t)p->midi_out_port == i)
-            at = in->midi[1];
-        if (!at && p->time_port >= 0 && (uint32_t)p->time_port == i)
-            at = in->time_buf;
-        for (leg = 0; leg < p->n_notify && !at; leg++)
-            if (p->notify_out[leg] == i)
-                at = in->notify + leg * (size_t)in->notify_bytes;
-        for (leg = 0; leg < p->n_atom_in && !at; leg++)
-            if (p->atom_in[leg] == i)
-                at = in->atom_in_seq + leg * (size_t)in->atom_in_bytes;
-        for (leg = 0; leg < p->n_event_in && !at; leg++)
-            if (p->event_in[leg] == i)
-                at = in->event_bufs + leg * (size_t)in->event_stride;
-        for (leg = 0; leg < p->n_event_out && !at; leg++)
-            if (p->event_out[leg] == i)
-                at = in->event_bufs + (p->n_event_in + leg) * (size_t)in->event_stride;
-        for (leg = 0; leg < p->n_aux_in && !at; leg++)
-            for (c = 0; c < p->aux_in[leg].n && !at; c++)
-                if (p->aux_in[leg].port[c] == i)
-                    at = in->audio + (in->at_aux_in[leg] + c) * (size_t)max_frames;
-        for (leg = 0; leg < p->n_aux_out && !at; leg++)
-            for (c = 0; c < p->aux_out[leg].n && !at; c++)
-                if (p->aux_out[leg].port[c] == i)
-                    at = in->audio + (in->at_aux_out[leg] + c) * (size_t)max_frames;
-        for (leg = 0; leg < p->n_cv_in && !at; leg++)
-            if (p->cv_in[leg] == i)
-                at = in->audio + (in->at_cv_in + leg) * (size_t)max_frames;
-        for (leg = 0; leg < p->n_cv_out && !at; leg++)
-            if (p->cv_out[leg] == i)
-                at = in->audio + (in->at_cv_out + leg) * (size_t)max_frames;
-        if (!at && p->latency_port >= 0 && (uint32_t)p->latency_port == i)
-            at = &in->latency_port;
-        if (!at && k < p->n_controls && p->controls[k].port == i)
-            at = &in->controls[k++];
-        if (at)
-            d->connect_port(in->handle, i, at);
-    }
-    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->state_ptrs) != 0)
+/* every port in index order, to the instance's own memory its role names (lv2_plugin.roles) */
+static void ports_connect(struct lv2_instance *in, uint32_t max_frames)
+{
+    const struct lv2_plugin *p = in->plugin;
+    uint32_t i;
+
+    for (i = 0; i < p->n_ports; i++)
     {
-        d->cleanup(in->handle);
-        in->handle = NULL;
-        in->worker = NULL;
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
+        const struct lv2_port_bind *b = &p->roles[i];
+        void *at;
+
+        switch (b->role)
+        {
+        case LV2_ROLE_MAIN_IN:
+            at = in->audio + b->channel * (size_t)max_frames;
+            break;
+        case LV2_ROLE_MAIN_OUT:
+            at = in->audio + (in->at_out + b->channel) * (size_t)max_frames;
+            break;
+        case LV2_ROLE_PATCH_IN:
+            at = in->atom_in;
+            break;
+        case LV2_ROLE_PATCH_OUT:
+            at = in->atom_out;
+            break;
+        case LV2_ROLE_MIDI_IN:
+            at = in->midi[0];
+            break;
+        case LV2_ROLE_MIDI_OUT:
+            at = in->midi[1];
+            break;
+        case LV2_ROLE_TIME:
+            at = in->time_buf;
+            break;
+        case LV2_ROLE_NOTIFY:
+            at = in->notify + b->leg * (size_t)in->notify_bytes;
+            break;
+        case LV2_ROLE_ATOM_IN:
+            at = in->atom_in_seq + b->leg * (size_t)in->atom_in_bytes;
+            break;
+        case LV2_ROLE_EVENT_IN:
+            at = in->event_bufs + b->leg * (size_t)in->event_stride;
+            break;
+        case LV2_ROLE_EVENT_OUT:
+            at = in->event_bufs + (p->n_event_in + b->leg) * (size_t)in->event_stride;
+            break;
+        case LV2_ROLE_AUX_IN:
+            at = in->audio + (in->at_aux_in[b->leg] + b->channel) * (size_t)max_frames;
+            break;
+        case LV2_ROLE_AUX_OUT:
+            at = in->audio + (in->at_aux_out[b->leg] + b->channel) * (size_t)max_frames;
+            break;
+        case LV2_ROLE_CV_IN:
+            at = in->audio + (in->at_cv_in + b->leg) * (size_t)max_frames;
+            break;
+        case LV2_ROLE_CV_OUT:
+            at = in->audio + (in->at_cv_out + b->leg) * (size_t)max_frames;
+            break;
+        case LV2_ROLE_LATENCY:
+            at = &in->latency_port;
+            break;
+        case LV2_ROLE_CONTROL:
+            at = &in->controls[b->leg];
+            break;
+        default:
+            continue;
+        }
+        p->desc->connect_port(in->handle, i, at);
     }
+}
+
+/* instantiate, connect every port, restore the default state: -1 with nothing left instantiated */
+static int instance_make(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames, char why[LV2_CORE_WHY_MAX])
+{
+    const struct lv2_plugin *p = in->plugin;
+    const LV2_Descriptor *d = p->desc;
+    float *audio;
+    uint32_t k;
+
+    audio = calloc((in->blocks ? in->blocks : 1u) * (size_t)max_frames, sizeof(*audio));
+    if (!audio)
+        goto refuse;
+    free(in->audio);
+    in->audio = audio;
+    if (!patch_buffers(in))
+        goto refuse;
+    in->max_frames = max_frames;
+    in->rate = rate;
+    if (options_build(in, rate, min_frames, max_frames) != 0)
+        goto refuse;
+    features_build(in);
+    if (time_make(in) != 0)
+        goto refuse;
+    // an event's type is 16 bits and 0 is the event extension's reference-counted type: an ev:EventPort's MIDI id must
+    // be neither 0 (a table that could not map it) nor past 16 bits, or the plugin is refused before it is instantiated
+    in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
+    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out)
+        && (in->urid_midi == 0 || in->urid_midi > UINT16_MAX))
+        goto refuse;
+    in->handle = d->instantiate(d, rate, p->bundle_path, in->feature_ptrs);
+    if (!in->handle)
+        goto refuse;
+    in->worker = in->ring_mem && d->extension_data ? d->extension_data(LV2_WORKER__interface) : NULL;
+    in->options_iface = d->extension_data ? d->extension_data(LV2_OPTIONS__interface) : NULL;
+    if (in->options_iface && !in->options_iface->set)
+        in->options_iface = NULL;
+    if (in->worker && !in->worker->work)
+        goto drop;
+    // every port in index order, to the instance's own memory: an LV2 plugin may dereference ANY port it declares, its
+    // own bypass held at the value that keeps it processing, the rows at their values, every other output into memory
+    // the host reads
+    in->latency_port = p->latency_def;
+    if (buffers_make(in) != 0)
+        goto refuse;
+    ports_connect(in, max_frames);
+    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->state_ptrs) != 0)
+        goto drop;
     // a new handle has never seen a patch value: the first block sends every parameter's value, as the host last had it,
     // and every text the host wrote
     if (p->n_patches)
@@ -1536,6 +1524,13 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         atomic_store_explicit(&t->pending_full, 1, memory_order_release);
     }
     return 0;
+drop:
+    d->cleanup(in->handle);
+    in->handle = NULL;
+    in->worker = NULL;
+refuse:
+    lv2_why_set(why, LV2_CODE_NO_REALISATION);
+    return -1;
 }
 
 
