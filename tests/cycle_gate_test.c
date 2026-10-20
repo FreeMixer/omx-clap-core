@@ -284,8 +284,8 @@ static void resize_checks(const char *path)
         pthread_join(rt, NULL);
         CHECK(c.ret == OMX_CYCLE_GATE_UNCHANGED && !r.in->active && !pending.set,
               "resize: the change that waited for it leaves the instance inactive (%d, active %d)", c.ret, r.in->active);
-        CHECK(b.calls == 1 && b.open_calls == 0 && b.frames == 2 * BLOCK,
-              "resize: the stale blocks made again once, the cycles shut out (%d calls, %d open)", b.calls, b.open_calls);
+        CHECK(b.calls == 0 && b.frames == BLOCK,
+              "resize: a dead instance (inactive, nothing pending) has its stale blocks left alone (%d calls)", b.calls);
     }
     else
         pthread_mutex_unlock(&lock);
@@ -300,9 +300,10 @@ static void resize_checks(const char *path)
     pthread_mutex_unlock(&lock);
     cycles_wait(&r, 4);
     CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 2 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
-              == OMX_CYCLE_GATE_RESIZED && r.in->active && r.in->max_block == 2 * BLOCK && b.calls == 1,
-          "resize: an active instance is re-activated at the new size, its blocks already that long (%u, %d calls)", r.in->max_block,
-          b.calls);
+              == OMX_CYCLE_GATE_RESIZED && r.in->active && r.in->max_block == 2 * BLOCK && b.calls == 1 && b.open_calls == 0
+              && b.frames == 2 * BLOCK,
+          "resize: an active instance is re-activated at the new size, its stale blocks made again once with the cycles shut out "
+          "(%u, %d calls, %d open)", r.in->max_block, b.calls, b.open_calls);
     runs = atomic_load(&r.in->stage.h.runs);
     cycles_wait(&r, 8);
     CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and runs on the cycle thread after it");

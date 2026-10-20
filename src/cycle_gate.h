@@ -145,12 +145,12 @@ struct omx_cycle_gate_blocks {
 
 /**
  * A change of the block size, on the carrier's own thread (JACK's buffer-size callback), under `lock`, the lock every
- * restart and relayout of the instance holds. When the instance is active at another block, the carrier's blocks are
- * stale, or `pending` holds a relayout's waiting activation, the cycles are shut out: an active instance is stopped and
+ * restart and relayout of the instance holds. When the instance is active at another block, the carrier's blocks of an
+ * active or pending instance are stale, or `pending` holds a relayout's waiting activation, the cycles are shut out: an active instance is stopped and
  * deactivated, the carrier's blocks made again (`blocks`, inside the closed gate, for the cycles copy them), and the
  * instance activated at `nframes` when it was active or pending, armed with the audio role it had (the pending one's
- * saved role), then the gate opened. A failed reblock leaves the instance inactive, and pending with its role saved when
- * it was to be activated, for the next change to try again; a refused activation leaves it inactive with `why` set. An instance a relayout left inactive
+ * saved role), then the gate opened. A failed reblock leaves the instance inactive and pending, its role saved, for the
+ * next change to try again; a refused activation leaves it inactive with `why` set. An instance a relayout left inactive
  * and not pending is the relayout's to activate, at the size the carrier then reads. Its state is read under the lock
  * only. Returns one of OMX_CYCLE_GATE_*.
  */
@@ -164,7 +164,9 @@ static inline int omx_cycle_gate_resize(struct omx_cycle_gate *g, struct omx_cla
     {
         const int active = in->active;
         const int waiting = pending && pending->set;
-        const int stale = blocks && blocks->stale && blocks->stale(blocks->ctx, nframes);
+        // an instance a relayout left inactive and not pending is not run again until it is added again: its blocks are
+        // not made either
+        const int stale = (active || waiting) && blocks && blocks->stale && blocks->stale(blocks->ctx, nframes);
 
         if ((active && nframes != in->max_block) || stale || waiting)
         {
@@ -184,7 +186,7 @@ static inline int omx_cycle_gate_resize(struct omx_cycle_gate *g, struct omx_cla
             if (stale && blocks->reblock && blocks->reblock(blocks->ctx, nframes) != 0)
             {
                 ret = OMX_CYCLE_GATE_REBLOCK_FAILED;
-                if (pending && (active || waiting))
+                if (pending)
                 {
                     pending->set = 1;
                     pending->thread = thread;
