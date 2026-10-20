@@ -19,10 +19,6 @@
         "code": "hosting.features.midi-in-fed-empty"
       },
       "featuresMissing": {
-        "code": "hosting.features.required-not-provided",
-        "doc": "retired (omx-contract#127): hosting.features.missing names the same fact; removed in the release after plugin-qualify stops naming it (omx-contract#132)"
-      },
-      "featuresMissingAtLoad": {
         "code": "hosting.features.missing"
       },
       "featuresPortsUnreadable": {

@@ -10,7 +10,7 @@ Intent
 
 Today the host admits one main input and one main output of the same width, mono or stereo, plus up to eight
 auxiliary inputs and outputs of one or two channels, and refuses everything else with two codes:
-`hosting.topology.wider-than-strip` and `hosting.topology.extra-inputs-fed-silence`. On the desk's 975 LV2 plugins
+`hosting.topology.wider-than-strip` and the topology code for extra inputs fed silence (removed, #297). On the desk's 975 LV2 plugins
 that refuses 84 that mod-host hosts: 51 with inputs beyond the main pair (side chains, mixers, meters, matrix
 mixers, patchbays, up to 64 inputs) and 33 whose main pair differs in width or whose outputs are more than the pair
 (mono reverbs with a stereo tail, crossovers with band outputs, a 34-output instrument). A CLAP plugin with a
@@ -217,7 +217,7 @@ Codes
 | `hosting.topology.port-without-channels` | the library | a port of zero channels |
 | `hosting.topology.channel-map-unknown` | the library at open (an unknown id); `request_layout` (the plugin refuses the carrier's mask) | a surround port names a channel id the host does not know, or refuses the carrier's mask |
 | `hosting.topology.ambisonic-config` | `request_layout` only | an ambisonic port refuses the carrier's ordering or normalisation |
-| `hosting.topology.extra-inputs-fed-silence` | nobody: retired | aux inputs are admitted up to `auxInputs`; the ninth is no longer a refusal |
+| the code for extra inputs fed silence | nobody: removed (#297) | aux inputs are admitted up to `auxInputs`; the ninth is no longer a refusal |
 
 The LV2 adapter's `LV2_CODE_EXTRA_INPUTS` and its uses go; `LV2_CODE_WIDER_THAN_STRIP` goes from the adapter (it
 no longer judges width). The codes are added to `data/hosting.json` (the vocabulary's home until omx-clap-core#208
@@ -283,7 +283,7 @@ Decisions taken here, for the operator to check
   judges width from `audioOutputs`; it should read the main port's channels instead of the port count (the console's
   admission reads the main port's channel count, not the port count, and names `wider-than-strip` for a main
   wider than the strip; and allows a main input and output of different widths).
-- `extra-inputs-fed-silence` is retired rather than kept for the 65th aux port; the new `too-many-ports` says
+- the code for extra inputs fed silence is retired (removed, #297) rather than kept for the 65th aux port; the new `too-many-ports` says
   what happened.
 - The limit 64 everywhere, one number for ports per side and channels per port.
 - Aux outputs get a binding API now (crossover bands, per-track instrument outputs) because the JACK host

@@ -19,10 +19,6 @@ export declare const HOSTING_CLAP_CODES: {
   readonly clapLatencyMismatch: {
     readonly code: "hosting.clap.latency-mismatch";
   };
-  readonly clapNotAudioEffect: {
-    readonly code: "hosting.clap.not-audio-effect";
-    readonly doc: "the plugin is not an audio effect";
-  };
   readonly clapNoteInput: {
     readonly code: "hosting.clap.note-input";
     readonly doc: "the plugin declares a note input the configuration refuses";
@@ -76,10 +72,6 @@ export declare const HOSTING_FEATURES_CODES: {
     readonly code: "hosting.features.midi-in-fed-empty";
   };
   readonly featuresMissing: {
-    readonly code: "hosting.features.required-not-provided";
-    readonly doc: "retired (omx-contract#127): hosting.features.missing names the same fact; removed in the release after plugin-qualify stops naming it (omx-contract#132)";
-  };
-  readonly featuresMissingAtLoad: {
     readonly code: "hosting.features.missing";
   };
   readonly featuresPortsUnreadable: {
@@ -91,22 +83,6 @@ export declare const HOSTING_FEATURES_CODES: {
   };
   readonly featuresUnscanned: {
     readonly code: "hosting.features.scan-predates-field";
-  };
-};
-
-/**
- * The hosting codes of the integrity dimension: hosting.integrity.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).
- * @see data/hosting/integrity.json
- */
-export declare const HOSTING_INTEGRITY_CODES: {
-  readonly integrityBinaryMismatch: {
-    readonly code: "hosting.integrity.binary-mismatch";
-  };
-  readonly integrityLayoutMismatch: {
-    readonly code: "hosting.integrity.layout-mismatch";
-  };
-  readonly integrityUnpinned: {
-    readonly code: "hosting.integrity.unpinned";
   };
 };
 
@@ -323,10 +299,6 @@ export declare const HOSTING_TOPOLOGY_CODES: {
   readonly topologyChannelMapUnknown: {
     readonly code: "hosting.topology.channel-map-unknown";
     readonly doc: "a surround port names a channel id the host does not know, or refuses the carrier's channel mask";
-  };
-  readonly topologyExtraInputs: {
-    readonly code: "hosting.topology.extra-inputs-fed-silence";
-    readonly doc: "retired for hosting.topology.too-many-ports: the plugin has extra inputs, fed silence; written by nobody since omx-clap-core#92, removed with required-not-provided (omx-contract#132)";
   };
   readonly topologyInstrument: {
     readonly code: "hosting.topology.instrument";
