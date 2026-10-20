@@ -75,14 +75,15 @@
  * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12; 12:
  * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
- * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports).
+ * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
+ * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. Until the first release of
  * libomx-clap-core.so.1, OMX_CLAP_CORE_ABI_OLDEST follows OMX_CLAP_CORE_ABI: nothing of the major is released, and the
  * stage, embedded in the instance, grows inside it. */
-#define OMX_CLAP_CORE_ABI               13u
-#define OMX_CLAP_CORE_ABI_OLDEST        13u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               14u
+#define OMX_CLAP_CORE_ABI_OLDEST        14u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -477,6 +478,11 @@ struct omx_clap_instance
     _Atomic uint32_t tail_frames;  ///< the plugin's tail, read at activate and after it says it changed; UINT32_MAX infinite
     _Atomic uint32_t tail_changed;  ///< the plugin said its tail changed: the tick reads it again
     struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
+
+    // the layout extensions (ABI 14): read at open, asked by describe at open for a surround or an ambisonic port; the
+    // host's changed of either is a ports rescan
+    const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
+    const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
 };
 
 
@@ -827,8 +833,9 @@ OMX_CLAP_EXPORT const char *omx_clap_param_scale_name(uint32_t scale);
 OMX_CLAP_EXPORT int omx_clap_param_number(double value, char *out, size_t size);
 
 /** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency, take
- * the plugin's parameter and note-port rescans and ask its voice info again when it said it changed. Returns nonzero
- * when the plugin asked for a restart (the caller performs it). */
+ * the plugin's parameter and note-port rescans and ask its voice info again when it said it changed. A ports rescan
+ * (clap.audio-ports rescan, or the surround or ambisonic layout changed) asks for a restart. Returns nonzero when the
+ * plugin asked for a restart (the caller performs it). */
 OMX_CLAP_EXPORT int omx_clap_host_tick(struct omx_clap_instance *in);
 
 /** The last log message the tick drained, once: NULL when it was taken already. */
