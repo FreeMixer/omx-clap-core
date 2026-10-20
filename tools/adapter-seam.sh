@@ -5,23 +5,25 @@
 # adapter-seam.sh: the numbers of docs/adapter-seam-and-vst3.md, part 1: every function of the LV2 adapter and of the
 # src/ headers it includes, classed FORMAT-NEUTRAL, MIXED or FORMAT-SPECIFIC, with its NLOC, per file and per area.
 #
-#   adapter-seam.sh                  measure OURS_REF (default HEAD) and print every table
+#   adapter-seam.sh                  measure OURS_REF (default: the "# ref:" line of the table) and print every table
 #   adapter-seam.sh --list           also print each function with its class, area and thread
 #   adapter-seam.sh --vst3-packages  the repository count of VST3 plugin packages with and without an LV2/CLAP build
 #                                    (needs dnf; the count of the report was made on Fedora 44 with audinux enabled)
 #
 # The class of each function is a judgement read from its body, kept in docs/adapter-seam.tsv (file, function, class,
-# area, thread, reason). This script only measures and sums, the way tools/hosting-compare.sh does: lizard (LIZARD,
+# area, thread, reason). This script only measures and sums, the way tools/hosting-compare.sh of #267 does: lizard (LIZARD,
 # default "python3 -m lizard") for the functions and their NLOC. A function the table does not class, or a row whose
 # function is gone, is a failure: the table moves with the code or the numbers stop being reproducible.
 # Exit 0 printed, 1 a tool, a ref or a row is missing.
 set -euo pipefail
 
-OURS_REF=${OURS_REF:-HEAD}
 LIZARD=${LIZARD:-python3 -m lizard}
 REPO=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 TABLE=$REPO/docs/adapter-seam.tsv
 MODE=${1:-}
+# the ref the classes were read from: later code may add or drop functions the table has not seen
+OURS_REF=${OURS_REF:-$(sed -n 's/^# ref: *\([0-9a-f]*\).*/\1/p' "$TABLE" 2>/dev/null | head -1)}
+OURS_REF=${OURS_REF:-HEAD}
 
 die() { echo "adapter-seam: $*" >&2; exit 1; }
 
