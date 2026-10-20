@@ -99,7 +99,7 @@
 /* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
 #define LV2_CORE_PROVIDED_INIT \
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
-      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, NULL }
+      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, NULL }
 
 /* the refusals, the verdict's spelling */
 #define LV2_CODE_NO_REALISATION         "hosting.no-realisation"
@@ -175,6 +175,8 @@ struct lv2_control
     char *name;
     float min, max, def;            // def: lv2:default, else lv2:minimum, else 0; the hold value for the bypass
     uint32_t props;                 // LV2_PROP_*
+    char *unit;                     // units:unit, the local name of one of LV2's units ("hz", "db"); NULL: none, or another
+    uint32_t range_steps;           // pprops:rangeSteps, 0: none
     struct lv2_scale_point *points;
     uint32_t n_points;
 };
@@ -227,6 +229,7 @@ struct lv2_plugin
     uint32_t notify_out[LV2_CORE_NOTIFY_PORTS];
     uint32_t notify_min;            // the largest rsz:minimumSize of those outputs, 0: none
     char **required;                // lv2:requiredFeature, NULL-terminated
+    int safe_restore;               // state:threadSafeRestore among its features: restore() may run beside run()
     void *binary;                   // dlopen'ed by lv2_plugin_load
     const LV2_Descriptor *desc;
     void *uri_node;                 // the lilv node of the URI, for the default state
@@ -410,8 +413,9 @@ struct lv2_time
 
 /* [audio] The time:Position of the block about to run, forged into the plugin's time port (NULL: no transport, and the
  * port reads an empty sequence), and into its MIDI input when that supports time:Position too, there before the block's
- * MIDI messages (call it before lv2_instance_midi_in_add). An object is forged only when the transport differs from the
- * last block's, at frame 0 of the sequence. Does nothing for a plugin with neither. */
+ * MIDI messages (call it before lv2_instance_midi_in_add). An object is forged at frame 0 of the sequence on every block
+ * while the transport plays, so the plugin reads the frame of each block; while stopped only when the transport differs
+ * from the last block's (its frame aside). Does nothing for a plugin with neither. */
 void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t);
 
 /* [audio] The plugin's half of a block: worker responses drained through work_response, then `before` (the caller's
@@ -489,6 +493,17 @@ char *lv2_instance_state_save(struct lv2_instance *in);
  * applied, so a load while active takes effect at the activate the host's restart brings. -1 with `why` when the text
  * does not parse; the held state is then unchanged. */
 int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX]);
+
+/* [main] A state restored into the running instance at once, beside the audio role's run(), for a plugin that declares
+ * state:threadSafeRestore: its restore() gets the worker's schedule and finishes through it, so the new state reaches
+ * the audio a block or two later and no restart is needed. The state is held as a load holds it, for a later
+ * instantiation. 0, or -1 with `why` (hosting.state.unreadable) when the plugin does not declare the feature, has no
+ * worker, the instance is not active, or the text does not parse: the caller then holds it for the next activate. */
+int lv2_instance_state_restore_live(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX]);
+
+/* The block lengths told to the running plugin through its options:interface since it was made: a shorter block that
+ * fits its buffers is told that way instead of a new instantiation. */
+uint32_t lv2_instance_options_told(const struct lv2_instance *in);
 
 /* [main] Hold the state of the preset `uri` (a pset:Preset that lv2:appliesTo this plugin) as a load does: 0, or -1 with
  * `why` (hosting.preset.not-found) when the bundle holds no such preset for this plugin. */
