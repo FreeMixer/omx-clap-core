@@ -484,7 +484,7 @@ static void t_refusals(void)
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
+        { FIXTURE_URI "#three-in", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
         { "urn:openmixer:test:not-in-this-bundle", "hosting.no-realisation" },
@@ -2168,6 +2168,38 @@ static clap_process_status sc_process(struct rig *g, float *in_l, float *in_r, f
     return st;
 }
 
+/* the side chains at the core's limit through the face: 65 are refused with too-many-ports, and a three-channel side
+ * chain is one auxiliary input of three channels and no port type */
+static void t_sidechain_limits(void)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_sc, why);
+    const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    const clap_plugin_audio_ports_t *ports;
+    clap_audio_port_info_t port;
+    const clap_plugin_t *p;
+    struct th t;
+
+    CHECK(f != NULL, "side chain limits: the side-chain bundle reads (%s)", why);
+    if (!f)
+        return;
+    th_init(&t);
+    CHECK(f->create_plugin(f, &t.host, SC_URI "#sixty-five") == NULL && strcmp(t.log, "hosting.topology.too-many-ports\n") == 0,
+          "side chain limits: 65 side chains are refused, and clap.log carries hosting.topology.too-many-ports (got '%s')", t.log);
+    th_init(&t);
+    p = f->create_plugin(f, &t.host, SC_URI "#wide");
+    CHECK(p != NULL, "side chain limits: a three-channel side chain is admitted");
+    if (p)
+    {
+        CHECK(p->init(p), "side chain limits: init");
+        ports = p->get_extension(p, CLAP_EXT_AUDIO_PORTS);
+        CHECK(ports && ports->count(p, true) == 2 && ports->get(p, 1, true, &port) && port.channel_count == 3 && port.port_type == NULL,
+              "side chain limits: one auxiliary input of three channels, of no port type");
+        p->destroy(p);
+    }
+    omx_clap_lv2_entry_release(e);
+}
+
 static void t_sidechain(double rate)
 {
     static float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK], side_l[BLOCK], side_r[BLOCK], none_l[BLOCK], none_r[BLOCK];
@@ -2930,6 +2962,7 @@ static void t_sidechain_core(double rate)
     const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_sc, why);
     struct omx_clap_instance *in = NULL;
     static float l[BLOCK], r[BLOCK], sl[MAXB], sr[MAXB];
+    float *side[2] = { sl, sr };
     uint32_t i;
     int same;
 
@@ -2939,13 +2972,13 @@ static void t_sidechain_core(double rate)
         omx_clap_lv2_entry_release(entry);
         return;
     }
-    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
+    CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f, sl[i] = 0.25f, sr[i] = 0.125f;
-    CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, side, 2, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
     CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "core %.0f: activate (%s)", rate, cwhy);
     omx_clap_host_publish(in, pthread_self());
-    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == -1, "core %.0f: a binding while the instance runs is refused", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, 2, 0) == -1, "core %.0f: a binding while the instance runs is refused", rate);
     core_run(in, l, r, BLOCK);          /* the first cycle after arming is the warm-up's: its output is not checked */
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f;
@@ -2959,7 +2992,7 @@ static void t_sidechain_core(double rate)
         l[i] = 0.5f, r[i] = -0.25f;
     core_run(in, l, r, BLOCK);
     CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "core %.0f: unpublish", rate);
-    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "core %.0f: unbind the side chain", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, 2, 0) == 0, "core %.0f: unbind the side chain", rate);
     omx_clap_host_publish(in, pthread_self());
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f;
@@ -3105,6 +3138,7 @@ static void t_cv_core(double rate)
     const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_cv, why);
     struct omx_clap_instance *in = NULL;
     static float l[BLOCK], r[BLOCK], cv[MAXB];
+    float *cvs[1] = { cv };
     uint32_t i;
     int same;
 
@@ -3114,11 +3148,11 @@ static void t_cv_core(double rate)
         omx_clap_lv2_entry_release(entry);
         return;
     }
-    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 1 && in->aux_outputs == 1 && in->aux_channels[0] == 1,
+    CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 1 && in->aux_outputs == 1 && in->aux_out[0].channels == 1,
           "cv core %.0f: one mono auxiliary input and one mono auxiliary output (%u, %u)", rate, in->aux_inputs, in->aux_outputs);
     for (i = 0; i < MAXB; i++)
         cv[i] = 0.25f;
-    CHECK(omx_clap_host_bind_aux_input(in, 0, cv, NULL, MAXB) == 0, "cv core %.0f: bind the CV input", rate);
+    CHECK(omx_clap_host_bind_aux_input(in, 0, cvs, 1, MAXB) == 0, "cv core %.0f: bind the CV input", rate);
     CHECK(omx_clap_host_activate(in, rate, MAXB, cwhy) == 0, "cv core %.0f: activate (%s)", rate, cwhy);
     omx_clap_host_publish(in, pthread_self());
     for (i = 0; i < BLOCK; i++)
@@ -3492,6 +3526,8 @@ int main(int argc, char **argv)
         t_atom_midi_time(RATES[r]);
         t_atom_ui(RATES[r]);
         t_sidechain(RATES[r]);
+        if (r == 0)
+            t_sidechain_limits();
         t_sidechain_core(RATES[r]);
         t_make_path(RATES[r]);
         t_make_path_escape(RATES[r]);

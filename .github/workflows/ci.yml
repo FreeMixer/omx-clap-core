@@ -16,7 +16,7 @@ env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.4.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
-  OMX_CONTRACT_REF: v2.18.0
+  OMX_CONTRACT_REF: v2.19.0
 
 jobs:
   version:
@@ -101,9 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 2.18.0' mod-host
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 2.19.0' mod-host
           pkg-config --modversion omxdsp
-          pkg-config --atleast-version=2.18.0 omx-contract
+          pkg-config --atleast-version=2.19.0 omx-contract
           command -v mod-host
 
       - uses: actions/checkout@v4
@@ -273,7 +273,7 @@ jobs:
           echo "test-jack and test-identity are NOT run here: they load omx-delay (.clap from the omx-plugins-clap package, .lv2 from omx-plugins-lv2)."
           echo "They stay in the Makefile for the desk: make test-jack CLAP_TEST_PLUGIN=<omx-delay.clap>; make test-identity."
 
-  # The ABI of libomx-clap-core.so.0 against the baseline of the last release: an addition needs a new minor, a removal or a
+  # The ABI of libomx-clap-core.so.1 against the baseline of the last release: an addition needs a new minor, a removal or a
   # change needs a new soname major. Nothing here needs jack or the protocol library.
   abi:
     name: ABI of libomx-clap-core against its baseline
@@ -344,13 +344,13 @@ jobs:
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libmod-host-protocol.so.0' requires.txt
-            grep -q 'libomx-clap-core.so.0' requires.txt
+            grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
           done
           for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
-            printf '%s\n' '/usr/lib*/libomx-clap-core.so.0' "/usr/lib*/libomx-clap-core.so.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so.1' "/usr/lib*/libomx-clap-core.so.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             # the library names no jack and no protocol library
             rpm -qp --requires "$rpm" | tee requires.txt
@@ -362,7 +362,7 @@ jobs:
             printf '%s\n' '/usr/lib*/libomx-clap-core.so' '/usr/lib*/pkgconfig/omx-clap-core.pc' /usr/include/omx-clap-host/clap_host.h \
               /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/hosted_stage_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
               /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h /usr/include/omx-clap-host/omx_clap_midi.h \
-              /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.0.abi \
+              /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.1.abi \
               /usr/share/omx-clap-core/ts/omx-clap-core-hosting.js /usr/share/omx-clap-core/ts/omx-clap-core-hosting.d.ts \
               /usr/share/omx-contract/contract.d/2/omx-clap-core/MANIFEST.json /usr/share/omx-contract/contract.d/2/omx-clap-core/hosting.json | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
@@ -401,7 +401,7 @@ jobs:
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
 
@@ -438,7 +438,7 @@ jobs:
           chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           # the LV2 adapter is linked in and loads lilv itself, on the first LV2 add
           ! grep -q 'liblilv' ldd.txt
 
@@ -508,7 +508,7 @@ jobs:
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
 
       # nocheck: plugin-hostd's tests and their build dependency omx-clap-host-tests stay out, so the channel's
-      # libomx-clap-core0 is never installed under the packages this job builds. Its own CI runs its tests.
+      # libomx-clap-core1 is never installed under the packages this job builds. Its own CI runs its tests.
       - name: Build the plugin-hostd DEBs
         uses: FreeMixer/.github/.github/actions/build-deb@v1
         env:
@@ -535,15 +535,15 @@ jobs:
           cp tests/fake.clap tests/fake_synth.clap tests/crash.clap smoke/
 
       # a program outside this tree, built against the installed development package and run on the installed library
-      - name: A consumer builds against libomx-clap-core-dev and runs on libomx-clap-core0
+      - name: A consumer builds against libomx-clap-core-dev and runs on libomx-clap-core1
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends ./debs/libomx-clap-core0_*.deb ./debs/libomx-clap-core-dev_*.deb
+          apt-get install -y --no-install-recommends ./debs/libomx-clap-core1_*.deb ./debs/libomx-clap-core-dev_*.deb
           pkg-config --modversion omx-clap-core | tee v.txt
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
           dpkg -L libomx-clap-core-dev | tee dev-files.txt
@@ -616,9 +616,9 @@ jobs:
         run: |
           set -euo pipefail
           apt-get update -qq
-          apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core0_*.deb ./dep-debs/libmod-host-protocol0_*.deb
+          apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./dep-debs/libmod-host-protocol0_*.deb
           dpkg -s libmod-host-protocol0 | grep '^Status: install ok installed'
-          dpkg -s libomx-clap-core0 | grep '^Status: install ok installed'
+          dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
 
       - name: The host reports the version of its package and resolves its libraries
         run: |
@@ -629,7 +629,7 @@ jobs:
           ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
-          grep -q 'libomx-clap-core\.so\.0 => /' ldd.txt
+          grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |

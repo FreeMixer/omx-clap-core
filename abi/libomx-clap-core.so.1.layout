@@ -1,4 +1,4 @@
-version 0.11.0
+version 0.12.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -13,11 +13,15 @@ member struct clap_plugin_meters ) 0 8 uint32_t (*count)(const clap_plugin_t *)
 member struct clap_plugin_meters ) 8 8 _Bool (*get_info)(const clap_plugin_t *, uint32_t, clap_meter_info_t *)
 member struct clap_plugin_meters uint32_t) 16 8 uint32_t (*get_values)(const clap_plugin_t *, clap_id, double *, uint32_t)
 size struct clap_plugin_meters 24
-member struct omx_clap_aux_in ains 0 288 clap_audio_buffer_t ains[9]
-member struct omx_clap_aux_in n_aux_in 288 4 uint32_t n_aux_in
-member struct omx_clap_aux_in aux_in_ptrs 296 128 float * aux_in_ptrs[8][2]
-member struct omx_clap_aux_in aux_silence 424 16 float * aux_silence[2]
-size struct omx_clap_aux_in 440
+member struct omx_clap_aux_in ains 0 2080 clap_audio_buffer_t ains[65]
+member struct omx_clap_aux_in n_aux_in 2080 4 uint32_t n_aux_in
+member struct omx_clap_aux_in aux_in_ptrs 2088 32768 float * aux_in_ptrs[4096]
+member struct omx_clap_aux_in aux_in_base 34856 256 uint32_t aux_in_base[64]
+member struct omx_clap_aux_in aux_silence 35112 16 float * aux_silence[2]
+size struct omx_clap_aux_in 35128
+member struct omx_clap_fd fd 0 4 int fd
+member struct omx_clap_fd flags 4 4 uint32_t flags
+size struct omx_clap_fd 8
 member struct omx_clap_host_config abi 0 4 uint32_t abi
 member struct omx_clap_host_config size 4 4 uint32_t size
 member struct omx_clap_host_config clamp 8 4 int clamp
@@ -31,7 +35,8 @@ member struct omx_clap_host_config url 48 8 const char * url
 member struct omx_clap_host_config version 56 8 const char * version
 member struct omx_clap_host_config track_info 64 4 int track_info
 member struct omx_clap_host_config remote_controls 68 4 int remote_controls
-size struct omx_clap_host_config 72
+member struct omx_clap_host_config lane_channels 72 4 uint32_t lane_channels
+size struct omx_clap_host_config 80
 member struct omx_clap_instance bin 0 8 struct omx_clap_binary * bin
 member struct omx_clap_instance desc 8 8 const clap_plugin_descriptor_t * desc
 member struct omx_clap_instance plugin 16 8 const clap_plugin_t * plugin
@@ -42,77 +47,100 @@ member struct omx_clap_instance note_ports 48 8 const clap_plugin_note_ports_t *
 member struct omx_clap_instance state 56 8 const clap_plugin_state_t * state
 member struct omx_clap_instance preset_load 64 8 const clap_plugin_preset_load_t * preset_load
 member struct omx_clap_instance host 72 88 clap_host_t host
-member struct omx_clap_instance stage 160 16576 struct omx_clap_stage stage
-member struct omx_clap_instance channels 16736 4 uint32_t channels
-member struct omx_clap_instance in_channels 16740 4 uint32_t in_channels
-member struct omx_clap_instance aux_outputs 16744 4 uint32_t aux_outputs
-member struct omx_clap_instance aux_channels 16748 32 uint32_t aux_channels[8]
-member struct omx_clap_instance note_inputs 16780 4 uint32_t note_inputs
-member struct omx_clap_instance note_dialect 16784 4 uint32_t note_dialect
-member struct omx_clap_instance note_dialects 16788 4 uint32_t note_dialects
-member struct omx_clap_instance rate 16792 8 double rate
-member struct omx_clap_instance max_block 16800 4 uint32_t max_block
-member struct omx_clap_instance active 16804 4 int active
-member struct omx_clap_instance bounce_map 16808 8 float * bounce_map
-member struct omx_clap_instance bounce_map_len 16816 8 size_t bounce_map_len
-member struct omx_clap_instance recs 16824 8 struct omx_hosted_param_record * recs
-member struct omx_clap_instance rec_cap 16832 4 uint32_t rec_cap
-member struct omx_clap_instance main_thread 16840 8 pthread_t main_thread
-member struct omx_clap_instance audio_thread 16848 8 pthread_t audio_thread
-member struct omx_clap_instance audio_role_held 16856 4 int audio_role_held
-member struct omx_clap_instance bypass_wanted 16860 4 uint32_t bypass_wanted
-member struct omx_clap_instance shadow 16864 8 struct omx_clap_shadow * shadow
-member struct omx_clap_instance shadow_cap 16872 4 uint32_t shadow_cap
-member struct omx_clap_instance shadow_n 16876 4 uint32_t shadow_n
-member struct omx_clap_instance restart_requested 16880 4 _Atomic uint32_t restart_requested
-member struct omx_clap_instance callback_requested 16884 4 _Atomic uint32_t callback_requested
-member struct omx_clap_instance flush_requested 16888 4 _Atomic uint32_t flush_requested
-member struct omx_clap_instance latency_changed 16892 4 _Atomic uint32_t latency_changed
-member struct omx_clap_instance params_rescan_flags 16896 4 _Atomic uint32_t params_rescan_flags
-member struct omx_clap_instance ports_rescan_requested 16900 4 _Atomic uint32_t ports_rescan_requested
-member struct omx_clap_instance state_dirty 16904 4 _Atomic uint32_t state_dirty
-member struct omx_clap_instance thread_violations 16908 4 _Atomic uint32_t thread_violations
-member struct omx_clap_instance log_calls 16912 4 _Atomic uint32_t log_calls
-member struct omx_clap_instance last_log 16916 256 char last_log[256]
-member struct omx_clap_instance log_pending 17172 4 _Atomic uint32_t log_pending
-member struct omx_clap_instance log_fresh 17176 4 _Atomic uint32_t log_fresh
-member struct omx_clap_instance log_ring 17180 256 char log_ring[256]
-member struct omx_clap_instance track_info 17440 8 const clap_plugin_track_info_t * track_info
-member struct omx_clap_instance track 17448 280 clap_track_info_t track
-member struct omx_clap_instance track_set 17728 4 int track_set
-member struct omx_clap_instance remote_controls 17736 8 const clap_plugin_remote_controls_t * remote_controls
-member struct omx_clap_instance remote_controls_changed 17744 4 _Atomic uint32_t remote_controls_changed
-member struct omx_clap_instance audio_role_seq 17748 4 _Atomic uint32_t audio_role_seq
-member struct omx_clap_instance audio_role_is 17752 8 _Atomic omx_clap_audio_role_fn audio_role_is
-member struct omx_clap_instance audio_role_ctx 17760 8 _Atomic void * audio_role_ctx
-member struct omx_clap_instance tempo 17768 8 const struct omx_clap_tempo * tempo
-member struct omx_clap_instance transport 17776 104 clap_event_transport_t transport
-member struct omx_clap_instance transport_src 17880 8 const struct omx_clap_transport_src * transport_src
-member struct omx_clap_instance transport_rec 17888 48 struct omx_clap_transport transport_rec
-member struct omx_clap_instance aux_inputs 17936 4 uint32_t aux_inputs
-member struct omx_clap_instance aux_in_channels 17940 32 uint32_t aux_in_channels[8]
-member struct omx_clap_instance aux_in_bound 17976 128 float * aux_in_bound[8][2]
-member struct omx_clap_instance aux_in_frames 18104 32 uint32_t aux_in_frames[8]
-member struct omx_clap_instance aux_in 18136 440 struct omx_clap_aux_in aux_in
-member struct omx_clap_instance meters 18576 8 const struct clap_plugin_meters * meters
-member struct omx_clap_instance meter_count 18584 4 uint32_t meter_count
-member struct omx_clap_instance meter 18592 4608 struct omx_clap_meter meter[16]
-member struct omx_clap_instance param_out 23200 4120 struct omx_clap_param_out param_out
-member struct omx_clap_instance params_rescanned 27320 4 _Atomic uint32_t params_rescanned
-member struct omx_clap_instance param_in 27328 8216 struct omx_clap_param_in param_in
-member struct omx_clap_instance contract 35544 8 omx_clap_param_contract_entry_t * contract
-member struct omx_clap_instance contract_count 35552 4 uint32_t contract_count
-member struct omx_clap_instance contract_version 35556 4 uint32_t contract_version
-member struct omx_clap_instance contract_why 35560 128 char contract_why[128]
-member struct omx_clap_instance note_ids 35688 12968 struct omx_clap_note_ids note_ids
-member struct omx_clap_instance note_outputs 48656 4 uint32_t note_outputs
-member struct omx_clap_instance note_out 48664 4112 struct omx_clap_note_out note_out
-member struct omx_clap_instance voice_info_read 52776 4 uint32_t voice_info_read
-member struct omx_clap_instance voice_count 52780 4 uint32_t voice_count
-member struct omx_clap_instance voice_capacity 52784 4 uint32_t voice_capacity
-member struct omx_clap_instance voice_flags 52792 8 uint64_t voice_flags
-member struct omx_clap_instance mpe_zones 52800 104 struct omx_clap_mpe_zones mpe_zones
-size struct omx_clap_instance 52904
+member struct omx_clap_instance stage 160 85136 struct omx_clap_stage stage
+member struct omx_clap_instance channels 85296 4 uint32_t channels
+member struct omx_clap_instance in_channels 85300 4 uint32_t in_channels
+member struct omx_clap_instance main_in 85304 344 struct omx_clap_port main_in
+member struct omx_clap_instance main_out 85648 344 struct omx_clap_port main_out
+member struct omx_clap_instance aux_outputs 85992 4 uint32_t aux_outputs
+member struct omx_clap_instance aux_out 85996 22016 struct omx_clap_port aux_out[64]
+member struct omx_clap_instance aux_out_bound 108016 32768 float * aux_out_bound[4096]
+member struct omx_clap_instance aux_out_base 140784 256 uint32_t aux_out_base[64]
+member struct omx_clap_instance aux_out_frames 141040 256 uint32_t aux_out_frames[64]
+member struct omx_clap_instance note_inputs 141296 4 uint32_t note_inputs
+member struct omx_clap_instance note_dialect 141300 4 uint32_t note_dialect
+member struct omx_clap_instance note_dialects 141304 4 uint32_t note_dialects
+member struct omx_clap_instance rate 141312 8 double rate
+member struct omx_clap_instance max_block 141320 4 uint32_t max_block
+member struct omx_clap_instance active 141324 4 int active
+member struct omx_clap_instance bounce_map 141328 8 float * bounce_map
+member struct omx_clap_instance bounce_map_len 141336 8 size_t bounce_map_len
+member struct omx_clap_instance bounce_blocks 141344 4 uint32_t bounce_blocks
+member struct omx_clap_instance recs 141352 8 struct omx_hosted_param_record * recs
+member struct omx_clap_instance rec_cap 141360 4 uint32_t rec_cap
+member struct omx_clap_instance main_thread 141368 8 pthread_t main_thread
+member struct omx_clap_instance audio_thread 141376 8 pthread_t audio_thread
+member struct omx_clap_instance audio_role_held 141384 4 int audio_role_held
+member struct omx_clap_instance bypass_wanted 141388 4 uint32_t bypass_wanted
+member struct omx_clap_instance shadow 141392 8 struct omx_clap_shadow * shadow
+member struct omx_clap_instance shadow_cap 141400 4 uint32_t shadow_cap
+member struct omx_clap_instance shadow_n 141404 4 uint32_t shadow_n
+member struct omx_clap_instance restart_requested 141408 4 _Atomic uint32_t restart_requested
+member struct omx_clap_instance callback_requested 141412 4 _Atomic uint32_t callback_requested
+member struct omx_clap_instance flush_requested 141416 4 _Atomic uint32_t flush_requested
+member struct omx_clap_instance latency_changed 141420 4 _Atomic uint32_t latency_changed
+member struct omx_clap_instance params_rescan_flags 141424 4 _Atomic uint32_t params_rescan_flags
+member struct omx_clap_instance ports_rescan_requested 141428 4 _Atomic uint32_t ports_rescan_requested
+member struct omx_clap_instance state_dirty 141432 4 _Atomic uint32_t state_dirty
+member struct omx_clap_instance thread_violations 141436 4 _Atomic uint32_t thread_violations
+member struct omx_clap_instance log_calls 141440 4 _Atomic uint32_t log_calls
+member struct omx_clap_instance last_log 141444 256 char last_log[256]
+member struct omx_clap_instance log_pending 141700 4 _Atomic uint32_t log_pending
+member struct omx_clap_instance log_fresh 141704 4 _Atomic uint32_t log_fresh
+member struct omx_clap_instance log_ring 141708 256 char log_ring[256]
+member struct omx_clap_instance track_info 141968 8 const clap_plugin_track_info_t * track_info
+member struct omx_clap_instance track 141976 280 clap_track_info_t track
+member struct omx_clap_instance track_set 142256 4 int track_set
+member struct omx_clap_instance remote_controls 142264 8 const clap_plugin_remote_controls_t * remote_controls
+member struct omx_clap_instance remote_controls_changed 142272 4 _Atomic uint32_t remote_controls_changed
+member struct omx_clap_instance audio_role_seq 142276 4 _Atomic uint32_t audio_role_seq
+member struct omx_clap_instance audio_role_is 142280 8 _Atomic omx_clap_audio_role_fn audio_role_is
+member struct omx_clap_instance audio_role_ctx 142288 8 _Atomic void * audio_role_ctx
+member struct omx_clap_instance tempo 142296 8 const struct omx_clap_tempo * tempo
+member struct omx_clap_instance transport 142304 104 clap_event_transport_t transport
+member struct omx_clap_instance transport_src 142408 8 const struct omx_clap_transport_src * transport_src
+member struct omx_clap_instance transport_rec 142416 48 struct omx_clap_transport transport_rec
+member struct omx_clap_instance aux_inputs 142464 4 uint32_t aux_inputs
+member struct omx_clap_instance aux_in 142468 22016 struct omx_clap_port aux_in[64]
+member struct omx_clap_instance aux_in_bound 164488 32768 float * aux_in_bound[4096]
+member struct omx_clap_instance aux_in_base 197256 256 uint32_t aux_in_base[64]
+member struct omx_clap_instance aux_in_frames 197512 256 uint32_t aux_in_frames[64]
+member struct omx_clap_instance aux_list 197768 35128 struct omx_clap_aux_in aux_list
+member struct omx_clap_instance meters 232896 8 const struct clap_plugin_meters * meters
+member struct omx_clap_instance meter_count 232904 4 uint32_t meter_count
+member struct omx_clap_instance meter 232912 4608 struct omx_clap_meter meter[16]
+member struct omx_clap_instance param_out 237520 4120 struct omx_clap_param_out param_out
+member struct omx_clap_instance params_rescanned 241640 4 _Atomic uint32_t params_rescanned
+member struct omx_clap_instance param_in 241648 8216 struct omx_clap_param_in param_in
+member struct omx_clap_instance contract 249864 8 omx_clap_param_contract_entry_t * contract
+member struct omx_clap_instance contract_count 249872 4 uint32_t contract_count
+member struct omx_clap_instance contract_version 249876 4 uint32_t contract_version
+member struct omx_clap_instance contract_why 249880 128 char contract_why[128]
+member struct omx_clap_instance note_ids 250008 12968 struct omx_clap_note_ids note_ids
+member struct omx_clap_instance note_outputs 262976 4 uint32_t note_outputs
+member struct omx_clap_instance note_out 262984 4112 struct omx_clap_note_out note_out
+member struct omx_clap_instance voice_info_read 267096 4 uint32_t voice_info_read
+member struct omx_clap_instance voice_count 267100 4 uint32_t voice_count
+member struct omx_clap_instance voice_capacity 267104 4 uint32_t voice_capacity
+member struct omx_clap_instance voice_flags 267112 8 uint64_t voice_flags
+member struct omx_clap_instance mpe_zones 267120 104 struct omx_clap_mpe_zones mpe_zones
+member struct omx_clap_instance note_ports_rescan_flags 267224 4 _Atomic uint32_t note_ports_rescan_flags
+member struct omx_clap_instance note_ports_rescanned 267228 4 _Atomic uint32_t note_ports_rescanned
+member struct omx_clap_instance note_ports_stale 267232 4 uint32_t note_ports_stale
+member struct omx_clap_instance note_names_changed 267236 4 _Atomic uint32_t note_names_changed
+member struct omx_clap_instance voice_info_changed 267240 4 _Atomic uint32_t voice_info_changed
+member struct omx_clap_instance timer_support 267248 8 const clap_plugin_timer_support_t * timer_support
+member struct omx_clap_instance fd_support 267256 8 const clap_plugin_posix_fd_support_t * fd_support
+member struct omx_clap_instance thread_pool 267264 8 const clap_plugin_thread_pool_t * thread_pool
+member struct omx_clap_instance in_exec 267272 4 int in_exec
+member struct omx_clap_instance tail 267280 8 const clap_plugin_tail_t * tail
+member struct omx_clap_instance timers 267288 384 struct omx_clap_timer timers[16]
+member struct omx_clap_instance timer_next_id 267672 4 uint32_t timer_next_id
+member struct omx_clap_instance fds 267676 128 struct omx_clap_fd fds[16]
+member struct omx_clap_instance tail_frames 267804 4 _Atomic uint32_t tail_frames
+member struct omx_clap_instance tail_changed 267808 4 _Atomic uint32_t tail_changed
+member struct omx_clap_instance sleep 267816 96 struct omx_clap_sleep sleep
+size struct omx_clap_instance 267912
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
@@ -227,6 +255,25 @@ member struct omx_clap_plugin_param_contract_ext ) 16 8 _Bool (*get)(const clap_
 member struct omx_clap_plugin_param_contract_ext ) 24 8 uint32_t (*migration_count)(const clap_plugin_t *)
 member struct omx_clap_plugin_param_contract_ext ) 32 8 _Bool (*get_migration)(const clap_plugin_t *, uint32_t, omx_clap_param_contract_step_t *)
 size struct omx_clap_plugin_param_contract_ext 40
+member struct omx_clap_port id 0 4 clap_id id
+member struct omx_clap_port name 4 256 char name[256]
+member struct omx_clap_port channels 260 4 uint32_t channels
+member struct omx_clap_port kind 264 4 uint32_t kind
+member struct omx_clap_port map 268 64 uint8_t map[64]
+member struct omx_clap_port ambisonic_ordering 332 4 uint32_t ambisonic_ordering
+member struct omx_clap_port ambisonic_normalization 336 4 uint32_t ambisonic_normalization
+member struct omx_clap_port in_place_pair 340 4 clap_id in_place_pair
+size struct omx_clap_port 344
+member struct omx_clap_preset provider_id 0 8 const char * provider_id
+member struct omx_clap_preset name 8 8 const char * name
+member struct omx_clap_preset location_kind 16 4 uint32_t location_kind
+member struct omx_clap_preset location 24 8 const char * location
+member struct omx_clap_preset load_key 32 8 const char * load_key
+member struct omx_clap_preset flags 40 4 uint32_t flags
+member struct omx_clap_preset description 48 8 const char * description
+member struct omx_clap_preset plugin_count 56 4 uint32_t plugin_count
+member struct omx_clap_preset plugin_ids 64 64 const char * plugin_ids[8]
+size struct omx_clap_preset 128
 member struct omx_clap_raw lib 0 8 void * lib
 member struct omx_clap_raw entry 8 8 const clap_plugin_entry_t * entry
 member struct omx_clap_raw factory 16 8 const clap_plugin_factory_t * factory
@@ -240,49 +287,66 @@ member struct omx_clap_shadow delivered 8 8 double delivered
 member struct omx_clap_shadow cycle 16 4 uint32_t cycle
 member struct omx_clap_shadow valid 20 4 int valid
 size struct omx_clap_shadow 24
+member struct omx_clap_sleep asleep 0 4 uint32_t asleep
+member struct omx_clap_sleep quiet_frames 8 8 uint64_t quiet_frames
+member struct omx_clap_sleep quiet_out_frames 16 8 uint64_t quiet_out_frames
+member struct omx_clap_sleep quiet_min_frames 24 4 uint32_t quiet_min_frames
+member struct omx_clap_sleep wake 28 4 _Atomic uint32_t wake
+member struct omx_clap_sleep skipped 32 8 _Atomic uint64_t skipped
+member struct omx_clap_sleep last 40 48 struct omx_clap_transport last
+member struct omx_clap_sleep have_last 88 4 int have_last
+member struct omx_clap_sleep sleeps 92 4 _Atomic uint32_t sleeps
+size struct omx_clap_sleep 96
 member struct omx_clap_stage h 0 80 struct omx_hosted_stage h
 member struct omx_clap_stage plugin 80 8 const clap_plugin_t * plugin
-member struct omx_clap_stage in_ptrs 88 16 float * in_ptrs[2]
-member struct omx_clap_stage out_ptrs 104 16 float * out_ptrs[2]
-member struct omx_clap_stage ain 120 32 clap_audio_buffer_t ain
-member struct omx_clap_stage aout 152 288 clap_audio_buffer_t aout[9]
-member struct omx_clap_stage n_aux 440 4 uint32_t n_aux
-member struct omx_clap_stage aux_ptrs 448 16 float * aux_ptrs[2]
-member struct omx_clap_stage events 464 3584 clap_event_param_value_t events[64]
-member struct omx_clap_stage n_events 4048 4 uint32_t n_events
-member struct omx_clap_stage notes 4056 10240 union omx_clap_note notes[256]
-member struct omx_clap_stage n_notes 14296 4 uint32_t n_notes
-member struct omx_clap_stage sysex_bytes 14300 2048 uint8_t sysex_bytes[8][256]
-member struct omx_clap_stage n_sysex 16348 4 uint32_t n_sysex
-member struct omx_clap_stage notes_visible 16352 4 _Atomic uint32_t notes_visible
-member struct omx_clap_stage note_inputs 16356 4 uint32_t note_inputs
-member struct omx_clap_stage note_dialect 16360 4 uint32_t note_dialect
-member struct omx_clap_stage note_dialects 16364 4 uint32_t note_dialects
-member struct omx_clap_stage bend_semitones 16368 8 double bend_semitones
-member struct omx_clap_stage in_events 16376 24 clap_input_events_t in_events
-member struct omx_clap_stage out_events 16400 16 clap_output_events_t out_events
-member struct omx_clap_stage proc 16416 64 clap_process_t proc
-member struct omx_clap_stage queue 16480 24 struct omx_hosted_param_queue queue
-member struct omx_clap_stage steady_time 16504 8 int64_t steady_time
-member struct omx_clap_stage state 16512 4 _Atomic uint32_t state
-member struct omx_clap_stage latency_frames 16516 4 _Atomic uint32_t latency_frames
-member struct omx_clap_stage in_cycle 16520 4 _Atomic uint32_t in_cycle
-member struct omx_clap_stage need_reset 16524 4 uint32_t need_reset
-member struct omx_clap_stage process_errors 16528 4 _Atomic uint32_t process_errors
-member struct omx_clap_stage constant_channels 16532 4 _Atomic uint32_t constant_channels
-member struct omx_clap_stage events_delivered 16536 4 _Atomic uint32_t events_delivered
-member struct omx_clap_stage notes_delivered 16540 4 _Atomic uint32_t notes_delivered
-member struct omx_clap_stage notes_dropped 16544 4 _Atomic uint32_t notes_dropped
-member struct omx_clap_stage sysex_dropped 16548 4 _Atomic uint32_t sysex_dropped
-member struct omx_clap_stage notes_unmappable 16552 4 _Atomic uint32_t notes_unmappable
-member struct omx_clap_stage out_events_seen 16556 4 _Atomic uint32_t out_events_seen
-member struct omx_clap_stage plugin_changed 16560 4 _Atomic uint32_t plugin_changed
-member struct omx_clap_stage resets 16564 4 _Atomic uint32_t resets
-member struct omx_clap_stage start_refused 16568 4 _Atomic uint32_t start_refused
-member struct omx_clap_stage releases_dropped 16572 4 _Atomic uint32_t releases_dropped
-size struct omx_clap_stage 16576
+member struct omx_clap_stage in_ptrs 88 512 float * in_ptrs[64]
+member struct omx_clap_stage out_ptrs 600 512 float * out_ptrs[64]
+member struct omx_clap_stage ain 1112 32 clap_audio_buffer_t ain
+member struct omx_clap_stage aout 1144 2080 clap_audio_buffer_t aout[65]
+member struct omx_clap_stage n_aux 3224 4 uint32_t n_aux
+member struct omx_clap_stage aux_ptrs 3232 32768 float * aux_ptrs[4096]
+member struct omx_clap_stage aux_base 36000 256 uint32_t aux_base[64]
+member struct omx_clap_stage aux_scratch 36256 32768 float * aux_scratch[4096]
+member struct omx_clap_stage events 69024 3584 clap_event_param_value_t events[64]
+member struct omx_clap_stage n_events 72608 4 uint32_t n_events
+member struct omx_clap_stage notes 72616 10240 union omx_clap_note notes[256]
+member struct omx_clap_stage n_notes 82856 4 uint32_t n_notes
+member struct omx_clap_stage sysex_bytes 82860 2048 uint8_t sysex_bytes[8][256]
+member struct omx_clap_stage n_sysex 84908 4 uint32_t n_sysex
+member struct omx_clap_stage notes_visible 84912 4 _Atomic uint32_t notes_visible
+member struct omx_clap_stage note_inputs 84916 4 uint32_t note_inputs
+member struct omx_clap_stage note_dialect 84920 4 uint32_t note_dialect
+member struct omx_clap_stage note_dialects 84924 4 uint32_t note_dialects
+member struct omx_clap_stage bend_semitones 84928 8 double bend_semitones
+member struct omx_clap_stage in_events 84936 24 clap_input_events_t in_events
+member struct omx_clap_stage out_events 84960 16 clap_output_events_t out_events
+member struct omx_clap_stage proc 84976 64 clap_process_t proc
+member struct omx_clap_stage queue 85040 24 struct omx_hosted_param_queue queue
+member struct omx_clap_stage steady_time 85064 8 int64_t steady_time
+member struct omx_clap_stage state 85072 4 _Atomic uint32_t state
+member struct omx_clap_stage latency_frames 85076 4 _Atomic uint32_t latency_frames
+member struct omx_clap_stage in_cycle 85080 4 _Atomic uint32_t in_cycle
+member struct omx_clap_stage need_reset 85084 4 uint32_t need_reset
+member struct omx_clap_stage process_errors 85088 4 _Atomic uint32_t process_errors
+member struct omx_clap_stage constant_channels 85092 4 _Atomic uint32_t constant_channels
+member struct omx_clap_stage events_delivered 85096 4 _Atomic uint32_t events_delivered
+member struct omx_clap_stage notes_delivered 85100 4 _Atomic uint32_t notes_delivered
+member struct omx_clap_stage notes_dropped 85104 4 _Atomic uint32_t notes_dropped
+member struct omx_clap_stage sysex_dropped 85108 4 _Atomic uint32_t sysex_dropped
+member struct omx_clap_stage notes_unmappable 85112 4 _Atomic uint32_t notes_unmappable
+member struct omx_clap_stage out_events_seen 85116 4 _Atomic uint32_t out_events_seen
+member struct omx_clap_stage plugin_changed 85120 4 _Atomic uint32_t plugin_changed
+member struct omx_clap_stage resets 85124 4 _Atomic uint32_t resets
+member struct omx_clap_stage start_refused 85128 4 _Atomic uint32_t start_refused
+member struct omx_clap_stage releases_dropped 85132 4 _Atomic uint32_t releases_dropped
+size struct omx_clap_stage 85136
 member struct omx_clap_tempo bpm_bits 0 8 _Atomic uint64_t bpm_bits
 size struct omx_clap_tempo 8
+member struct omx_clap_timer used 0 4 uint32_t used
+member struct omx_clap_timer id 4 4 clap_id id
+member struct omx_clap_timer period_ms 8 4 uint32_t period_ms
+member struct omx_clap_timer due_ns 16 8 uint64_t due_ns
+size struct omx_clap_timer 24
 member struct omx_clap_transport flags 0 4 uint32_t flags
 member struct omx_clap_transport tempo 8 8 double tempo
 member struct omx_clap_transport song_pos_beats 16 8 clap_beattime song_pos_beats
@@ -343,3 +407,4 @@ member union omx_clap_note note 0 40 clap_event_note_t note
 member union omx_clap_note midi 0 24 clap_event_midi_t midi
 member union omx_clap_note expr 0 40 clap_event_note_expression_t expr
 member union omx_clap_note sysex 0 40 clap_event_midi_sysex_t sysex
+member union omx_clap_note midi2 0 36 clap_event_midi2_t midi2
