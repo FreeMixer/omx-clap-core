@@ -413,6 +413,7 @@ static void t_layouts(void)
         { LAYOUT_URI "#cv-sixty-five", "hosting.topology.too-many-ports" },
         { LAYOUT_URI "#cv-sixty-five-out", "hosting.topology.too-many-ports" },
         { LAYOUT_URI "#cv-sixty-five-only", "hosting.topology.too-many-ports" },
+        { LAYOUT_URI "#cv-sixty-five-only-out", "hosting.topology.too-many-ports" },
         { LAYOUT_URI "#wide-sixty-five", "hosting.topology.port-too-wide" },
     };
     char why[LV2_CORE_WHY_MAX] = "";
@@ -533,6 +534,10 @@ static void t_layouts(void)
     p = open_plugin(g_layout, LAYOUT_URI "#cv-sixty-four-only", why);
     CHECK(p && p->main_in.n == 2 && p->n_aux_in == 0 && p->n_cv_in == LV2_CORE_AUX_PORTS && p->cv_in[0] == 2 && p->cv_in[LV2_CORE_AUX_PORTS - 1] == 65,
           "layout cv-sixty-four-only: 64 CV inputs and no auxiliary port are admitted, ports 2 to 65 in order (%s, %u)", why, p ? p->n_cv_in : 0);
+    lv2_plugin_close(p);
+    p = open_plugin(g_layout, LAYOUT_URI "#cv-sixty-four-only-out", why);
+    CHECK(p && p->main_out.n == 2 && p->n_aux_out == 0 && p->n_cv_out == LV2_CORE_AUX_PORTS && p->cv_out[0] == 4 && p->cv_out[LV2_CORE_AUX_PORTS - 1] == 67,
+          "layout cv-sixty-four-only-out: 64 CV outputs and no auxiliary port are admitted, ports 4 to 67 in order (%s, %u)", why, p ? p->n_cv_out : 0);
     lv2_plugin_close(p);
 
     // the group-type table: a 5.1 group's members ordered by their designations, the map in CLAP surround ids

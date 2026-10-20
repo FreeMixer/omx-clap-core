@@ -119,3 +119,13 @@
     a lv2:Plugin ;
     lv2:binary <omx-layout-fixture.so> ;
     rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four-only-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five-only-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
