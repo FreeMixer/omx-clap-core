@@ -140,7 +140,9 @@ member struct omx_clap_instance fds 268708 128 struct omx_clap_fd fds[16]
 member struct omx_clap_instance tail_frames 268836 4 _Atomic uint32_t tail_frames
 member struct omx_clap_instance tail_changed 268840 4 _Atomic uint32_t tail_changed
 member struct omx_clap_instance sleep 268848 96 struct omx_clap_sleep sleep
-size struct omx_clap_instance 268944
+member struct omx_clap_instance surround 268944 8 const clap_plugin_surround_t * surround
+member struct omx_clap_instance ambisonic 268952 8 const clap_plugin_ambisonic_t * ambisonic
+size struct omx_clap_instance 268960
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
