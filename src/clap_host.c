@@ -585,6 +585,77 @@ static const clap_host_remote_controls_t g_host_remote_controls = { host_remote_
 
 static const char *const g_extension_ids[] = CLAP_HOST_EXTENSIONS_INIT;
 
+/* The extensions a plugin asked for and the host did not offer, once per (instance, id): a fixed table shared by every
+ * instance, so the public instance keeps its layout and nothing is allocated where get_extension runs, which may be any
+ * thread. A slot is claimed by its owner, filled, then marked pending; the owner's tick says one pending id per log
+ * line ("extension not offered: <id>"), and the instance's end frees its slots. An id past the table goes unsaid. */
+#define UNOFFERED_SLOTS 256
+#define UNOFFERED_ID_BYTES 64
+
+enum { UNOFFERED_FREE, UNOFFERED_FILLING, UNOFFERED_PENDING, UNOFFERED_SAID };
+
+static struct
+{
+    _Atomic(struct omx_clap_instance *) owner;
+    _Atomic uint32_t state;
+    char id[UNOFFERED_ID_BYTES];
+} g_unoffered[UNOFFERED_SLOTS];
+
+static void unoffered_note(struct omx_clap_instance *in, const char *id)
+{
+    size_t i, k;
+    struct omx_clap_instance *none;
+
+    if (!in)
+        return;
+    for (i = 0; i < UNOFFERED_SLOTS; i++)
+        if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire) == in
+            && atomic_load_explicit(&g_unoffered[i].state, memory_order_acquire) >= UNOFFERED_PENDING
+            && strncmp(g_unoffered[i].id, id, UNOFFERED_ID_BYTES - 1) == 0)
+            return;
+    for (i = 0; i < UNOFFERED_SLOTS; i++)
+    {
+        none = NULL;
+        if (atomic_compare_exchange_strong_explicit(&g_unoffered[i].owner, &none, in, memory_order_acq_rel, memory_order_relaxed))
+        {
+            for (k = 0; k < UNOFFERED_ID_BYTES - 1 && id[k]; k++)
+                g_unoffered[i].id[k] = id[k];
+            g_unoffered[i].id[k] = '\0';
+            atomic_store_explicit(&g_unoffered[i].state, UNOFFERED_PENDING, memory_order_release);
+            return;
+        }
+    }
+}
+
+/* the control thread's tick: one pending id into the log, when the log's one slot is free */
+static void unoffered_say(struct omx_clap_instance *in)
+{
+    size_t i;
+
+    for (i = 0; i < UNOFFERED_SLOTS; i++)
+        if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire) == in
+            && atomic_load_explicit(&g_unoffered[i].state, memory_order_acquire) == UNOFFERED_PENDING)
+        {
+            snprintf(in->last_log, sizeof(in->last_log), "extension not offered: %s", g_unoffered[i].id);
+            atomic_store_explicit(&g_unoffered[i].state, UNOFFERED_SAID, memory_order_relaxed);
+            atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
+            return;
+        }
+}
+
+/* the instance ends, its plugin destroyed: its slots are free for the next */
+static void unoffered_forget(struct omx_clap_instance *in)
+{
+    size_t i;
+
+    for (i = 0; i < UNOFFERED_SLOTS; i++)
+        if (atomic_load_explicit(&g_unoffered[i].owner, memory_order_acquire) == in)
+        {
+            atomic_store_explicit(&g_unoffered[i].state, UNOFFERED_FREE, memory_order_relaxed);
+            atomic_store_explicit(&g_unoffered[i].owner, NULL, memory_order_release);
+        }
+}
+
 /* only what the declared list offers, and the preset-load extension where the configuration adds it: a verdict
  * promised no more */
 static const void *host_get_extension(const clap_host_t *host, const char *id)
@@ -592,7 +663,6 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
     size_t i;
     int declared = 0;
 
-    (void)host;
     if (!id)
         return NULL;
     if (g_config.preset_load && (!strcmp(id, CLAP_EXT_PRESET_LOAD) || !strcmp(id, CLAP_EXT_PRESET_LOAD_COMPAT)))
@@ -604,7 +674,10 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
     for (i = 0; g_extension_ids[i]; i++)
         declared |= strcmp(g_extension_ids[i], id) == 0;
     if (!declared)
+    {
+        unoffered_note(instance_of(host), id);
         return NULL;
+    }
     if (!strcmp(id, CLAP_EXT_LOG))
         return &g_host_log;
     if (!strcmp(id, CLAP_EXT_THREAD_CHECK))
@@ -840,6 +913,7 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     {
         if (in->plugin)
             in->plugin->destroy(in->plugin);
+        unoffered_forget(in);
         binary_unref(bin);
         free(in);
         *out = NULL;
@@ -1041,6 +1115,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     if (refused)
     {
         in->plugin->destroy(in->plugin);
+        unoffered_forget(in);
         binary_unref(bin);
         free(in);
         why_set(why, refused);
@@ -1052,6 +1127,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     {
         // whole or refused: never an instance whose read-back table is missing
         in->plugin->destroy(in->plugin);
+        unoffered_forget(in);
         binary_unref(bin);
         free(in);
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
@@ -2157,6 +2233,7 @@ void omx_clap_host_close(struct omx_clap_instance *in)
     if (in->active)
         omx_clap_host_deactivate(in);
     in->plugin->destroy(in->plugin);
+    unoffered_forget(in);
     binary_unref(in->bin);
     free(in->shadow);
     free(in->contract);
@@ -3127,6 +3204,8 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
         snprintf(in->last_log, sizeof(in->last_log), "%s", in->log_ring);
         atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
     }
+    else if (!atomic_load_explicit(&in->log_fresh, memory_order_acquire))
+        unoffered_say(in);
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
     return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;

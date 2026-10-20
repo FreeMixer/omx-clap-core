@@ -358,8 +358,16 @@ static bool plugin_init(const clap_plugin_t *plugin)
 {
     fake_t *fake = plugin->plugin_data;
 
+    const char *ask = getenv("FAKE_ASK_EXTENSION");
+
     fake->init_thread = pthread_self();
     fake_log(plugin, "init");
+    // FAKE_ASK_EXTENSION=<id>: the plugin asks the host for that extension twice, as a plugin polling it would
+    if (ask)
+    {
+        fake->host->get_extension(fake->host, ask);
+        fake->host->get_extension(fake->host, ask);
+    }
     return true;
 }
 
