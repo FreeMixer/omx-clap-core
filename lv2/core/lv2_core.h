@@ -205,9 +205,16 @@ struct lv2_plugin
     char *cv_in_name[LV2_CORE_CV_PORTS], *cv_out_name[LV2_CORE_CV_PORTS];  // lv2:name, else lv2:symbol
     int32_t latency_port;           // -1: none
     float latency_def;              // where its buffer starts: lv2:default, else lv2:minimum, else 0, as every control's
-    int32_t midi_in_port;           // the one MIDI input atom port (atom:supports midi:MidiEvent), -1: none
+    int32_t midi_in_port;           // the one MIDI input port (an atom:Sequence or an ev:EventPort supporting
+                                    // midi:MidiEvent), -1: none
     int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
-    int32_t midi_out_port;          // the one MIDI output atom port, -1: none
+    int32_t midi_out_port;          // the one MIDI output port, -1: none
+    int midi_in_event;              // the MIDI input is an ev:EventPort: an LV2_Event_Buffer, not an atom sequence
+    int midi_out_event;             // the MIDI output is an ev:EventPort
+    uint32_t n_event_in;            // the ev:EventPort MIDI inputs after the MIDI input: fed an empty buffer
+    uint32_t event_in[LV2_CORE_ATOM_IN_PORTS];
+    uint32_t n_event_out;           // the ev:EventPort MIDI outputs after the MIDI output: offered a buffer, never read
+    uint32_t event_out[LV2_CORE_NOTIFY_PORTS];
     int32_t time_port;              // -1: none; the first atom input that takes time:Position, no MIDI and no patch:Message (§6.6)
     struct lv2_control *controls;   // every control port but the latency port
     uint32_t n_controls;
