@@ -2355,8 +2355,10 @@ int effects_audio_ports(int effect_id, char **reply)
     out = open_memstream(reply, &size);
     if (!out)
         return ERR_MEMORY_ALLOCATION;
-    // the ports registered at add, inputs first and each side's main port first; dry while the instance is not active
-    fputs(effect->clap->active ? "resp 0" : "resp 0 dry", out);
+    // the ports registered at add, inputs first and each side's main port first; dry while the instance is not run
+    // an active instance whose auxiliary blocks are shorter than the JACK cycle passes every cycle dry too (process)
+    fputs(effect->clap->active && !((effect->aux_in_count || effect->aux_out_count)
+                                    && effect->aux_frames < jack_get_buffer_size(effect->jack_client)) ? "resp 0" : "resp 0 dry", out);
     if (effect->in_ports)
         audio_port_record(out, effect, true, LAYOUT_PORT_MAIN, effect->in_ports);
     for (p = 0; p < effect->aux_in_n; p++)
