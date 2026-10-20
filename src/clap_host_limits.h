@@ -57,8 +57,7 @@
 #define CLAP_HOST_CODE_HEADLESS_FAILED "hosting.clap.headless-failed"
 #define CLAP_HOST_CODE_NOT_AUDIO_EFFECT "hosting.clap.not-audio-effect"  ///< the plugin is not an audio effect
 #define CLAP_HOST_CODE_NOTE_INPUT "hosting.clap.note-input"  ///< the plugin declares a note input the configuration refuses
-#define CLAP_HOST_CODE_NO_AUDIO_INPUT "hosting.topology.no-audio-input"  ///< the plugin has no audio input
-#define CLAP_HOST_CODE_NO_AUDIO_OUTPUT "hosting.topology.no-audio-output"  ///< the plugin has no audio output
+#define CLAP_HOST_CODE_NO_AUDIO_OUTPUT "hosting.topology.no-audio-output"  ///< the plugin has no audio output, no MIDI output and no audio input: nothing to carry and nothing to pass through
 #define CLAP_HOST_CODE_WIDER_THAN_STRIP "hosting.topology.wider-than-strip"  ///< the plugin is wider than the strip
 #define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has extra inputs, fed silence
 #define CLAP_HOST_CODE_CRASHED_LIVE "hosting.stability.crashed-live-on-this-rig"  ///< the plugin crashed live on this rig

@@ -72,7 +72,7 @@
  * 4: the plugin's clap.meters/1 declarations, 0.7; 5: the stage's releases_dropped, in its tail padding, 0.10; 6: the
  * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
  * instance's MPE zones, a lower and an upper, 0.11; 10: what the plugin tells the host's note-ports, note-name and
- * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.14).
+ * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. */
@@ -281,9 +281,11 @@ struct omx_clap_fd
  * sleeps once its input has been silent for its tail and its output is silent. Whatever it answers, it sleeps only once
  * its output has been silent for quiet_min_frames (OMX_CLAP_SLEEP_QUIET_MS at the activated rate) and no note the host
  * gave it an id for is held or inside its hold after a note off: an instrument whose voice starts silent, or that says it
- * may sleep while a voice is still to sound, is kept awake. While asleep, a block whose input is silent and that carries no note and no
+ * may sleep while a voice is still to sound, is kept awake. That guard covers the notes the host gave an id for, which are the
+ * CLAP-dialect ports'; a MIDI-dialect port keeps no note bookkeeping, so notes sent to one are not held awake by it. While asleep, a block whose input is silent and that carries no note and no
  * parameter event is not processed: the lane keeps its silence and the steady time moves on. Anything else wakes it, and
- * so does the plugin's request_process. A stage with a bound side chain never sleeps.
+ * so does the plugin's request_process, a queued sysex, and a change of the transport handed to it: its flags (playing,
+ * loop), its tempo, or a position that is not the last one moved on by this block. A stage with a bound side chain never sleeps.
  */
 struct omx_clap_sleep
 {
@@ -293,6 +295,8 @@ struct omx_clap_sleep
     uint32_t quiet_min_frames;      ///< the silent output a sleep needs first; set at activate, a caller may change it
     _Atomic uint32_t wake;          ///< the plugin's request_process, from any thread
     _Atomic uint64_t skipped;       ///< blocks not processed while asleep
+    struct omx_clap_transport last; ///< the transport the previous block was handed, awake or asleep
+    int have_last;                  ///< 1 once `last` holds a block's transport
     _Atomic uint32_t sleeps;        ///< times the plugin went to sleep
 };
 
@@ -448,6 +452,7 @@ struct omx_clap_instance
     const clap_plugin_timer_support_t *timer_support;  ///< the plugin's on_timer, read at open
     const clap_plugin_posix_fd_support_t *fd_support;  ///< the plugin's on_fd, read at open
     const clap_plugin_thread_pool_t *thread_pool;  ///< the plugin's exec, read at open
+    int in_exec;                                   ///< 1 while the host runs the plugin's tasks: a request made inside is refused
     const clap_plugin_tail_t *tail;  ///< the plugin's tail, read at open
     struct omx_clap_timer timers[OMX_CLAP_TIMERS];  ///< the timers the plugin registered, served by the tick
     uint32_t timer_next_id;  ///< the id the next timer takes
@@ -867,6 +872,35 @@ static inline double omx_clap_tempo_read(const struct omx_clap_tempo *tempo)
     return bits ? bpm : 0.0;
 }
 
+/** 1 when `now` is not the transport `was` moved on by one block of `n` frames at `rate`: a flag, a tempo or a meter changed,
+ * or the playhead jumped (a locate, a loop wrap) rather than advanced by about the block's length. */
+static inline int omx_clap_transport_changed(const struct omx_clap_transport *was, const struct omx_clap_transport *now,
+                                             uint32_t n, double rate)
+{
+    const double dt = rate > 0.0 ? (double)n / rate : 0.0;
+    const double tol = dt + 0.001;      // a block's length and a millisecond of the host's rounding
+
+    if (was->flags != now->flags || was->tempo != now->tempo || was->tsig_num != now->tsig_num || was->tsig_denom != now->tsig_denom)
+        return 1;
+    if (!(now->flags & CLAP_TRANSPORT_IS_PLAYING))
+        return (now->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE) && was->song_pos_seconds != now->song_pos_seconds;
+    if (now->flags & CLAP_TRANSPORT_HAS_SECONDS_TIMELINE)
+    {
+        const double d = (double)(now->song_pos_seconds - was->song_pos_seconds) / (double)CLAP_SECTIME_FACTOR;
+
+        if (d < 0.0 || d > dt + tol)
+            return 1;
+    }
+    if ((now->flags & CLAP_TRANSPORT_HAS_BEATS_TIMELINE) && (now->flags & CLAP_TRANSPORT_HAS_TEMPO))
+    {
+        const double d = (double)(now->song_pos_beats - was->song_pos_beats) / (double)CLAP_BEATTIME_FACTOR;
+
+        if (d < 0.0 || d > (dt + tol) * now->tempo / 60.0)
+            return 1;
+    }
+    return 0;
+}
+
 /** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
  * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
  * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
@@ -878,7 +912,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
     struct omx_clap_transport rec;
     struct omx_clap_sleep *z = &in->sleep;
     clap_process_status said;
-    int silent, quiet_out;
+    int silent, quiet_out, moved;
 
     if (in->transport_src)
     {
@@ -897,9 +931,13 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         }
     }
     silent = l && omx_clap_block_silent(l, r, n);
+    moved = z->have_last && omx_clap_transport_changed(&z->last, &rec, n, in->rate);
+    z->last = rec;
+    z->have_last = 1;
     if (z->asleep)
     {
-        if (silent && !atomic_exchange_explicit(&z->wake, 0u, memory_order_relaxed) && in->stage.n_notes == 0 &&
+        if (silent && !moved && !atomic_exchange_explicit(&z->wake, 0u, memory_order_relaxed) && in->stage.n_notes == 0 &&
+            in->stage.n_sysex == 0 &&
             !omx_clap_queue_pending(&in->stage.queue) &&
             atomic_load_explicit(&in->stage.state, memory_order_acquire) == OMX_CLAP_PROCESSING &&
             atomic_load_explicit(&in->stage.h.bypass, memory_order_relaxed) == 0u &&

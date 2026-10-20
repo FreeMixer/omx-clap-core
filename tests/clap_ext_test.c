@@ -34,6 +34,7 @@
 #include <unistd.h>
 
 #include "../src/clap_host.h"
+#include <omxcontract/omx_contract_limits.h>
 #include "test_util.h"
 
 #define EXT_ID  "org.omx-clap-host.test.ext"
@@ -44,6 +45,7 @@ typedef struct
     uint32_t timer_calls;
     clap_id timer_id;
     uint32_t timer_registered, fd_calls, fd_flags, pool_refused_outside, pool_request, pool_ok, pool_done;
+    uint32_t pool_nested, pool_nested_ok, pool_nested_refused;
     int32_t render_mode;
     uint32_t hard_rt, tail;
     int32_t status;
@@ -78,6 +80,173 @@ static void run(struct omx_clap_instance *in, float level)
     omx_clap_host_run(in, g_l, g_r, BLK);
 }
 
+static void transport(struct omx_clap_transport_src *src, uint32_t flags, double bpm, double seconds)
+{
+    struct omx_clap_transport t;
+
+    memset(&t, 0, sizeof t);
+    t.flags = flags | CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_SECONDS_TIMELINE | CLAP_TRANSPORT_HAS_BEATS_TIMELINE;
+    t.tempo = bpm;
+    t.song_pos_seconds = (clap_sectime)(seconds * (double)CLAP_SECTIME_FACTOR);
+    t.song_pos_beats = (clap_beattime)(seconds * bpm / 60.0 * (double)CLAP_BEATTIME_FACTOR);
+    omx_clap_transport_publish(src, &t);
+}
+
+/* the sleep of an idle plugin and its waking, at one rate */
+static void sleep_section(struct omx_clap_instance *in, ext_stats_t *st, int (*set_tail)(uint32_t), void (*wake)(void), double rate,
+                          struct omx_clap_transport_src *tsrc)
+{
+    int64_t asleep_at;
+    uint64_t skipped;
+    uint32_t calls, i;
+
+    in->sleep.quiet_min_frames = 0;
+    in->sleep.asleep = 0;
+    st->status = CLAP_PROCESS_CONTINUE;
+    st->ring = 0;
+    CHECK(set_tail(1000) == 0, "%.0f Hz: a tail of 1000 frames", rate);
+    omx_clap_host_tick(in);
+    transport(tsrc, 0, 120.0, 0.0);
+    run(in, 0.0f);
+
+    /* CONTINUE: every block is processed, silent or not */
+    calls = st->process_calls;
+    for (i = 0; i < 4; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 4, "CONTINUE: four silent blocks are four process calls");
+
+    /* SLEEP: after it, silent blocks are not processed; the steady time moves on; sound wakes it */
+    st->status = CLAP_PROCESS_SLEEP;
+    run(in, 0.0f);
+    asleep_at = st->last_steady;
+    calls = st->process_calls;
+    skipped = atomic_load(&in->sleep.skipped);
+    for (i = 0; i < 4; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls && atomic_load(&in->sleep.skipped) == skipped + 4 && in->sleep.asleep,
+          "SLEEP: four silent blocks after it are not processed (%u calls, %llu skipped)", st->process_calls - calls,
+          (unsigned long long)(atomic_load(&in->sleep.skipped) - skipped));
+    run(in, 0.5f);
+    CHECK(st->process_calls == calls + 1 && st->last_steady == asleep_at + 5 * (int64_t)BLK,
+          "a block with sound wakes it, and its steady time counts the blocks it slept through (%lld)", (long long)st->last_steady);
+    for (i = 0; i < BLK; i++)
+        if (g_l[i] != 0.5f)
+            break;
+    CHECK(i == BLK, "the woken block is the plugin's output");
+
+    /* request_process wakes it for one block */
+    run(in, 0.0f);
+    calls = st->process_calls;
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls, "asleep again on silence");
+    if (wake)
+        wake();
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls + 1, "request_process wakes it for the next block");
+
+    /* a parameter write would wake it too; a note cannot reach an effect. CONTINUE_IF_NOT_QUIET: sleeps on a silent block */
+    st->status = CLAP_PROCESS_CONTINUE_IF_NOT_QUIET;
+    run(in, 0.5f);
+    calls = st->process_calls;
+    run(in, 0.5f);
+    CHECK(st->process_calls == calls + 1, "CONTINUE_IF_NOT_QUIET: processed while there is sound");
+    run(in, 0.0f);
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls + 2, "and asleep after the first silent block (%u)", st->process_calls - calls);
+    // an output that still sounds on a silent input (an instrument's voice) keeps it awake: the status is about the output
+    run(in, 0.5f);
+    st->ring = 3;
+    calls = st->process_calls;
+    for (i = 0; i < 6; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 4, "CONTINUE_IF_NOT_QUIET: a silent input whose output still sounds is processed until "
+          "the output is silent too (%u)", st->process_calls - calls);
+
+    /* TAIL: processed for the tail after the sound stops, then asleep */
+    st->status = CLAP_PROCESS_TAIL;
+    CHECK(set_tail(3 * BLK) == 0, "a tail of three blocks");
+    omx_clap_host_tick(in);
+    run(in, 0.5f);
+    calls = st->process_calls;
+    for (i = 0; i < 6; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 3, "TAIL: three silent blocks processed, the tail, then none (%u)", st->process_calls - calls);
+    run(in, 0.5f);
+    st->ring = 5;
+    calls = st->process_calls;
+    for (i = 0; i < 8; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 6, "TAIL: a tail that has passed while the output still sounds goes on until it is silent (%u)",
+          st->process_calls - calls);
+    CHECK(set_tail(UINT32_MAX) == 0, "an infinite tail");
+    omx_clap_host_tick(in);
+    run(in, 0.5f);
+    in->sleep.quiet_frames = UINT32_MAX;    // as if silent for a day: an infinite tail still never ends
+    calls = st->process_calls;
+    for (i = 0; i < 6; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 6, "an infinite tail never sleeps, however long the silence (%u)", st->process_calls - calls);
+
+    /* a change of the transport wakes a sleeping plugin: a play start, a tempo, a locate; a steady playhead does not */
+    in->sleep.quiet_min_frames = 0;
+    st->status = CLAP_PROCESS_SLEEP;
+    transport(tsrc, 0, 120.0, 0.0);
+    run(in, 0.0f);
+    run(in, 0.0f);
+    calls = st->process_calls;
+    run(in, 0.0f);
+    transport(tsrc, 0, 120.0, 0.0);
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls && in->sleep.asleep, "stopped and unchanged: it stays asleep (%u)", st->process_calls - calls);
+    transport(tsrc, CLAP_TRANSPORT_IS_PLAYING, 120.0, 0.0);
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls + 1, "a plugin asleep while stopped gets the play start (%u)", st->process_calls - calls);
+    run(in, 0.0f);
+    run(in, 0.0f);
+    calls = st->process_calls;
+    for (i = 1; i <= 4; i++)
+    {
+        transport(tsrc, CLAP_TRANSPORT_IS_PLAYING, 120.0, (double)i * (double)BLK / rate);
+        run(in, 0.0f);
+    }
+    CHECK(st->process_calls == calls && in->sleep.asleep, "playing with a steady playhead: it stays asleep (%u)", st->process_calls - calls);
+    transport(tsrc, CLAP_TRANSPORT_IS_PLAYING, 90.0, 5.0 * (double)BLK / rate);
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls + 1, "a tempo change wakes it (%u)", st->process_calls - calls);
+    run(in, 0.0f);
+    run(in, 0.0f);
+    calls = st->process_calls;
+    transport(tsrc, CLAP_TRANSPORT_IS_PLAYING, 90.0, 40.0);
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls + 1, "a locate wakes it (%u)", st->process_calls - calls);
+    run(in, 0.0f);
+    run(in, 0.0f);
+    calls = st->process_calls;
+    transport(tsrc, CLAP_TRANSPORT_IS_PLAYING | CLAP_TRANSPORT_IS_LOOP_ACTIVE, 90.0, 40.0 + (double)BLK / rate);
+    run(in, 0.0f);
+    CHECK(st->process_calls == calls + 1, "the loop switched on wakes it (%u)", st->process_calls - calls);
+
+    /* a sysex queued for the block wakes it, as a note does */
+    run(in, 0.0f);
+    run(in, 0.0f);
+    calls = st->process_calls;
+    in->stage.n_sysex = 1;
+    run(in, 0.0f);
+    in->stage.n_sysex = 0;
+    CHECK(st->process_calls == calls + 1, "a queued sysex wakes it (%u)", st->process_calls - calls);
+
+    /* the window: a plugin that says SLEEP sleeps only after its output has been silent that long */
+    in->sleep.quiet_min_frames = 3 * BLK;
+    st->status = CLAP_PROCESS_SLEEP;
+    run(in, 0.5f);
+    calls = st->process_calls;
+    for (i = 0; i < 6; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 3, "SLEEP waits for three blocks of silent output, the window, then sleeps (%u)",
+          st->process_calls - calls);
+
+}
+
 int main(int argc, char **argv)
 {
     struct omx_clap_instance *in = NULL;
@@ -87,9 +256,7 @@ int main(int argc, char **argv)
     void (*wake)(void);
     int pipefd[2], idle[2];
     int (*ask_pool)(void);
-    int64_t asleep_at;
     size_t len = 0;
-    uint32_t calls, i;
 
     if (argc < 2)
     {
@@ -178,93 +345,39 @@ int main(int argc, char **argv)
     CHECK(st->pool_ok && st->pool_done == 12, "inside process() request_exec runs all 12 tasks before it returns (%u, %u)", st->pool_ok,
           st->pool_done);
     st->pool_request = 0;
+    /* a request made from inside exec is refused, and the outer request still runs every task */
+    st->pool_nested = 1;
+    st->pool_request = 5;
+    run(in, 0.5f);
+    CHECK(st->pool_ok && st->pool_done == 5, "nested: the outer request ran all 5 tasks (%u, %u)", st->pool_ok, st->pool_done);
+    CHECK(st->pool_nested_ok == 0 && st->pool_nested_refused == 5, "nested: request_exec from inside exec is refused every time (%u ran, %u refused)",
+          st->pool_nested_ok, st->pool_nested_refused);
+    st->pool_nested = 0;
+    st->pool_request = 0;
 
-    /* CONTINUE: every block is processed, silent or not */
-    calls = st->process_calls;
-    for (i = 0; i < 4; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls + 4, "CONTINUE: four silent blocks are four process calls");
+    /* the sleep at the floor rates: the 200 ms window and the tail are rate-scaled */
+    {
+        static const double rates[] = OMX_ORACLE_FLOOR_RATES_INIT;
+        struct omx_clap_transport_src tsrc;
 
-    /* SLEEP: after it, silent blocks are not processed; the steady time moves on; sound wakes it */
-    st->status = CLAP_PROCESS_SLEEP;
-    run(in, 0.0f);
-    asleep_at = st->last_steady;
-    calls = st->process_calls;
-    for (i = 0; i < 4; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls && atomic_load(&in->sleep.skipped) == 4 && in->sleep.asleep,
-          "SLEEP: four silent blocks after it are not processed (%u calls, %llu skipped)", st->process_calls - calls,
-          (unsigned long long)atomic_load(&in->sleep.skipped));
-    run(in, 0.5f);
-    CHECK(st->process_calls == calls + 1 && st->last_steady == asleep_at + 5 * (int64_t)BLK,
-          "a block with sound wakes it, and its steady time counts the blocks it slept through (%lld)", (long long)st->last_steady);
-    for (i = 0; i < BLK; i++)
-        if (g_l[i] != 0.5f)
-            break;
-    CHECK(i == BLK, "the woken block is the plugin's output");
-
-    /* request_process wakes it for one block */
-    run(in, 0.0f);
-    calls = st->process_calls;
-    run(in, 0.0f);
-    CHECK(st->process_calls == calls, "asleep again on silence");
-    if (wake)
-        wake();
-    run(in, 0.0f);
-    CHECK(st->process_calls == calls + 1, "request_process wakes it for the next block");
-
-    /* a parameter write would wake it too; a note cannot reach an effect. CONTINUE_IF_NOT_QUIET: sleeps on a silent block */
-    st->status = CLAP_PROCESS_CONTINUE_IF_NOT_QUIET;
-    run(in, 0.5f);
-    calls = st->process_calls;
-    run(in, 0.5f);
-    CHECK(st->process_calls == calls + 1, "CONTINUE_IF_NOT_QUIET: processed while there is sound");
-    run(in, 0.0f);
-    run(in, 0.0f);
-    CHECK(st->process_calls == calls + 2, "and asleep after the first silent block (%u)", st->process_calls - calls);
-    // an output that still sounds on a silent input (an instrument's voice) keeps it awake: the status is about the output
-    run(in, 0.5f);
-    st->ring = 3;
-    calls = st->process_calls;
-    for (i = 0; i < 6; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls + 4, "CONTINUE_IF_NOT_QUIET: a silent input whose output still sounds is processed until "
-          "the output is silent too (%u)", st->process_calls - calls);
-
-    /* TAIL: processed for the tail after the sound stops, then asleep */
-    st->status = CLAP_PROCESS_TAIL;
-    CHECK(set_tail(3 * BLK) == 0, "a tail of three blocks");
-    omx_clap_host_tick(in);
-    run(in, 0.5f);
-    calls = st->process_calls;
-    for (i = 0; i < 6; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls + 3, "TAIL: three silent blocks processed, the tail, then none (%u)", st->process_calls - calls);
-    run(in, 0.5f);
-    st->ring = 5;
-    calls = st->process_calls;
-    for (i = 0; i < 8; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls + 6, "TAIL: a tail that has passed while the output still sounds goes on until it is silent (%u)",
-          st->process_calls - calls);
-    CHECK(set_tail(UINT32_MAX) == 0, "an infinite tail");
-    omx_clap_host_tick(in);
-    run(in, 0.5f);
-    in->sleep.quiet_frames = UINT32_MAX;    // as if silent for a day: an infinite tail still never ends
-    calls = st->process_calls;
-    for (i = 0; i < 6; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls + 6, "an infinite tail never sleeps, however long the silence (%u)", st->process_calls - calls);
-
-    /* the window: a plugin that says SLEEP sleeps only after its output has been silent that long */
-    in->sleep.quiet_min_frames = 3 * BLK;
-    st->status = CLAP_PROCESS_SLEEP;
-    run(in, 0.5f);
-    calls = st->process_calls;
-    for (i = 0; i < 6; i++)
-        run(in, 0.0f);
-    CHECK(st->process_calls == calls + 3, "SLEEP waits for three blocks of silent output, the window, then sleeps (%u)",
-          st->process_calls - calls);
+        memset(&tsrc, 0, sizeof tsrc);
+        in->transport_src = &tsrc;
+        for (size_t r = 0; r < sizeof rates / sizeof rates[0]; r++)
+        {
+            if (rates[r] != 48000.0)
+            {
+                omx_clap_request_stop(&in->stage);
+                run(in, 0.0f);      // the cycle that stops it
+                CHECK(omx_clap_host_unpublish(in, 10, 1000000) == 0, "%.0f Hz: unpublished", rates[r]);
+                CHECK(omx_clap_host_set_rate(in, rates[r], BLK, why) == 0, "%.0f Hz: re-activated (%s)", rates[r], why);
+                omx_clap_host_publish(in, pthread_self());
+                CHECK(in->sleep.quiet_min_frames == (uint32_t)(rates[r] * OMX_CLAP_SLEEP_QUIET_MS / 1000.0),
+                      "%.0f Hz: a sleep needs 200 ms of silent output (%u)", rates[r], in->sleep.quiet_min_frames);
+                run(in, 0.0f);
+            }
+            sleep_section(in, st, set_tail, wake, rates[r], &tsrc);
+        }
+    }
 
     omx_clap_host_unpublish(in, 10, 1000000);
     omx_clap_host_close(in);
