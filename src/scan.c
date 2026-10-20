@@ -45,6 +45,7 @@
 #include <unistd.h>
 
 #include "clap_host.h"
+#include "layout_pin.h"
 
 
 /*
@@ -346,6 +347,28 @@ static void put_layout(FILE *out, const struct omx_clap_instance *instance, cons
     }
 }
 
+/* the JACK ports omx-clap-host registers for a port: one per channel named by layout_port_name, `aux` LAYOUT_PORT_MAIN for
+ * the main port; nothing for a port it registers none for (no channels, more than CLAP_HOST_PORT_CHANNELS, an
+ * auxiliary port past CLAP_HOST_AUX_INPUTS or CLAP_HOST_AUX_OUTPUTS) */
+static void put_jack(FILE *out, bool is_input, uint32_t aux, uint32_t channels)
+{
+    char name[LAYOUT_PORT_NAME_SIZE];
+    uint32_t k;
+
+    if (channels == 0 || channels > CLAP_HOST_PORT_CHANNELS
+        || (aux != LAYOUT_PORT_MAIN && aux >= (is_input ? CLAP_HOST_AUX_INPUTS : CLAP_HOST_AUX_OUTPUTS)))
+        return;
+    if (g_json)
+        fputs(",\"jack\":[", out);
+    for (k = 0; k < channels; k++)
+    {
+        layout_port_name(name, is_input, aux, k);
+        fprintf(out, g_json ? "%s\"%s\"" : "%s%s", g_json ? (k ? "," : "") : " ", name);
+    }
+    if (g_json)
+        fputc(']', out);
+}
+
 static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
@@ -358,7 +381,8 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
     for (dir = 0; dir < 2; dir++)
     {
         const bool is_input = dir == 0;
-        int first = 1;
+        int first = 1, mains = 0, named;
+        uint32_t aux = 0, as;
 
         count = ports ? ports->count(instance->plugin, is_input) : 0;
         if (g_json)
@@ -369,6 +393,9 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
             if (!ports->get(instance->plugin, i, is_input, &info))
                 continue;
             info.name[sizeof(info.name) - 1] = '\0';
+            // the main port is named apart, a second one not at all (the core refuses it); the others in order
+            named = !(info.flags & CLAP_AUDIO_PORT_IS_MAIN) || mains++ == 0;
+            as = (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? LAYOUT_PORT_MAIN : aux++;
             if (g_json)
             {
                 fprintf(out, "%s{\"id\":%u,\"name\":", first ? "" : ",", info.id);
@@ -376,15 +403,20 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
                 fprintf(out, ",\"role\":\"%s\",\"channels\":%u,\"kind\":\"%s\"", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
                         info.channel_count, kind_name(info.port_type));
                 put_layout(out, instance, &info, is_input, i);
+                if (named)
+                    put_jack(out, is_input, as, info.channel_count);
                 fputc('}', out);
             }
             else
             {
-                fprintf(out, "    %s %u ", is_input ? "in " : "out", info.id);
-                put_string(out, info.name);
-                fprintf(out, " %s %u channels %s", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux", info.channel_count,
-                        kind_name(info.port_type));
+                fprintf(out, "    %s %s %u channels %s", is_input ? "in " : "out", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
+                        info.channel_count, kind_name(info.port_type));
                 put_layout(out, instance, &info, is_input, i);
+                fputs(" \"", out);
+                put_string(out, info.name);
+                fputc('"', out);
+                if (named)
+                    put_jack(out, is_input, as, info.channel_count);
                 fputc('\n', out);
             }
             first = 0;

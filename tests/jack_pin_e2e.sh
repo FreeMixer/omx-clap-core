@@ -139,6 +139,15 @@ expect "add $uri 3" "resp 3"
 expect "$expect_verb -1 $pin" "resp -1"
 expect "$expect_verb 10000 $pin" "resp -1"
 
+# the description beside the pin: a line per port, its role, channels, kind, name and the JACK ports that carry it
+want=$(printf 'resp 0\nin main 2 channels stereo "in 0" in_1 in_2\nin aux 1 channels mono "in 1" aux_in_1_1\nout main 2 channels stereo "out 0" out_1 out_2')
+expect "add clap:$fake#org.omx-clap-host.test.sidechain 4" "resp 4"
+reply=$(send "audio_ports 4")
+[ "$reply" = "$want" ]; step $? "audio_ports 4 lists the sidechain plugin's ports by their JACK names: $(echo "$reply" | tr '\n' '|')"
+timeout 10 pw-link -i 2>/dev/null | grep -q -x "effect_4:aux_in_1_1"; step $? "and effect_4:aux_in_1_1 is the port in the graph"
+expect "audio_ports 5" "resp -3"
+expect "remove 4" "resp 0"
+
 for i in 0 1 2 3; do expect "remove $i" "resp 0"; done
 stop_host
 

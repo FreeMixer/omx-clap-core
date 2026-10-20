@@ -98,6 +98,7 @@ static const char g_help_msg[] =
     PHD_VERB_REMOTE_PAGES " <instance_number>\n"
     PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
+    "audio_ports <instance_number>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
@@ -273,6 +274,19 @@ static void param_info_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+/* the description of an instance's audio ports, a line per port with the JACK ports that carry it */
+static void audio_ports_cb(proto_t *proto)
+{
+    char *reply = NULL;
+    const int resp = effects_audio_ports(atoi(proto->list[1]), &reply);
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+    free(reply);
+}
+
 static void help_cb(proto_t *proto)
 {
     proto->response = 0;
@@ -335,6 +349,7 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
+    protocol_add_command("audio_ports %i", audio_ports_cb);
     protocol_add_command(EFFECT_SET_BPM, set_bpm_cb);
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
