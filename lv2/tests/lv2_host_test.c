@@ -386,8 +386,6 @@ static void t_refusals(void)
     static const struct { const char *uri, *code; } cases[] =
     {
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
-        { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#no-ports", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
@@ -641,7 +639,7 @@ static void t_cv_run(double rate)
  * refused from the TTL alone, and the fixture's atom input that is no sequence is refused, but not as MIDI */
 /* #184: a generator, audio outputs and no input of any kind, is admitted as a source, its outputs its main channels;
  * a MIDI source, a MIDI output and no input at all, is hosted with the strip's audio passing through it; a control
- * port alone is nothing to host (t_refusals) */
+ * plugin with no port at all is nothing to host (t_refusals) */
 static void t_sources(void)
 {
     char why[LV2_CORE_WHY_MAX] = "";
@@ -653,6 +651,64 @@ static void t_sources(void)
     p = open_plugin(g_midi, "urn:openmixer:test:midi-echo#source", why);
     CHECK(p && p->in_legs == 0 && p->midi_in_port < 0 && p->midi_out_port == 0 && p->passthrough,
           "sources: a MIDI source, a MIDI output and no input at all, is hosted with the strip's audio passing through (%s)", why);
+    lv2_plugin_close(p);
+}
+
+/* #253: a control-only plugin (control ports alone) and a MIDI sink (a MIDI input and control ports, nothing out) are hosted
+ * as pass-through tools: no leg of their own, every port connected (the fixtures dereference each one), run() every
+ * block and the control outputs read after it */
+static void t_control_only(void)
+{
+    static const uint8_t note[3] = { 0x90, 0x3c, 0x64 }, off[3] = { 0x80, 0x3c, 0x00 }, cc[3] = { 0xb0, 0x07, 0x7f };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_fixture, FIXTURE_URI "#ctl-alone", why);
+    struct lv2_instance *in = NULL;
+    int amount, twice, notes;
+
+    CHECK(p && p->passthrough && p->in_legs == 0 && p->legs == 0 && p->midi_in_port < 0 && p->midi_out_port < 0 && p->n_controls == 2,
+          "control only: control ports alone are admitted as a pass-through tool, no leg and no MIDI port (%s)", why);
+    amount = p ? control_of(p, "amount") : -1;
+    twice = p ? control_of(p, "twice") : -1;
+    CHECK(amount >= 0 && twice >= 0 && p->controls[amount].kind == LV2_CONTROL_INPUT && p->controls[twice].kind == LV2_CONTROL_OUTPUT,
+          "control only: `amount` is a control input, `twice` a control output (%d, %d)", amount, twice);
+    if (amount >= 0 && twice >= 0 && lv2_plugin_load(p, why) == 0 && (in = lv2_instance_new(p)) && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0)
+    {
+        lv2_instance_control_set(in, (uint32_t)amount, 0.25f);
+        g_in_run = 1;
+        lv2_instance_run(in, BLOCK, NULL, NULL);
+        g_in_run = 0;
+        CHECK(lv2_instance_control_get(in, (uint32_t)twice) == 0.5f, "control only: a block with `amount` 0.25 reads `twice` 0.5 after it (%g)",
+              lv2_instance_control_get(in, (uint32_t)twice));
+        lv2_instance_control_set(in, (uint32_t)amount, 0.75f);
+        lv2_instance_run(in, BLOCK, NULL, NULL);
+        CHECK(lv2_instance_control_get(in, (uint32_t)twice) == 1.5f, "control only: the next block with `amount` 0.75 reads 1.5 (%g)",
+              lv2_instance_control_get(in, (uint32_t)twice));
+    }
+    else
+        CHECK(0, "control only: the control-only twin runs (%s)", why);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+
+    in = NULL;
+    p = open_plugin(g_fixture, FIXTURE_URI "#ctl-only", why);
+    CHECK(p && p->passthrough && p->in_legs == 0 && p->midi_in_port == 0 && p->midi_out_port < 0,
+          "midi sink: a MIDI input and control ports, nothing out, are admitted as a pass-through tool, MIDI input port 0 (%s)", why);
+    notes = p ? control_of(p, "notes") : -1;
+    if (notes >= 0 && lv2_plugin_load(p, why) == 0 && (in = lv2_instance_new(p)) && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0)
+    {
+        lv2_instance_midi_in_add(in, 0, note, 3);
+        lv2_instance_midi_in_add(in, 7, cc, 3);
+        lv2_instance_midi_in_add(in, 40, off, 3);
+        lv2_instance_run(in, BLOCK, NULL, NULL);
+        CHECK(lv2_instance_control_get(in, (uint32_t)notes) == 3.0f, "midi sink: a block with 3 MIDI events reads `notes` 3 (%g)",
+              lv2_instance_control_get(in, (uint32_t)notes));
+        lv2_instance_run(in, BLOCK, NULL, NULL);
+        CHECK(lv2_instance_control_get(in, (uint32_t)notes) == 0.0f, "midi sink: the next block, with none, reads 0 (%g)",
+              lv2_instance_control_get(in, (uint32_t)notes));
+    }
+    else
+        CHECK(0, "midi sink: the MIDI sink twin runs (%s)", why);
+    lv2_instance_free(in);
     lv2_plugin_close(p);
 }
 
@@ -1187,6 +1243,7 @@ int main(int argc, char **argv)
     t_fixture();
     t_refusals();
     t_sources();
+    t_control_only();
     t_midi_ports();
     t_atom_ports();
     t_atom_ui();
