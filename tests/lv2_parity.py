@@ -14,7 +14,8 @@ probe   reads a coverage table (one row per URI, the column bucket = both for a 
         the layout columns), or takes --uris as added by both, and lilv's view of each plugin, refuses the layouts this
         runner does not feed (more than two audio inputs, a CV port: omx-clap-core#92), and writes
         plugins.tsv (the set, or a stratified sample of it) and skipped.tsv.
-run     per rate, one private PipeWire in its own user, net, pid and mount namespace, whose only driver is
+run     per rate, one private PipeWire in its own user, net, pid and mount namespace (with an empty tmpfs over the
+        user's runtime dir, so the live PipeWire's socket is not there to reach), whose only driver is
         the feeder's clock (tests/jack_parity): nothing runs until it triggers a cycle, so every instance gets
         its first run() in the same cycle, and the cycles run back to back, as fast as the graph completes
         them (--paced: one quantum of wall time apart). Per plugin, a fresh mod-host and a fresh omx-clap-host each add the
@@ -883,6 +884,15 @@ def inside_run(a):
     # a tmpfs of the namespace's own at /tmp: PipeWire's socket path must fit in 108 bytes, and the recordings of a
     # plugin live there until they are compared; nothing of it is seen outside, and it goes with the namespace
     subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=512m,mode=0700', 'lv2-parity', '/tmp'], check=True)
+    # the user's own runtime dir, where the live PipeWire's socket is: a filesystem socket is not netns-scoped, so the
+    # environment alone would keep a host or a plugin that hard-codes the path out. An empty tmpfs over it, seen only
+    # in this namespace, and the run refused when the live socket still shows
+    outer = os.environ.get('LV2_PARITY_OUTER_RUNTIME', '')
+    if outer and os.path.isdir(outer):
+        subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=1m,mode=0700', 'lv2-parity-run', outer], check=True)
+    for sock in ('pipewire-0', 'pipewire-0-manager', 'pulse/native'):
+        if outer and os.path.exists(os.path.join(outer, sock)):
+            raise SystemExit(f'run: the live {sock} is still reachable at {outer}, refusing')
     plugins = read_tsv(a.plugins)
     if a.limit:
         plugins = plugins[:a.limit]
@@ -964,7 +974,8 @@ def cmd_run(a):
     write_meta(a)
     argv = ['unshare', '--user', '--map-root-user', '--net', '--pid', '--fork', '--mount-proc',
             sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
-    return subprocess.call(argv, env=dict(os.environ, LV2_PARITY_INSIDE='1'))
+    outer = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
+    return subprocess.call(argv, env=dict(os.environ, LV2_PARITY_INSIDE='1', LV2_PARITY_OUTER_RUNTIME=outer))
 
 
 # ---------------------------------------------------------------- classify and report
