@@ -439,6 +439,15 @@ static void host_layout_changed(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
 }
 
+/* the plugin's configuration set changed (clap.audio-ports-config's host half): the list omx_clap_host_request_layout
+ * chooses from is stale, which the host takes as the ports rescan it is: reported by the tick, read again by the next
+ * request_layout (#263) */
+static void host_configs_rescan(const clap_host_t *host)
+{
+    if (main_thread_call(host))
+        atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
+}
+
 static void host_state_mark_dirty(const clap_host_t *host)
 {
     if (main_thread_call(host))
@@ -651,6 +660,7 @@ static const clap_host_thread_pool_t g_host_thread_pool = { host_request_exec };
 static const clap_host_tail_t g_host_tail = { host_tail_changed };
 static const clap_host_surround_t g_host_surround = { host_layout_changed };
 static const clap_host_ambisonic_t g_host_ambisonic = { host_layout_changed };
+static const clap_host_audio_ports_config_t g_host_audio_ports_config = { host_configs_rescan };
 static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
 static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
 static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
@@ -816,6 +826,8 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_surround;
     if (!strcmp(id, CLAP_EXT_AMBISONIC))
         return &g_host_ambisonic;
+    if (!strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG))
+        return &g_host_audio_ports_config;
     return NULL;
 }
 

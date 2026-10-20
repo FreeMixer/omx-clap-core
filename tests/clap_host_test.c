@@ -1134,6 +1134,40 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // audio-ports-config's host half (#263): the plugin's rescan, its configuration set changed, is the ports rescan the
+    // tick reports, and the next request_layout chooses from the new list
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_RESCAN", &in), "%s opens, its deactivate changing its configuration set", FAKE_CONFIGS);
+    if (in)
+    {
+        const clap_host_audio_ports_config_t *host_configs = in->host.get_extension(&in->host, CLAP_EXT_AUDIO_PORTS_CONFIG);
+
+        CHECK(host_configs != NULL && host_configs->rescan != NULL, "the host offers clap.audio-ports-config, its rescan");
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && strcmp(in->main_in.name, "in 0 config 2") == 0, "%s: config 2 selected before the set changes (%d, \"%s\")",
+              FAKE_CONFIGS, ret, in->main_in.name);
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on it (%s)", FAKE_CONFIGS, why);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: no rescan before the plugin says so", FAKE_CONFIGS);
+        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && !in->active,
+              "%s: a restart whose deactivate calls audio-ports-config.rescan answers OMX_CLAP_RESTART_RESCANNED, inactive", FAKE_CONFIGS);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+              "%s: reported once as a ports rescan, no restart", FAKE_CONFIGS);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 3") == 0,
+              "%s: the same stereo ask after the rescan chooses from the new list: config 3, config 2 gone (%d, \"%s\")", FAKE_CONFIGS,
+              ret, in->main_in.name);
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on the new configuration (%s)", FAKE_CONFIGS, why);
+        if (host_configs)
+        {
+            host_configs->rescan(&in->host);
+            CHECK(omx_clap_host_tick(in) == 0 && in->active && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+                  "%s: audio-ports-config.rescan while active asks for no restart and is reported once", FAKE_CONFIGS);
+        }
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // a config naming no port type: a stereo request of two channels matches it
     CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_UNTYPED", &in), "%s opens, its configs naming no port type", FAKE_CONFIGS);
     if (in)

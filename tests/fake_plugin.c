@@ -68,6 +68,9 @@
  *                                      ignore) and none declared once selected; with FAKE_SWITCH_ON_DEACTIVATE every
  *                                      deactivate switches to config 2 and rescans the list, as 101 does once; with
  *                                      FAKE_CONFIGS_TWIN a config 3, the stereo pair again, and select refuses 2)
+ *                                      (with FAKE_CONFIGS_RESCAN set, deactivate makes config 3 appear and config 2
+ *                                      refuse selection, as FAKE_CONFIGS_TWIN does, and calls the host's
+ *                                      audio-ports-config.rescan)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
  *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
@@ -158,6 +161,7 @@ typedef struct FAKE_T {
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
     uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
     uint32_t switch_always;     // configs: every deactivate does (FAKE_SWITCH_ON_DEACTIVATE)
+    uint32_t configs_rescan;    // configs: deactivate changes the configuration set and says so (FAKE_CONFIGS_RESCAN)
     uint32_t configs_twin;      // configs: a config 3 like 2, and select refuses 2 (FAKE_CONFIGS_TWIN)
     uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
     uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
@@ -821,6 +825,15 @@ static void plugin_deactivate(const clap_plugin_t *plugin)
         if (host_ports)
             host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
     }
+    if (fake->configs_rescan)
+    {
+        // the configuration set changes as FAKE_CONFIGS_TWIN's is: config 3 appears, config 2 refuses selection
+        const clap_host_audio_ports_config_t *host_configs = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS_CONFIG);
+
+        fake->configs_twin = 1;
+        if (host_configs)
+            host_configs->rescan(fake->host);
+    }
     if (fake->type == FAKE_TYPE_SURROUND || fake->type == FAKE_TYPE_SURROUND_BAD || fake->type == FAKE_TYPE_SURROUND_SHORT)
     {
         const clap_host_surround_t *host_surround = fake->host->get_extension(fake->host, CLAP_EXT_SURROUND);
@@ -1038,6 +1051,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configs_no_main_in = getenv("FAKE_CONFIGS_NO_MAIN_IN") != NULL;
     fake->switch_always = getenv("FAKE_SWITCH_ON_DEACTIVATE") != NULL && (fake->offers & FAKE_OFFERS_CONFIGS);
     fake->configs_twin = getenv("FAKE_CONFIGS_TWIN") != NULL;
+    fake->configs_rescan = getenv("FAKE_CONFIGS_RESCAN") != NULL && (fake->offers & FAKE_OFFERS_CONFIGS);
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     fake->says_sleep = getenv("FAKE_PROCESS_SLEEP") != NULL;
