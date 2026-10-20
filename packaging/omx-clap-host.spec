@@ -156,6 +156,15 @@ make test-lv2
   and an idle_hold command; its packages ship a udev rule giving the audio
   group the device. The calls are in the version node OMX_CLAP_CORE_0.14.
   The library ABI is 16.
+- The hosting codes are this tree's: omx-contract's 16 data/hosting files
+  moved here byte for byte, installed under contract.d/3/omx-clap-core/hosting/
+  and rendered as omx_clap_core_vocabulary.h and the omx-clap-core-vocabulary
+  TypeScript module, the OMX_HOSTING_ names unchanged. The six retired codes
+  are removed (72 codes are left) and featuresMissingAtLoad is featuresMissing.
+  omx-clap-scan --fields clap:<path>#<id> | lv2:<uri> writes one plugin's
+  field dump for plugin-hostd's format tables, an LV2 plugin read from the
+  adapter's lilv world with its binary never opened. omx-contract 3.0.0 or
+  newer.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
 - Every audio port a plugin declares is described, main and auxiliary, up to
   64 a side and 64 channels a port, with the refusal codes of omx-contract for
