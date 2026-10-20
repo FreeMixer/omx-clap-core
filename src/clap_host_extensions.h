@@ -32,11 +32,11 @@
 #define CLAP_HOST_EXTENSIONS_H
 
 /** how many extensions the host object offers: the ids of CLAP_HOST_EXTENSIONS_INIT */
-#define CLAP_HOST_EXTENSION_COUNT 16u
+#define CLAP_HOST_EXTENSION_COUNT 17u
 /** the host object offers exactly these extensions, NULL-terminated */
 #define CLAP_HOST_EXTENSIONS_INIT { "clap.log", "clap.thread-check", "clap.latency", "clap.params", "clap.audio-ports", "clap.state", \
                                     "clap.note-ports", "clap.note-name", "clap.voice-info", "clap.event-registry", \
                                     "clap.timer-support", "clap.posix-fd-support", "clap.thread-pool", "clap.tail", \
-                                    "clap.surround/4", "clap.ambisonic/3", NULL }
+                                    "clap.surround/4", "clap.ambisonic/3", "clap.audio-ports-config", NULL }
 
 #endif ///< CLAP_HOST_EXTENSIONS_H

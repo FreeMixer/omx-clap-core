@@ -499,8 +499,9 @@ struct omx_clap_instance
     struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
 
     // the layout extensions (ABI 14): read at open, asked by describe at open for a surround or an ambisonic port; the
-    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, which the tick reports and never
-    // turns into a restart
+    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, and as clap.audio-ports-config's rescan
+    // (the configuration list changed) is while the plugin is inactive; the tick reports it and never turns it into a
+    // restart
     const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
     const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
     _Atomic uint32_t ports_rescanned;  ///< 1 once the tick saw a ports rescan, until omx_clap_host_ports_rescanned
@@ -839,9 +840,10 @@ OMX_CLAP_EXPORT int omx_clap_host_note_names_changed(struct omx_clap_instance *i
  * refuses with hosting.clap.note-input when the new ports are ones open would have refused. Control thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in);
 
-/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
- * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
- * plugin's. Nothing is restarted or read again for it: omx_clap_host_request_layout reads it again and clears the
+/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, clap.surround's or
+ * clap.ambisonic's changed, or, while it was inactive, clap.audio-ports-config's rescan: its configuration list
+ * changed), then 0 until it makes another: the description held from open, or the configuration list request_layout
+ * chose from, may no longer be the plugin's. Nothing is restarted or read again for it: omx_clap_host_request_layout reads it again and clears the
  * report, an activate never does. The warm-up's own deactivate is not reported; a rescan made in a restart's deactivate
  * is (the restart then leaves the instance inactive), and one made inside activate() is. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);

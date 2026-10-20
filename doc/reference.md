@@ -567,7 +567,8 @@ Instrument details
 The host object offers a plugin `clap.note-ports`, `clap.note-name` and
 `clap.voice-info` besides the six extensions every plugin gets, and
 `clap.event-registry` (below), the four of a full host (A full host,
-below), and `clap.surround` and `clap.ambisonic`, sixteen in all
+below), `clap.surround`, `clap.ambisonic` and the host half of
+`clap.audio-ports-config`, seventeen in all
 (`src/clap_host_extensions.h`); the two layout extensions answer their
 draft ids too.
 
@@ -852,7 +853,7 @@ this table does not; a row for a header an older CLAP lacks is kept.
 |---|---|---|
 | `ext/ambisonic.h` | supported | `clap.ambisonic/3` (and its draft id): read at open, `get_config` gives an ambisonic port's ordering and normalisation (ACN and SN3D without the extension); the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_config_supported` is asked only by `omx_clap_host_request_layout`, with the carrier's configuration (`false`: `hosting.topology.ambisonic-config`) |
 | `ext/audio-ports-activation.h` | supported | A full host above: auxiliary ports set inactive while unused |
-| `ext/audio-ports-config.h` | supported | `clap.audio-ports-config`: read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive: tried after `clap.configurable-audio-ports` when that is not offered, cannot apply the requests or refuses them: the first config whose main ports are the carrier's requested mains in channels and port types is selected, whatever auxiliary ports it also declares (described after), and the description read again; omx-clap-host asks for its lane's width (`-c`, 2 by default) at add and after a reported ports rescan |
+| `ext/audio-ports-config.h` | supported | `clap.audio-ports-config`: the host half offered, its `rescan` (the configuration list changed) reported as a ports rescan (`omx_clap_host_ports_rescanned`) while the plugin is inactive and dropped while it is active, the list read live by every `omx_clap_host_request_layout`; the plugin half read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive: tried after `clap.configurable-audio-ports` when that is not offered, cannot apply the requests or refuses them: the first config whose main ports are the carrier's requested mains in channels and port types is selected, whatever auxiliary ports it also declares (described after), and the description read again; omx-clap-host asks for its lane's width (`-c`, 2 by default) at add and after a reported ports rescan |
 | `ext/audio-ports.h` | supported | the port layout, Port layout above: every port described, `port_type` and `in_place_pair` read; omx-clap-host registers a JACK port per channel of every port, `aux_in_<p>_<k>`/`aux_out_<p>_<k>` for the auxiliary ones; the host's `rescan`, any flags, is reported once by `omx_clap_host_ports_rescanned`, never a restart (`is_rescan_flag_supported` answers false) |
 | `ext/configurable-audio-ports.h` | supported | `clap.configurable-audio-ports/1` (and its draft id): read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive, before `clap.audio-ports-config`: `can_apply_configuration`, then `apply_configuration`, and the description read again; a false from either falls back to `clap.audio-ports-config`, and a plugin neither offers the layout through keeps its declared one (`OMX_CLAP_LAYOUT_DECLARED`) |
 | `ext/context-menu.h` | not planned | the console draws its own menus (ruled 2026-10-19, #95) |
