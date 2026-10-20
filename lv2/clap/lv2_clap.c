@@ -619,13 +619,15 @@ static int any_port_of(const struct lv2_plugin *l, uint32_t kind)
 ************************************************************************************************************************
 */
 
-/* a surround port's CLAP channel mask: one bit per surround id its map names */
+/* a surround port's CLAP channel mask: one bit per surround id its map names; an id past CLAP_SURROUND_TSR has no bit
+ * (lv2/core's table names none, and a shift past 63 is undefined) */
 static uint64_t surround_mask_of(const struct lv2_audio_port *a)
 {
     uint64_t mask = 0;
 
     for (uint32_t c = 0; c < a->n; c++)
-        mask |= 1ull << a->map[c];
+        if (a->map[c] <= CLAP_SURROUND_TSR)
+            mask |= 1ull << a->map[c];
     return mask;
 }
 
