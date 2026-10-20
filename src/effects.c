@@ -492,24 +492,12 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
     effect_t *effect = arg;
 
     // any change, a shrink too: the adapter promised the plugin the activation's length (bufsz:fixedBlockLength) and
-    // refuses a cycle of another one, so an instance left at the old size would run no block at all
-    if (effect && effect->clap && effect->clap->active && nframes != effect->clap->max_block)
-    {
-        // stop takes the audio role for this thread and releases it: the process thread's is given back after
-        const pthread_t thread = effect->clap->audio_thread;
-        const int held = effect->clap->audio_role_held;
-
-        pthread_mutex_lock(&g_reactivate);
-        omx_clap_host_stop(effect->clap);
-        omx_clap_host_deactivate(effect->clap);
-        if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes, NULL) == 0)
-        {
-            if (held)
-                omx_clap_host_set_audio_thread(effect->clap, thread);
-            omx_clap_host_arm(effect->clap);
-        }
-        pthread_mutex_unlock(&g_reactivate);
-    }
+    // refuses a cycle of another one, so an instance left at the old size would run no block at all. Whether it is
+    // active is read under the lock: a relayout this waited for may have left it inactive, and its activate is the
+    // relayout's (at jack_get_buffer_size, the new size)
+    if (effect && effect->clap)
+        (void)omx_cycle_gate_resize(&effect->gate, effect->clap, &g_reactivate, jack_get_sample_rate(effect->jack_client), nframes,
+                                    CLAP_HOST_ROLE_POLL_US);
     return 0;
 }
 
