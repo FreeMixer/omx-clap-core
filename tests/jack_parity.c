@@ -52,8 +52,8 @@
  * same 60 %, and all notes off at its end.
  *
  * Writes <outdir>/source.<c>.f32 and <outdir>/<client>.<c>.f32, raw float32,
- * one channel each. Prints per client "linked <client> in=<k> out=<k> midi=<0|1>
- * midi_fed=<0|1> latency=<min>,<max>" (midi: it has a MIDI input; midi_fed:
+ * one channel each. Prints per client "linked <client> in=<k> out=<k> midi=<k>
+ * midi_fed=<0|1> latency=<min>,<max>" (midi: its MIDI inputs; midi_fed:
  * the notes reach it; the capture latency of its first output), after each
  * warm "warm blocks=<n> latency=<client>:<min>,<max>;..." (the same latencies,
  * read again once the graph has run), and after the run "done frames=<n>
@@ -549,7 +549,7 @@ int main(int argc, char **argv)
             failed |= jack_connect(g_rec, outs[c], jack_port_name(g_in[k][c])) != 0;
         if (n_out > 0)
             jack_port_get_latency_range(jack_port_by_name(g_src, outs[0]), JackCaptureLatency, &range);
-        printf("linked %s in=%d out=%d midi=%d midi_fed=%d latency=%u,%u%s\n", client, n_in, n_out, n_midi > 0,
+        printf("linked %s in=%d out=%d midi=%d midi_fed=%d latency=%u,%u%s\n", client, n_in, n_out, n_midi,
                midi_all, range.min, range.max, failed ? " FAILED" : "");
         if (failed)
             return 1;
