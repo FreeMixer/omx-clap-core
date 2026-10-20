@@ -398,7 +398,7 @@ static int process(jack_nframes_t nframes, void *arg)
     if (effect->gain_adjustment)
         runs = atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed);
     transport_block(effect);
-    omx_clap_host_run_io(effect->clap, inputs, outputs, nframes);
+    omx_clap_host_run_ports(effect->clap, inputs, outputs, nframes);
     if (effect->gain_adjustment)
         publish_gain_adjustment(effect, runs);
     if (effect->midi_out_port)
@@ -1192,6 +1192,7 @@ static int configure_core(void)
     config.preset_load = 1;
     config.track_info = 1;
     config.remote_controls = 1;
+    config.lane_channels = 0;   // a JACK port per main channel: any width is carried (omx_clap_host_run_ports)
     config.name = "omx-clap-host";
     config.vendor = "Pau Aliagas";
     config.url = "";
