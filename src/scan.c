@@ -884,20 +884,21 @@ static int has_suffix(const char *name, const char *suffix)
 }
 
 /* the .clap files under a directory, in name order; a directory that can't be read goes on the failures list */
-static void walk(const char *dir, list_t *files, list_t *failures)
+static int walk(const char *dir, list_t *files, list_t *failures)
 {
     list_t names = { NULL, 0 };
     struct dirent *entry;
     struct stat st;
     DIR *handle = opendir(dir);
     size_t i;
+    unsigned here = 0;
 
     if (!handle)
     {
         char *failure;
-        if (asprintf(&failure, "%s\t%s", dir, strerror(errno)) > 0)
+        if (asprintf(&failure, "%s\tunreadable\t%s", dir, strerror(errno)) > 0)
             list_add(failures, failure);
-        return;
+        return 0;
     }
     while ((entry = readdir(handle)) != NULL)
         if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
@@ -913,12 +914,33 @@ static void walk(const char *dir, list_t *files, list_t *failures)
         if (stat(path, &st) == 0 && S_ISDIR(st.st_mode))
             walk(path, files, failures);
         else if (stat(path, &st) == 0 && S_ISREG(st.st_mode) && has_suffix(names.items[i], CLAP_SUFFIX))
+        {
             list_add(files, path);
+            here++;
+        }
         else
             free(path);
         free(names.items[i]);
     }
     free(names.items);
+    // a .clap directory with no .clap file directly inside is a bundle whose one object carries the packager's name
+    // (nebula-cluster.clap/libnebula_cluster.so, #259): listed by that object; two or more objects are named as a
+    // failure with the code bundle; none is a directory of other things, walked above
+    if (here == 0 && has_suffix(dir, CLAP_SUFFIX))
+    {
+        char object[PATH_MAX], reason[256];
+        const int n = omx_clap_host_bundle_object(dir, object, sizeof(object), reason, sizeof(reason));
+
+        if (n == 1)
+            list_add(files, strdup(object));
+        else if (n > 1)
+        {
+            char *failure;
+            if (asprintf(&failure, "%s\tbundle\t%s", dir, reason) > 0)
+                list_add(failures, failure);
+        }
+    }
+    return 1;
 }
 
 /* CLAP_PATH, then the per-user and system directories */
@@ -1028,21 +1050,24 @@ int main(int argc, char **argv)
 
     for (i = 0; i < roots.count; i++)
     {
+        // a trailing slash (shell completion's) would hide a bundle directory's .clap suffix
+        size_t n = strlen(roots.items[i]);
+        while (n > 1 && roots.items[i][n - 1] == '/')
+            roots.items[i][--n] = '\0';
         if (stat(roots.items[i], &st) != 0)
         {
             if (explicit_paths)
             {
                 char *failure;
-                if (asprintf(&failure, "%s\t%s", roots.items[i], strerror(errno)) > 0)
+                if (asprintf(&failure, "%s\tunreadable\t%s", roots.items[i], strerror(errno)) > 0)
                     list_add(&failures, failure);
             }
             continue;
         }
         if (S_ISDIR(st.st_mode))
         {
-            const size_t failed = failures.count;
-            walk(roots.items[i], &files, &failures);
-            if (failures.count == failed || files.count > 0)
+            // a directory that could be opened was read, whatever it held: a bundle failure alone is a reading
+            if (walk(roots.items[i], &files, &failures))
                 readable++;
         }
         else
@@ -1066,11 +1091,20 @@ int main(int argc, char **argv)
     }
     for (i = 0; i < failures.count; i++)
     {
-        char *reason = strchr(failures.items[i], '\t');
-        *reason++ = '\0';
+        char *code = strchr(failures.items[i], '\t'), *reason;
+        *code++ = '\0';
+        reason = strchr(code, '\t');
+        if (reason)
+            *reason++ = '\0';
+        else
+        {
+            // a row of path and reason only: the reading failed
+            reason = code;
+            code = "unreadable";
+        }
         if (g_json)
             fputs(first ? "\n" : ",\n", stdout);
-        put_failure(stdout, failures.items[i], "unreadable", reason);
+        put_failure(stdout, failures.items[i], code, reason);
         first = 0;
     }
     if (g_json)
