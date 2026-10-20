@@ -181,10 +181,12 @@ hosting.topology.wider-than-strip`, and on stderr as `<plugin id>: <code>`.
 Port layout
 -----------
 
-A plugin is admitted with exactly one main audio output, mono or stereo,
-and one main audio input of the same kind; every channel of the main pair
-is one jack port. A plugin with a note input, an instrument, may have no
-audio input: it then has `out_<k>` only.
+A plugin is admitted with exactly one main audio output and at most one
+main audio input, each of up to 64 channels and the two free to differ in
+width (a mono input with a stereo output, a 5.1 pair); every channel of the
+main pair is one jack port, `in_1` to `in_<n>` and `out_1` to `out_<n>`. A
+plugin with a note input, an instrument, may have no audio input: it then
+has `out_<k>` only.
 
 A plugin with one CLAP note input port gets one jack MIDI input port on its
 client, `effect_<N>:midi_in`. The host reads its jack events on the audio
@@ -323,11 +325,10 @@ release reserve and `note_drops` hold for both. A verb the ring has no room
 for (512 messages, which only a stopped graph fills) is not queued at all
 and answers `-517`, plugin-hostd's code for a full note queue.
 
-A main port wider than stereo, a main pair of different widths, a second
-note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects
+A second note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects,
 is refused at `add` with `resp -102` followed
-by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
-`hosting.clap.note-input`. A port of no channels (`hosting.topology.port-without-channels`),
+by the `hosting.*` code, which stderr carries too: `hosting.clap.note-input`.
+A port of no channels (`hosting.topology.port-without-channels`),
 a port of more than 64 channels (`hosting.topology.port-too-wide`), a second main port on
 a side or more than 64 auxiliary ports on a side (`hosting.topology.too-many-ports`) are
 refused the same way. A plugin with no main input is a source, its output its

@@ -221,7 +221,7 @@
     <pointer-type-def type-id='type-id-173' size-in-bits='64' hash='ee9c81a98708f9e9' id='type-id-174'/>
     <qualified-type-def type-id='type-id-175' const='yes' hash='c3b52a8020cc59db' id='type-id-176'/>
     <pointer-type-def type-id='type-id-176' size-in-bits='64' hash='4f337f253209b764' id='type-id-177'/>
-    <qualified-type-def type-id='type-id-178' const='yes' hash='0f92e2eda8bbf50f' id='type-id-179'/>
+    <qualified-type-def type-id='type-id-178' const='yes' hash='85aef87dd61e7a85' id='type-id-179'/>
     <pointer-type-def type-id='type-id-179' size-in-bits='64' hash='8884211db5d0e85f' id='type-id-180'/>
     <qualified-type-def type-id='type-id-181' const='yes' hash='82367c3cdc84013c' id='type-id-182'/>
     <pointer-type-def type-id='type-id-182' size-in-bits='64' hash='c62236fbb6b4f76e' id='type-id-183'/>
@@ -1514,7 +1514,7 @@
         <var-decl name='lane_channels' type-id='type-id-207' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2143296' hash='dc28e5d89b9c6df0' id='type-id-178'>
+    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2151552' hash='f429813dd178771c' id='type-id-178'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='bin' type-id='type-id-233' visibility='default'/>
       </data-member>
@@ -1548,214 +1548,214 @@
       <data-member access='public' layout-offset-in-bits='1280'>
         <var-decl name='stage' type-id='type-id-341' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='682368'>
+      <data-member access='public' layout-offset-in-bits='690624'>
         <var-decl name='channels' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='682400'>
+      <data-member access='public' layout-offset-in-bits='690656'>
         <var-decl name='in_channels' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='682432'>
+      <data-member access='public' layout-offset-in-bits='690688'>
         <var-decl name='main_in' type-id='type-id-337' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='685184'>
+      <data-member access='public' layout-offset-in-bits='693440'>
         <var-decl name='main_out' type-id='type-id-337' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='687936'>
+      <data-member access='public' layout-offset-in-bits='696192'>
         <var-decl name='aux_outputs' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='687968'>
+      <data-member access='public' layout-offset-in-bits='696224'>
         <var-decl name='aux_out' type-id='type-id-338' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='864128'>
+      <data-member access='public' layout-offset-in-bits='872384'>
         <var-decl name='aux_out_bound' type-id='type-id-205' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1126272'>
+      <data-member access='public' layout-offset-in-bits='1134528'>
         <var-decl name='aux_out_base' type-id='type-id-406' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1128320'>
+      <data-member access='public' layout-offset-in-bits='1136576'>
         <var-decl name='aux_out_frames' type-id='type-id-406' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130368'>
+      <data-member access='public' layout-offset-in-bits='1138624'>
         <var-decl name='note_inputs' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130400'>
+      <data-member access='public' layout-offset-in-bits='1138656'>
         <var-decl name='note_dialect' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130432'>
+      <data-member access='public' layout-offset-in-bits='1138688'>
         <var-decl name='note_dialects' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130496'>
+      <data-member access='public' layout-offset-in-bits='1138752'>
         <var-decl name='rate' type-id='type-id-196' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130560'>
+      <data-member access='public' layout-offset-in-bits='1138816'>
         <var-decl name='max_block' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130592'>
+      <data-member access='public' layout-offset-in-bits='1138848'>
         <var-decl name='active' type-id='type-id-215' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130624'>
+      <data-member access='public' layout-offset-in-bits='1138880'>
         <var-decl name='bounce_map' type-id='type-id-200' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130688'>
+      <data-member access='public' layout-offset-in-bits='1138944'>
         <var-decl name='bounce_map_len' type-id='type-id-231' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130752'>
+      <data-member access='public' layout-offset-in-bits='1139008'>
         <var-decl name='bounce_blocks' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130816'>
+      <data-member access='public' layout-offset-in-bits='1139072'>
         <var-decl name='recs' type-id='type-id-346' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130880'>
+      <data-member access='public' layout-offset-in-bits='1139136'>
         <var-decl name='rec_cap' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1130944'>
+      <data-member access='public' layout-offset-in-bits='1139200'>
         <var-decl name='main_thread' type-id='type-id-267' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131008'>
+      <data-member access='public' layout-offset-in-bits='1139264'>
         <var-decl name='audio_thread' type-id='type-id-267' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131072'>
+      <data-member access='public' layout-offset-in-bits='1139328'>
         <var-decl name='audio_role_held' type-id='type-id-215' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131104'>
+      <data-member access='public' layout-offset-in-bits='1139360'>
         <var-decl name='bypass_wanted' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131136'>
+      <data-member access='public' layout-offset-in-bits='1139392'>
         <var-decl name='shadow' type-id='type-id-340' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131200'>
+      <data-member access='public' layout-offset-in-bits='1139456'>
         <var-decl name='shadow_cap' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131232'>
+      <data-member access='public' layout-offset-in-bits='1139488'>
         <var-decl name='shadow_n' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1131552'>
+      <data-member access='public' layout-offset-in-bits='1139808'>
         <var-decl name='last_log' type-id='type-id-49' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1133664'>
+      <data-member access='public' layout-offset-in-bits='1141920'>
         <var-decl name='log_ring' type-id='type-id-49' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1135744'>
+      <data-member access='public' layout-offset-in-bits='1144000'>
         <var-decl name='track_info' type-id='type-id-168' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1135808'>
+      <data-member access='public' layout-offset-in-bits='1144064'>
         <var-decl name='track' type-id='type-id-408' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1138048'>
+      <data-member access='public' layout-offset-in-bits='1146304'>
         <var-decl name='track_set' type-id='type-id-215' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1138112'>
+      <data-member access='public' layout-offset-in-bits='1146368'>
         <var-decl name='remote_controls' type-id='type-id-150' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1138368'>
+      <data-member access='public' layout-offset-in-bits='1146624'>
         <var-decl name='tempo' type-id='type-id-189' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1138432'>
+      <data-member access='public' layout-offset-in-bits='1146688'>
         <var-decl name='transport' type-id='type-id-88' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1139264'>
+      <data-member access='public' layout-offset-in-bits='1147520'>
         <var-decl name='transport_src' type-id='type-id-192' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1139328'>
+      <data-member access='public' layout-offset-in-bits='1147584'>
         <var-decl name='transport_rec' type-id='type-id-409' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1139712'>
+      <data-member access='public' layout-offset-in-bits='1147968'>
         <var-decl name='aux_inputs' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1139744'>
+      <data-member access='public' layout-offset-in-bits='1148000'>
         <var-decl name='aux_in' type-id='type-id-338' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1315904'>
+      <data-member access='public' layout-offset-in-bits='1324160'>
         <var-decl name='aux_in_bound' type-id='type-id-205' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1578048'>
+      <data-member access='public' layout-offset-in-bits='1586304'>
         <var-decl name='aux_in_base' type-id='type-id-406' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1580096'>
+      <data-member access='public' layout-offset-in-bits='1588352'>
         <var-decl name='aux_in_frames' type-id='type-id-406' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1582144'>
+      <data-member access='public' layout-offset-in-bits='1590400'>
         <var-decl name='aux_list' type-id='type-id-405' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1863168'>
+      <data-member access='public' layout-offset-in-bits='1871424'>
         <var-decl name='meters' type-id='type-id-135' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1863232'>
+      <data-member access='public' layout-offset-in-bits='1871488'>
         <var-decl name='meter_count' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1863296'>
+      <data-member access='public' layout-offset-in-bits='1871552'>
         <var-decl name='meter' type-id='type-id-320' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1900160'>
+      <data-member access='public' layout-offset-in-bits='1908416'>
         <var-decl name='param_out' type-id='type-id-410' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1933184'>
+      <data-member access='public' layout-offset-in-bits='1941440'>
         <var-decl name='param_in' type-id='type-id-411' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1998912'>
+      <data-member access='public' layout-offset-in-bits='2007168'>
         <var-decl name='contract' type-id='type-id-330' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1998976'>
+      <data-member access='public' layout-offset-in-bits='2007232'>
         <var-decl name='contract_count' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1999008'>
+      <data-member access='public' layout-offset-in-bits='2007264'>
         <var-decl name='contract_version' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='1999040'>
+      <data-member access='public' layout-offset-in-bits='2007296'>
         <var-decl name='contract_why' type-id='type-id-48' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2000064'>
+      <data-member access='public' layout-offset-in-bits='2008320'>
         <var-decl name='note_ids' type-id='type-id-412' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2103808'>
+      <data-member access='public' layout-offset-in-bits='2112064'>
         <var-decl name='note_outputs' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2103872'>
+      <data-member access='public' layout-offset-in-bits='2112128'>
         <var-decl name='note_out' type-id='type-id-413' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2136768'>
+      <data-member access='public' layout-offset-in-bits='2145024'>
         <var-decl name='voice_info_read' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2136800'>
+      <data-member access='public' layout-offset-in-bits='2145056'>
         <var-decl name='voice_count' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2136832'>
+      <data-member access='public' layout-offset-in-bits='2145088'>
         <var-decl name='voice_capacity' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2136896'>
+      <data-member access='public' layout-offset-in-bits='2145152'>
         <var-decl name='voice_flags' type-id='type-id-248' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2136960'>
+      <data-member access='public' layout-offset-in-bits='2145216'>
         <var-decl name='mpe_zones' type-id='type-id-414' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2137856'>
+      <data-member access='public' layout-offset-in-bits='2146112'>
         <var-decl name='note_ports_stale' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2137984'>
+      <data-member access='public' layout-offset-in-bits='2146240'>
         <var-decl name='timer_support' type-id='type-id-165' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2138048'>
+      <data-member access='public' layout-offset-in-bits='2146304'>
         <var-decl name='fd_support' type-id='type-id-144' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2138112'>
+      <data-member access='public' layout-offset-in-bits='2146368'>
         <var-decl name='thread_pool' type-id='type-id-162' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2138176'>
+      <data-member access='public' layout-offset-in-bits='2146432'>
         <var-decl name='in_exec' type-id='type-id-215' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2138240'>
+      <data-member access='public' layout-offset-in-bits='2146496'>
         <var-decl name='tail' type-id='type-id-159' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2138304'>
+      <data-member access='public' layout-offset-in-bits='2146560'>
         <var-decl name='timers' type-id='type-id-344' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2141376'>
+      <data-member access='public' layout-offset-in-bits='2149632'>
         <var-decl name='timer_next_id' type-id='type-id-207' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2141408'>
+      <data-member access='public' layout-offset-in-bits='2149664'>
         <var-decl name='fds' type-id='type-id-318' visibility='default'/>
       </data-member>
-      <data-member access='public' layout-offset-in-bits='2142528'>
+      <data-member access='public' layout-offset-in-bits='2150784'>
         <var-decl name='sleep' type-id='type-id-415' visibility='default'/>
       </data-member>
     </class-decl>
@@ -2094,7 +2094,7 @@
         <var-decl name='have_last' type-id='type-id-215' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='681088' hash='e17399197afad7ca' id='type-id-341'>
+    <class-decl name='omx_clap_stage' is-struct='yes' visibility='default' size-in-bits='689344' hash='76a4f2f6d01844e6' id='type-id-341'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='h' type-id='type-id-420' visibility='default'/>
       </data-member>
@@ -2172,6 +2172,15 @@
       </data-member>
       <data-member access='public' layout-offset-in-bits='680672'>
         <var-decl name='need_reset' type-id='type-id-207' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='681088'>
+        <var-decl name='wide_in' type-id='type-id-206' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='685184'>
+        <var-decl name='wide_out' type-id='type-id-206' visibility='default'/>
+      </data-member>
+      <data-member access='public' layout-offset-in-bits='689280'>
+        <var-decl name='wide' type-id='type-id-207' visibility='default'/>
       </data-member>
     </class-decl>
     <class-decl name='omx_clap_tempo' is-struct='yes' visibility='default' size-in-bits='64' hash='bbf53208d8c82bab' id='type-id-187'/>
@@ -2393,7 +2402,7 @@
     <pointer-type-def type-id='type-id-308' size-in-bits='64' hash='39c027fda290099c' id='type-id-367'/>
     <pointer-type-def type-id='type-id-309' size-in-bits='64' hash='7eb0e0fedee2349a' id='type-id-376'/>
   </abi-types>
-  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/home/pau/Devel/audio/wt/g92' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/home/pau/Devel/audio/wt/g92-2' language='LANG_C99'>
       <function-decl name='omx_clap_host_log_take' type-id='type-id-209' mangled-name='omx_clap_host_log_take' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_log_take@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_param_scale_name' type-id='type-id-211' mangled-name='omx_clap_param_scale_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_scale_name@@OMX_CLAP_CORE_0.10'/>
       <function-decl name='omx_clap_param_unit_name' type-id='type-id-211' mangled-name='omx_clap_param_unit_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_unit_name@@OMX_CLAP_CORE_0.10'/>

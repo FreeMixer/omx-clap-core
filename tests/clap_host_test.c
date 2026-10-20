@@ -142,8 +142,76 @@ static int activate(struct omx_clap_instance *instance)
     return omx_clap_host_activate(instance, SAMPLE_RATE, BLOCK, why) == 0;
 }
 
+/*
+ * On a lane of any width, omx_clap_host_run_ports carries every main channel: the 6-channel pair binds the wide bounce
+ * and output c is input 5 - c (the fake reverses them, so a dry block would differ), a mono-in, stereo-out pair binds
+ * none and runs the two-leg path, the right leg the plugin's second output, and a stereo-in, mono-out pair reads both
+ * inputs.
+ */
+static void t_run_ports(const char *path)
+{
+    struct omx_clap_instance *in = NULL;
+    static float bufs[2][6][BLOCK];
+    const float *ins[6];
+    float *outs[6];
+    int wet = 1;
+
+    for (int c = 0; c < 6; c++)
+    {
+        ins[c] = bufs[0][c];
+        outs[c] = bufs[1][c];
+        for (int i = 0; i < BLOCK; i++)
+            bufs[0][c][i] = (float)c * 0.1f;
+    }
+    CHECK(open_ok(path, FAKE_WIDE, &in) && activate(in), "run_ports: %s activates on a lane of any width", FAKE_WIDE);
+    if (!in)
+        return;
+    CHECK(in->stage.wide == 1, "run_ports: the 6-channel pair binds the wide bounce");
+    omx_clap_host_publish(in, pthread_self());
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    for (int c = 0; c < 6; c++)
+        wet = wet && memcmp(bufs[1][c], bufs[0][5 - c], sizeof(bufs[0][c])) == 0;
+    CHECK(wet && atomic_load(&in->stage.h.runs) == 1, "run_ports: output c carries input 5 - c, the plugin's own map (%g, %g)",
+          (double)bufs[1][0][0], (double)bufs[1][5][0]);
+    omx_clap_host_close(in);
+    in = NULL;
+
+    CHECK(open_ok(path, FAKE_MONO_STEREO, &in) && activate(in), "run_ports: %s activates", FAKE_MONO_STEREO);
+    if (!in)
+        return;
+    CHECK(in->stage.wide == 0, "run_ports: one channel in and two out bind no wide bounce");
+    omx_clap_host_publish(in, pthread_self());
+    for (int i = 0; i < BLOCK; i++)
+        bufs[0][0][i] = 0.5f;
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    CHECK(bufs[1][0][0] == 0.5f && bufs[1][0][BLOCK - 1] == 0.5f && bufs[1][1][0] == -0.5f && bufs[1][1][BLOCK - 1] == -0.5f,
+          "run_ports: the two-leg path, the left leg the input and the right its negation (%g, %g)", (double)bufs[1][0][0], (double)bufs[1][1][0]);
+    omx_clap_host_close(in);
+    in = NULL;
+
+    CHECK(open_ok(path, FAKE_STEREO_MONO, &in) && activate(in), "run_ports: %s activates", FAKE_STEREO_MONO);
+    if (!in)
+        return;
+    CHECK(in->stage.wide == 0, "run_ports: two channels in and one out bind no wide bounce");
+    omx_clap_host_publish(in, pthread_self());
+    for (int i = 0; i < BLOCK; i++)
+        bufs[0][0][i] = 0.5f, bufs[0][1][i] = 0.25f;
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    CHECK(bufs[1][0][0] == 0.75f && bufs[1][0][BLOCK - 1] == 0.75f,
+          "run_ports: the plugin reads both inputs, 0.5 and 0.25, and its mono output is their sum (%g)", (double)bufs[1][0][0]);
+    omx_clap_host_bypass(in, 1);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    CHECK(bufs[1][0][0] == 0.5f && bufs[1][0][BLOCK - 1] == 0.5f, "run_ports: bypassed, the mono output carries the first input (%g)",
+          (double)bufs[1][0][0]);
+    omx_clap_host_close(in);
+}
+
 /* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
- * two legs, its other channels the bounce's; the exit status is the failures */
+ * two legs, its other channels the wide bounce's (silent: nothing fills them on that path), and run_ports carries any
+ * width; the exit status is the failures */
 static int lane_any_checks(const char *path)
 {
     struct omx_clap_host_config config;
@@ -162,14 +230,17 @@ static int lane_any_checks(const char *path)
     if (!in)
         return 1;
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "the 6-channel main pair activates (%s)", why);
-    CHECK(in->bounce_blocks == 4 + 1 + 4, "the bounce: the legs, the silence and the four main outputs past the legs (%u)", in->bounce_blocks);
+    CHECK(in->bounce_blocks == 4 + 1 + 4 + 4, "the bounce: the legs, the silence and the four main outputs and inputs past the legs (%u)",
+          in->bounce_blocks);
     omx_clap_host_publish(in, pthread_self());
     fill_tone(in_l, BLOCK, 0, 0.5f);
     memcpy(in_r, in_l, sizeof(in_l));
     omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
     omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
-    CHECK(atomic_load(&in->stage.process_errors) == 0 && memcmp(out_l, in_l, sizeof(in_l)) == 0, "and runs a block on the legs");
+    CHECK(atomic_load(&in->stage.process_errors) == 0 && atomic_load(&in->stage.h.runs) == 2 && is_silent(out_l, 0, BLOCK) && is_silent(out_r, 0, BLOCK),
+          "and runs a block on the legs: the reversing fake's first two outputs are its silent sixth and fifth inputs");
     omx_clap_host_close(in);
+    t_run_ports(path);
     return g_failures;
 }
 
@@ -587,6 +658,62 @@ static void t_bounce_at_limits(const char *path)
     omx_clap_host_close(in);
 }
 
+/* `blocks` blocks in place on the legs, each refilled with `l` and `r` constant first */
+static void run_constant(struct omx_clap_instance *in, float *l, float *r, float lv, float rv, int blocks)
+{
+    for (int b = 0; b < blocks; b++)
+    {
+        for (int i = 0; i < BLOCK; i++)
+            l[i] = lv, r[i] = rv;
+        omx_clap_host_run(in, l, r, BLOCK);
+    }
+}
+
+static int legs_are(const float *l, const float *r, float lv, float rv)
+{
+    for (int i = 0; i < BLOCK; i++)
+        if (l[i] != lv || r[i] != rv)
+            return 0;
+    return 1;
+}
+
+/*
+ * A main pair of different widths on the two-leg lane: a mono input reads the left leg and a stereo output writes both
+ * (the right leg is the plugin's second output, never the dry right); a stereo input reads both legs and a mono output
+ * is carried to both. Bypassed, both legs carry the dry pair.
+ */
+static void t_main_widths(const char *path)
+{
+    struct omx_clap_instance *in = NULL;
+    float l[BLOCK], r[BLOCK];
+
+    CHECK(open_ok(path, FAKE_MONO_STEREO, &in) && in->in_channels == 1 && in->channels == 2, "%s opens: one channel in, two out", FAKE_MONO_STEREO);
+    if (in)
+    {
+        CHECK(activate(in), "and activates on the two-leg lane");
+        omx_clap_host_publish(in, pthread_self());
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.5f, -0.5f), "the left leg is the plugin's first output, the right its second (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_bypass(in, 1);
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.5f, 0.25f), "bypassed: both legs dry (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    CHECK(open_ok(path, FAKE_STEREO_MONO, &in) && in->in_channels == 2 && in->channels == 1, "%s opens: two channels in, one out", FAKE_STEREO_MONO);
+    if (in)
+    {
+        CHECK(activate(in), "and activates on the two-leg lane");
+        omx_clap_host_publish(in, pthread_self());
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.75f, 0.75f), "the plugin read both legs and its mono output is on both (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_bypass(in, 1);
+        run_constant(in, l, r, 0.5f, 0.25f, 2);
+        CHECK(legs_are(l, r, 0.5f, 0.25f), "bypassed: both legs dry (%g, %g)", (double)l[0], (double)r[0]);
+        omx_clap_host_close(in);
+    }
+}
+
 static void fake_plugin_checks(const char *path)
 {
     struct omx_clap_instance *instance = NULL;
@@ -596,8 +723,12 @@ static void fake_plugin_checks(const char *path)
     double value;
 
     CHECK(CLAP_HOST_PORT_CHANNELS == 64, "CLAP_HOST_PORT_CHANNELS is %u", CLAP_HOST_PORT_CHANNELS);
-    check_refused(path, FAKE_WIDEN, CLAP_HOST_CODE_WIDER_THAN_STRIP);
-    CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
+    CHECK(open_ok(path, FAKE_WIDEN, &instance) && instance->in_channels == 1 && instance->channels == 2,
+          "open %s: a main pair of different widths is admitted", FAKE_WIDEN);
+    if (instance)
+        omx_clap_host_close(instance);
+    instance = NULL;
+    CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after it (%u open)", omx_clap_host_binaries_open());
 
     CHECK(open_ok(path, FAKE_SIDECHAIN, &instance), "open %s: a side chain is admitted", FAKE_SIDECHAIN);
     if (instance)
@@ -1676,6 +1807,7 @@ int main(int argc, char **argv)
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
+        t_main_widths(fake_path);
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
@@ -1804,6 +1936,7 @@ int main(int argc, char **argv)
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
+        t_main_widths(fake_path);
         t_bounce_at_limits(fake_path);
     }
     if (synth_path)

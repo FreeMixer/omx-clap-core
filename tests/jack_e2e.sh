@@ -23,9 +23,11 @@ host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5560}
 fake=$here/fake.clap
 probe=$here/jack_latency_probe
+source=$here/jack_meter_source
+listen=$here/jack_synth_probe
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
-    for f in "$plugin" "$host" "$fake" "$probe"; do
+    for f in "$plugin" "$host" "$fake" "$probe" "$source" "$listen"; do
         [ -e "$f" ] || { echo "missing $f" >&2; exit 2; }
     done
     plugin=$(readlink -f "$plugin")
@@ -127,10 +129,6 @@ expect "param_get 0 2" "resp 0 0.5000"
 expect "state_load $state_dir" "resp 0"
 expect "param_get 0 2" "resp 0 1.0000"
 
-expect "add clap:$fake#org.omx-clap-host.test.wide 1" "resp -102 hosting.topology.wider-than-strip"
-grep -q "hosting.topology.wider-than-strip" "$runtime/host.log"; step $? "the wide plugin's refusal names its reason"
-! graph_has effect_1:in_1; step $? "no effect_1 port after the refusal"
-
 expect "add clap:$fake#org.omx-clap-host.test.passthrough 1" "resp 1"
 sleep 0.5
 latency=$(run "$probe" effect_1:out_1 capture)
@@ -141,6 +139,53 @@ expect "param_set 1 0 200" "resp 0"
 sleep 0.5
 latency=$(run "$probe" effect_1:out_1 capture)
 [ "$latency" = "200 200" ]; step $? "effect_1:out_1 capture latency $latency after the plugin changed it"
+
+# ---- a main of any width (#92): a JACK port per channel, each carried ----
+# the window the probe reads on the ports named: "<rms> <peak>"
+level() { echo | run "$listen" - "$@" 2>>"$runtime/listen.log"; }
+near() { awk -v a="$1" -v b="$2" -v t="$3" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= t) }'; }
+expect "add clap:$fake#org.omx-clap-host.test.wide 2" "resp 2"
+all=0
+for k in 1 2 3 4 5 6; do graph_has "effect_2:in_$k" && graph_has "effect_2:out_$k" || all=1; done
+[ "$all" -eq 0 ]; step $? "the wide plugin has in_1 to in_6 and out_1 to out_6"
+! graph_has effect_2:in_7 && ! graph_has effect_2:out_7; step $? "and no port past its six"
+"$source" effect_2:in_1 effect_2:in_6 >"$runtime/source.log" 2>&1 &
+source_pid=$!
+pids+=("$source_pid")
+for _ in $(seq 50); do grep -q playing "$runtime/source.log" && break; sleep 0.1; done
+grep -q playing "$runtime/source.log"; step $? "the source plays 0.5 into effect_2:in_1 and 0.25 into effect_2:in_6"
+# the fake reverses its channels: a dry pass would read 0.5 on out_1 and 0.25 on out_6
+w=$(level effect_2:out_1); near "${w%% *}" 0.25 0.0001 && near "${w##* }" 0.25 0.0001; step $? "effect_2:out_1 carries in_6, the plugin ran ($w)"
+w=$(level effect_2:out_6); near "${w%% *}" 0.5 0.0001 && near "${w##* }" 0.5 0.0001; step $? "effect_2:out_6 carries in_1 ($w)"
+w=$(level effect_2:out_3); near "${w%% *}" 0 0.000001; step $? "effect_2:out_3 carries the silent in_4 ($w)"
+expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 3" "resp 3"
+graph_has effect_3:in_1 && ! graph_has effect_3:in_2 && graph_has effect_3:out_1 && graph_has effect_3:out_2 && ! graph_has effect_3:out_3
+step $? "the mono-in, stereo-out plugin has in_1, out_1 and out_2"
+run pw-link jack_meter_source:out_l effect_3:in_1; step $? "the source's 0.5 into effect_3:in_1"
+sleep 0.3
+w=$(level effect_3:out_1); near "${w%% *}" 0.5 0.0001 && near "${w##* }" 0.5 0.0001; step $? "effect_3:out_1 is the input, 0.5 ($w)"
+w=$(level effect_3:out_2); near "${w%% *}" 0.5 0.0001; step $? "effect_3:out_2 is as loud ($w)"
+coproc both { timeout 10 "$listen" - effect_3:out_1 2>>"$runtime/listen.log"; }
+sleep 0.2
+run pw-link effect_3:out_2 jack_synth_probe:in_1; step $? "effect_3:out_2 summed with out_1 into one probe input"
+sleep 0.3
+echo >&"${both[1]}"; IFS= read -r -t 5 w <&"${both[0]}"
+near "${w%% *}" 0 0.0001; step $? "the sum is silent: out_2 is -0.5, the plugin's second output, not the dry input ($w)"
+exec {both[1]}>&-
+wait "$both_PID" 2>/dev/null
+expect "add clap:$fake#org.omx-clap-host.test.stereo-mono 4" "resp 4"
+graph_has effect_4:in_1 && graph_has effect_4:in_2 && graph_has effect_4:out_1 && ! graph_has effect_4:out_2
+step $? "the stereo-in, mono-out plugin has in_1, in_2 and out_1"
+run pw-link jack_meter_source:out_l effect_4:in_1 && run pw-link jack_meter_source:out_r effect_4:in_2
+step $? "the source's 0.5 into effect_4:in_1 and 0.25 into effect_4:in_2"
+sleep 0.3
+w=$(level effect_4:out_1); near "${w%% *}" 0.75 0.0001 && near "${w##* }" 0.75 0.0001; step $? "effect_4:out_1 is the sum of both inputs, 0.75 ($w)"
+kill "$source_pid" 2>/dev/null
+wait "$source_pid" 2>/dev/null
+expect "remove 4" "resp 0"
+expect "remove 3" "resp 0"
+expect "remove 2" "resp 0"
+! graph_has effect_2:in_1 && ! graph_has effect_3:out_1; step $? "no effect_2 or effect_3 port after remove"
 
 expect "remove 0" "resp 0"
 ! graph_has effect_0:in_1 && ! graph_has effect_0:out_1; step $? "no effect_0 port after remove"
