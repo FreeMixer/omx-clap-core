@@ -1597,8 +1597,8 @@ static void t_sysex_pool_resets(void) {
 static void t_aux_bind_wide(void) {
   static struct rig g;
   static struct omx_clap_aux_in a;
-  static float blocks[9][MAXB], silence[MAXB], side[4][MAXB];
-  float *scratch[9], *bufs[4];
+  static float blocks[9][MAXB], silence[MAXB], side[6][MAXB];
+  float *scratch[9], *bufs[6];
   const struct omx_clap_port outs[3] = {{.channels = 1}, {.channels = 6}, {.channels = 2}};
   const struct omx_clap_port ins[2] = {{.channels = 4}, {.channels = 1}};
 
@@ -1606,7 +1606,7 @@ static void t_aux_bind_wide(void) {
   memset(&a, 0, sizeof a);
   CHECK(omx_clap_stage_init(&g.st, &(struct omx_hosted_bounce){g.in_l, g.in_r, g.out_l, g.out_r, MAXB}, g.recs, QCAP) == 0, "aux: stage_init");
   for (uint32_t k = 0; k < 9; k++) scratch[k] = blocks[k];
-  for (uint32_t k = 0; k < 4; k++) bufs[k] = side[k];
+  for (uint32_t k = 0; k < 6; k++) bufs[k] = side[k];  /* six: the 6-channel output reads them all */
   CHECK(omx_clap_bind_aux(&g.st, scratch, 3, outs) == 0, "aux: three outputs of 1, 6 and 2 channels over nine blocks");
   CHECK(g.st.n_aux == 3 && g.st.aout[1].channel_count == 1 && g.st.aout[2].channel_count == 6 && g.st.aout[3].channel_count == 2,
         "aux: the outputs keep their widths (%u, %u, %u)", g.st.aout[1].channel_count, g.st.aout[2].channel_count, g.st.aout[3].channel_count);

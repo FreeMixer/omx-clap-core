@@ -341,10 +341,9 @@ struct omx_clap_note_out
 _Static_assert((OMX_CLAP_NOTE_OUT_DEPTH & (OMX_CLAP_NOTE_OUT_DEPTH - 1u)) == 0, "the note output ring is a power of two");
 
 /**
- * The audio inputs of a stage with auxiliary inputs (ABI 3): the process list, the main input first when the plugin has
- * one, then the auxiliary inputs in port order; an instrument's list starts at the first auxiliary input. It is kept
- * apart from struct omx_clap_stage, whose layout a consumer's inline code reads, so no field of the stage moves; the
- * instance appends it after its own fields.
+ * The audio inputs of a stage with auxiliary inputs: the process list, the main input first when the plugin has one,
+ * then the auxiliary inputs in port order; a source's list starts at the first auxiliary input. The instance holds it
+ * beside its stage (aux_list), and omx_clap_bind_ports_aux points the stage's process structure at it.
  */
 struct omx_clap_aux_in
 {
