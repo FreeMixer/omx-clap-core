@@ -94,7 +94,7 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.param-indication/4` | — | unsupported: ruled supported (#95), the console shows mapping and automation state; #187 | — | |
 | `clap.param-indication.draft/4` | — | unsupported: the same, #187 | — | |
 | `clap.params` | supported: `rescan` read once through `omx_clap_host_params_rescanned`, `clear` with `CLAP_PARAM_CLEAR_ALL` drops the host's read-back of the parameter (`tests/clap_host_test.c:mover_checks`); `request_flush` is taken and nothing reads it yet | supported: the parameters read, written, read back, the plugin's own changes and gestures, modulation (`tests/clap_host_test.c:mover_checks`, `tests/clap_core_test.c:t_roster_whole_or_refused`, `make test-jack-params`) | offered | the LV2 adapter serves it (`lv2/tests/lv2_clap_test.c:t_fixture`) |
-| `clap.posix-fd-support` | supported: up to 16 descriptors, polled by the tick without waiting (`tests/clap_ext_test.c`) | supported: `on_fd` with what each is ready for (`tests/clap_ext_test.c`) | offered | in the host since #90 |
+| `clap.posix-fd-support` | supported: a descriptor registered, polled by the tick without waiting (`tests/clap_ext_test.c`); the limit of 16 (`OMX_CLAP_FDS`) is untested | supported: `on_fd` with what each is ready for (`tests/clap_ext_test.c`) | offered | in the host since #90 |
 | `clap.preset-load/2` | offered, untested: offered where the configuration asks (`tests/clap_host_test.c:configuration_checks` sees it offered); its `on_error` writes the host's log and `loaded` is taken, and no test calls either | supported: `from_location` for a listed preset, a `FILE` one by path and key, a `PLUGIN` one by key (`tests/clap_host_test.c:synth_presets_checks`) | offered | omx-clap-host's `preset_load` verb. The LV2 adapter serves it (`lv2/tests/lv2_clap_test.c:t_preset`) |
 | `clap.preset-load.draft/2` | offered, untested: answered as the final id where the configuration asks | read, untested: asked when the plugin lacks the final id | offered | |
 | `clap.remote-controls/2` | supported: `changed` reaches the caller, in omx-clap-host as `remote_pages_changed` on the feedback socket (`make test-jack-info`) | supported: the page count and each page's slots (`tests/jack_info_e2e.sh`) | offered | offered and read only where the configuration asks |
@@ -105,7 +105,7 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.tail` | supported: `changed`, read again by the next tick (`tests/clap_ext_test.c`) | supported: read at every activate, and the sleep after a tail (`tests/clap_ext_test.c`) | offered | in the host since #90 |
 | `clap.thread-check` | supported: `is_audio_thread` is true on the audio role alone, a split of a driver and workers included (`tests/clap_host_test.c:role_checks`, `tests/clap_core_test.c:t_audio_role_on_split`); `is_main_thread`, true on the thread that opened the instance off the audio role, is untested | — | offered | |
 | `clap.thread-pool` | supported: `request_exec` inside `process()` runs every task in turn on the calling audio thread before it returns; refused off the audio role and from inside a task (`tests/clap_ext_test.c`) | supported: `exec` called for each task (`tests/clap_ext_test.c`) | offered | in the host since #90 |
-| `clap.timer-support` | supported: up to 16 timers, each due one called once per tick (`tests/clap_ext_test.c`) | supported: `on_timer` (`tests/clap_ext_test.c`) | offered | in the host since #90 |
+| `clap.timer-support` | supported: a timer registered, called once per tick when due (`tests/clap_ext_test.c`); the limit of 16 (`OMX_CLAP_TIMERS`) is untested | supported: `on_timer` (`tests/clap_ext_test.c`) | offered | in the host since #90 |
 | `clap.track-info/1` | supported: `get` answers the strip's name, colour and kind as the caller set them (`make test-jack-info`) | supported: `changed` called on each set (`tests/jack_info_e2e.sh`) | offered | offered and read only where the configuration asks |
 | `clap.track-info.draft/1` | offered, untested: answered as the final id where the configuration asks | read, untested: asked when the plugin lacks the final id | offered | |
 | `clap.voice-info` | supported: `changed`, asked again by the next tick while active (`tests/clap_host_test.c:synth_host_details_checks`) | supported: read after every activate, `omx_clap_host_voice_info` (`tests/clap_host_test.c:synth_voice_checks`) | offered | omx-clap-scan reads it from one activation (`doc/reference.md`, Scanning) |
@@ -209,7 +209,7 @@ The extensions are counted for the hosted plugins only: a refused plugin ends be
 |---|---|---|
 | `hosting.clap.not-audio-effect` | 23 | `com.madskjeldgaard.birdhouse`, `urn.hvcc.ChaffVerb`, `studio.kx.distrho.ildaeil#midi` |
 
-The 23 are admitted on the descriptor's feature list alone: analysers with audio in and only a
+The 23 are refused on the descriptor's feature list alone: analysers with audio in and only a
 display, and plugins whose feature list is empty or odd although their ports are a plain effect.
 #257 asks to admit by ports, as the LV2 adapter does.
 
