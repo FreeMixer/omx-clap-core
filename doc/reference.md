@@ -698,9 +698,13 @@ Scanning
     omx-clap-scan [--json] [<path>...]
 
 lists what CLAP plugin files hold. A `<path>` is a `.clap` file or a
-directory searched recursively for `.clap` files, in name order; with none
-given the search path is `CLAP_PATH`, then `~/.clap`, `/usr/lib64/clap` and
-`/usr/lib/clap`. For each plugin of each factory it prints the descriptor
+directory searched recursively for `.clap` files, in name order; a `.clap`
+directory with no `.clap` file directly inside it is a bundle listed by the
+one `.so` it holds, whatever that is named (`nebula-cluster.clap/libnebula_cluster.so`),
+and one holding several is a failure with the code `bundle`
+(`omx_clap_host_bundle_object` resolves both, and `omx_clap_host_open` given
+a directory resolves it the same way). With no path given the search path is
+`CLAP_PATH`, then `~/.clap`, `/usr/lib64/clap` and `/usr/lib/clap`. For each plugin of each factory it prints the descriptor
 (id, name, vendor, version, description, url, features) and, from an
 instance that is initialised, read and destroyed without being activated:
 
@@ -757,7 +761,8 @@ instance that is initialised, read and destroyed without being activated:
 A bound a plugin leaves infinite is `null`. A file that can't be loaded is
 `{"path":"...","code":"<code>","error":"<reason>"}`, the code one of `dlopen` (the loader refused
 it), `entry` (no `clap_entry`, or its init or factory failed), `crash:<signal>`, `timeout`,
-`unreadable` (a path that can't be read), `pipe`, `fork` or `no-result`; a plugin that can't be created or
+`unreadable` (a path that can't be read), `bundle` (a `.clap` directory holding several shared objects), `pipe`,
+`fork` or `no-result`; a plugin that can't be created or
 initialised keeps its descriptor and gets an `"error"`, and a plugin that
 crashes or hangs (30 s) takes only its own file's entry: each file is
 scanned in a child process and the scan goes on. The exit status is 0 when
