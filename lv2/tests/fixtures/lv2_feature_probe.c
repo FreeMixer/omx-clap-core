@@ -10,14 +10,20 @@
 #include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
 #include <lv2/core/lv2.h>
+#include <lv2/event/event.h>
 #include <lv2/log/log.h>
+#include <lv2/midi/midi.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
 #include <lv2/state/state.h>
+#include <lv2/uri-map/uri-map.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
 
 #include "lv2_feature_probe.h"
+
+// uri-map and event are deprecated upstream: the probe reads them as the plugins written to them do
+LV2_DISABLE_DEPRECATION_WARNINGS
 
 #define EXPORT __attribute__((visibility("default")))
 
@@ -47,6 +53,8 @@ static const struct
     { LV2_STATE__mapPath, LV2_FEATURE_PROBE_MAP_PATH },
     { LV2_STATE__freePath, LV2_FEATURE_PROBE_FREE_PATH },
     { LV2_STATE__makePath, LV2_FEATURE_PROBE_MAKE_PATH },
+    { LV2_URI_MAP_URI, LV2_FEATURE_PROBE_URI_MAP },
+    { LV2_EVENT_URI, LV2_FEATURE_PROBE_EVENT },
 };
 
 static void *feature(const LV2_Feature *const *features, const char *uri)
@@ -83,6 +91,8 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
     const LV2_URID_Map *map = feature(features, LV2_URID__map);
     const LV2_URID_Unmap *unmap = feature(features, LV2_URID__unmap);
     const LV2_Log_Log *log = feature(features, LV2_LOG__log);
+    const LV2_URI_Map_Feature *uri_map = feature(features, LV2_URI_MAP_URI);
+    const LV2_Event_Feature *event = feature(features, LV2_EVENT_URI);
     const unsigned calls = p->instantiate_calls + 1u;
 
     (void)path;
@@ -109,6 +119,17 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
 
         p->unmap_round_trip = back && !strcmp(back, "urn:openmixer:test:feature-probe#round");
     }
+    if (map)
+        p->map_midi = map->map(map->handle, LV2_MIDI__MidiEvent);
+    if (uri_map)
+    {
+        p->uri_map_event = uri_map->uri_to_id(uri_map->callback_data, LV2_EVENT_URI, LV2_MIDI__MidiEvent);
+        p->uri_map_other = uri_map->uri_to_id(uri_map->callback_data, "urn:openmixer:test:feature-probe#map", LV2_MIDI__MidiEvent);
+    }
+    p->event_answers = -1;
+    if (event)
+        p->event_answers = (event->lv2_event_ref(event->callback_data, NULL) == 0)
+                           + (event->lv2_event_unref(event->callback_data, NULL) == 0);
     p->log_answer = -1;
     if (log)
         p->log_answer = log->printf(log->handle, map ? map->map(map->handle, LV2_LOG__Note) : 0, LV2_FEATURE_PROBE_LINE,
@@ -153,3 +174,5 @@ EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
     return index == 0 ? &g_probe : index == 1 ? &g_needs_worker : NULL;
 }
+
+LV2_RESTORE_WARNINGS
