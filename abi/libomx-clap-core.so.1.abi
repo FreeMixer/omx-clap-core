@@ -13,7 +13,7 @@
     <elf-symbol name='omx_clap_host_binary_descriptor' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_binary_open' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bind_aux_input' version='OMX_CLAP_CORE_0.7' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
-    <elf-symbol name='omx_clap_host_bind_aux_output' version='OMX_CLAP_CORE_0.12' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='omx_clap_host_bind_aux_output' version='OMX_CLAP_CORE_0.13' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bypass' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_bypassed' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_close' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -2400,7 +2400,7 @@
       <function-decl name='omx_clap_host_binary_descriptor' type-id='type-id-212' mangled-name='omx_clap_host_binary_descriptor' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_binary_descriptor@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_activate' type-id='type-id-249' mangled-name='omx_clap_host_activate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_activate@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_bind_aux_input' type-id='type-id-257' mangled-name='omx_clap_host_bind_aux_input' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_input@@OMX_CLAP_CORE_0.7'/>
-      <function-decl name='omx_clap_host_bind_aux_output' type-id='type-id-257' mangled-name='omx_clap_host_bind_aux_output' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_output@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_bind_aux_output' type-id='type-id-257' mangled-name='omx_clap_host_bind_aux_output' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bind_aux_output@@OMX_CLAP_CORE_0.13'/>
       <function-decl name='omx_clap_host_bypassed' type-id='type-id-224' mangled-name='omx_clap_host_bypassed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_bypassed@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_configure' type-id='type-id-223' mangled-name='omx_clap_host_configure' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_configure@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_create' type-id='type-id-232' mangled-name='omx_clap_host_create' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_create@@OMX_CLAP_CORE_0'/>
