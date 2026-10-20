@@ -146,6 +146,7 @@ struct lv2_instance
     const LV2_Worker_Interface *worker;     // NULL: the plugin has no worker, or the list provides none
     int lv2_active;
     double rate;
+    uint32_t min_frames;                    // the block lengths of the last activate that succeeded
     uint32_t max_frames;
 
     // the instance's own memory every port is connected to
@@ -1569,8 +1570,15 @@ int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_fra
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
+    in->min_frames = min_frames;
     lv2_why_set(why, "");
     return 0;
+}
+
+int lv2_instance_keep(const struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames)
+{
+    return in && in->lv2_active && in->handle && rate == in->rate && min_frames == in->min_frames
+           && max_frames == in->max_frames && !in->state_dirty;
 }
 
 void lv2_instance_deactivate(struct lv2_instance *in)
