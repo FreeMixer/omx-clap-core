@@ -962,7 +962,7 @@ static void t_live(double rate)
     struct mem_out saved;
     struct mem_in given;
     struct rig g, w;
-    unsigned made;
+    unsigned made, restores;
     int b, callbacks;
 
     if (rig_up(&g, g_wg, LV2_WORKER_GAIN_LIVE_URI, rate, 512) != 0 || !(pr = loaded_symbol(g_wg_so, "lv2_worker_gain_probe")))
@@ -981,8 +981,12 @@ static void t_live(double rate)
               && pr->max_block_set == 512,
           "live %.0f: back to the length the buffers hold, told again (%d)", rate, pr->max_block_set);
     g.plugin->deactivate(g.plugin);
+    restores = atomic_load(&pr->restores);
     CHECK(g.plugin->activate(g.plugin, rate, 1, 1024) && atomic_load(&pr->instantiate_calls) == made + 1,
           "live %.0f: a longer block than the buffers hold is a new instantiation", rate);
+    CHECK(atomic_load(&pr->restores) == restores,
+          "live %.0f: and its description has no state:state, so the instantiation restores nothing (%u restores)", rate,
+          atomic_load(&pr->restores) - restores);
     CHECK(g.plugin->start_processing(g.plugin), "live %.0f: processing", rate);
 
     // the plain worker gain has no options:interface: a shorter block instantiates it again
