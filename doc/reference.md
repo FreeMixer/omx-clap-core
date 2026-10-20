@@ -529,12 +529,17 @@ draft ids too.
   `note-name.changed` reads once through `omx_clap_host_note_names_changed`.
 - `voice-info.changed`: above, under Voices.
 - `audio-ports.rescan`, any flags, active or not, and `surround.changed` and
-  `ambisonic.changed`: a ports rescan. The tick takes it and reports it once
-  through `omx_clap_host_ports_rescanned`; nothing is restarted and the
-  description read at open is not read again. A rescan the plugin makes in
-  the deactivate just before an activate (the warm-up's cycle, a restart)
-  is answered by that activate and not reported; one it makes inside its
-  activate is reported.
+  `ambisonic.changed`: a ports rescan. It is parked and reported once
+  through `omx_clap_host_ports_rescanned`; nothing is restarted for it, and
+  an activate never reads the description again. The caller answers it by
+  re-describing the plugin, inactive, through
+  `omx_clap_host_request_layout` (`n` 0 asks nothing and only reads the
+  ports again), then activates it. A restart whose deactivate raised a
+  rescan (CLAP's request_restart, deactivate, ports changed) does not
+  activate the plugin: it answers `OMX_CLAP_RESTART_RESCANNED` with the
+  instance inactive and the rescan reported, never -1, which is a failure.
+  The warm-up's own deactivate is not reported; a rescan made inside
+  activate is.
 
 Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
 its own to share yet (#186).

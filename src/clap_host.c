@@ -355,7 +355,8 @@ static bool host_ports_is_rescan_flag_supported(const clap_host_t *host, uint32_
 {
     (void)host;
     (void)flag;
-    return false;   // a layout change is a new judgment: a restart into it, never live
+    return false;   // no rescan is applied live: each is parked and reported (omx_clap_host_ports_rescanned), and the
+                    // caller re-describes the plugin inactive through omx_clap_host_request_layout
 }
 
 static void host_ports_rescan(const clap_host_t *host, uint32_t flags)
