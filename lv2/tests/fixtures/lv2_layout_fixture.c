@@ -50,6 +50,9 @@ enum twin
     AMBI_FIRST,     // a first-order ambisonic group each side, in 0-3 scrambled, out 4-7 in ACN order: out ACN k = in ACN k
     AMBI_MIXED,     // a mixed-order (BH2P1) ambisonic group each side, in 0-5, out 6-11: out_c = in_c
     WIDE_SIXTY_FIVE,// in 0-64 one group, out 65: refused before it runs
+    FOUR_GROUP_FOUR,// in 0-3, out 4-7 one group: out_c = in_c
+    FOUR_TWO_TWO,   // in 0-3, out 4-5 a group, 6-7 ungrouped: out_(4+c) = in_c + in_(c+2), out_(6+c) = in_(c+2)
+    FOUR_SIDE,      // in 0-3, out 4-5, 6-7 side chains: as four-two-two
     N_TWINS
 };
 
@@ -72,7 +75,8 @@ static const LV2_Descriptor descriptors[N_TWINS] =
     [BANDS] = TWIN("#bands"), [SIXTY_FOUR] = TWIN("#sixty-four"), [SIXTY_FIVE] = TWIN("#sixty-five"),
     [CV_SIXTY_FOUR] = TWIN("#cv-sixty-four"), [CV_SIXTY_FIVE] = TWIN("#cv-sixty-five"), [EMPTY_MAIN] = TWIN("#empty-main"),
     [FIVE_ONE] = TWIN("#five-one"), [AMBI_FIRST] = TWIN("#ambi-first"), [AMBI_MIXED] = TWIN("#ambi-mixed"),
-    [WIDE_SIXTY_FIVE] = TWIN("#wide-sixty-five"),
+    [WIDE_SIXTY_FIVE] = TWIN("#wide-sixty-five"), [FOUR_GROUP_FOUR] = TWIN("#four-group-four"),
+    [FOUR_TWO_TWO] = TWIN("#four-two-two"), [FOUR_SIDE] = TWIN("#four-side"),
 };
 
 /* five-one: the output port of each designation, then the input port of the same one (L C R BL BR LFE) */
@@ -133,6 +137,7 @@ static void run(LV2_Handle handle, uint32_t n)
         sum(l, p[2], 0, 1, n);
         break;
     case FOUR_FOUR:
+    case FOUR_GROUP_FOUR:
         for (c = 0; c < 4; c++)
             memmove(p[4 + c], p[c], n * sizeof(float));
         break;
@@ -140,6 +145,15 @@ static void run(LV2_Handle handle, uint32_t n)
         for (c = 0; c < 2; c++)
             for (i = 0; i < n; i++)
                 p[4 + c][i] = p[c][i] + p[c + 2][i];
+        break;
+    case FOUR_TWO_TWO:
+    case FOUR_SIDE:
+        for (c = 0; c < 2; c++)
+            for (i = 0; i < n; i++)
+            {
+                p[4 + c][i] = p[c][i] + p[c + 2][i];
+                p[6 + c][i] = p[c + 2][i];
+            }
         break;
     case MONO_STEREO:
         for (i = 0; i < n; i++)

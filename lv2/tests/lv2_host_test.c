@@ -441,6 +441,31 @@ static void t_layouts(void)
           "layout four-two: main pair 0 and 1, In C and In D mono auxiliary inputs, named by their ports (%s)", why);
     lv2_plugin_close(p);
 
+    // rule 3 measures the other side by its main port: an output group of four (rule 2) is a main four wide, so the four
+    // ungrouped inputs are one main port of four
+    p = open_plugin(g_layout, LAYOUT_URI "#four-group-four", why);
+    CHECK(p && p->main_in.n == 4 && p->main_in.port[0] == 0 && p->main_in.port[3] == 3 && p->n_aux_in == 0 && p->main_out.n == 4
+          && p->main_out.port[0] == 4 && p->main_out.port[3] == 7 && named(&p->main_out, "Out") && p->n_aux_out == 0,
+          "layout four-group-four: four inputs one main port, as wide as the output group of four (%s)", why);
+    lv2_plugin_close(p);
+
+    // the outputs are four, but their main port is the group of two: the inputs are the main pair and two mono aux ports
+    p = open_plugin(g_layout, LAYOUT_URI "#four-two-two", why);
+    CHECK(p && p->main_in.n == 2 && p->main_in.port[0] == 0 && p->main_in.port[1] == 1 && p->n_aux_in == 2 && p->aux_in[0].n == 1
+          && p->aux_in[0].port[0] == 2 && p->aux_in[1].n == 1 && p->aux_in[1].port[0] == 3 && p->main_out.n == 2
+          && p->main_out.port[0] == 4 && p->main_out.port[1] == 5 && p->n_aux_out == 2 && p->aux_out[0].port[0] == 6
+          && named(&p->aux_out[0], "Out C") && p->aux_out[1].port[0] == 7,
+          "layout four-two-two: the output group of two is the main the inputs measure, main pair in and two mono aux (%s)", why);
+    lv2_plugin_close(p);
+
+    // two of the four outputs are side chains, never counted: the output main is two wide, the inputs a pair and two aux
+    p = open_plugin(g_layout, LAYOUT_URI "#four-side", why);
+    CHECK(p && p->main_in.n == 2 && p->main_in.port[1] == 1 && p->n_aux_in == 2 && p->aux_in[0].port[0] == 2 && p->aux_in[1].port[0] == 3
+          && p->main_out.n == 2 && p->main_out.port[0] == 4 && p->main_out.port[1] == 5 && p->n_aux_out == 2
+          && p->aux_out[0].port[0] == 6 && named(&p->aux_out[0], "Side A") && p->aux_out[1].port[0] == 7,
+          "layout four-side: side-chain outputs do not widen the output main, main pair in and two mono aux (%s)", why);
+    lv2_plugin_close(p);
+
     // a mono input and a stereo main output group: two main ports of different widths
     p = open_plugin(g_layout, LAYOUT_URI "#mono-stereo", why);
     CHECK(p && p->main_in.n == 1 && p->main_out.n == 2 && p->main_out.port[0] == 1 && p->main_out.port[1] == 2
