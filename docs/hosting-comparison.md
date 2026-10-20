@@ -211,6 +211,6 @@ functions, which between them hold all four of our functions at CCN 50 or above.
    loop as a dispatcher. Risk: medium. The refusal codes and their order are part of the contract, so each existing
    refusal test must name the same code before and after.
 
-Follow-up issues: the three candidates above are to be filed on FreeMixer/omx-clap-core as "lv2: instance_make binds
-ports from a role table (#267)", "lv2: plugin_process copies legs through one helper (#267)" and "lv2: read_ports
-classifies one port kind per function (#267)". Their numbers are the ones given here.
+Follow-up issues: the three candidates are filed on FreeMixer/omx-clap-core as #279 (`instance_make` binds ports from
+a role table built at TTL read), #280 (`plugin_process` copies legs through one helper) and #281 (`read_ports` and
+`read_side` classify one port kind per function), all under #267.
