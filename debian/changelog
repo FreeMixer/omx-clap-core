@@ -9,6 +9,15 @@ omx-clap-host (0.14.0) unstable; urgency=medium
     --idle-hold and an idle_hold command; its packages ship a udev rule
     giving the audio group the device. The calls are in the version node
     OMX_CLAP_CORE_0.14. The library ABI is 16.
+  * The hosting codes are this tree's: omx-contract's 16 data/hosting files
+    moved here byte for byte, installed under contract.d/3/omx-clap-core/
+    hosting/ and rendered as omx_clap_core_vocabulary.h and the omx-clap-core-
+    vocabulary TypeScript module, the OMX_HOSTING_ names unchanged. The six
+    retired codes are removed (72 codes are left) and featuresMissingAtLoad is
+    featuresMissing. omx-clap-scan --fields clap:<path>#<id> | lv2:<uri>
+    writes one plugin's field dump for plugin-hostd's format tables, an LV2
+    plugin read from the adapter's lilv world with its binary never opened.
+    omx-contract 3.0.0 or newer.
 
  -- Pau Aliagas <linuxnow@gmail.com>  Tue, 20 Oct 2026 20:30:00 +0200
 
