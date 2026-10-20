@@ -30,6 +30,9 @@ enum
     LV2_FEATURE_PROBE_FIXED = 1u << 7,
     LV2_FEATURE_PROBE_POW2 = 1u << 8,
     LV2_FEATURE_PROBE_UNKNOWN = 1u << 9,     /* a URI the probe does not know */
+    LV2_FEATURE_PROBE_MAP_PATH = 1u << 10,   /* state:mapPath */
+    LV2_FEATURE_PROBE_FREE_PATH = 1u << 11,  /* state:freePath */
+    LV2_FEATURE_PROBE_MAKE_PATH = 1u << 12,  /* state:makePath */
 };
 
 struct lv2_feature_probe
