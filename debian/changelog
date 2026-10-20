@@ -5,14 +5,42 @@ omx-clap-host (0.12.0) unstable; urgency=medium
     MIDI 2.0; a rescan of every note port while active asks for a restart,
     and the next activate reads the note input again; note names read through
     omx_clap_host_note_name_count and omx_clap_host_note_name; a voice count
-    the plugin says changed is asked again by the tick. The calls are in the
-    version node OMX_CLAP_CORE_0.12. The library ABI is 10.
-  * A note port that speaks MIDI 2.0 gets every channel message as its MIDI
-    2.0 channel voice message, CLAP_EVENT_MIDI2, scaled by the UMP
-    specification's rule.
-  * omx-clap-scan lists a plugin's note names and its voice info.
+    the plugin says changed is asked again by the tick. A note port that
+    speaks MIDI 2.0 gets every channel message as its MIDI 2.0 channel voice
+    message, CLAP_EVENT_MIDI2, scaled by the UMP specification's rule.
+    omx-clap-scan lists a plugin's note names and its voice info.
+  * The host is a fuller CLAP host: timer-support, posix-fd-support (called
+    by the tick), thread-pool (every task runs before request_exec returns,
+    and a request made from inside exec is refused), tail, render
+    (omx_clap_host_set_render), state-context (omx_clap_host_state_save_context
+    and _load_context) and port activation. A plugin that answers SLEEP, or
+    that is silent for its tail, is not processed until a transport change, a
+    note, a sysex, a parameter event or its own request wakes it; a sleep
+    never takes a sounding voice. A plugin file's presets are listed through
+    its preset-discovery factory (omx_clap_host_presets), and an LV2
+    adapter's entry lists the bundle's pset:Preset.
+  * The LV2 adapter admits more of the specification, each with the test that
+    runs it: bufsz:fixedBlockLength where the host declares
+    OMX_LV2_BLOCK_FIXED (a smaller JACK block re-activates the plugin, under a
+    lock that serialises the lilv world); lv2:inPlaceBroken as a required
+    feature; one atom port that carries MIDI and patch; a second and later
+    MIDI input or output (a later input is fed empty); a MIDI tool with no
+    audio port (passed through); a generator with no input of any kind, as a
+    source; state:mapPath and freePath, state:threadSafeRestore,
+    options:interface, units, log and stepped scale points, trigger ports
+    reset after a block, a worker woken when it has work, the transport at
+    every block, and param_info read from the plugin's TTL. The refusal
+    hosting.topology.no-audio-input is no longer raised: a plugin with no
+    input is admitted as a source, and one with only control ports keeps
+    hosting.topology.no-audio-output.
+  * tests/lv2_parity.py compares every LV2 plugin that mod-host and this
+    adapter both host, from the same cycles of one input, and classifies each
+    (identical, within tolerance, differs, nondeterministic, silent, crash).
+    It is a test, not a part of the packages.
+  * The calls are in the version node OMX_CLAP_CORE_0.12. The library ABI
+    is 11.
 
- -- Pau Aliagas <linuxnow@gmail.com>  Mon, 19 Oct 2026 00:00:00 +0000
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 20 Oct 2026 08:00:00 +0000
 
 omx-clap-host (0.11.0) unstable; urgency=medium
 
