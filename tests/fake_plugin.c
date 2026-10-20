@@ -52,7 +52,8 @@
  *                                      1 that layout, config 2 a stereo main pair; select names the main ports "in 0
  *                                      config <id>", "out 0 config <id>"; a write of parameter 0 calls the host's
  *                                      audio-ports rescan (NAMES) instead of a restart (with FAKE_CONFIGURABLE_TOO set,
- *                                      it offers clap.configurable-audio-ports too, as configurable does)
+ *                                      it offers clap.configurable-audio-ports too, as configurable does; with
+ *                                      FAKE_CONFIGS_UNTYPED its configs name no port type)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
  *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
@@ -132,6 +133,7 @@ typedef struct FAKE_T {
     uint32_t named;             // what set the main ports' layout: 0 the declaration, a config id, or FAKE_CONFIGURED
     uint32_t apply_fails;       // apply_configuration answers false (FAKE_APPLY_FAILS)
     uint32_t configurable_any;  // any channel count and type can be applied (FAKE_CONFIGURABLE_ANY)
+    uint32_t configs_untyped;   // the configs name no port type (FAKE_CONFIGS_UNTYPED)
     uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
     uint32_t note_inputs;
@@ -360,6 +362,11 @@ static bool configs_get(const clap_plugin_t *plugin, uint32_t index, clap_audio_
     config->has_main_output = true;
     config->main_output_channel_count = 2;
     config->main_output_port_type = CLAP_PORT_STEREO;
+    if (((const fake_t *)plugin->plugin_data)->configs_untyped)
+    {
+        config->main_input_port_type = NULL;
+        config->main_output_port_type = NULL;
+    }
     return true;
 }
 
@@ -905,6 +912,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
         fake->offers |= FAKE_OFFERS_CONFIGURABLE;
     fake->apply_fails = getenv("FAKE_APPLY_FAILS") != NULL;
     fake->configurable_any = getenv("FAKE_CONFIGURABLE_ANY") != NULL;
+    fake->configs_untyped = getenv("FAKE_CONFIGS_UNTYPED") != NULL;
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") != NULL;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
