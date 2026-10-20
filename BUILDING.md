@@ -141,6 +141,21 @@ runs `tests/clap_scan_test`: `omx-clap-scan` against `tests/fake.clap`, a
 `tests/crash.clap` whose entry point aborts, a file that is no library, a
 directory walk and a path that can't be read.
 
+    make clap-coverage
+
+runs `tests/clap_coverage.py` on the machine's own CLAP plugins, `/usr/lib64/clap` and
+`/usr/lib/clap`: `omx-clap-scan` lists each file's plugins, then each plugin is added on this
+tree's `omx-clap-host` in a private namespace with a PipeWire of its own and a null sink, a fresh
+host per 20 plugins and after any crash or hang, 10 s per reply. Under `build/clap-coverage/` it
+writes `plugins.tsv` (one row per plugin, or per file whose scan failed), `host.tsv` (hosted, the
+refusal's hosting code, or a crash or hang), `missing.tsv` (the extensions a hosted plugin asked
+for that the host did not offer, from the host's `extension not offered: <id>` log lines),
+`coverage.tsv` and `coverage.md` (hosted N of M, refusals by code, crashes and hangs by file, and
+per extension of the installed CLAP headers how many plugins asked for it). Missing extensions are
+measured for hosted plugins only: a refused plugin ends before the host says them. It is not part of CI.
+`make test-clap-coverage-self`, part of `make test` and of CI, runs its rules against a fake host
+and breaks each once, seen red.
+
 
 The core library
 ----------------

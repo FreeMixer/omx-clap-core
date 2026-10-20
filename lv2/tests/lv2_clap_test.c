@@ -44,6 +44,10 @@
  *             takes time:Position: the transport's object first, at frame 0, by the change rule, then the MIDI; CLAP
  *             note on, off and choke as MIDI, the velocity scaled and rounded, a wildcard key or channel, another port
  *             and a note expression not taken.
+ *   event     an ev:EventPort MIDI input and output (the event fixture's echo): the note ports as an atom MIDI port's, a
+ *             CLAP note on and a raw MIDI note through process() reach the plugin and come back one key up at their
+ *             frames, a CC byte for byte, the stereo audio through; a block past the buffer keeps 64 and logs
+ *             midi_in_dropped 8.
  *   cv        each CV port a mono CLAP audio port, not main, named by its lv2:name, the inputs after the side chains and
  *             the outputs after the main one; the audio and the CV output bit-identical with the fixture's binary run
  *             directly with the same buffers, over blocks of several lengths; an input handed no buffer reads silence;
@@ -89,6 +93,7 @@
 #include "fixtures/lv2_time_probe.h"
 #include "fixtures/lv2_path_probe.h"
 #include "fixtures/lv2_atom_probe.h"
+#include "fixtures/lv2_event_fixture.h"
 #include "fixtures/lv2_host_fixture.h"
 #include "fixtures/lv2_patch_fixture.h"
 struct lv2_midi_echo_two { unsigned runs, a, b, in; };
@@ -132,6 +137,7 @@ static char g_layout[PATH_MAX];
 static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX], g_fixture_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
+static char g_ev[PATH_MAX], g_ev_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
 
@@ -1093,7 +1099,7 @@ static void t_patch(double rate)
 
 /* ---- MIDI through the face ---- */
 
-#define MIDI_EVENTS 64u
+#define MIDI_EVENTS 80u        // past the event buffer's 64 3-byte events, so a block can overflow it
 #define MIDI_SYSEX_MAX 16u
 #define MIDI_CAPACITY 42u       // a 3-byte message takes 24 bytes of the 1016 the MIDI buffer holds after its header
 
@@ -1390,6 +1396,78 @@ static void t_midi(double rate)
         }
         extra(0);
     }
+    rig_down(&g);
+}
+
+/* an ev:EventPort MIDI input and output through the face: the note ports are the atom MIDI ports', a CLAP note on and a
+ * raw MIDI note reach the plugin and come back one key up at their frames, a CC as it came; a block past the event
+ * buffer keeps what fits and counts the rest */
+static void t_event(double rate)
+{
+    static const uint8_t raw_on[3] = { 0x91, 64, 90 }, cc[3] = { 0xb0, 0x07, 0x40 }, note[3] = { 0x90, 60, 100 };
+    static const uint8_t up_clap[3] = { 0x90, 61, 100 }, up_raw[3] = { 0x91, 65, 90 }, up_note[3] = { 0x90, 61, 100 };
+    struct lv2_event_fixture *seen = NULL;
+    const clap_plugin_note_ports_t *np;
+    clap_note_port_info_t info;
+    clap_event_note_t *on;
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK - 0.5f, in_r[i] = 0.25f, out_l[i] = out_r[i] = 7.0f;
+    if (rig_up(&g, g_ev, LV2_EVENT_FIXTURE_URI "#echo", rate, BLOCK) != 0)
+        return;
+    seen = loaded_symbol(g_ev_so, "lv2_event_fixture");
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 1 && np->get(g.plugin, 0, true, &info)
+              && info.supported_dialects == (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP) && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+              && np->get(g.plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
+          "event %.0f: one MIDI input, MIDI preferred and CLAP notes taken, and one MIDI output: the atom MIDI ports' note ports", rate);
+
+    // block 1: a CLAP note on at 7, a raw MIDI note on at 20, a CC at 33
+    midi_in_init(&mi);
+    on = &mi.ev[mi.n++].note;
+    memset(on, 0, sizeof(*on));
+    on->header.size = sizeof(*on);
+    on->header.time = 7;
+    on->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    on->header.type = CLAP_EVENT_NOTE_ON;
+    on->note_id = -1;
+    on->port_index = 0;
+    on->channel = 0;
+    on->key = 60;
+    on->velocity = 100.0 / 127.0;
+    mi_midi(&mi, 20, raw_on, 3);
+    mi_midi(&mi, 33, cc, 3);
+    midi_out_init(&mo);
+    CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
+              && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+          "event %.0f: runs, the stereo audio through bit for bit", rate);
+    CHECK(seen && seen->n == 3 && seen->frame[0] == 7 && memcmp(seen->data[0], note, 3) == 0 && seen->frame[1] == 20
+              && memcmp(seen->data[1], raw_on, 3) == 0 && seen->frame[2] == 33 && memcmp(seen->data[2], cc, 3) == 0,
+          "event %.0f: the plugin read the CLAP note on as MIDI, the raw note and the CC, each at its frame (%u)", rate, seen ? seen->n : 0);
+    CHECK(mo.n == 3 && out_is(&mo, 0, CLAP_EVENT_MIDI, 7, up_clap, 3) && out_is(&mo, 1, CLAP_EVENT_MIDI, 20, up_raw, 3)
+              && out_is(&mo, 2, CLAP_EVENT_MIDI, 33, cc, 3),
+          "event %.0f: both notes came back one key up at their frames, the CC as it went (%u)", rate, mo.n);
+
+    // block 2: nothing carries over
+    midi_in_init(&mi);
+    midi_out_init(&mo);
+    process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list);
+    CHECK(mo.n == 0 && seen && seen->n == 0, "event %.0f: a block with no input reads and writes nothing (%u out)", rate, mo.n);
+
+    // block 3: 72 notes into a buffer for 64: the first 64 are kept, the other 8 counted by the core
+    midi_in_init(&mi);
+    for (i = 0; i < 72u; i++)
+        mi_midi(&mi, i < BLOCK ? i : BLOCK - 1u, note, 3);
+    midi_out_init(&mo);
+    process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list);
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(mo.n == 64u && out_is(&mo, 63, CLAP_EVENT_MIDI, 63, up_note, 3) && strstr(g.host.log, "midi_in_dropped 8") != NULL,
+          "event %.0f: 64 notes fit, the 8 past them are dropped and logged as midi_in_dropped 8 (%u)", rate, mo.n);
     rig_down(&g);
 }
 
@@ -3844,6 +3922,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", build);
     abs_dir(dir, g_cv);
     snprintf(g_cv_so, sizeof(g_cv_so), "%somx-cv-fixture.so", g_cv);
+    snprintf(dir, sizeof(dir), "%somx-event-fixture.lv2", build);
+    abs_dir(dir, g_ev);
+    snprintf(g_ev_so, sizeof(g_ev_so), "%somx-event-fixture.so", g_ev);
     snprintf(g_midi_so, sizeof(g_midi_so), "%somx-midi-echo.so", g_midi);
     in_rt = 1;
     probe = malloc(16);
@@ -3880,6 +3961,7 @@ int main(int argc, char **argv)
         t_worker(RATES[r]);
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
+        t_event(RATES[r]);
         t_instrument(RATES[r]);
         t_generator(RATES[r]);
         t_time(RATES[r]);
