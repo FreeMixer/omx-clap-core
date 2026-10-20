@@ -38,12 +38,15 @@
 ************************************************************************************************************************
 */
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -447,6 +450,17 @@ static void host_voice_info_changed(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->voice_info_changed, 1u, memory_order_relaxed);
 }
 
+/* the host reads no event space but the core one, so it knows no other space to name: every query answers false */
+static bool host_event_registry_query(const clap_host_t *host, const char *space_name, uint16_t *space_id)
+{
+    (void)space_name;
+    if (space_id)
+        *space_id = UINT16_MAX;
+    main_thread_call(host);
+    return false;
+}
+
+static const clap_host_event_registry_t g_host_event_registry = { host_event_registry_query };
 static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
 static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
 static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
@@ -495,6 +509,8 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_note_name;
     if (!strcmp(id, CLAP_EXT_VOICE_INFO))
         return &g_host_voice_info;
+    if (!strcmp(id, CLAP_EXT_EVENT_REGISTRY))
+        return &g_host_event_registry;
     return NULL;
 }
 
@@ -1443,6 +1459,394 @@ uint32_t omx_clap_core_version(void)
 ************************************************************************************************************************
 */
 
+/*
+************************************************************************************************************************
+*           LOCAL FUNCTIONS: PRESET DISCOVERY
+************************************************************************************************************************
+*/
+
+/* the filetypes and locations one provider declares at init, kept for the crawl */
+#define PRESET_FILETYPES    16u
+#define PRESET_LOCATIONS    16u
+#define PRESET_EXT_MAX      32u
+#define PRESET_NAME_MAX     256u
+#define PRESET_KEY_MAX      1024u
+#define PRESET_TEXT_MAX     512u
+
+struct preset_location
+{
+    uint32_t flags, kind;
+    char *location;             // NULL for a PLUGIN location
+};
+
+/* one crawl: the indexer, its receiver, the preset being received and the caller's callback */
+struct preset_crawl
+{
+    clap_preset_discovery_indexer_t indexer;
+    clap_preset_discovery_metadata_receiver_t receiver;
+    const char *provider_id;
+    char extensions[PRESET_FILETYPES][PRESET_EXT_MAX];
+    uint32_t n_extensions;
+    int any_extension;          // a filetype with no extension: every file is the provider's to read
+    struct preset_location locations[PRESET_LOCATIONS];
+    uint32_t n_locations;
+
+    // the preset under way: from begin_preset to the next one or the end of get_metadata
+    int open;
+    uint32_t kind, location_flags;
+    const char *location;
+    char name[PRESET_NAME_MAX], key[PRESET_KEY_MAX], description[PRESET_TEXT_MAX];
+    int has_key, has_flags;
+    uint32_t flags;
+    char plugin_ids[OMX_CLAP_PRESET_PLUGINS][CLAP_NAME_SIZE * 4];
+    uint32_t n_plugin_ids;
+
+    omx_clap_preset_fn fn;
+    void *ctx;
+    int listed, stopped, files;
+};
+
+static struct preset_crawl *crawl_of_indexer(const clap_preset_discovery_indexer_t *indexer)
+{
+    return (struct preset_crawl *)indexer->indexer_data;
+}
+
+static struct preset_crawl *crawl_of_receiver(const clap_preset_discovery_metadata_receiver_t *receiver)
+{
+    return (struct preset_crawl *)receiver->receiver_data;
+}
+
+static void copy_text(char *dst, size_t cap, const char *src)
+{
+    snprintf(dst, cap, "%s", src ? src : "");
+}
+
+static bool indexer_declare_filetype(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_filetype_t *filetype)
+{
+    struct preset_crawl *c = crawl_of_indexer(indexer);
+
+    if (!filetype)
+        return false;
+    if (!filetype->file_extension || !filetype->file_extension[0])
+    {
+        c->any_extension = 1;
+        return true;
+    }
+    if (c->n_extensions >= PRESET_FILETYPES || strlen(filetype->file_extension) >= PRESET_EXT_MAX)
+        return false;
+    copy_text(c->extensions[c->n_extensions++], PRESET_EXT_MAX, filetype->file_extension[0] == '.' ? filetype->file_extension + 1
+                                                                                                   : filetype->file_extension);
+    return true;
+}
+
+static bool indexer_declare_location(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_location_t *location)
+{
+    struct preset_crawl *c = crawl_of_indexer(indexer);
+    struct preset_location *l;
+
+    if (!location || c->n_locations >= PRESET_LOCATIONS)
+        return false;
+    if (location->kind != CLAP_PRESET_DISCOVERY_LOCATION_FILE && location->kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+        return false;
+    if (location->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && (!location->location || !location->location[0]))
+        return false;
+    l = &c->locations[c->n_locations];
+    l->flags = location->flags;
+    l->kind = location->kind;
+    l->location = location->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE ? strdup(location->location) : NULL;
+    if (location->kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && !l->location)
+        return false;
+    c->n_locations++;
+    return true;
+}
+
+/* sound packs are not listed: a preset names its own */
+static bool indexer_declare_soundpack(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_soundpack_t *soundpack)
+{
+    (void)indexer;
+    return soundpack != NULL;
+}
+
+static const void *indexer_get_extension(const clap_preset_discovery_indexer_t *indexer, const char *id)
+{
+    (void)indexer;
+    (void)id;
+    return NULL;
+}
+
+/* the preset under way goes to the caller: its name, or for a file that holds one preset and names none, the file's */
+static void preset_flush(struct preset_crawl *c)
+{
+    struct omx_clap_preset p;
+    const char *base;
+    uint32_t i;
+
+    if (!c->open)
+        return;
+    c->open = 0;
+    if (c->stopped)
+        return;
+    memset(&p, 0, sizeof(p));
+    if (!c->name[0] && c->location)
+    {
+        base = strrchr(c->location, '/');
+        copy_text(c->name, sizeof(c->name), base ? base + 1 : c->location);
+    }
+    p.provider_id = c->provider_id;
+    p.name = c->name;
+    p.location_kind = c->kind;
+    p.location = c->location;
+    p.load_key = c->has_key ? c->key : NULL;
+    p.flags = c->has_flags ? c->flags : c->location_flags;
+    p.description = c->description;
+    p.plugin_count = c->n_plugin_ids;
+    for (i = 0; i < c->n_plugin_ids; i++)
+        p.plugin_ids[i] = c->plugin_ids[i];
+    c->listed++;
+    if (c->fn && c->fn(c->ctx, &p) != 0)
+        c->stopped = 1;
+}
+
+static void receiver_on_error(const clap_preset_discovery_metadata_receiver_t *receiver, int32_t os_error, const char *message)
+{
+    (void)receiver;
+    (void)os_error;
+    (void)message;      // a file the provider cannot read lists no preset; the crawl goes on
+}
+
+static bool receiver_begin_preset(const clap_preset_discovery_metadata_receiver_t *receiver, const char *name, const char *load_key)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    preset_flush(c);
+    if (c->stopped || c->listed >= (int)OMX_CLAP_PRESETS_MAX)
+        return false;
+    c->open = 1;
+    copy_text(c->name, sizeof(c->name), name);
+    c->has_key = load_key != NULL;
+    copy_text(c->key, sizeof(c->key), load_key);
+    c->description[0] = '\0';
+    c->has_flags = 0;
+    c->flags = 0;
+    c->n_plugin_ids = 0;
+    return true;
+}
+
+/* only CLAP plugin ids: a preset for another format's plugin is no preset this host loads */
+static void receiver_add_plugin_id(const clap_preset_discovery_metadata_receiver_t *receiver, const clap_universal_plugin_id_t *id)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    if (!c->open || !id || !id->abi || strcmp(id->abi, "clap") != 0 || !id->id || c->n_plugin_ids >= OMX_CLAP_PRESET_PLUGINS)
+        return;
+    copy_text(c->plugin_ids[c->n_plugin_ids++], sizeof(c->plugin_ids[0]), id->id);
+}
+
+static void receiver_set_soundpack_id(const clap_preset_discovery_metadata_receiver_t *receiver, const char *id)
+{
+    (void)receiver;
+    (void)id;
+}
+
+static void receiver_set_flags(const clap_preset_discovery_metadata_receiver_t *receiver, uint32_t flags)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    if (!c->open)
+        return;
+    c->flags = flags;
+    c->has_flags = 1;
+}
+
+static void receiver_add_creator(const clap_preset_discovery_metadata_receiver_t *receiver, const char *creator)
+{
+    (void)receiver;
+    (void)creator;
+}
+
+static void receiver_set_description(const clap_preset_discovery_metadata_receiver_t *receiver, const char *description)
+{
+    struct preset_crawl *c = crawl_of_receiver(receiver);
+
+    if (c->open)
+        copy_text(c->description, sizeof(c->description), description);
+}
+
+static void receiver_set_timestamps(const clap_preset_discovery_metadata_receiver_t *receiver, clap_timestamp created, clap_timestamp modified)
+{
+    (void)receiver;
+    (void)created;
+    (void)modified;
+}
+
+static void receiver_add_feature(const clap_preset_discovery_metadata_receiver_t *receiver, const char *feature)
+{
+    (void)receiver;
+    (void)feature;
+}
+
+static void receiver_add_extra_info(const clap_preset_discovery_metadata_receiver_t *receiver, const char *key, const char *value)
+{
+    (void)receiver;
+    (void)key;
+    (void)value;
+}
+
+/* one location's presets through the provider; the location's path, or NULL for a PLUGIN location */
+static void crawl_metadata(struct preset_crawl *c, const clap_preset_discovery_provider_t *provider, uint32_t kind, uint32_t flags,
+                           const char *location)
+{
+    if (c->stopped)
+        return;
+    c->kind = kind;
+    c->location_flags = flags;
+    c->location = location;
+    c->open = 0;
+    provider->get_metadata(provider, kind, location, &c->receiver);
+    preset_flush(c);
+}
+
+static int crawl_wants(const struct preset_crawl *c, const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    uint32_t i;
+
+    if (c->any_extension)
+        return 1;
+    if (!dot)
+        return 0;
+    for (i = 0; i < c->n_extensions; i++)
+        if (!strcmp(dot + 1, c->extensions[i]))
+            return 1;
+    return 0;
+}
+
+static int compare_names(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+/* a FILE location: a file is read as it is; a directory is walked in name order, OMX_CLAP_PRESET_DEPTH deep at most, its
+ * files of a declared filetype read; a symbolic link to a directory inside it is not followed, so a loop cannot hold
+ * the crawl */
+static void crawl_path(struct preset_crawl *c, const clap_preset_discovery_provider_t *provider, uint32_t flags, const char *path,
+                       uint32_t depth)
+{
+    struct stat st;
+    DIR *dir;
+    struct dirent *e;
+    char **names = NULL, **grown;
+    size_t n = 0, cap = 0, i;
+
+    if (c->stopped || lstat(path, &st) != 0)
+        return;
+    if (S_ISLNK(st.st_mode) && (stat(path, &st) != 0 || (S_ISDIR(st.st_mode) && depth > 0)))
+        return;     // the declared location itself may be a link; one met inside the walk is not followed
+    if (S_ISREG(st.st_mode))
+    {
+        if (c->files++ < (int)OMX_CLAP_PRESET_FILES_MAX)
+            crawl_metadata(c, provider, CLAP_PRESET_DISCOVERY_LOCATION_FILE, flags, path);
+        return;
+    }
+    if (!S_ISDIR(st.st_mode) || depth >= OMX_CLAP_PRESET_DEPTH || !(dir = opendir(path)))
+        return;
+    while ((e = readdir(dir)))
+    {
+        char full[PATH_MAX];
+
+        if (e->d_name[0] == '.')
+            continue;
+        if ((size_t)snprintf(full, sizeof(full), "%s/%s", path, e->d_name) >= sizeof(full))
+            continue;
+        if (n == cap)
+        {
+            cap = cap ? cap * 2 : 32;
+            grown = realloc(names, cap * sizeof(*names));
+            if (!grown)
+                break;
+            names = grown;
+        }
+        if (!(names[n] = strdup(full)))
+            break;
+        n++;
+    }
+    closedir(dir);
+    if (n)
+        qsort(names, n, sizeof(*names), compare_names);
+    for (i = 0; i < n; i++)
+    {
+        if (lstat(names[i], &st) == 0 && (S_ISDIR(st.st_mode) || crawl_wants(c, names[i])))
+            crawl_path(c, provider, flags, names[i], depth + 1);
+        free(names[i]);
+    }
+    free(names);
+}
+
+/* every preset of one provider: init declares its filetypes and locations, then each location is crawled */
+static void crawl_provider(struct preset_crawl *c, const clap_preset_discovery_factory_t *factory, const char *id)
+{
+    const clap_preset_discovery_provider_t *provider = factory->create(factory, &c->indexer, id);
+    uint32_t i;
+
+    if (!provider)
+        return;
+    c->provider_id = id;
+    if (provider->init && provider->init(provider) && provider->get_metadata)
+        for (i = 0; i < c->n_locations && !c->stopped; i++)
+        {
+            if (c->locations[i].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+                crawl_metadata(c, provider, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, c->locations[i].flags, NULL);
+            else
+                crawl_path(c, provider, c->locations[i].flags, c->locations[i].location, 0);
+        }
+    if (provider->destroy)
+        provider->destroy(provider);
+    for (i = 0; i < c->n_locations; i++)
+        free(c->locations[i].location);
+    c->n_locations = 0;
+    c->n_extensions = 0;
+    c->any_extension = 0;
+}
+
+static int presets_of(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, void *ctx)
+{
+    const clap_preset_discovery_factory_t *factory;
+    struct preset_crawl *c;
+    uint32_t i, count;
+    int listed;
+
+    factory = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID);
+    if (!factory)
+        factory = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT);
+    // a plugin that answers every factory id with its plugin factory (SpectMorph 0.6.1 does) hands back a table of the
+    // same shape: its create makes a plugin, not a provider, and calling that plugin's init with an indexer crashes it
+    if (!factory || factory == entry->get_factory(CLAP_PLUGIN_FACTORY_ID) || !factory->count || !factory->get_descriptor || !factory->create)
+        return -1;
+    c = calloc(1, sizeof(*c));
+    if (!c)
+        return -1;
+    c->indexer = (clap_preset_discovery_indexer_t){ CLAP_VERSION_INIT, g_config.name, g_config.vendor, g_config.url,
+                                                    g_config.version, c, indexer_declare_filetype, indexer_declare_location,
+                                                    indexer_declare_soundpack, indexer_get_extension };
+    c->receiver = (clap_preset_discovery_metadata_receiver_t){ c, receiver_on_error, receiver_begin_preset, receiver_add_plugin_id,
+                                                               receiver_set_soundpack_id, receiver_set_flags, receiver_add_creator,
+                                                               receiver_set_description, receiver_set_timestamps,
+                                                               receiver_add_feature, receiver_add_extra_info };
+    c->fn = fn;
+    c->ctx = ctx;
+    count = factory->count(factory);
+    for (i = 0; i < count && !c->stopped; i++)
+    {
+        const clap_preset_discovery_provider_descriptor_t *desc = factory->get_descriptor(factory, i);
+
+        if (desc && desc->id)
+            crawl_provider(c, factory, desc->id);
+    }
+    listed = c->listed;
+    free(c);
+    return listed;
+}
+
 struct omx_clap_binary *omx_clap_host_binary_open(const char *path, char *reason, size_t reason_size)
 {
     return binary_ref(path, reason, reason_size);
@@ -1451,6 +1855,27 @@ struct omx_clap_binary *omx_clap_host_binary_open(const char *path, char *reason
 void omx_clap_host_binary_close(struct omx_clap_binary *binary)
 {
     binary_unref(binary);
+}
+
+int omx_clap_host_presets(struct omx_clap_binary *binary, omx_clap_preset_fn fn, void *ctx)
+{
+    return binary && binary->entry ? presets_of(binary->entry, fn, ctx) : -1;
+}
+
+int omx_clap_host_entry_presets(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, void *ctx)
+{
+    struct omx_clap_binary *binary;
+    char reason[OMX_CLAP_WHY_MAX];
+    int listed;
+
+    if (!entry)
+        return -1;
+    binary = binary_ref_entry(entry, NULL, reason, sizeof(reason));
+    if (!binary)
+        return -1;
+    listed = presets_of(entry, fn, ctx);
+    binary_unref(binary);
+    return listed;
 }
 
 uint32_t omx_clap_host_binary_count(const struct omx_clap_binary *binary)
@@ -2144,6 +2569,16 @@ int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location
     if (!in->preset_load)
         return -1;
     return in->preset_load->from_location(in->plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL) ? 0 : -1;
+}
+
+int omx_clap_host_preset_load_key(struct omx_clap_instance *in, uint32_t location_kind, const char *location, const char *load_key)
+{
+    if (!in || !in->preset_load)
+        return -1;
+    if (location_kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE ? !location : location_kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+        return -1;
+    return in->preset_load->from_location(in->plugin, location_kind,
+                                          location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? NULL : location, load_key) ? 0 : -1;
 }
 
 uint32_t omx_clap_host_param_events_take(struct omx_clap_instance *in, struct omx_clap_param_event *events, uint32_t capacity)

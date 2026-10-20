@@ -81,7 +81,16 @@
     lv2:appliesTo <urn:openmixer:test:host-fixture> ;
     rdfs:seeAlso <omx-host-fixture-presets.ttl> .
 
+<urn:openmixer:test:host-fixture-preset:loud>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture> ;
+    rdfs:seeAlso <omx-host-fixture-presets.ttl> .
+
 <urn:openmixer:test:host-fixture-preset:quiet-wrong>
     a pset:Preset ;
     lv2:appliesTo <urn:openmixer:test:host-fixture#cv> ;
+    rdfs:seeAlso <omx-host-fixture-presets.ttl> .
+
+<urn:openmixer:test:host-fixture-preset:not-a-preset>
+    lv2:appliesTo <urn:openmixer:test:host-fixture> ;
     rdfs:seeAlso <omx-host-fixture-presets.ttl> .

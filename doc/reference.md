@@ -495,8 +495,8 @@ Instrument details
 ------------------
 
 The host object offers a plugin `clap.note-ports`, `clap.note-name` and
-`clap.voice-info` besides the six extensions every plugin gets
-(`src/clap_host_extensions.h`).
+`clap.voice-info` besides the six extensions every plugin gets, and
+`clap.event-registry` (below), ten in all (`src/clap_host_extensions.h`).
 
 - `note-ports.supported_dialects` answers what a note input can be fed in:
   CLAP, MIDI, MIDI MPE and MIDI 2.0 (`OMX_CLAP_HOST_NOTE_DIALECTS`) when the
@@ -518,7 +518,47 @@ The host object offers a plugin `clap.note-ports`, `clap.note-name` and
 - `voice-info.changed`: above, under Voices.
 
 Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
-its own to share yet (FreeMixer/omx-clap-core#91 keeps it).
+its own to share yet (#186).
+
+`clap.event-registry`: the host reads no event space but CLAP's core one,
+so `query` answers false for every space a plugin names, and the plugin
+keeps to the core events.
+
+Presets
+-------
+
+A plugin file that has a preset-discovery factory
+(`clap.preset-discovery-factory/2`, or its draft id) lists its presets
+through `omx_clap_host_presets(binary, fn, ctx)`, or, for a linked entry or
+the LV2 adapter's (`omx_clap_lv2_entry`), `omx_clap_host_entry_presets`.
+Each provider of the factory is created and initialised, and each location
+it declares is read: a `PLUGIN` location (presets the plugin holds itself)
+through `get_metadata`, a `FILE` location that is a file the same, and one
+that is a directory walked in name order, at most 16 levels deep
+(`OMX_CLAP_PRESET_DEPTH`), for its files of a filetype the provider
+declared; a link to a directory is not followed. The callback gets each
+preset as a `struct omx_clap_preset`: the provider, the name (a file of one
+preset that gives none is named by the file), the location kind and
+location (the file's path, or none for `PLUGIN`), the load key (none for a
+file of one preset), the flags (`CLAP_PRESET_DISCOVERY_IS_*`, the
+location's when the preset sets none), the description, and the CLAP
+plugin ids it applies to (an id of another format is left out). At most
+65536 presets (`OMX_CLAP_PRESETS_MAX`) and 65536 files are read; a callback
+that returns nonzero stops the listing. The call answers the presets
+listed, or -1 for a file with no such factory. A file that hands back its
+plugin factory for the preset-discovery id (SpectMorph 0.6.1 does) has
+none: the host never creates a plugin through it.
+
+`omx_clap_host_preset_load_key(in, kind, location, load_key)` loads a listed
+preset through the plugin's `clap.preset-load`: a `FILE` preset by its path
+and key, a `PLUGIN` preset by its key alone.
+
+The LV2 adapter's entry offers the same factory for its bundle: one
+provider, `org.openmixer.lv2.pset`, whose one location is the bundle (a
+`PLUGIN` location of factory content), and each `pset:Preset` that
+`lv2:appliesTo` one of the bundle's plugins a preset named by its
+`rdfs:label`, its URI the load key, for the plugin whose id is its URI
+(`t_preset_list` in `lv2/tests/lv2_clap_test.c`).
 
 Scanning
 --------
@@ -540,6 +580,9 @@ instance that is initialised, read and destroyed without being activated:
   absent when the plugin names none;
 - the latency, when the plugin answers it before activation with more than
   0 frames; otherwise the key is absent, never 0;
+- the presets of the file (above, under Presets), after its plugins: name,
+  location kind and location, load key, provider, plugins and flags; the
+  key is absent when the file has no preset-discovery factory;
 - the voice info (`clap.voice-info`): the voices the patch uses, the voices
   allocated, and whether two notes may sound on one key. The extension
   answers only while active, so a plugin that offers it is activated once,
@@ -557,6 +600,9 @@ instance that is initialised, read and destroyed without being activated:
      "note_ports":{"inputs":0,"outputs":0},
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
      "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}
+    ],"presets":[
+    {"name":"Init","location_kind":"plugin","location":null,"load_key":"init",
+     "provider":"...","plugins":["..."],"flags":["factory"]}
     ]}
     ]}
 
@@ -622,3 +668,66 @@ Strip and controls
   `omx_clap_host_param_meaning` what one parameter means;
   `omx_clap_param_unit_name`, `omx_clap_param_scale_name` and
   `omx_clap_param_number` write the words and numbers above.
+
+CLAP extensions
+---------------
+
+Every extension header the installed CLAP headers carry (`clap/ext/` and
+`clap/ext/draft/`), and what this host does with it. Supported: the host
+offers it, or reads the plugin's, as the sections above say. Not supported:
+not done yet, with the issue that tracks it. Not planned: ruled out, with the
+reason. `tests/ext_table_check.sh` fails when the installed headers name one
+this table does not; a row for a header an older CLAP lacks is kept.
+
+| Header | Status | What, or why not |
+|---|---|---|
+| `ext/ambisonic.h` | not supported | wider layouts, #92 |
+| `ext/audio-ports-activation.h` | not supported | #90 |
+| `ext/audio-ports-config.h` | not supported | #92 |
+| `ext/audio-ports.h` | supported | the port layout, Port layout above |
+| `ext/configurable-audio-ports.h` | not supported | #92 |
+| `ext/context-menu.h` | not planned | the console draws its own menus (ruled 2026-10-19, #95) |
+| `ext/event-registry.h` | supported | the host offers it; no event space beyond the core one |
+| `ext/gui.h` | not planned in the console | never in the console (GUI ruling 2026-10-19); native windows in the standalone omx-clap-host are #180 |
+| `ext/latency.h` | supported | Latency above |
+| `ext/log.h` | supported | the host offers it; the tick drains it |
+| `ext/note-name.h` | supported | Instrument details above |
+| `ext/note-ports.h` | supported | the plugin's ports and the host's dialects, Instrument details above |
+| `ext/param-indication.h` | not supported | ruled supported (#95): the console shows mapping and automation state; #187 |
+| `ext/params.h` | supported | parameters, read back, modulation and gestures |
+| `ext/posix-fd-support.h` | not supported | #90 |
+| `ext/preset-load.h` | supported | offered where the configuration asks; `preset_load`, `omx_clap_host_preset_load_key` |
+| `ext/remote-controls.h` | supported | offered where the configuration asks |
+| `ext/render.h` | not supported | #90 |
+| `ext/state-context.h` | not supported | #90 |
+| `ext/state.h` | supported | `state_save`, `state_load` |
+| `ext/surround.h` | not supported | #92 |
+| `ext/tail.h` | not supported | #90 |
+| `ext/thread-check.h` | supported | the host offers it |
+| `ext/thread-pool.h` | not supported | #90 |
+| `ext/timer-support.h` | not supported | #90 |
+| `ext/track-info.h` | supported | offered where the configuration asks |
+| `ext/voice-info.h` | supported | Voices above |
+| `ext/draft/background-activation.h` | not supported | a draft; not ruled |
+| `ext/draft/background-progress.h` | not supported | a draft; not ruled |
+| `ext/draft/background-state-context.h` | not supported | a draft; not ruled |
+| `ext/draft/extensible-audio-ports.h` | not supported | #92 |
+| `ext/draft/flush-events.h` | not supported | a draft; not ruled |
+| `ext/draft/gain-adjustment-metering.h` | supported | read by omx-clap-host's meters (docs/meters.md) |
+| `ext/draft/mini-curve-display.h` | not supported | ruled supported (#95): the console's panels draw EQ and dynamics curves; #188 |
+| `ext/draft/octave-number.h` | not supported | a draft; not ruled |
+| `ext/draft/param-hovered.h` | not supported | a draft; not ruled |
+| `ext/draft/params-origin.h` | not supported | a draft; not ruled |
+| `ext/draft/project-location.h` | not supported | a draft; not ruled |
+| `ext/draft/resource-directory.h` | not supported | P3 (ruled 2026-10-19, #95) |
+| `ext/draft/scratch-memory.h` | not supported | a draft; not ruled |
+| `ext/draft/transport-control.h` | not supported | a draft; not ruled |
+| `ext/draft/triggers.h` | not supported | a draft; not ruled |
+| `ext/draft/tuning.h` | not supported | #186 |
+| `ext/draft/undo.h` | not planned | the console keeps its own undo (ruled 2026-10-19, #95) |
+| `ext/draft/webview.h` | not planned in the console | a plugin's own UI, as `gui` (GUI ruling 2026-10-19) |
+
+Besides the headers: `clap.meters/1`, the console's own meters extension
+(`src/clap_meters.h`, docs/meters.md), is supported, and so is the
+preset-discovery factory (Presets above).
+
