@@ -589,7 +589,12 @@ OMX_CLAP_EXPORT int omx_clap_host_unpublish(struct omx_clap_instance *in, unsign
 OMX_CLAP_EXPORT void omx_clap_host_stop(struct omx_clap_instance *in);
 
 /** While cycles keep running: stop the stage (taking the audio role when no cycle comes), deactivate, activate again at the
- * same rate and block, arm. The cycles pass the lane through until the plugin is back. -1 when it could not. */
+ * same rate and block, arm. The cycles pass the lane through until the plugin is back. -1 when it could not. CLAP's
+ * sequence for a layout change is request_restart, deactivate, the plugin's ports changed (audio-ports rescan, surround
+ * or ambisonic changed), the host reading the ports again, activate: when the plugin said its ports changed in that
+ * deactivate, the restart does not activate it; it returns -1 with the instance inactive, its audio role kept and the
+ * rescan reported (omx_clap_host_ports_rescanned), and the caller reads the description again
+ * (omx_clap_host_request_layout, `n` 0 allowed) before omx_clap_host_activate and omx_clap_host_arm. */
 OMX_CLAP_EXPORT int omx_clap_host_restart(struct omx_clap_instance *in);
 
 /** Deactivate a STOPPED (or never published) instance and release the bounce and the ring. */
@@ -792,27 +797,29 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_inst
 
 /** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
  * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
- * plugin's. Nothing is restarted or read again for it. A rescan made in the deactivate just before one of
- * omx_clap_host_activate's activate() calls (the warm-up's cycle, a restart) is answered by that call and not reported;
- * one made inside activate() is. Control thread. */
+ * plugin's. Nothing is restarted or read again for it: omx_clap_host_request_layout reads it again and clears the
+ * report, an activate never does. The warm-up's own deactivate is not reported; a rescan made in a restart's deactivate
+ * is (the restart then leaves the instance inactive), and one made inside activate() is. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
 
 /**
- * Ask the plugin, inactive, for the carrier's layout: `reqs`, `n` of them, each a port by side and index (the main port
- * is index 0), its channels and its port type, port_details the carrier's channel map for a surround port and its
+ * Ask the plugin, inactive, for the carrier's layout: `reqs`, `n` of them, each a port by side and index (the main
+ * port is index 0), its channels and its port type, port_details the carrier's channel map for a surround port and its
  * clap_ambisonic_config_t for an ambisonic one. First a surround request's mask is asked of the plugin's clap.surround
- * (is_channel_mask_supported) and an ambisonic request's configuration of its clap.ambisonic (is_config_supported):
- * a refusal, or a map naming an id past CLAP_SURROUND_TSR, is -1 with CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN or
+ * (is_channel_mask_supported) and an ambisonic request's configuration of its clap.ambisonic (is_config_supported): a
+ * refusal, or a map naming an id past CLAP_SURROUND_TSR, is -1 with CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN or
  * CLAP_HOST_CODE_AMBISONIC_CONFIG and nothing applied. Then clap.configurable-audio-ports (can_apply_configuration,
  * apply_configuration), then the clap.audio-ports-config list: a config matches when its input and output port counts
  * are the sides' requests (one main each, none for a side not asked), its main channels and its main port types the
  * requests' (requests past the main ports are configurable-audio-ports' only), and the first match is selected.
- * Returns 0 once one applied; OMX_CLAP_LAYOUT_DECLARED when neither extension offers the layout, or apply_configuration
- * or select answered false: the plugin keeps its layout and the carrier judges it. Either way the description is read
- * again (as open reads it; a side's auxiliary bindings kept while its auxiliary ports keep their count and widths, all
- * of that side's dropped otherwise), so a ports rescan the tick reported is answered by a request too, and a description open would refuse is -1 with that code, the instance
- * left with no main output: omx_clap_host_activate refuses it (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes
- * it. -1 with nothing asked and `why` untouched on an active instance. Control thread, never the RT.
+ * Returns 0 once one applied; OMX_CLAP_LAYOUT_DECLARED when neither extension offers the layout, or
+ * apply_configuration or select answered false: the plugin keeps its layout and the carrier judges it. Either way the
+ * description is read again, as open reads it (a side's auxiliary bindings kept while its auxiliary ports keep their
+ * count and widths, all of that side's dropped otherwise), which answers every ports rescan the plugin made up to
+ * then: `n` 0 asks nothing and only reads it again, the answer to a reported rescan (omx_clap_host_ports_rescanned,
+ * omx_clap_host_restart). A description open would refuse is -1 with that code, the instance left with no main output:
+ * omx_clap_host_activate refuses it (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes it. -1 with nothing asked
+ * and `why` untouched on an active instance, or for `n` above 0 with `reqs` NULL. Control thread, never the RT.
  */
 OMX_CLAP_EXPORT int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_port_configuration_request_t *reqs,
                                                  uint32_t n, char why[OMX_CLAP_WHY_MAX]);
