@@ -61,6 +61,11 @@ int main(int argc, char **argv)
     double value;
     uint32_t b;
 
+    if (argc < 4)
+    {
+        fprintf(stderr, "usage: core_link_test <fake.clap> <fake_synth.clap> <fault-1.clap>\n");
+        return 2;
+    }
     if (argc < 3)
     {
         fprintf(stderr, "usage: %s <fake.clap> <fake_synth.clap>\n", argv[0]);

@@ -423,13 +423,13 @@ jobs:
         run: |
           set -euo pipefail
           dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm
-          make tests/fake.clap tests/fake_synth.clap
+          make tests/fake.clap tests/fake_synth.clap tests/fault-1.clap
           pkg-config --modversion omx-clap-core | tee v.txt
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
-          /tmp/consumer tests/fake.clap tests/fake_synth.clap | tee consumer.txt
+          /tmp/consumer tests/fake.clap tests/fake_synth.clap tests/fault-1.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
 
       # the LV2 adapter the same way: built against omx-clap-lv2-devel, run on the fixture bundle with the system's lilv
@@ -557,9 +557,9 @@ jobs:
       - name: Build the smoke test fixtures
         run: |
           set -euo pipefail
-          make tests/fake.clap tests/fake_synth.clap tests/crash.clap
+          make tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/fault-1.clap
           mkdir -p smoke
-          cp tests/fake.clap tests/fake_synth.clap tests/crash.clap smoke/
+          cp tests/fake.clap tests/fake_synth.clap tests/crash.clap tests/fault-1.clap smoke/
 
       # a program outside this tree, built against the installed development package and run on the installed library
       - name: A consumer builds against libomx-clap-core-dev and runs on libomx-clap-core1
@@ -571,7 +571,7 @@ jobs:
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
           ldd /tmp/consumer | tee ldd.txt
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
-          /tmp/consumer smoke/fake.clap smoke/fake_synth.clap | tee consumer.txt
+          /tmp/consumer smoke/fake.clap smoke/fake_synth.clap smoke/fault-1.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
           dpkg -L libomx-clap-core-dev | tee dev-files.txt
           grep -qx /usr/share/omx-contract/contract.d/2/omx-clap-core/MANIFEST.json dev-files.txt
