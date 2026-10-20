@@ -137,11 +137,13 @@ static void broken_checks(const char *scan, const char *fake, const char *crash,
     status = run(out, "%s --json %s", scan, path);
     CHECK(status == 0, "a .clap that is no library: exit 0 (%i)", status);
     CHECK(has(out, "\"error\":\"can't open ") && has(out, "broken.clap"), "it is refused with the reason");
+    CHECK(has(out, "\"code\":\"dlopen\""), "and the code dlopen");
     CHECK(!has(out, "\"plugins\""), "and lists no plugins");
 
     status = run(out, "%s --json %s", scan, crash);
     CHECK(status == 0, "a plugin that aborts its process: exit 0 (%i)", status);
     CHECK(has(out, "\"error\":\"crashed with signal 6"), "the crash is the reason");
+    CHECK(has(out, "\"code\":\"crash:6\""), "and the code crash:6");
 
     snprintf(path, sizeof(path), "%s/sub", dir);
     mkdir(path, 0755);
@@ -191,7 +193,7 @@ static void unreadable_checks(const char *scan, const char *fake, char *out)
     int status = run(out, "%s --json /nonexistent/clap 2>/dev/null", scan);
 
     CHECK(status == 1, "no readable path: exit 1 (%i)", status);
-    CHECK(has(out, "\"path\":\"/nonexistent/clap\",\"error\":\"No such file or directory\""), "and the path is named in the document");
+    CHECK(has(out, "\"path\":\"/nonexistent/clap\",\"code\":\"unreadable\",\"error\":\"No such file or directory\""), "and the path is named in the document, code unreadable");
 
     status = run(out, "%s --json /nonexistent/clap %s 2>/dev/null", scan, fake);
     CHECK(status == 0, "one readable path among the unreadable: exit 0 (%i)", status);

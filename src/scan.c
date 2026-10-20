@@ -33,6 +33,7 @@
 */
 
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
 #include <math.h>
@@ -608,6 +609,11 @@ static void put_file(FILE *out, const char *path)
     {
         if (g_json)
         {
+            // dlopen as the core opens it tells the loader's refusal from the entry's; the child ends after this file
+            void *so = dlopen(strchr(path, '/') ? path : local, RTLD_NOW | RTLD_LOCAL);
+
+            fputs(",\"code\":", out);
+            put_string(out, so ? "entry" : "dlopen");
             fputs(",\"error\":", out);
             put_string(out, reason);
             fputc('}', out);
@@ -642,12 +648,16 @@ static void put_file(FILE *out, const char *path)
     omx_clap_host_binary_close(binary);
 }
 
-static void put_failure(FILE *out, const char *path, const char *reason)
+/* a file that gave no listing: its reason for a person, and in JSON its code for a program (timeout, crash:<signal>,
+ * dlopen, entry, unreadable, pipe, fork, no-result) */
+static void put_failure(FILE *out, const char *path, const char *code, const char *reason)
 {
     if (g_json)
     {
         fputs("{\"path\":", out);
         put_string(out, path);
+        fputs(",\"code\":", out);
+        put_string(out, code);
         fputs(",\"error\":", out);
         put_string(out, reason);
         fputc('}', out);
@@ -697,7 +707,7 @@ static void scan_file(FILE *out, const char *path)
     fflush(out);
     if (pipe(fds) != 0)
     {
-        put_failure(out, path, "no pipe for the scan");
+        put_failure(out, path, "pipe", "no pipe for the scan");
         return;
     }
     pid = fork();
@@ -705,7 +715,7 @@ static void scan_file(FILE *out, const char *path)
     {
         close(fds[0]);
         close(fds[1]);
-        put_failure(out, path, "no process for the scan");
+        put_failure(out, path, "fork", "no process for the scan");
         return;
     }
     if (pid == 0)
@@ -729,14 +739,22 @@ static void scan_file(FILE *out, const char *path)
         fwrite(data, 1, size, out);
     else if (WIFSIGNALED(status))
     {
+        char code[32];
+
         if (WTERMSIG(status) == SIGALRM)
+        {
+            snprintf(code, sizeof(code), "timeout");
             snprintf(reason, sizeof(reason), "timed out after %i s", SCAN_TIMEOUT_S);
+        }
         else
+        {
+            snprintf(code, sizeof(code), "crash:%i", WTERMSIG(status));
             snprintf(reason, sizeof(reason), "crashed with signal %i (%s)", WTERMSIG(status), strsignal(WTERMSIG(status)));
-        put_failure(out, path, reason);
+        }
+        put_failure(out, path, code, reason);
     }
     else
-        put_failure(out, path, "the scan ended without a result");
+        put_failure(out, path, "no-result", "the scan ended without a result");
     free(data);
 }
 
@@ -929,7 +947,7 @@ int main(int argc, char **argv)
         *reason++ = '\0';
         if (g_json)
             fputs(first ? "\n" : ",\n", stdout);
-        put_failure(stdout, failures.items[i], reason);
+        put_failure(stdout, failures.items[i], "unreadable", reason);
         first = 0;
     }
     if (g_json)
