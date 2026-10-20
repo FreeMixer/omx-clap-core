@@ -64,7 +64,7 @@
     <elf-symbol name='omx_clap_host_publish_role' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_release_role' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_remote_controls_changed' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
-    <elf-symbol name='omx_clap_host_request_layout' version='OMX_CLAP_CORE_0.12' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
+    <elf-symbol name='omx_clap_host_request_layout' version='OMX_CLAP_CORE_0.13' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_restart' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_set_audio_role' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
     <elf-symbol name='omx_clap_host_set_audio_thread' version='OMX_CLAP_CORE_0' is-default-version='yes' type='func-type' binding='global-binding' visibility='default-visibility' is-defined='yes'/>
@@ -2628,7 +2628,7 @@
       <function-decl name='omx_clap_host_preset_load_key' type-id='type-id-293' mangled-name='omx_clap_host_preset_load_key' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_preset_load_key@@OMX_CLAP_CORE_0.12'/>
       <function-decl name='omx_clap_host_presets' type-id='type-id-271' mangled-name='omx_clap_host_presets' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_presets@@OMX_CLAP_CORE_0.12'/>
       <function-decl name='omx_clap_host_remote_controls_changed' type-id='type-id-272' mangled-name='omx_clap_host_remote_controls_changed' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_remote_controls_changed@@OMX_CLAP_CORE_0'/>
-      <function-decl name='omx_clap_host_request_layout' type-id='type-id-285' mangled-name='omx_clap_host_request_layout' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_request_layout@@OMX_CLAP_CORE_0.12'/>
+      <function-decl name='omx_clap_host_request_layout' type-id='type-id-285' mangled-name='omx_clap_host_request_layout' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_request_layout@@OMX_CLAP_CORE_0.13'/>
       <function-decl name='omx_clap_host_restart' type-id='type-id-272' mangled-name='omx_clap_host_restart' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_restart@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_set_rate' type-id='type-id-286' mangled-name='omx_clap_host_set_rate' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_rate@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_set_render' type-id='type-id-287' mangled-name='omx_clap_host_set_render' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_set_render@@OMX_CLAP_CORE_0.12'/>
