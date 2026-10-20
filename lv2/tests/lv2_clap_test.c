@@ -2257,6 +2257,47 @@ static void t_layouts(double rate)
         rig_down(&g);
     }
 
+    // five-one: CLAP channel c of the surround main input reaches CLAP channel c of the main output, whatever the ports'
+    // order: the description's map order on both sides
+    if (rig_up(&g, g_layout, LAYOUT_URI "#five-one", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->get(g.plugin, 0, true, &port) && port.channel_count == 6 && port.port_type
+              && strcmp(port.port_type, CLAP_PORT_SURROUND) == 0 && g.ports->get(g.plugin, 0, false, &port) && port.port_type
+              && strcmp(port.port_type, CLAP_PORT_SURROUND) == 0,
+              "layout five-one %.0f: a surround main port of six channels each side", rate);
+        for (k = 0; k < 6; k++)
+            fill(a[k], 0.125f * (float)(k + 1));
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 6, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 6, 0, 0 };
+        layout_process(&g, ib, 1, ob, 1, BLOCK);
+        for (ok = 1, k = 0; k < 6; k++)
+            ok = ok && all(o[k], 0.125f * (float)(k + 1));
+        CHECK(ok, "layout five-one %.0f: each output channel is the input channel of its designation (%g %g %g %g %g %g)", rate,
+              o[0][0], o[1][0], o[2][0], o[3][0], o[4][0], o[5][0]);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_layout, LAYOUT_URI "#ambi-first", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->get(g.plugin, 0, true, &port) && port.channel_count == 4 && port.port_type
+              && strcmp(port.port_type, CLAP_PORT_AMBISONIC) == 0,
+              "layout ambi-first %.0f: an ambisonic main port of four channels", rate);
+        for (k = 0; k < 4; k++)
+            fill(a[k], 0.25f * (float)(k + 1));
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 4, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 4, 0, 0 };
+        layout_process(&g, ib, 1, ob, 1, BLOCK);
+        for (ok = 1, k = 0; k < 4; k++)
+            ok = ok && all(o[k], 0.25f * (float)(k + 1));
+        CHECK(ok, "layout ambi-first %.0f: ACN k in is ACN k out", rate);
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_layout, LAYOUT_URI "#ambi-mixed", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->get(g.plugin, 0, true, &port) && port.channel_count == 6 && port.port_type == NULL,
+              "layout ambi-mixed %.0f: a main port of six channels and no port type", rate);
+        rig_down(&g);
+    }
+
     if (rate == RATES[0])
     {
         char why[OMX_CLAP_LV2_WHY_MAX] = "";

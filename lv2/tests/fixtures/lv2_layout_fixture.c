@@ -46,6 +46,9 @@ enum twin
     CV_SIXTY_FOUR,  // audio in 0-63, CV in 64-65, out 66: out = the sum of every input
     CV_SIXTY_FIVE,  // audio in 0-63, CV in 64-66, out 67: refused before it runs
     EMPTY_MAIN,     // in 0-1, out 2-3 (pg:mainInput names a group without members): out_c = in_c
+    FIVE_ONE,       // a 5.1 group each side, its members in scrambled port order: each output is the input of its designation
+    AMBI_FIRST,     // a first-order ambisonic group each side, in 0-3 scrambled, out 4-7 in ACN order: out ACN k = in ACN k
+    AMBI_MIXED,     // a mixed-order (BH2P1) ambisonic group each side, in 0-5, out 6-11: out_c = in_c
     N_TWINS
 };
 
@@ -67,7 +70,13 @@ static const LV2_Descriptor descriptors[N_TWINS] =
     [FOUR_TWO] = TWIN("#four-two"), [MONO_STEREO] = TWIN("#mono-stereo"), [TWO_ONE] = TWIN("#two-one"),
     [BANDS] = TWIN("#bands"), [SIXTY_FOUR] = TWIN("#sixty-four"), [SIXTY_FIVE] = TWIN("#sixty-five"),
     [CV_SIXTY_FOUR] = TWIN("#cv-sixty-four"), [CV_SIXTY_FIVE] = TWIN("#cv-sixty-five"), [EMPTY_MAIN] = TWIN("#empty-main"),
+    [FIVE_ONE] = TWIN("#five-one"), [AMBI_FIRST] = TWIN("#ambi-first"), [AMBI_MIXED] = TWIN("#ambi-mixed"),
 };
+
+/* five-one: the output port of each designation, then the input port of the same one (L C R BL BR LFE) */
+static const uint32_t FIVE_ONE_OUT[6] = { 8, 6, 7, 11, 10, 9 }, FIVE_ONE_IN[6] = { 1, 3, 5, 4, 0, 2 };
+/* ambi-first: the input port of ACN 0 to 3 */
+static const uint32_t AMBI_FIRST_IN[4] = { 1, 0, 3, 2 };
 
 static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features)
 {
@@ -157,6 +166,18 @@ static void run(LV2_Handle handle, uint32_t n)
     case EMPTY_MAIN:
         for (c = 0; c < 2; c++)
             memmove(p[2 + c], p[c], n * sizeof(float));
+        break;
+    case FIVE_ONE:
+        for (c = 0; c < 6; c++)
+            memmove(p[FIVE_ONE_OUT[c]], p[FIVE_ONE_IN[c]], n * sizeof(float));
+        break;
+    case AMBI_FIRST:
+        for (c = 0; c < 4; c++)
+            memmove(p[4 + c], p[AMBI_FIRST_IN[c]], n * sizeof(float));
+        break;
+    case AMBI_MIXED:
+        for (c = 0; c < 6; c++)
+            memmove(p[6 + c], p[c], n * sizeof(float));
         break;
     default:
         break;

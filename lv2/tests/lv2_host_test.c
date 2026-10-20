@@ -483,6 +483,51 @@ static void t_layouts(void)
           "layout cv-sixty-four: 62 auxiliary and 2 CV inputs are admitted (%s)", why);
     lv2_plugin_close(p);
 
+    // the group-type table: a 5.1 group's members ordered by their designations, the map in CLAP surround ids
+    p = open_plugin(g_layout, LAYOUT_URI "#five-one", why);
+    {
+        static const uint8_t map[6] = { 0, 2, 1, 4, 5, 3 };     // FL FC FR BL BR LFE: CLAP_SURROUND_FL 0, FR 1, FC 2, LFE 3, BL 4, BR 5
+        static const uint32_t in[6] = { 1, 3, 5, 4, 0, 2 }, out[6] = { 8, 6, 7, 11, 10, 9 };
+
+        ok = p && p->main_in.kind == LV2_PORT_SURROUND && p->main_in.n == 6 && p->main_out.kind == LV2_PORT_SURROUND && p->main_out.n == 6
+             && memcmp(p->main_in.map, map, sizeof(map)) == 0 && memcmp(p->main_out.map, map, sizeof(map)) == 0
+             && memcmp(p->main_in.port, in, sizeof(in)) == 0 && memcmp(p->main_out.port, out, sizeof(out)) == 0;
+        CHECK(ok, "layout five-one: surround both sides, map {FL FC FR BL BR LFE} = {0 2 1 4 5 3}, ports in that order (%s)", why);
+    }
+    lv2_plugin_close(p);
+
+    // a full-order ambisonic group is ambisonic, its map the ACN of each channel; a mixed-order one is unknown, its map
+    // the ACN designations still
+    p = open_plugin(g_layout, LAYOUT_URI "#ambi-first", why);
+    {
+        static const uint8_t map[4] = { 0, 1, 2, 3 };
+        static const uint32_t in[4] = { 1, 0, 3, 2 };
+
+        CHECK(p && p->main_in.kind == LV2_PORT_AMBISONIC && p->main_in.n == 4 && memcmp(p->main_in.map, map, sizeof(map)) == 0
+              && memcmp(p->main_in.port, in, sizeof(in)) == 0 && p->main_out.kind == LV2_PORT_AMBISONIC && p->main_out.port[0] == 4,
+              "layout ambi-first: ambisonic, map ACN {0 1 2 3}, the scrambled inputs in ACN order (%s)", why);
+    }
+    lv2_plugin_close(p);
+    p = open_plugin(g_layout, LAYOUT_URI "#ambi-mixed", why);
+    {
+        static const uint8_t map[6] = { 0, 1, 2, 3, 4, 8 };
+
+        CHECK(p && p->main_in.kind == LV2_PORT_UNKNOWN && p->main_in.n == 6 && memcmp(p->main_in.map, map, sizeof(map)) == 0
+              && p->main_out.kind == LV2_PORT_UNKNOWN && p->main_out.n == 6,
+              "layout ambi-mixed: a BH2P1 group is of no kind, 6 channels, map the ACN designations {0 1 2 3 4 8} (%s)", why);
+    }
+    lv2_plugin_close(p);
+
+    // a stereo group with designations is stereo, a group the table lacks of two members stereo by its count
+    p = open_plugin(g_layout, LAYOUT_URI "#main-aux", why);
+    CHECK(p && p->main_in.kind == LV2_PORT_STEREO && p->main_in.map[0] == 0 && p->main_in.map[1] == 1 && p->main_out.kind == LV2_PORT_STEREO,
+          "layout main-aux: the pg:StereoGroup main input is stereo, map {FL FR} (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_layout, LAYOUT_URI "#four-four", why);
+    CHECK(p && p->main_in.kind == LV2_PORT_UNKNOWN && p->main_out.kind == LV2_PORT_UNKNOWN,
+          "layout four-four: an ungrouped main of four is of no kind (%s)", why);
+    lv2_plugin_close(p);
+
     // the host fixture's twins: a mono input and a stereo output, admitted; three inputs and two outputs
     p = open_plugin(g_fixture, FIXTURE_URI "#wide", why);
     CHECK(p && p->main_in.n == 1 && p->main_out.n == 2 && p->n_aux_in == 0, "layout: the host fixture's #wide, 1 in and 2 out, is admitted (%s)", why);

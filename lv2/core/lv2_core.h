@@ -184,6 +184,9 @@ struct lv2_control
 /* One loaded bundle, reference-counted. */
 struct lv2_bundle;
 
+/* the map entry of a mid-side group's side channel (pg:side), which no CLAP surround id names */
+#define LV2_CORE_MAP_SIDE               0xfeu
+
 /* What an audio port carries, as its group's type says. */
 enum lv2_port_kind
 {
@@ -201,7 +204,9 @@ struct lv2_audio_port
     uint32_t port[LV2_CORE_PORT_CHANNELS];          // the plugin's port index of each channel, in map order
     char *name;                                     // the group's label or name, else the port's name
     uint32_t kind;                                  // an lv2_port_kind
-    uint8_t map[LV2_CORE_PORT_CHANNELS];            // CLAP surround ids for a surround kind; ACN indices for ambisonic
+    uint8_t map[LV2_CORE_PORT_CHANNELS];            // CLAP surround ids for a surround kind; ACN indices for ambisonic and
+                                                    // a mixed-order ambisonic group (kind unknown); all 0 for a port no
+                                                    // group type orders
 };
 
 /* One plugin read from its bundle: its ports and required features, read before its binary is opened. */
