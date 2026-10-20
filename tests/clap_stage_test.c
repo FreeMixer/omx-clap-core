@@ -1705,6 +1705,35 @@ static void t_run_ports_wide(void) {
   CHECK(wide_wet(outs, ins, 1.0f) && atomic_load(&g.st.h.nonfinite_blocks) == 1, "wide: a non-finite block delivers dry and strikes (%u)",
         atomic_load(&g.st.h.nonfinite_blocks));
 
+  /* not yet armed, the wide path carries dry: 2 to 6 copies the second input past it, 0 to 4 (a source) is silent */
+  static struct rig d;
+  memset(&d, 0, sizeof d);
+  fake_up(&d.f, K_PAD, 6);
+  CHECK(omx_clap_stage_init(&d.st, &(struct omx_hosted_bounce){d.in_l, d.in_r, d.out_l, d.out_r, MAXB}, d.recs, QCAP) == 0,
+        "wide dry: stage_init");
+  CHECK(omx_clap_bind_wide(&d.st, wi, 2, wo, 6) == 0 && omx_clap_bind_ports(&d.st, &d.f.plugin, 2, 6) == 0, "wide dry: bind 2 to 6");
+  for (uint32_t c = 0; c < 6; c++) fill(outs[c], MAXB, 9.0f);
+  in_rt = 1;
+  omx_clap_run_ports(&d.st, ip, op, MAXB);
+  in_rt = 0;
+  int dry = bytes_equal(outs[0], ins[0], MAXB);
+  for (uint32_t c = 1; c < 6; c++) dry = dry && bytes_equal(outs[c], ins[1], MAXB);
+  CHECK(dry && d.f.runs == 0, "wide dry: 2 to 6 before arm, out 0 is in 0 and every later output in 1 (%g, %g)", (double)outs[0][0],
+        (double)outs[5][0]);
+  memset(&d, 0, sizeof d);
+  fake_up(&d.f, K_PAD, 4);
+  CHECK(omx_clap_stage_init(&d.st, &(struct omx_hosted_bounce){d.in_l, d.in_r, d.out_l, d.out_r, MAXB}, d.recs, QCAP) == 0,
+        "wide dry: stage_init for a source");
+  CHECK(omx_clap_bind_wide(&d.st, NULL, 0, wo, 4) == 0 && omx_clap_bind_ports(&d.st, &d.f.plugin, 0, 4) == 0, "wide dry: bind 0 to 4");
+  for (uint32_t c = 0; c < 6; c++) fill(outs[c], MAXB, 9.0f);
+  in_rt = 1;
+  omx_clap_run_ports(&d.st, NULL, op, MAXB);
+  in_rt = 0;
+  dry = 1;
+  for (uint32_t c = 0; c < 4; c++)
+    for (uint32_t i = 0; i < MAXB; i++) dry = dry && outs[c][i] == 0.0f;
+  CHECK(dry && outs[4][0] == 9.0f && d.f.runs == 0, "wide dry: a source of four before arm writes silence on its four outputs only");
+
   /* a stage that is not wide runs the two-leg path, bit for bit as omx_clap_run_io */
   static struct rig a, b;
   static float l[MAXB], r[MAXB], la[MAXB], ra[MAXB], lb[MAXB], rb[MAXB];
