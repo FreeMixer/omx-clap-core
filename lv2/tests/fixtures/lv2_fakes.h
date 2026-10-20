@@ -75,6 +75,8 @@ struct fake
     uint32_t activations, deactivations;    // LV2 activate and deactivate calls on this instance
     uint32_t hold_phase;                // K_HOLD: frames since the last sample taken, kept from instantiate on
     float held;                         // K_HOLD: the sample it holds
+    const float *readback;              // the props fake's output control 11, which it reads as well
+    float saw_readback;                 // what that port held when the last run read it
 };
 
 /* the instance instantiated last, the trace of the worker fake, and clearing it */
