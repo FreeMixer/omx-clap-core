@@ -43,9 +43,9 @@
 #define CLAP_HOST_UNPUBLISH_POLL_US 100u  ///< the poll interval while an unpublish waits for the audio thread, in microseconds
 #define CLAP_HOST_UNPUBLISH_TIMEOUT_US 2000000u  ///< the longest an unpublish waits for the audio thread, in microseconds
 #define CLAP_HOST_NOTES_PER_BLOCK 256u  ///< the note events delivered in one block
-#define CLAP_HOST_MAIN_PORT_CHANNELS 2u  ///< the channels the main port is limited to
-#define CLAP_HOST_AUX_OUTPUTS 8u  ///< the auxiliary output ports the core accepts
-#define CLAP_HOST_AUX_INPUTS 8u  ///< the auxiliary input ports (side chains) the core accepts
+#define CLAP_HOST_PORT_CHANNELS 64u  ///< the channels a port is limited to, main or auxiliary
+#define CLAP_HOST_AUX_OUTPUTS 64u  ///< the auxiliary output ports the core accepts beyond the main one
+#define CLAP_HOST_AUX_INPUTS 64u  ///< the auxiliary input ports the core accepts beyond the main one
 #define CLAP_HOST_STATE_MAX_BYTES 1048576u  ///< the largest plugin state the core saves or loads, in bytes
 #define CLAP_HOST_LOG_BYTES 256u  ///< the size of a plugin log message, in bytes
 #define CLAP_HOST_ROLE_POLL_US 1000u  ///< the poll interval while the audio role is taken, in microseconds

@@ -51,7 +51,7 @@ typedef struct
     int32_t status;
     uint32_t process_calls;
     int64_t last_steady;
-    uint32_t loaded_context, plain_loads, aux_out_set, aux_out_active, ring;
+    uint32_t loaded_context, plain_loads, aux_out_set, aux_out_active, ring, while_processing, activations;
 } ext_stats_t;
 
 static void *hook(const char *path, const char *name)
@@ -328,8 +328,37 @@ int main(int argc, char **argv)
     st->tail = 1000;
     CHECK(omx_clap_host_activate(in, 48000.0, BLK, why) == 0, "fake_ext activates (%s)", why);
     CHECK(omx_clap_host_tail(in) == 1000, "the tail is read at activate (%u)", omx_clap_host_tail(in));
-    CHECK(st->aux_out_set >= 1 && st->aux_out_active == 0, "the auxiliary output, never connected, is set inactive (%u, %u)",
+    CHECK(st->aux_out_set >= 1 && st->aux_out_active == 0, "the auxiliary output, unbound, is set inactive (%u, %u)",
           st->aux_out_set, st->aux_out_active);
+    {
+        // a port bound or unbound after activation is set again: by a deactivate and an activate for a plugin that cannot
+        // activate a port while processing, by set_active alone for one that can
+        static float aux_l[BLK], aux_r[BLK];
+        float *aux[2] = { aux_l, aux_r };
+        const uint32_t sets = st->aux_out_set, activations = st->activations;
+
+        CHECK(omx_clap_host_bind_aux_output(in, 0, aux, 2, BLK) == 0 && st->aux_out_active == 1 && st->aux_out_set > sets &&
+                  st->activations > activations && in->active,
+              "an output bound after activation is set active, through a deactivate and an activate (%u, %u)", st->aux_out_active,
+              st->activations - activations);
+        CHECK(omx_clap_host_bind_aux_output(in, 0, NULL, 2, 0) == 0 && st->aux_out_active == 0 && in->active,
+              "unbound again, it is set inactive");
+        st->while_processing = 1;
+        omx_clap_host_tick(in);
+        {
+            const uint32_t again = st->activations, before = st->aux_out_set;
+
+            CHECK(omx_clap_host_bind_aux_output(in, 0, aux, 2, BLK) == 0 && st->aux_out_active == 1 && st->aux_out_set == before + 1 &&
+                      st->activations == again,
+                  "a plugin that can activate a port while processing is told by set_active alone (%u calls, %u activations)",
+                  st->aux_out_set - before, st->activations - again);
+            CHECK(omx_clap_host_bind_aux_output(in, 0, aux, 2, BLK) == 0 && st->aux_out_set == before + 1,
+                  "binding a bound port again tells the plugin nothing");
+            CHECK(omx_clap_host_bind_aux_output(in, 0, NULL, 0, 0) == 0 && st->aux_out_active == 0,
+                  "an unbind names no width, and sets it inactive");
+        }
+        st->while_processing = 0;
+    }
     CHECK(set_tail && set_tail(2000) == 0, "the plugin says its tail changed");
     omx_clap_host_tick(in);
     CHECK(omx_clap_host_tail(in) == 2000, "the tick reads it again (%u)", omx_clap_host_tail(in));

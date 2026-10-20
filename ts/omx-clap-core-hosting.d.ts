@@ -18,9 +18,9 @@ export declare const HOSTED_STAGE_LIMITS: {
   readonly workerPollUs: 1000;
   readonly workerRingBytes: 16384;
   readonly notesPerBlock: 256;
-  readonly mainPortChannels: 2;
-  readonly auxOutputs: 8;
-  readonly auxInputs: 8;
+  readonly portChannels: 64;
+  readonly auxOutputs: 64;
+  readonly auxInputs: 64;
   readonly stateMaxBytes: 1048576;
   readonly logBytes: 256;
   readonly rolePollUs: 1000;
