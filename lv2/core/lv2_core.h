@@ -360,6 +360,12 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *plugin);
 int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames,
                           char why[LV2_CORE_WHY_MAX]);
 
+/* Whether an activate at this rate and these block lengths may keep the instance as it runs: 1 when it is still LV2
+ * active (no lv2_instance_deactivate since its last activate), at the same rate and block lengths, with no state load
+ * held for the next activate. The caller then skips lv2_instance_activate: no LV2 deactivate or activate, the worker left
+ * running, the plugin's history whole. 0 otherwise: lv2_instance_activate, which deactivates first. */
+int lv2_instance_keep(const struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames);
+
 /* Stop and join the worker, then LV2 deactivate. The instance is kept for the next activate. */
 void lv2_instance_deactivate(struct lv2_instance *in);
 
