@@ -27,6 +27,7 @@
 #include <time.h>
 
 #include "../src/clap_host.c"
+#include "../src/idle_hold.c"
 
 #define FAKE_PASSTHROUGH "org.omx-clap-host.test.passthrough"
 

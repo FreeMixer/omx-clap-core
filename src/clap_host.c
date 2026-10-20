@@ -53,6 +53,7 @@
 
 #include "clap_host.h"
 #include "clap_meters.h"
+#include "idle_hold.h"
 #include "param_contract.h"
 
 
@@ -114,7 +115,7 @@ static struct omx_clap_binary *g_binaries;
 /* the defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
 {
-    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, CLAP_HOST_IDLE_HOLD_US
 };
 static int g_configured;
 static int g_sealed;        // a binary was opened: the configuration can no longer change
@@ -1908,10 +1909,11 @@ void omx_clap_host_config_default(struct omx_clap_host_config *config)
 {
     static const struct omx_clap_host_config defaults =
     {
-        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2
+        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, 0
     };
 
     *config = defaults;
+    config->idle_hold_us = idle_hold_target_default();
 }
 
 int omx_clap_host_configure(const struct omx_clap_host_config *config)
@@ -1930,6 +1932,7 @@ int omx_clap_host_configure(const struct omx_clap_host_config *config)
         return -1;
     g_config = merged;
     g_configured = 1;
+    idle_hold_configure(merged.idle_hold_us);
     return 0;
 }
 
@@ -2905,6 +2908,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
                  in->desc->id, in->latency ? in->latency->get(in->plugin) : 0u);
         log_to_ring(in, line);
     }
+    // active for good: the process's idle hold counts it (#296)
+    in->idle_held = 1;
+    idle_hold_acquire();
     if (why)
         why[0] = '\0';
     return 0;
@@ -3033,6 +3039,11 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
         return;
     in->plugin->deactivate(in->plugin);
     in->active = 0;
+    if (in->idle_held)
+    {
+        in->idle_held = 0;
+        idle_hold_release();
+    }
     drop_bounce(in);
     memset(&in->stage, 0, sizeof(in->stage));
     for (i = 0; i < in->shadow_n; i++)

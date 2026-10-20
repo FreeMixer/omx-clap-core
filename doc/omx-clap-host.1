@@ -132,6 +132,23 @@ activated (clap.configurable\-audio\-ports, then clap.audio\-ports\-config);
 one that cannot offer it keeps its declared layout, a JACK port per main
 channel as always. A ports rescan the plugin reports asks again.
 .TP
+.BR \-i ", " \-\-idle\-hold =\fIoff\fR|\fImicroseconds\fR
+What
+.I /dev/cpu_dma_latency
+is held at while a plugin is active (default 10: the cores wait in C1 between
+cycles, a halt with a microsecond exit; 0 refuses every idle state, the cores
+poll;
+.B off
+holds nothing). The library holds one descriptor for the process, opened at
+the first active plugin and closed at the last, so a crash restores the
+machine's default. A device that cannot be opened (its default mode is
+root's; the package's udev rule gives the
+.B audio
+group write access) refuses nothing: the plugins run with no hold and the
+refusal is said once on stderr and in every
+.B idle_hold
+answer, by code.
+.TP
 .BR \-V ", " \-\-version
 Print the version and exit.
 .TP
@@ -145,7 +162,7 @@ answered with
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
 .BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", " audio_ports ", "
-.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " note_drops ", " note_out_drops ", "
+.BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " idle_hold ", " note_drops ", " note_out_drops ", "
 .BR note_input ", " note_on ", " note_off ", " all_notes_off ", "
 .BR set_bpm ", " set_bpb ", " transport ", " transport_sync ", " help ", " quit .
 A plugin is named
@@ -175,6 +192,25 @@ and
 .BI "param_gesture " "N param " end
 when its user holds the control, in the plugin's order, the last value of
 each parameter per idle tick.
+.B idle_hold
+answers
+.BI "resp 0 " "target held aggregate active code" :
+the CPU idle hold's target
+.RB ( off
+or microseconds), what the host holds now
+.RB ( off
+while no plugin is active or the device could not be opened), the device's
+own answer (the kernel's limit across every holder, or
+.B \-
+when it cannot be read), the plugins active, and
+.B hosting.idle.hold\-refused
+or
+.B \-
+.
+.BI "idle_hold " off | microseconds
+changes the target at once, written to the open descriptor while held;
+.B resp \-902
+for a word that is neither.
 .BI "note_drops " N
 answers
 .BI "resp 0 " "dropped releases sysex unmappable" :

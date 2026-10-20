@@ -9,9 +9,11 @@
 // <whole-read json> is `omx-contract render --target json` of the contract directory that holds omx-clap-core's
 // package: HOSTED_STAGE_LIMITS as the reader parsed it, not as a render spelled it. Each field of HOSTED_STAGE_LIMITS
 // must stand in <src dir>/hosted_stage_limits.h as OMX_HOSTED_STAGE_<FIELD> with its value, and each field but the
-// worker ones in clap_host_limits.h as CLAP_HOST_<FIELD>; a define the declaration lacks, or one it names that is
-// missing or differs, is a failure. The refusal codes are omx-contract's (tests/hosting-codes-check.sh holds them). The self test changes every value of both files in turn, drops it, and adds one the declaration does
-// not name, and each of those must fail the check.
+// worker ones in clap_host_limits.h as CLAP_HOST_<FIELD>; each code of the package's codes items (HOSTING_IDLE_CODES,
+// the dimension this tree owns, #296) as CLAP_HOST_CODE_<NAME> with its string; a define the declaration lacks, or one
+// it names that is missing or differs, is a failure. Every other refusal code is omx-contract's
+// (tests/hosting-codes-check.sh holds them). The self test changes every value of both files in turn, drops it, and
+// adds one the declaration does not name, and each of those must fail the check.
 // Exit 0 held; 1 a difference; 2 usage.
 import { readFileSync } from 'node:fs';
 
@@ -25,6 +27,11 @@ function expected(read) {
   for (const [k, v] of Object.entries(limits)) {
     stage.set(`OMX_HOSTED_STAGE_${snake(k)}`, v);
     if (!k.startsWith('worker')) host.set(`CLAP_HOST_${snake(k)}`, v);
+  }
+  for (const [name, item] of Object.entries(items)) {
+    // this tree's codes items are the ones of the sheet's own file: omx-contract's hosting/*.json are not rendered here
+    if (!name.endsWith('_CODES') || item.kind !== 'codes' || item.rel !== items.HOSTED_STAGE_LIMITS.rel) continue;
+    for (const [k, c] of Object.entries(item.value)) host.set(`CLAP_HOST_CODE_${snake(k)}`, c.code);
   }
   return { 'clap_host_limits.h': host, 'hosted_stage_limits.h': stage };
 }

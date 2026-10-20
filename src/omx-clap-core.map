@@ -131,4 +131,7 @@ OMX_CLAP_CORE_0.14
 {
   global:
     omx_clap_host_bundle_object;
+    /* the CPU idle hold (#296) */
+    omx_clap_host_idle_hold;
+    omx_clap_host_idle_hold_set;
 } OMX_CLAP_CORE_0.13;

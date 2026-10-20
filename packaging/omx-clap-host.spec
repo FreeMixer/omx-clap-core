@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.13.0
+Version:        0.14.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -24,6 +24,7 @@ BuildRequires: libasan
 # make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
 BuildRequires: perl-interpreter
 BuildRequires: pipewire-jack-audio-connection-kit-devel
+BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 # LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
@@ -107,7 +108,7 @@ sed -i 's,LDFLAGS += -s,LDFLAGS +=,g' Makefile
 
 %install
 
-%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir}
+%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir} UDEVDIR=%{_udevrulesdir}
 
 %check
 
@@ -121,6 +122,7 @@ make test-lv2
 %{_bindir}/omx-clap-scan
 %{_mandir}/man1/omx-clap-host.1*
 %{_mandir}/man1/omx-clap-scan.1*
+%{_udevrulesdir}/60-omx-clap-host.rules
 
 %files tests
 %license COPYING
@@ -145,6 +147,16 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
+- libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is active,
+  at 10 us by default (C1 only), 0 for no idle state, or off: one descriptor
+  per process, opened at the first activate and closed at the last, so a
+  crash restores the machine's default. A device that cannot be opened is
+  reported by code, hosting.idle.hold-refused, declared in this tree's
+  data/hosting.json, and the host runs on. omx-clap-host takes --idle-hold
+  and an idle_hold command; its packages ship a udev rule giving the audio
+  group the device. The calls are in the version node OMX_CLAP_CORE_0.14.
+  The library ABI is 16.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
 - Every audio port a plugin declares is described, main and auxiliary, up to
   64 a side and 64 channels a port, with the refusal codes of omx-contract for
