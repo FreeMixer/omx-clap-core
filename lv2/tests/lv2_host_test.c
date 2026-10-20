@@ -884,6 +884,34 @@ static void t_worker(double rate)
     lv2_plugin_close(p);
 }
 
+/* ---- lv2_instance_keep: the block lengths the plugin was told, not the buffers' ---- */
+
+static void t_keep(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_wg, LV2_WORKER_GAIN_LIVE_URI, why);
+    struct lv2_instance *in = NULL;
+
+    CHECK(p && lv2_plugin_load(p, why) == 0 && (in = lv2_instance_new(p)) != NULL, "keep: the live twin opens (%s)", why);
+    if (in)
+    {
+        lv2_instance_set_role(in, is_main, NULL);
+        CHECK(lv2_instance_activate(in, 48000.0, 1, 512, why) == 0 && lv2_instance_keep(in, 48000.0, 1, 512) == 1,
+              "keep: active at 512, an activate at 512 may keep it (%s)", why);
+        CHECK(lv2_instance_keep(in, 96000.0, 1, 512) == 0 && lv2_instance_keep(in, 48000.0, 1, 1024) == 0
+                  && lv2_instance_keep(in, 48000.0, 2, 512) == 0,
+              "keep: another rate, a longer block or another shortest block may not");
+        CHECK(lv2_instance_activate(in, 48000.0, 1, 256, why) == 0 && lv2_instance_keep(in, 48000.0, 1, 256) == 1,
+              "keep: told 256 through options:interface, an activate at 256 may keep it (%s)", why);
+        CHECK(lv2_instance_keep(in, 48000.0, 1, 512) == 0,
+              "keep: but one at 512, the buffers' length, may not: the plugin was told 256 and would get 512-frame blocks");
+        lv2_instance_deactivate(in);
+        CHECK(lv2_instance_keep(in, 48000.0, 1, 256) == 0, "keep: nor once it is LV2 deactivated");
+        lv2_instance_free(in);
+    }
+    lv2_plugin_close(p);
+}
+
 /* ---- the configured list ---- */
 
 static const char *g_list[16];
@@ -1171,6 +1199,7 @@ int main(int argc, char **argv)
         t_worker(RATES[r]);
     }
     t_options();
+    t_keep();
     printf("%s\n", g_failures == 0 ? "lv2 host test ok" : "lv2 host test FAILED");
     return g_failures == 0 ? 0 : 1;
 }
