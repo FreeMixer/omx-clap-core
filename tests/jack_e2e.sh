@@ -224,6 +224,14 @@ grep -q "relayouts in a row" "$runtime/host.log"; step $? "relayouts in a row wi
 n=$(selected); sleep 0.5
 [ "$(selected)" = "$n" ] && [ "$(grep -c "relayouts in a row" "$runtime/host.log")" = 1 ]; step $? "and no more follow ($n)"
 w=$(level effect_5:out_1); near "${w%% *}" 0.25 0.0001; step $? "the plugin still runs: effect_5:out_1 half in_1 ($w)"
+# the plugin loses its main input in a restart's deactivate: the description read again is refused, the lane passes dry
+expect "param_set 5 0 102" "resp 0"
+for _ in $(seq 30); do grep -q "is refused: hosting.topology.port-without-channels" "$runtime/host.log" && break; sleep 0.1; done
+grep -q "test.configs: its layout after the ports rescan is refused: hosting.topology.port-without-channels" "$runtime/host.log"
+step $? "a refused description after the restart is said on stderr"
+sleep 0.3
+w=$(level effect_5:out_1); near "${w%% *}" 0.5 0.0001; step $? "and effect_5 passes dry: out_1 is in_1 ($w)"
+w=$(level effect_5:out_2); near "${w%% *}" 0.25 0.0001; step $? "out_2 is in_2 ($w)"
 r=$(send "param_get 5 1"); [ "${r%% *}" = resp ] && [ "$(echo "$r" | cut -d' ' -f2)" = 0 ]; step $? "the host still answers for effect_5 ($r)"
 expect "remove 5" "resp 0"
 kill "$source_pid" 2>/dev/null
@@ -259,6 +267,25 @@ step $? "under -c 1 the mono pair is asked, no config offers it: the declared in
 expect "add clap:$fake#org.omx-clap-host.test.configurable 1" "resp 1"
 graph_has effect_1:in_1 && ! graph_has effect_1:in_2 && graph_has effect_1:out_1 && ! graph_has effect_1:out_2
 step $? "the configurable plugin, declared stereo, applies the mono pair asked: in_1 and out_1"
+"$source" effect_0:in_1 effect_1:in_1 >"$runtime/source1.log" 2>&1 &
+source_pid=$!
+pids+=("$source_pid")
+for _ in $(seq 50); do grep -q playing "$runtime/source1.log" && break; sleep 0.1; done
+sleep 0.3
+w=$(level effect_0:out_1); near "${w%% *}" 0.25 0.0001; step $? "effect_0:out_1 is half its mono input, config 1 ran ($w)"
+w=$(level effect_0:out_2); near "${w%% *}" 0.25 0.0001; step $? "effect_0:out_2 too ($w)"
+# the plugin switches itself to the stereo config in a restart's deactivate: two inputs, one JACK port for them
+expect "param_set 0 0 101" "resp 0"
+for _ in $(seq 30); do grep -q "main ports are now" "$runtime/host1.log" && break; sleep 0.1; done
+grep -q "test.configs: its main ports are now 2 in and 2 out, not the 1 and 2 it was added with" "$runtime/host1.log"
+step $? "a width the registered ports do not carry is said on stderr"
+sleep 0.3
+w=$(level effect_0:out_1); near "${w%% *}" 0.5 0.0001; step $? "and effect_0 passes dry: out_1 is in_1 ($w)"
+w=$(level effect_0:out_2); near "${w%% *}" 0.5 0.0001; step $? "out_2 is in_1 too ($w)"
+run pw-link jack_meter_source:out_r effect_0:in_1; step $? "one more link into effect_0 (its latency read again)"
+expect "param_get 0 1" "resp 0 1.0000"
+kill "$source_pid" 2>/dev/null
+wait "$source_pid" 2>/dev/null
 expect "quit" "resp 0"
 sleep 0.3
 [ "$(nodes effect_0)" -eq 0 ]; step $? "the -c 1 host left no node"
