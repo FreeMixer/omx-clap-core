@@ -118,6 +118,7 @@ struct omx_clap_port
     uint32_t ambisonic_ordering,            ///< clap_ambisonic_config_t.ordering, for an ambisonic port
              ambisonic_normalization;       ///< clap_ambisonic_config_t.normalization, for an ambisonic port
     clap_id in_place_pair;                  ///< clap_audio_port_info.in_place_pair: CLAP_INVALID_ID for none
+    uint8_t ambisonic_assumed;              ///< 1 when the plugin did not say: no clap.ambisonic, or its get_config answered false, and the core read ACN/SN3D
 };
 
 /** the parameter ring is the hosted stage's; a record's id is the clap_id, its cookie what get_info returned */
