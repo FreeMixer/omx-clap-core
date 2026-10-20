@@ -28,7 +28,7 @@
  *
  * Modes (OMX_FAULT_MODE):
  *   0 clean          a -20 dB 2x2 audio effect, latency 0 — qualifies
- *   1 instrument     descriptor features name no audio-effect      -> hosting.clap.not-audio-effect
+ *   1 instrument     descriptor features name no audio-effect      -> admitted by its ports, a 2x2 effect (#257)
  *   2 init-fails     init() returns false                          -> hosting.clap.headless-failed
  *   3 wide           6-channel main ports                          -> hosting.topology.wider-than-strip
  *   4 no-output      no output port at all                         -> hosting.topology.no-audio-output
