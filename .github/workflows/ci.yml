@@ -95,15 +95,15 @@ jobs:
             python3-numpy python3-lilv \
             dnf5-plugins
 
-      # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, whose omx_vocabulary.h the
-      # sources write every hosting code from, from the FreeMixer channel; and mod-host, the LV2 identity test's reference arm
+      # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
+      # its install script data/ (the hosting codes) installs with, from the FreeMixer channel; and mod-host, the LV2 identity test's reference arm
       - name: Install omx-dsp-devel, omx-contract-devel and mod-host from the FreeMixer channel
         run: |
           set -euo pipefail
           dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 2.19.0' mod-host
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.0.0' mod-host
           pkg-config --modversion omxdsp
-          pkg-config --atleast-version=2.19.0 omx-contract
+          pkg-config --atleast-version=3.0.0 omx-contract
           command -v mod-host
 
       - uses: actions/checkout@v4
@@ -392,11 +392,13 @@ jobs:
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
             printf '%s\n' '/usr/lib*/libomx-clap-core.so' '/usr/lib*/pkgconfig/omx-clap-core.pc' /usr/include/omx-clap-host/clap_host.h \
-              /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/hosted_stage_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
+              /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/omx_clap_core_vocabulary.h /usr/include/omx-clap-host/hosted_stage_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
               /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h /usr/include/omx-clap-host/omx_clap_midi.h \
               /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.1.abi \
               /usr/share/omx-clap-core/ts/omx-clap-core-hosting.js /usr/share/omx-clap-core/ts/omx-clap-core-hosting.d.ts \
-              /usr/share/omx-contract/contract.d/2/omx-clap-core/MANIFEST.json /usr/share/omx-contract/contract.d/2/omx-clap-core/hosting.json | sort > expected.txt
+              /usr/share/omx-clap-core/ts/omx-clap-core-vocabulary.js /usr/share/omx-clap-core/ts/omx-clap-core-vocabulary.d.ts \
+              /usr/share/omx-contract/contract.d/3/omx-clap-core/MANIFEST.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting.json \
+              /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/clap.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/cost.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/features.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/latency.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/output.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/override.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/patch.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/preset.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/provenance.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/realised.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/rt-safety.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/stability.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/state.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/topology.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/worker.json | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done
           for rpm in rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm; do
@@ -579,12 +581,15 @@ jobs:
           /tmp/consumer smoke/fake.clap smoke/fake_synth.clap smoke/fault-1.clap | tee consumer.txt
           grep -q 'core link test ok' consumer.txt
           dpkg -L libomx-clap-core-dev | tee dev-files.txt
-          grep -qx /usr/share/omx-contract/contract.d/2/omx-clap-core/MANIFEST.json dev-files.txt
-          grep -qx /usr/share/omx-contract/contract.d/2/omx-clap-core/hosting.json dev-files.txt
+          grep -qx /usr/share/omx-contract/contract.d/3/omx-clap-core/MANIFEST.json dev-files.txt
+          grep -qx /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting.json dev-files.txt
+          grep -qx /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/features.json dev-files.txt
+          grep -qx /usr/include/omx-clap-host/omx_clap_core_vocabulary.h dev-files.txt
           grep -qx /usr/include/omx-clap-host/hosted_stage_limits.h dev-files.txt
           tsdir=$(pkg-config --variable=tsdir omx-clap-core)
           grep -qx "$tsdir/omx-clap-core-hosting.js" dev-files.txt
           grep -qx "$tsdir/omx-clap-core-hosting.d.ts" dev-files.txt
+          grep -qx "$tsdir/omx-clap-core-vocabulary.js" dev-files.txt
 
       # the LV2 adapter: its files, then a program built against libomx-clap-lv2-dev runs the fixture with the system's lilv
       - name: A consumer builds against libomx-clap-lv2-dev and runs an LV2 plugin
