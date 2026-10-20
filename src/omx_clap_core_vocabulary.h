@@ -15,7 +15,6 @@
 #define OMX_HOSTING_CLAP_FORMAT_NOT_HOSTED "hosting.clap.format-not-hosted"
 #define OMX_HOSTING_CLAP_HEADLESS_FAILED "hosting.clap.headless-failed"
 #define OMX_HOSTING_CLAP_LATENCY_MISMATCH "hosting.clap.latency-mismatch"
-#define OMX_HOSTING_CLAP_NOT_AUDIO_EFFECT "hosting.clap.not-audio-effect" ///< the plugin is not an audio effect
 #define OMX_HOSTING_CLAP_NOTE_INPUT "hosting.clap.note-input" ///< the plugin declares a note input the configuration refuses
 #define OMX_HOSTING_CLAP_PROCESS_ERROR "hosting.clap.process-error"
 #define OMX_HOSTING_CLAP_THREAD_VIOLATION "hosting.clap.thread-violation"
@@ -32,16 +31,10 @@
 #define OMX_HOSTING_FEATURES_ATOM_IN_UNFED "hosting.features.atom-in-unfed" ///< a non-MIDI atom input no buffer here can feed
 #define OMX_HOSTING_FEATURES_HOST_NOT_PROVIDED "hosting.features.host-not-provided"
 #define OMX_HOSTING_FEATURES_MIDI_IN_FED_EMPTY "hosting.features.midi-in-fed-empty"
-#define OMX_HOSTING_FEATURES_REQUIRED_NOT_PROVIDED "hosting.features.required-not-provided" ///< retired (omx-contract#127): hosting.features.missing names the same fact; removed in the release after plugin-qualify stops naming it (omx-contract#132)
 #define OMX_HOSTING_FEATURES_MISSING "hosting.features.missing"
 #define OMX_HOSTING_FEATURES_PORTS_UNREADABLE "hosting.features.ports-unreadable" ///< the plugin declares ports its reader cannot read (a port node shared by several plugins of one bundle, a port with no symbol), so none reaches the host: the bundle's data is the fault, not the layout (omx-clap-core#255)
 #define OMX_HOSTING_FEATURES_ALL_PROVIDED "hosting.features.all-provided"
 #define OMX_HOSTING_FEATURES_SCAN_PREDATES_FIELD "hosting.features.scan-predates-field"
-
-/* HOSTING_INTEGRITY_CODES (data/hosting/integrity.json) */
-#define OMX_HOSTING_INTEGRITY_BINARY_MISMATCH "hosting.integrity.binary-mismatch"
-#define OMX_HOSTING_INTEGRITY_LAYOUT_MISMATCH "hosting.integrity.layout-mismatch"
-#define OMX_HOSTING_INTEGRITY_UNPINNED "hosting.integrity.unpinned"
 
 /* HOSTING_LATENCY_CODES (data/hosting/latency.json) */
 #define OMX_HOSTING_LATENCY_NONCONFORMING "hosting.latency.nonconforming"
@@ -107,7 +100,6 @@
 /* HOSTING_TOPOLOGY_CODES (data/hosting/topology.json) */
 #define OMX_HOSTING_TOPOLOGY_AMBISONIC_CONFIG "hosting.topology.ambisonic-config" ///< an ambisonic port refuses the carrier's ordering or normalisation
 #define OMX_HOSTING_TOPOLOGY_CHANNEL_MAP_UNKNOWN "hosting.topology.channel-map-unknown" ///< a surround port names a channel id the host does not know, or refuses the carrier's channel mask
-#define OMX_HOSTING_TOPOLOGY_EXTRA_INPUTS_FED_SILENCE "hosting.topology.extra-inputs-fed-silence" ///< retired for hosting.topology.too-many-ports: the plugin has extra inputs, fed silence; written by nobody since omx-clap-core#92, removed with required-not-provided (omx-contract#132)
 #define OMX_HOSTING_TOPOLOGY_INSTRUMENT "hosting.topology.instrument"
 #define OMX_HOSTING_TOPOLOGY_MATCHED "hosting.topology.matched"
 #define OMX_HOSTING_TOPOLOGY_NO_AUDIO_INPUT "hosting.topology.no-audio-input" ///< the plugin has no audio input
