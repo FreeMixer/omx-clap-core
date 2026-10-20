@@ -151,7 +151,8 @@ writes `plugins.tsv` (one row per plugin, or per file whose scan failed), `host.
 refusal's hosting code, or a crash or hang), `missing.tsv` (the extensions a hosted plugin asked
 for that the host did not offer, from the host's `extension not offered: <id>` log lines),
 `coverage.tsv` and `coverage.md` (hosted N of M, refusals by code, crashes and hangs by file, and
-per extension of the installed CLAP headers how many plugins asked for it). It is not part of CI.
+per extension of the installed CLAP headers how many plugins asked for it). Missing extensions are
+measured for hosted plugins only: a refused plugin ends before the host says them. It is not part of CI.
 `make test-clap-coverage-self`, part of `make test` and of CI, runs its rules against a fake host
 and breaks each once, seen red.
 
