@@ -1689,8 +1689,10 @@ static void t_midi_extra(double rate)
     }
 }
 
+static void mi_clap_note(struct midi_in *m, uint16_t type, uint32_t time, int16_t port, int16_t channel, int16_t key, double velocity);
+
 /* no audio output (#183, #253): a MIDI tool (notes in and out, no audio port), an analyser (audio in, no output) and a
- * control-only plugin (control ports alone) are hosted with the strip's audio passing through them bit for bit, the
+ * control-only plugin (control ports alone) or a MIDI sink (a MIDI input and control ports) are hosted with the strip's audio passing through them bit for bit, the
  * host's placement said in the port's name, no latency on that audio, the tool's notes transformed and the control
  * outputs read-only parameters read after the block */
 static void t_passthrough(double rate)
@@ -1774,6 +1776,35 @@ static void t_passthrough(double rate)
               "control only %.0f: the strip's stereo block passes through bit for bit, both legs", rate);
         CHECK(twice != CLAP_INVALID_ID && param(&g, twice) == 0.5, "control only %.0f: `amount` set 0.25 by event, `twice` reads 0.5 after the block (%g)",
               rate, twice != CLAP_INVALID_ID ? param(&g, twice) : -1.0);
+        rig_down(&g);
+    }    if (rig_up(&g, g_fixture, FIXTURE_URI "#ctl-only", rate, BLOCK) == 0)
+    {
+        const clap_plugin_note_ports_t *np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+        clap_param_info_t pi;
+        uint32_t k, n = g.params ? g.params->count(g.plugin) : 0;
+        clap_id notes = CLAP_INVALID_ID;
+        uint32_t notes_flags = 0;
+
+        for (k = 0; k < n; k++)
+            if (g.params->get_info(g.plugin, k, &pi) && strcmp(pi.name, "notes") == 0)
+                notes = pi.id, notes_flags = pi.flags;
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1 && g.ports->get(g.plugin, 0, false, &info)
+                  && info.channel_count == 2 && strstr(info.name, "passthrough: host") != NULL
+                  && np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 0,
+              "midi sink %.0f: the strip's stereo pair named as the host's placement, one note input, no note output (%s)", rate, info.name);
+        CHECK(g.latency && g.latency->get(g.plugin) == 0, "midi sink %.0f: no latency on the audio it does not touch", rate);
+        CHECK(notes != CLAP_INVALID_ID && (notes_flags & CLAP_PARAM_IS_READONLY), "midi sink %.0f: `notes` a read-only parameter (%u)", rate, notes_flags);
+        midi_in_init(&mi);
+        mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 9, 0, 0, 60, 0.8);
+        midi_out_init(&mo);
+        for (i = 0; i < BLOCK; i++)
+            out_l[i] = out_r[i] = 7.0f;
+        CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
+                  && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+              "midi sink %.0f: the strip's stereo block passes through bit for bit, both legs", rate);
+        CHECK(notes != CLAP_INVALID_ID && param(&g, notes) == 1.0, "midi sink %.0f: one CLAP note event in, `notes` reads 1 after the block (%g)",
+              rate, notes != CLAP_INVALID_ID ? param(&g, notes) : -1.0);
+        CHECK(mo.n == 0, "midi sink %.0f: nothing comes out on a note port (%u)", rate, mo.n);
         rig_down(&g);
     }
 }
