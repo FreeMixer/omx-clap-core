@@ -59,7 +59,9 @@
 *
 * Latency. latency.get answers the figure taken at the last activate. A different reading is held: only once it has
 * read unchanged for latency_hold_ms of blocks does the shim call host->request_restart, and the restart's activate
-* takes it. A value that moves and comes back inside the hold costs nothing.
+* takes it. A value that moves and comes back inside the hold costs nothing. That restart is CLAP's only: its deactivate
+* leaves the LV2 instance active and its activate keeps it, with no LV2 deactivate or activate between, unless the rate,
+* the block lengths or a held state load ask for the full activate.
 *
 * The entry. CLAP's get_factory names no entry, so each loaded bundle takes one of OMX_CLAP_LV2_BUNDLES slots, each with
 * a get_factory of its own.
@@ -159,6 +161,8 @@ struct shim
     uint64_t latency_held_frames;
     uint64_t latency_hold_frames;
     int restart_requested;
+    int lv2_kept;                       // deactivated for that restart with the LV2 instance left active
+    int ran;                            // a block has run since the last LV2 activate or reset
 
     // the counters as the main thread last logged them
     struct lv2_counters logged;
@@ -876,11 +880,18 @@ static bool plugin_activate(const clap_plugin_t *plugin, double rate, uint32_t m
     char why[LV2_CORE_WHY_MAX];
 
     g_last_refusal[0] = '\0';
-    if (lv2_instance_activate(s->in, rate, min_frames, max_frames, why) != 0)
+    // the latency restart's activate keeps the LV2 instance it left running when nothing else changed
+    if (!(s->lv2_kept && lv2_instance_keep(s->in, rate, min_frames, max_frames)))
     {
-        refuse(s->host, why);
-        return false;
+        s->ran = 0;
+        if (lv2_instance_activate(s->in, rate, min_frames, max_frames, why) != 0)
+        {
+            s->lv2_kept = 0;
+            refuse(s->host, why);
+            return false;
+        }
     }
+    s->lv2_kept = 0;
     s->active = 1;
     s->broken = 0;
     s->rate = rate;
@@ -907,7 +918,15 @@ static void plugin_deactivate(const clap_plugin_t *plugin)
 {
     struct shim *s = SHIM_OF(plugin);
 
-    lv2_instance_deactivate(s->in);
+    // the restart a held latency asked for is CLAP's alone: the LV2 instance stays active and is not reset, so the plugin's
+    // history runs on through it as under a host that takes a new latency without a restart (mod-host), and two instances
+    // fed the same blocks stay bit-identical wherever their restarts land. A deactivate with no block run since the last
+    // LV2 activate or reset is the full one: libomx-clap-core's restart after its warm-up (reset, then deactivate and
+    // activate for the state every plugin defines as fresh) answers a latency asked for inside the warm-up as well
+    if (s->restart_requested && s->ran)
+        s->lv2_kept = 1;
+    else
+        lv2_instance_deactivate(s->in);
     s->active = 0;
 }
 
@@ -926,6 +945,7 @@ static void plugin_reset(const clap_plugin_t *plugin)
 {
     struct shim *s = SHIM_OF(plugin);
 
+    s->ran = 0;
     if (lv2_instance_reset(s->in) != 0)
     {
         s->broken = 1;
@@ -1065,6 +1085,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     if (s->lv2->midi_in_port >= 0)
         midi_in_events(s, process->in_events);
     lv2_instance_run(s->in, n, write_controls, s);
+    s->ran = 1;
     s->events = NULL;
     triggers_reset(s, process->out_events);
     emit_patch_changes(s, process->out_events);
