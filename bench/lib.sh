@@ -13,6 +13,9 @@ jalv=${JALV:-$(command -v jalv)}
 # configuration, plugin-hostd's workers through the wrapper below); mod-host and jalv have no library, so the bench
 # keeps the same request on the device for them (hold_external), which is what an operator's playbook would do
 idle_hold=${BENCH_IDLE_HOLD:-default}
+# the jalv path's -s (show the plugin's UI where it has one, through ui:showInterface: the plugin opens its own window
+# on the display the bench inherits), BENCH_JALV_UI=1; off by default, so no window lands on the operator's screen
+jalv_ui=${BENCH_JALV_UI:-0}
 device=${OMX_CLAP_IDLE_HOLD_DEVICE:-/dev/cpu_dma_latency}
 plugins=${PLUGINS:-$here/plugins.tsv}
 probe=$root/build/bench/probe
@@ -168,7 +171,7 @@ host_start() {
         jalv)
             # one jalv process per plugin, as Zynthian runs its layers: spawned by send; no host before the first add
             hold_external
-            jalv_pids=()
+            : >"$runtime/jalv.pids"
             host_pid= ;;
         inproc-*)
             rm -f "$runtime/host.in" "$runtime/host.out"
@@ -193,10 +196,11 @@ host_start() {
     esac
 }
 
-# the host's processes: one, or every jalv
+# the host's processes: one; every jalv (send records them in a file: it runs in a subshell); the daemon and its workers
 host_pids() {
     case $path in
-        jalv) echo "${jalv_pids[@]}" ;;
+        jalv) cat "$runtime/jalv.pids" 2>/dev/null ;;
+        hostd) echo "$host_pid"; pgrep -P "$host_pid" 2>/dev/null ;;
         *) echo "$host_pid" ;;
     esac
 }
@@ -215,17 +219,18 @@ send() {
             case $1 in
                 add\ *)
                     uri=$(echo "$1" | awk '{ print $2 }'); k=$(echo "$1" | awk '{ print $3 }')
-                    LV2_PATH=$(dirname "$fakes"):/usr/lib64/lv2:/usr/lib/lv2 "$jalv" -i -s -n "effect_$k" "$uri" </dev/null >"$raw/jalv-$k.log" 2>&1 &
-                    jalv_pids+=($!)
-                    [ -n "$host_pid" ] || host_pid=$!
+                    # shellcheck disable=SC2046
+                    LV2_PATH=$(dirname "$fakes"):/usr/lib64/lv2:/usr/lib/lv2 "$jalv" -i $([ "$jalv_ui" = 0 ] || echo -s) -n "effect_$k" "$uri" </dev/null >"$raw/jalv-$k.log" 2>&1 &
+                    p=$!
+                    echo "$p" >>"$runtime/jalv.pids"
                     reply="resp -102"
                     for _ in $(seq 200); do
                         if python3 -I "$here/stats.py" ports "effect_$k" | grep -q .; then reply="resp $k"; break; fi
-                        kill -0 "${jalv_pids[-1]}" 2>/dev/null || break
+                        kill -0 "$p" 2>/dev/null || break
                         sleep 0.05
                     done ;;
                 quit)
-                    for p in "${jalv_pids[@]}"; do kill "$p" 2>/dev/null; done
+                    for p in $(host_pids); do kill "$p" 2>/dev/null; done
                     reply="resp 0" ;;
                 *) reply="resp -1" ;;
             esac ;;
