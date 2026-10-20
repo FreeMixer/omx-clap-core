@@ -123,6 +123,8 @@ def measure(m0, m1, o0, o1, rate, signal_end):
     r['peak_omx'] = float(np.nanmax(np.abs(o0))) if o0.size else 0.0
     r['rms_mod'] = float(np.sqrt(np.nanmean(np.square(m0.astype(np.float64))))) if m0.size else 0.0
     r['rms_omx'] = float(np.sqrt(np.nanmean(np.square(o0.astype(np.float64))))) if o0.size else 0.0
+    r['rms_mod2'] = float(np.sqrt(np.nanmean(np.square(m1.astype(np.float64))))) if m1.size else 0.0
+    r['rms_omx2'] = float(np.sqrt(np.nanmean(np.square(o1.astype(np.float64))))) if o1.size else 0.0
     r['nonfinite_mod'] = int(np.count_nonzero(~np.isfinite(m0)))
     r['nonfinite_omx'] = int(np.count_nonzero(~np.isfinite(o0)))
     r['sha_mod'] = hashlib.sha256(m0.tobytes()).hexdigest()[:16]
@@ -171,7 +173,7 @@ def measure(m0, m1, o0, o1, rate, signal_end):
 
 REL_TOL = 1e-5      # WITHIN-TOLERANCE also stays under the peak times this (-100 dB): 1e-6 alone is 1 % of a 1e-4 peak
 SPREAD_K = 1.5      # two hosts of a random plugin may differ by this times the plugin's own spread, no more
-SPREAD_DB = 0.5     # ... and their levels (RMS) by this many dB
+SPREAD_DB = 0.5     # ... and their levels (RMS) by this many dB, or SPREAD_K times the plugin's own level spread
 
 
 def ports_of(rec):
@@ -226,12 +228,17 @@ def classify(rec):
         # random in both: the hosts may differ by as much as the plugin differs from itself, and no more
         spread = max(m['self_mod_max'], m['self_omx_max'])
         cross = m.get('max_diff', 0.0)
+        import math
         level = None
         if m.get('rms_mod') and m.get('rms_omx'):
-            import math
             level = 20 * math.log10(m['rms_mod'] / m['rms_omx'])
-        lv = f"level {level:+.2f} dB" if level is not None else 'level not measured'
-        if cross <= SPREAD_K * spread and (level is None or abs(level) <= SPREAD_DB):
+        # the level bound: 0.5 dB, or the plugin's own level spread (each host's two instances) times SPREAD_K
+        lbound = SPREAD_DB
+        if all(m.get(k) for k in ('rms_mod', 'rms_mod2', 'rms_omx', 'rms_omx2')):
+            own = max(abs(20 * math.log10(m['rms_mod'] / m['rms_mod2'])), abs(20 * math.log10(m['rms_omx'] / m['rms_omx2'])))
+            lbound = max(SPREAD_DB, SPREAD_K * own)
+        lv = (f"level {level:+.2f} dB (bound {lbound:.2f} dB)" if level is not None else 'level not measured')
+        if cross <= SPREAD_K * spread and (level is None or abs(level) <= lbound):
             return ('NONDETERMINISTIC', 'its own randomness, in both hosts; the hosts within its spread',
                     f"across hosts max {cross:.3g} <= {SPREAD_K} x its own spread {spread:.3g}; {lv}")
         return ('DIFFERS', "beyond the plugin's own spread",
