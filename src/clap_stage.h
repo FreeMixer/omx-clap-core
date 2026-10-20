@@ -263,7 +263,8 @@ struct omx_clap_stage
 
 /**
  * The note ids, the MPE zone and the note ends of one stage (ABI 6). They live beside the stage, at the end of the
- * instance, which binds them to its stage at activate (omx_clap_note_ids_bind). A stage fed through omx_clap_note_in has none, and its notes go with note id -1.
+ * instance, which binds them to its stage at activate (omx_clap_note_ids_bind). A stage fed through omx_clap_note_in has
+ * none, and its notes go with note id -1.
  */
 struct omx_clap_note_ids
 {
