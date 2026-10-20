@@ -2763,8 +2763,24 @@ void omx_clap_host_stop(struct omx_clap_instance *in)
     atomic_store(&in->stage.state, OMX_CLAP_IDLE);
 }
 
+/* After a deactivate of the host's own (a restart, a rate change, an auxiliary port's activation): when the plugin said
+ * its ports changed in it (CLAP's request_restart, deactivate, rescan), the description is the caller's to read again
+ * before an activate, so the instance stays inactive with the rescan reported and this answers
+ * OMX_CLAP_RESTART_RESCANNED; otherwise activate at `rate` and `max_block`, 0 or -1 with `why`. */
+static int activate_after_deactivate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
+{
+    if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
+    {
+        atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
+        return OMX_CLAP_RESTART_RESCANNED;
+    }
+    return omx_clap_host_activate(in, rate, max_block, why) == 0 ? 0 : -1;
+}
+
 int omx_clap_host_restart(struct omx_clap_instance *in)
 {
+    int ret;
+
     const double rate = in->rate;
     const uint32_t max_block = in->max_block;
     const pthread_t thread = in->audio_thread;
@@ -2777,21 +2793,15 @@ int omx_clap_host_restart(struct omx_clap_instance *in)
         return -1;
     omx_clap_host_stop(in);
     omx_clap_host_deactivate(in);
-    // the plugin said its ports changed (in its deactivate, as CLAP has it after request_restart): the description is
-    // the caller's to read again before an activate, so the instance stays inactive with the rescan reported
-    if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
-    {
-        atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
-        in->audio_thread = thread;
-        in->audio_role_held = held;
-        return OMX_CLAP_RESTART_RESCANNED;
-    }
-    if (omx_clap_host_activate(in, rate, max_block, NULL) != 0)
+    // a rescan in that deactivate leaves it inactive, its audio role kept for the activate after the re-read
+    ret = activate_after_deactivate(in, rate, max_block, NULL);
+    if (ret < 0)
         return -1;
     in->audio_thread = thread;
     in->audio_role_held = held;
-    omx_clap_arm(&in->stage);
-    return 0;
+    if (ret == 0)
+        omx_clap_arm(&in->stage);
+    return ret;
 }
 
 void omx_clap_host_deactivate(struct omx_clap_instance *in)
@@ -2816,7 +2826,7 @@ int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t m
     if (in->active && !omx_clap_stopped(&in->stage))
         return -1;      // unpublish first
     omx_clap_host_deactivate(in);
-    return omx_clap_host_activate(in, rate, max_block, why);
+    return activate_after_deactivate(in, rate, max_block, why);
 }
 
 uint32_t omx_clap_host_latency(const struct omx_clap_instance *in)
@@ -2905,7 +2915,7 @@ static int aux_activation_refresh(struct omx_clap_instance *in, bool is_input, u
             return 0;
     }
     omx_clap_host_deactivate(in);
-    return omx_clap_host_activate(in, rate, max_block, NULL);
+    return activate_after_deactivate(in, rate, max_block, NULL);
 }
 
 int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)

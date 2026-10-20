@@ -590,7 +590,7 @@ OMX_CLAP_EXPORT int omx_clap_host_unpublish(struct omx_clap_instance *in, unsign
  * released, the stage IDLE. */
 OMX_CLAP_EXPORT void omx_clap_host_stop(struct omx_clap_instance *in);
 
-#define OMX_CLAP_RESTART_RESCANNED      1   ///< omx_clap_host_restart: stopped inactive on a ports rescan, not a failure
+#define OMX_CLAP_RESTART_RESCANNED      1   ///< restart, set_rate, an aux bind: stopped inactive on a ports rescan, not a failure
 
 /** While cycles keep running: stop the stage (taking the audio role when no cycle comes), deactivate, activate again at the
  * same rate and block, arm. The cycles pass the lane through until the plugin is back. CLAP's sequence for a layout
@@ -607,7 +607,10 @@ OMX_CLAP_EXPORT int omx_clap_host_restart(struct omx_clap_instance *in);
  * out of the instance across the call, as for omx_clap_host_activate. */
 OMX_CLAP_EXPORT void omx_clap_host_deactivate(struct omx_clap_instance *in);
 
-/** A rate change, off the RT: the instance must be unpublished; deactivate, activate at the new rate, re-read the latency. */
+/** A rate change, off the RT: the instance must be unpublished; deactivate, activate at the new rate, re-read the latency.
+ * 0, or -1 with `why`; OMX_CLAP_RESTART_RESCANNED when the plugin said its ports changed in that deactivate: inactive
+ * with the rescan reported, and the caller reads the description again (omx_clap_host_request_layout, `n` 0 allowed)
+ * before omx_clap_host_activate at the new rate, as after omx_clap_host_restart. */
 OMX_CLAP_EXPORT int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX]);
 
 /** Destroy the instance (deactivating first if needed) and drop its binary reference. */
@@ -929,7 +932,10 @@ OMX_CLAP_EXPORT void omx_clap_host_set_transport(struct omx_clap_instance *in, c
  * active instance's largest block, the instance is running, or the activation below refuses. On an active instance
  * whose plugin has clap.audio-ports-activation, a port that changes between bound and unbound is set active or inactive
  * at once: by set_active holding the audio role when the plugin can activate a port while processing, else by a
- * deactivate and an activate (the stage is then IDLE, to publish again; a refused activate leaves it inactive).
+ * deactivate and an activate (the stage is then IDLE, to publish again; a refused activate leaves it inactive, -1).
+ * When the plugin said its ports changed in that deactivate it is left inactive with the rescan reported and this
+ * returns OMX_CLAP_RESTART_RESCANNED: the caller reads the description again (omx_clap_host_request_layout, `n` 0
+ * allowed) and activates, as after omx_clap_host_restart.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs,
                                                  uint32_t channels, uint32_t frames);
@@ -940,7 +946,7 @@ OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, u
  * are bound, and its scratch otherwise. `bufs` NULL unbinds it; a NULL `bufs[c]` leaves that channel on its scratch.
  * The same rules as omx_clap_host_bind_aux_input, the activation of a port included: the caller reads them on the
  * audio role after each block that runs the instance. Returns 0, or -1 when `port` is not an auxiliary output, `channels` is not the port's, `frames` is
- * shorter than the active instance's largest block, or the instance is running.
+ * shorter than the active instance's largest block, or the instance is running; OMX_CLAP_RESTART_RESCANNED as there.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs,
                                                   uint32_t channels, uint32_t frames);

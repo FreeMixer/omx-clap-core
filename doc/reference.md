@@ -534,10 +534,12 @@ draft ids too.
   an activate never reads the description again. The caller answers it by
   re-describing the plugin, inactive, through
   `omx_clap_host_request_layout` (`n` 0 asks nothing and only reads the
-  ports again), then activates it. A restart whose deactivate raised a
-  rescan (CLAP's request_restart, deactivate, ports changed) does not
-  activate the plugin: it answers `OMX_CLAP_RESTART_RESCANNED` with the
-  instance inactive and the rescan reported, never -1, which is a failure.
+  ports again), then activates it. A restart, a rate change
+  (`omx_clap_host_set_rate`) or an auxiliary bind that re-activates, whose
+  deactivate raised a rescan (CLAP's request_restart, deactivate, ports
+  changed), does not activate the plugin: it answers
+  `OMX_CLAP_RESTART_RESCANNED` with the instance inactive and the rescan
+  reported, never -1, which is a failure.
   The warm-up's own deactivate is not reported; a rescan made inside
   activate is.
 

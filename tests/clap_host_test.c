@@ -997,6 +997,25 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // a rate change whose deactivate raised a rescan stops there as a restart does: inactive, reported once, and the
+    // caller re-describes and activates at the new rate
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_SWITCH_ON_DEACTIVATE", &in), "%s opens for a rate change", FAKE_CONFIGS);
+    if (in)
+    {
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates (%s)", FAKE_CONFIGS, why);
+        ret = omx_clap_host_set_rate(in, 2 * SAMPLE_RATE, BLOCK, why);
+        CHECK(ret == OMX_CLAP_RESTART_RESCANNED && !in->active && in->in_channels == 1,
+              "%s: a rate change whose deactivate rescanned answers RESCANNED, inactive, the description not yet read (%d)", FAKE_CONFIGS,
+              ret);
+        CHECK(omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0, "%s: the rescan is reported once",
+              FAKE_CONFIGS);
+        CHECK(omx_clap_host_request_layout(in, NULL, 0, why) >= 0 && in->in_channels == 2
+                  && omx_clap_host_activate(in, 2 * SAMPLE_RATE, BLOCK, why) == 0 && in->rate == 2 * SAMPLE_RATE,
+              "%s: re-described, the stereo pair activates at the new rate (%s)", FAKE_CONFIGS, why);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // configurable-audio-ports: applied
     CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
     if (in)
