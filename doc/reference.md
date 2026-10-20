@@ -667,7 +667,9 @@ instance that is initialised, read and destroyed without being activated:
     ]}
 
 A bound a plugin leaves infinite is `null`. A file that can't be loaded is
-`{"path":"...","error":"<reason>"}`, a plugin that can't be created or
+`{"path":"...","code":"<code>","error":"<reason>"}`, the code one of `dlopen` (the loader refused
+it), `entry` (no `clap_entry`, or its init or factory failed), `crash:<signal>`, `timeout`,
+`unreadable` (a path that can't be read), `pipe`, `fork` or `no-result`; a plugin that can't be created or
 initialised keeps its descriptor and gets an `"error"`, and a plugin that
 crashes or hangs (30 s) takes only its own file's entry: each file is
 scanned in a child process and the scan goes on. The exit status is 0 when
