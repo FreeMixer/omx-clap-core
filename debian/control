@@ -65,8 +65,7 @@ Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, the list of functions the library
  promises to keep, with the baseline each release is checked against, and
- the hosting limits and refusal codes as definitions in omx-contract's
- contract directory.
+ the hosting limits as definitions in omx-contract's contract directory.
 
 Package: libomx-clap-lv2-dev
 Section: libdevel

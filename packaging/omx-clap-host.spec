@@ -74,7 +74,7 @@ Requires: pkgconfig
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
 headers, the pkg-config file, the list of functions the library promises to
 keep, with the baseline each release is checked against, and the hosting
-limits and refusal codes as definitions in omx-contract's contract directory.
+limits as definitions in omx-contract's contract directory.
 
 %package -n omx-clap-lv2-devel
 Summary: Run LV2 plugins in a CLAP host, as a library to link

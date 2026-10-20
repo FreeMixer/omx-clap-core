@@ -22,14 +22,14 @@
 #define CLAP_HOST_LIMITS_H
 /*
  * GENERATED — DO NOT EDIT BY HAND.
- * Rendered from HOSTED_STAGE_LIMITS and HOSTING_CODES of data/hosting.json, where this library declares
- * its stage limits and hosting refusal codes. The rendered file is kept in this repository so the library
- * builds on its own; the numbers and codes are changed where they are declared and the file is re-rendered,
- * never edited here.
+ * Rendered from HOSTED_STAGE_LIMITS of data/hosting.json, where this library declares its stage limits.
+ * The rendered file is kept in this repository so the library builds on its own; the numbers are changed
+ * where they are declared and the file is re-rendered, never edited here. The refusal codes are
+ * omx-contract's, from its omxcontract/omx_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*).
  */
 
 /** @file
- * @brief The limits and refusal codes of the hosting code. */
+ * @brief The limits of the hosting code. */
 
 #include <stddef.h>
 
@@ -52,15 +52,5 @@
 #define CLAP_HOST_ROLE_TIMEOUT_US 200000u  ///< the longest the audio role is waited for, in microseconds
 #define CLAP_HOST_PARAM_COUNT_MAX 2048u  ///< the widest parameter count the core trusts
 #define CLAP_HOST_LATENCY_HOLD_MS 250u  ///< the hold before a hosted stage's new latency takes effect, in milliseconds
-
-/** the refusals the core returns, as the hosting codes the console's verdicts use */
-#define CLAP_HOST_CODE_HEADLESS_FAILED "hosting.clap.headless-failed"
-#define CLAP_HOST_CODE_NOT_AUDIO_EFFECT "hosting.clap.not-audio-effect"  ///< the plugin is not an audio effect
-#define CLAP_HOST_CODE_NOTE_INPUT "hosting.clap.note-input"  ///< the plugin declares a note input the configuration refuses
-#define CLAP_HOST_CODE_NO_AUDIO_OUTPUT "hosting.topology.no-audio-output"  ///< the plugin has no audio output, no MIDI output and no audio input: nothing to carry and nothing to pass through
-#define CLAP_HOST_CODE_WIDER_THAN_STRIP "hosting.topology.wider-than-strip"  ///< the plugin is wider than the strip
-#define CLAP_HOST_CODE_EXTRA_INPUTS "hosting.topology.extra-inputs-fed-silence"  ///< the plugin has extra inputs, fed silence
-#define CLAP_HOST_CODE_CRASHED_LIVE "hosting.stability.crashed-live-on-this-rig"  ///< the plugin crashed live on this rig
-#define CLAP_HOST_CODE_OUTPUT_NON_FINITE "hosting.output.non-finite"  ///< the plugin produced non-finite output
 
 #endif /* CLAP_HOST_LIMITS_H */

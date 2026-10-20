@@ -93,6 +93,17 @@
 /** How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
 
+/** The refusals the core returns, by the hosting code a verdict names them by: each the code omx-contract declares, from
+ * its omxcontract/omx_vocabulary.h. A code is never reworded. */
+#define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
+#define CLAP_HOST_CODE_NOT_AUDIO_EFFECT     OMX_HOSTING_CLAP_NOT_AUDIO_EFFECT  ///< the plugin is not an audio effect
+#define CLAP_HOST_CODE_NOTE_INPUT           OMX_HOSTING_CLAP_NOTE_INPUT  ///< the plugin declares a note input the configuration refuses
+#define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< nothing to carry and nothing to pass through
+#define CLAP_HOST_CODE_WIDER_THAN_STRIP     OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP  ///< the plugin is wider than the strip
+#define CLAP_HOST_CODE_EXTRA_INPUTS         OMX_HOSTING_TOPOLOGY_EXTRA_INPUTS_FED_SILENCE  ///< extra inputs, fed silence
+#define CLAP_HOST_CODE_CRASHED_LIVE         OMX_HOSTING_STABILITY_CRASHED_LIVE_ON_THIS_RIG  ///< the plugin crashed live on this rig
+#define CLAP_HOST_CODE_OUTPUT_NON_FINITE    OMX_HOSTING_OUTPUT_NON_FINITE  ///< the plugin produced non-finite output
+
 /** The roster's refusal: an index below count() whose get_info does not answer. */
 #define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
 /** The widest params->count() the core trusts, under its host-limits name (CLAP_HOST_PARAM_COUNT_MAX). */
