@@ -201,9 +201,10 @@ Measured
 A desk measurement, not a CI result: `make clap-coverage` added every CLAP plugin installed on msi,
 one at a time, to this tree's omx-clap-host in a private namespace with a PipeWire of its own, and
 read the answer and the host's log of ids it did not offer. Run on 2026-10-20 with the host built
-on this change over main `75583fe`; re-run it to measure again.
+on this change over main `5991b9c`; re-run it to measure again, from a fresh output directory (the
+probe resumes from the last one).
 
-**Hosted 427 of 429 plugins** in 234 files: 2 refused, none crashed, and 4 files that did not scan.
+**Hosted 431 of 433 plugins** in 234 files: 2 refused, none crashed, and every file scanned.
 The extensions are counted for the hosted plugins only: a refused plugin ends before it asks.
 
 | refused with | plugins | for example |
@@ -211,21 +212,16 @@ The extensions are counted for the hosted plugins only: a refused plugin ends be
 | `hosting.topology.no-audio-output` | 2 | `com.madskjeldgaard.birdhouse`, `studio.kx.distrho.ildaeil#midi` |
 
 The two are note tools with no audio port at all: a note input, a note output, nothing to carry
-(#270). They were among the 23 that main refused on their feature list alone; the other 21
-(analysers with audio in and only a display, plugins whose feature list is empty or odd although
-their ports are a plain effect) are hosted: the feature list refuses nothing, the ports decide
-(#257). The installed set changed since the `07d70a1` run: QPitch, NoiseRF and ChowKick were
+(#270). The four nebula bundles (`nebula-cluster.clap/libnebula_cluster.so` and the de-esser, delay
+and stereo delay beside it), which no earlier run could scan, are listed by their one object and
+hosted (#259). The installed set changed since the `07d70a1` run: QPitch, NoiseRF and ChowKick were
 removed from msi, so their crash and scan-failure rows are not measured here, not fixed.
-
-| did not scan | why |
-|---|---|
-| `/usr/lib64/clap/nebula-cluster.clap`, `nebula-de-esser.clap`, `nebula-delay.clap`, `nebula-stereo-delay.clap` | a bundle directory whose shared object is not named after it lists no plugin (#259) |
 
 The ids the hosted plugins asked for most and were not given:
 
 | asked for | plugins | where it stands |
 |---|---|---|
-| `clap.gui` | 312 | out of scope |
+| `clap.gui` | 316 | out of scope |
 | `clap.audio-ports-config` (host-side) | 69 | unsupported, #263 |
 | `clap.context-menu.draft/0`, `clap.context-menu/1` | 67, 66 | out of scope |
 | `clap.resource-directory/1` | 66 | unsupported, P3 |
@@ -259,5 +255,5 @@ In the order #196 gives them, with what the desk measured and where each stands 
 
 What the probe found beyond those, each filed: #257 (23 plugins refused on their feature list
 alone; admitted by ports now), #258 (QPitch aborted at `add` and took the host with it; no longer
-installed, so not measured), #259 (a bundle directory whose shared object has another name lists no
-plugin).
+installed, so not measured), #259 (a bundle directory whose shared object has another name listed no
+plugin; listed by that object now).
