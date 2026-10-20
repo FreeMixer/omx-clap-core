@@ -125,3 +125,10 @@ OMX_CLAP_CORE_0.13
     omx_clap_host_ports_rescanned;
     omx_clap_host_request_layout;
 } OMX_CLAP_CORE_0.12;
+
+/* added after 0.13.0 shipped: the 0.13 node is frozen */
+OMX_CLAP_CORE_0.14
+{
+  global:
+    omx_clap_host_bundle_object;
+} OMX_CLAP_CORE_0.13;

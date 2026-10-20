@@ -139,7 +139,8 @@ the first differing sample.
 
 runs `tests/clap_scan_test`: `omx-clap-scan` against `tests/fake.clap`, a
 `tests/crash.clap` whose entry point aborts, a file that is no library, a
-directory walk and a path that can't be read.
+directory walk, a bundle directory holding one object under another name and
+one holding two, and a path that can't be read.
 
     make clap-coverage
 
