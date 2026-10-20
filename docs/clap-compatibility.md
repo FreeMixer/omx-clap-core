@@ -200,42 +200,39 @@ Measured
 
 A desk measurement, not a CI result: `make clap-coverage` added every CLAP plugin installed on msi,
 one at a time, to this tree's omx-clap-host in a private namespace with a PipeWire of its own, and
-read the answer and the host's log of ids it did not offer. Run on 2026-10-20 with the host built at
-main `07d70a1`; re-run it to measure again.
+read the answer and the host's log of ids it did not offer. Run on 2026-10-20 with the host built
+on this change over main `75583fe`; re-run it to measure again.
 
-**Hosted 406 of 430 plugins** in 238 files: 23 refused, 1 crashed, and 6 files that did not scan.
+**Hosted 427 of 429 plugins** in 234 files: 2 refused, none crashed, and 4 files that did not scan.
 The extensions are counted for the hosted plugins only: a refused plugin ends before it asks.
 
 | refused with | plugins | for example |
 |---|---|---|
-| `hosting.clap.not-audio-effect` | 23 | `com.madskjeldgaard.birdhouse`, `urn.hvcc.ChaffVerb`, `studio.kx.distrho.ildaeil#midi` |
+| `hosting.topology.no-audio-output` | 2 | `com.madskjeldgaard.birdhouse`, `studio.kx.distrho.ildaeil#midi` |
 
-The 23 are refused on the descriptor's feature list alone: analysers with audio in and only a
-display, and plugins whose feature list is empty or odd although their ports are a plain effect.
-#257 asks to admit by ports, as the LV2 adapter does.
-
-| crashed | plugin | answer |
-|---|---|---|
-| `/usr/lib64/clap/QPitch.clap` | `com.qpitch.autotune` | SIGABRT at `add`, taking the host with it (#258) |
+The two are note tools with no audio port at all: a note input, a note output, nothing to carry
+(#270). They were among the 23 that main refused on their feature list alone; the other 21
+(analysers with audio in and only a display, plugins whose feature list is empty or odd although
+their ports are a plain effect) are hosted: the feature list refuses nothing, the ports decide
+(#257). The installed set changed since the `07d70a1` run: QPitch, NoiseRF and ChowKick were
+removed from msi, so their crash and scan-failure rows are not measured here, not fixed.
 
 | did not scan | why |
 |---|---|
-| `/usr/lib64/clap/ChowKick.clap` | the loader refused it: `liboddsound-mts.so` is not installed |
-| `/usr/lib64/clap/NoiseRF.clap` | crashed with SIGILL in the scanner's child |
 | `/usr/lib64/clap/nebula-cluster.clap`, `nebula-de-esser.clap`, `nebula-delay.clap`, `nebula-stereo-delay.clap` | a bundle directory whose shared object is not named after it lists no plugin (#259) |
 
 The ids the hosted plugins asked for most and were not given:
 
 | asked for | plugins | where it stands |
 |---|---|---|
-| `clap.gui` | 297 | out of scope |
-| `clap.audio-ports-config` (host-side) | 65 | unsupported, #263 |
-| `clap.context-menu.draft/0`, `clap.context-menu/1` | 63, 62 | out of scope |
-| `clap.resource-directory/1` | 62 | unsupported, P3 |
-| `clap.undo/4` | 35 | out of scope |
-| `clap.mini-curve-display/3` | 33 | unsupported, #188 |
-| `clap.scratch-memory/1` | 33 | unruled |
-| `clap.webview/3` | 33 | out of scope |
+| `clap.gui` | 312 | out of scope |
+| `clap.audio-ports-config` (host-side) | 69 | unsupported, #263 |
+| `clap.context-menu.draft/0`, `clap.context-menu/1` | 67, 66 | out of scope |
+| `clap.resource-directory/1` | 66 | unsupported, P3 |
+| `clap.undo/4` | 38 | out of scope |
+| `clap.mini-curve-display/3` | 36 | unsupported, #188 |
+| `clap.scratch-memory/1` | 36 | unruled |
+| `clap.webview/3` | 36 | out of scope |
 
 Gaps
 ----
@@ -253,13 +250,14 @@ In the order #196 gives them, with what the desk measured and where each stands 
    (`omx_clap_host_tick`, every idle pass of omx-clap-host) calls `on_timer` for each timer due and
    `on_fd` for each descriptor ready. No plugin is refused for lacking either.
 5. **`clap.note-name`**: in the host, host-side and plugin-side (`tests/clap_host_test.c:synth_host_details_checks`).
-6. **`clap.scratch-memory/1`**: not offered; 33 hosted plugins asked. Unruled, and not on #207's
+6. **`clap.scratch-memory/1`**: not offered; 36 hosted plugins asked. Unruled, and not on #207's
    list; plugin-qualify#116 wants it as a resource-profile term.
 7. **`clap.audio-ports-config`, `clap.surround`, `clap.ambisonic`**: the #92 work carries the
    plugin-side of all three and the host-side of surround and ambisonic. The host-side of
-   `clap.audio-ports-config` (its `rescan`) is not offered, and 65 hosted plugins asked for it: the
+   `clap.audio-ports-config` (its `rescan`) is not offered, and 69 hosted plugins asked for it: the
    largest unanswered ask after `clap.gui`: #263.
 
 What the probe found beyond those, each filed: #257 (23 plugins refused on their feature list
-alone; admit by ports), #258 (QPitch aborts at `add` and takes the host with it), #259 (a bundle
-directory whose shared object has another name lists no plugin).
+alone; admitted by ports now), #258 (QPitch aborted at `add` and took the host with it; no longer
+installed, so not measured), #259 (a bundle directory whose shared object has another name lists no
+plugin).
