@@ -8,8 +8,11 @@ Running
 
 The options are mod-host's: `-n` no fork, `-v` verbose, `-p <port>` the
 command socket, `-f <port>` the feedback socket, `-V`, `-h`; and this host's
-own `-s <dir>`, the LV2 state root ([LV2 plugins](#lv2-plugins)), and `-t`,
-follow the JACK transport ([Transport](#transport)).
+own `-s <dir>`, the LV2 state root ([LV2 plugins](#lv2-plugins)), `-t`,
+follow the JACK transport ([Transport](#transport)), and `-c <1|2>`, the
+lane's width (2 by default): a plugin whose main ports differ from it is asked
+for that many channels on each main port before it is activated, and keeps its
+declared layout when it cannot offer them.
 
 Commands
 --------
@@ -29,6 +32,7 @@ Commands
     cpu_load
     note_drops <instance_number>
     note_out_drops <instance_number>
+    audio_ports <instance_number>
     note_input <instance_number>
     note_on <instance_number> <channel> <key> <velocity>
     note_off <instance_number> <channel> <key> <velocity>
@@ -176,15 +180,17 @@ side allocates or locks.
 
 Replies are mod-host's: `resp <code>`, with mod-host's error codes. A refused
 `add` that has a `hosting.*` code says it after the error code, `resp -102
-hosting.topology.wider-than-strip`, and on stderr as `<plugin id>: <code>`.
+hosting.topology.too-many-ports`, and on stderr as `<plugin id>: <code>`.
 
 Port layout
 -----------
 
-A plugin is admitted with exactly one main audio output, mono or stereo,
-and one main audio input of the same kind; every channel of the main pair
-is one jack port. A plugin with a note input, an instrument, may have no
-audio input: it then has `out_<k>` only.
+A plugin is admitted with exactly one main audio output and at most one
+main audio input, each of up to 64 channels and the two free to differ in
+width (a mono input with a stereo output, a 5.1 pair); every channel of the
+main pair is one jack port, `in_1` to `in_<n>` and `out_1` to `out_<n>`. A
+plugin with a note input, an instrument, may have no audio input: it then
+has `out_<k>` only.
 
 A plugin with one CLAP note input port gets one jack MIDI input port on its
 client, `effect_<N>:midi_in`. The host reads its jack events on the audio
@@ -323,24 +329,76 @@ release reserve and `note_drops` hold for both. A verb the ring has no room
 for (512 messages, which only a stopped graph fills) is not queued at all
 and answers `-517`, plugin-hostd's code for a full note queue.
 
-A main port wider than stereo, a main pair of different widths, a second
-note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects
+A second note input, or a note input that reads none of the CLAP, MIDI, MIDI MPE and MIDI 2.0 dialects,
 is refused at `add` with `resp -102` followed
-by the `hosting.*` code, which stderr carries too: `hosting.topology.wider-than-strip`,
-`hosting.clap.note-input`. A port of no channels (`hosting.topology.port-without-channels`),
+by the `hosting.*` code, which stderr carries too: `hosting.clap.note-input`.
+A port of no channels (`hosting.topology.port-without-channels`),
 a port of more than 64 channels (`hosting.topology.port-too-wide`), a second main port on
 a side or more than 64 auxiliary ports on a side (`hosting.topology.too-many-ports`) are
-refused the same way. A plugin with no main input is a source, its output its
+refused the same way, as are a surround port whose `clap.surround` map names a channel id
+past `CLAP_SURROUND_TSR` or holds other than the port's channel count, or that has no `clap.surround`
+and more than `CLAP_SURROUND_TSR` + 1 channels
+(`hosting.topology.channel-map-unknown`) and an ambisonic port whose channels are not
+(order+1)² for any order (`hosting.topology.port-too-wide`). A plugin with no main input is a source, its output its
 own: an instrument when it has a note input, a generator (an oscillator, a noise
 source) when it has none; the client has `out_<k>` and no `in_<k>`. An extra audio
 input (a sidechain, of up to 64 channels, up to 64 of them) is admitted and fed
-silence: the command line has no verb that binds it, so the plugin reads
-zeros on it. The library's caller binds a buffer to it with
+silence until its buffers are bound. The library's caller binds a buffer to it with
 `omx_clap_host_bind_aux_input`, one buffer per channel. An extra audio output (of up
 to 64 channels, up to 64 of them) is admitted and left unconnected: the plugin is
 handed a scratch buffer per channel, and the library's caller hands it buffers of
 its own with `omx_clap_host_bind_aux_output`. A plugin is admitted with the
 `audio-effect` or the `instrument` feature and refused with neither.
+
+omx-clap-host binds every auxiliary port to JACK: its client registers a port
+per channel of each, `aux_in_<p>_<k>` and `aux_out_<p>_<k>`, `p` the port's
+place among its side's auxiliary ports in the plugin's order and `k` the
+channel, both from 1 (the main pair keeps `in_<k>` and `out_<k>`). Each
+channel is bound to a block of the JACK buffer size, made again when that
+size changes. A change of the buffer size is applied on the control thread's
+next tick (the plugin's deactivate and activate are main-thread calls; JACK's
+buffer-size callback only records the size), and the cycles pass dry until
+then; each cycle copies an auxiliary input's JACK buffer into its
+block before the plugin runs and an auxiliary output's block onto its JACK
+buffer after. When the blocks cannot be made at a new size, the instance is
+left inactive, passing dry, and pending: the next change of the buffer size
+makes them and activates it; stderr says so in one line. A plugin that
+rescans its ports in the deactivate of a buffer-size change is not activated
+on its old description: it stays inactive, passing dry, stderr says so once,
+and the relayout in the same tick reads its description again and activates it
+at the new size. An instance its relayout left dry until it is added again
+gets no blocks made. A side chain
+nothing is linked to reads silence. The bound auxiliary outputs are guarded as
+the main ones are (the library's, for every carrier; an output still on its
+scratch block is read by no one and left alone): on every block the plugin does not run usable (not processing, bypassed,
+faulted, asleep, a block longer than the bounce, an unusable block) they are
+silent, never the last block again; a non-finite sample on one makes the block
+unusable and strikes as on a main output; a sample past +24 dBFS is clamped
+and counted. A ports rescan that leaves the auxiliary ports other than the
+ones registered at `add` passes the instance dry until it is added again, as
+one that changes the main ports does.
+
+`audio_ports <N>` answers on one line: `resp 0`, then `dry` while the
+instance passes dry, then a record per port registered at `add`, inputs first
+and each side's main port first, separated by single spaces:
+
+    resp 0 in:main:1:2:stereo:"in 0":in_1,in_2 in:aux:1:1:mono:"in 1":aux_in_1_1 out:main:1:2:stereo:"out 0":out_1,out_2
+
+A record is `side:role:index:channels:kind[:layout][:assumed]:"name":jacks`:
+`side` `in` or `out`, `role` `main` or `aux`, `index` the port's place among
+its side's auxiliary ports from 1 (1 for the main port), `channels` its
+registered width, `kind` `mono`, `stereo`, `surround`, `ambisonic` or
+`unknown`, `layout` a surround port's CLAP surround ids or an ambisonic port's
+ordering and normalisation joined by `+` (`0+1+2+3+9+10`, `acn+sn3d`),
+`assumed` when that ambisonic configuration is the host's (the description's
+`ambisonic_assumed`: an LV2 group, a CLAP plugin without `clap.ambisonic`, or
+one whose `get_config` answers false), the name in double quotes with `"` and
+`\` escaped as `\"` and `\\`, and the JACK ports joined by `,`. A port whose
+description no longer has its registered width (a dry relayout) reads
+`unknown` and `""`. `resp -3` for an instance that is not there. plugin-hostd
+does not declare the verb yet (its Task 6.6, in that repository): behind it, it
+is not routed to the instance's worker. `omx-clap-scan` prints the same
+names, in the text form `in  aux 1 channels mono "in 1" aux_in_1_1`.
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
 and then leaves the plugin idle: notes that arrive meanwhile are dropped.
@@ -501,8 +559,10 @@ Instrument details
 
 The host object offers a plugin `clap.note-ports`, `clap.note-name` and
 `clap.voice-info` besides the six extensions every plugin gets, and
-`clap.event-registry` (below), and the four of a full host (A full host,
-below), fourteen in all (`src/clap_host_extensions.h`).
+`clap.event-registry` (below), the four of a full host (A full host,
+below), and `clap.surround` and `clap.ambisonic`, sixteen in all
+(`src/clap_host_extensions.h`); the two layout extensions answer their
+draft ids too.
 
 - `note-ports.supported_dialects` answers what a note input can be fed in:
   CLAP, MIDI, MIDI MPE and MIDI 2.0 (`OMX_CLAP_HOST_NOTE_DIALECTS`) when the
@@ -522,6 +582,20 @@ below), fourteen in all (`src/clap_host_extensions.h`).
   -1 for every one; a name the plugin's `get` refuses is not answered.
   `note-name.changed` reads once through `omx_clap_host_note_names_changed`.
 - `voice-info.changed`: above, under Voices.
+- `audio-ports.rescan`, any flags, active or not, and `surround.changed` and
+  `ambisonic.changed`: a ports rescan. It is parked and reported once
+  through `omx_clap_host_ports_rescanned`; nothing is restarted for it, and
+  an activate never reads the description again. The caller answers it by
+  re-describing the plugin, inactive, through
+  `omx_clap_host_request_layout` (`n` 0 asks nothing and only reads the
+  ports again), then activates it. A restart, a rate change
+  (`omx_clap_host_set_rate`) or an auxiliary bind that re-activates, whose
+  deactivate raised a rescan (CLAP's request_restart, deactivate, ports
+  changed), does not activate the plugin: it answers
+  `OMX_CLAP_RESTART_RESCANNED` with the instance inactive and the rescan
+  reported, never -1, which is a failure.
+  The warm-up's own deactivate is not reported; a rescan made inside
+  activate is.
 
 Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
 its own to share yet (#186).
@@ -561,9 +635,9 @@ What a plugin may ask of any host besides its audio and its parameters:
   `_DUPLICATE` or `_PROJECT`; a plugin without the extension saves and loads
   its plain state for each.
 - `clap.audio-ports-activation`: before each activate the host sets every
-  auxiliary output inactive (it is never connected) and each auxiliary input
-  active only while its buffers are bound, so the plugin may skip a port no
-  one reads or writes.
+  auxiliary port, input or output, active only while its buffers are bound,
+  so the plugin may skip a port no one reads or writes; omx-clap-host binds
+  every one to its JACK ports.
 - Sleep. A plugin's process status is read: after `CLAP_PROCESS_SLEEP`, after
   `CLAP_PROCESS_CONTINUE_IF_NOT_QUIET` on a block whose input and output were
   silent, and after `CLAP_PROCESS_TAIL` once its input has been silent for its
@@ -634,7 +708,21 @@ instance that is initialised, read and destroyed without being activated:
   name (`stepped`, `hidden`, `readonly`, `bypass`, `automatable`, ...);
 - the audio ports of each direction: id, name, `main` or `aux`, channels and
   kind (the CLAP port type: `mono`, `stereo`, `surround`, `ambisonic`, or
-  `unknown` for none or another);
+  `unknown` for none or another); a surround port adds its map, the CLAP
+  surround ids `clap.surround` names (0 to n-1 in index order without the
+  extension), and an ambisonic port its ordering (`acn`, `fuma`) and
+  normalisation (`sn3d`, `n3d`, `maxn`, `sn2d`, `n2d`) from `clap.ambisonic`
+  (`acn` and `sn3d` without it or when its `get_config` answers false,
+  `"assumed":true` and `assumed` then, as the description's `ambisonic_assumed`
+  says for an admitted plugin); then
+  the JACK ports omx-clap-host registers for the port (`in_<k>`, `out_<k>`,
+  `aux_in_<p>_<k>`, `aux_out_<p>_<k>`; `"jack"` in the JSON, after the name in
+  the text form), and none for any port of a plugin the core refuses (the scan
+  opens each plugin as omx-clap-host does, an instrument's note input and any
+  main width admitted, and lists a refused one from an instance only created).
+  The text form quotes the plugin's name and each port's, `"` and `\` escaped
+  with a backslash and a control byte printed as a space, and is a line per port:
+  `in  aux 1 channels mono "in 1" aux_in_1_1`;
 - the note port counts;
 - the note names (`clap.note-name`), each with its port, key and channel;
   absent when the plugin names none;
@@ -656,7 +744,7 @@ instance that is initialised, read and destroyed without being activated:
     {"id":"...","name":"...","vendor":"...","version":"...","description":"...",
      "url":"...","features":["audio-effect"],
      "params":[{"id":0,"name":"...","module":"","min":0,"max":1,"default":0,"flags":["stepped"]}],
-     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo"}],"outputs":[...]},
+     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo","jack":["in_1","in_2"]}],"outputs":[...]},
      "note_ports":{"inputs":0,"outputs":0},
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
      "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}
@@ -746,11 +834,11 @@ this table does not; a row for a header an older CLAP lacks is kept.
 
 | Header | Status | What, or why not |
 |---|---|---|
-| `ext/ambisonic.h` | not supported | wider layouts, #92 |
+| `ext/ambisonic.h` | supported | `clap.ambisonic/3` (and its draft id): read at open, `get_config` gives an ambisonic port's ordering and normalisation (ACN and SN3D without the extension); the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_config_supported` is asked only by `omx_clap_host_request_layout`, with the carrier's configuration (`false`: `hosting.topology.ambisonic-config`) |
 | `ext/audio-ports-activation.h` | supported | A full host above: auxiliary ports set inactive while unused |
-| `ext/audio-ports-config.h` | not supported | #92 |
-| `ext/audio-ports.h` | supported | the port layout, Port layout above |
-| `ext/configurable-audio-ports.h` | not supported | #92 |
+| `ext/audio-ports-config.h` | supported | `clap.audio-ports-config`: read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive: tried after `clap.configurable-audio-ports` when that is not offered, cannot apply the requests or refuses them: the first config whose main ports are the carrier's requested mains in channels and port types is selected, whatever auxiliary ports it also declares (described after), and the description read again; omx-clap-host asks for its lane's width (`-c`, 2 by default) at add and after a reported ports rescan |
+| `ext/audio-ports.h` | supported | the port layout, Port layout above: every port described, `port_type` and `in_place_pair` read; omx-clap-host registers a JACK port per channel of every port, `aux_in_<p>_<k>`/`aux_out_<p>_<k>` for the auxiliary ones; the host's `rescan`, any flags, is reported once by `omx_clap_host_ports_rescanned`, never a restart (`is_rescan_flag_supported` answers false) |
+| `ext/configurable-audio-ports.h` | supported | `clap.configurable-audio-ports/1` (and its draft id): read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive, before `clap.audio-ports-config`: `can_apply_configuration`, then `apply_configuration`, and the description read again; a false from either falls back to `clap.audio-ports-config`, and a plugin neither offers the layout through keeps its declared one (`OMX_CLAP_LAYOUT_DECLARED`) |
 | `ext/context-menu.h` | not planned | the console draws its own menus (ruled 2026-10-19, #95) |
 | `ext/event-registry.h` | supported | the host offers it; no event space beyond the core one |
 | `ext/gui.h` | not planned in the console | never in the console (GUI ruling 2026-10-19); native windows in the standalone omx-clap-host are #180 |
@@ -766,7 +854,7 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/render.h` | supported | A full host above |
 | `ext/state-context.h` | supported | A full host above |
 | `ext/state.h` | supported | `state_save`, `state_load` |
-| `ext/surround.h` | not supported | #92 |
+| `ext/surround.h` | supported | `clap.surround/4` (and its draft id): read at open, `get_channel_map` gives a surround port's map (index order without the extension), refused `channel-map-unknown` for an unknown id or a wrong count, and without the extension for more than `CLAP_SURROUND_TSR` + 1 channels, past the ids index order can name; the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_channel_mask_supported` is asked only by `omx_clap_host_request_layout`, with the mask of the carrier's map (`false`: `hosting.topology.channel-map-unknown`) |
 | `ext/tail.h` | supported | A full host above, and the sleep after it |
 | `ext/thread-check.h` | supported | the host offers it |
 | `ext/thread-pool.h` | supported | A full host above: tasks run in turn on the audio thread |

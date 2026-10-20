@@ -1,0 +1,457 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# lv2_layout_fixture.c's twins: one audio layout each, read by the port-group rules (which ports are main, which are
+# auxiliary). The wide twins, 64 and 65 auxiliary ports, are in omx-layout-fixture-wide.ttl.
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix pg:   <http://lv2plug.in/ns/ext/port-groups#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+# rule 1: a main input group and two stereo groups beside it, each one auxiliary port
+<urn:openmixer:test:layout-fixture#main-aux>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (main group and two aux groups)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    pg:mainInput <urn:openmixer:test:layout-fixture#main-aux-main> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L" ;
+        pg:group <urn:openmixer:test:layout-fixture#main-aux-main> ; lv2:designation pg:left
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R" ;
+        pg:group <urn:openmixer:test:layout-fixture#main-aux-main> ; lv2:designation pg:right
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "a1_l" ; lv2:name "Aux One L" ;
+        pg:group <urn:openmixer:test:layout-fixture#main-aux-one> ; lv2:designation pg:left
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "a1_r" ; lv2:name "Aux One R" ;
+        pg:group <urn:openmixer:test:layout-fixture#main-aux-one> ; lv2:designation pg:right
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "a2_l" ; lv2:name "Aux Two L" ;
+        pg:group <urn:openmixer:test:layout-fixture#main-aux-two> ; lv2:designation pg:left
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "a2_r" ; lv2:name "Aux Two R" ;
+        pg:group <urn:openmixer:test:layout-fixture#main-aux-two> ; lv2:designation pg:right
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+<urn:openmixer:test:layout-fixture#main-aux-main>
+    a pg:StereoGroup , pg:InputGroup ;
+    lv2:symbol "main" ;
+    rdfs:label "Main" .
+
+<urn:openmixer:test:layout-fixture#main-aux-one>
+    a pg:StereoGroup , pg:InputGroup ;
+    lv2:symbol "aux_one" ;
+    rdfs:label "Aux One" .
+
+<urn:openmixer:test:layout-fixture#main-aux-two>
+    a pg:StereoGroup , pg:InputGroup ;
+    lv2:symbol "aux_two" ;
+    lv2:name "Aux Two" .
+
+# rule 2: two mono groups and no main one, the first group the main input
+<urn:openmixer:test:layout-fixture#two-mono>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (two mono groups)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_a" ; lv2:name "In A" ;
+        pg:group <urn:openmixer:test:layout-fixture#two-mono-a> ; lv2:designation pg:center
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_b" ; lv2:name "In B" ;
+        pg:group <urn:openmixer:test:layout-fixture#two-mono-b> ; lv2:designation pg:center
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .
+
+<urn:openmixer:test:layout-fixture#two-mono-a>
+    a pg:MonoGroup , pg:InputGroup ;
+    lv2:symbol "a" ;
+    rdfs:label "A" .
+
+<urn:openmixer:test:layout-fixture#two-mono-b>
+    a pg:MonoGroup , pg:InputGroup ;
+    lv2:symbol "b" ;
+    rdfs:label "B" .
+
+# rule 3: four ungrouped inputs and as many outputs, one main port of four each side
+<urn:openmixer:test:layout-fixture#four-four>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (ungrouped four to four)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_a" ; lv2:name "In A"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_b" ; lv2:name "In B"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_c" ; lv2:name "In C"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_d" ; lv2:name "In D"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_a" ; lv2:name "Out A"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_b" ; lv2:name "Out B"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_c" ; lv2:name "Out C"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_d" ; lv2:name "Out D"
+    ] .
+
+# rule 3: four ungrouped inputs, two outputs: the first two inputs the main pair, the other two mono aux ports
+<urn:openmixer:test:layout-fixture#four-two>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (ungrouped four to two)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_a" ; lv2:name "In A"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_b" ; lv2:name "In B"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_c" ; lv2:name "In C"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_d" ; lv2:name "In D"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+# rule 3 in against rule 2 out: four ungrouped inputs and one untyped output group of four, so the inputs are one main
+# port of four, as wide as the output side's main port
+<urn:openmixer:test:layout-fixture#four-group-four>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (ungrouped four to a group of four)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_a" ; lv2:name "In A"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_b" ; lv2:name "In B"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_c" ; lv2:name "In C"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_d" ; lv2:name "In D"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_a" ; lv2:name "Out A" ;
+        pg:group <urn:openmixer:test:layout-fixture#four-group-four-out>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_b" ; lv2:name "Out B" ;
+        pg:group <urn:openmixer:test:layout-fixture#four-group-four-out>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_c" ; lv2:name "Out C" ;
+        pg:group <urn:openmixer:test:layout-fixture#four-group-four-out>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_d" ; lv2:name "Out D" ;
+        pg:group <urn:openmixer:test:layout-fixture#four-group-four-out>
+    ] .
+
+<urn:openmixer:test:layout-fixture#four-group-four-out>
+    a pg:Group , pg:OutputGroup ;
+    lv2:symbol "out" ;
+    rdfs:label "Out" .
+
+# rule 3 in against a split output side: four ungrouped inputs, outputs a group of two and two ungrouped ports. The
+# output side's main port is the group, two wide, so the inputs are the main pair and two mono aux ports
+<urn:openmixer:test:layout-fixture#four-two-two>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (ungrouped four to a pair group and two more)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_a" ; lv2:name "In A"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_b" ; lv2:name "In B"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_c" ; lv2:name "In C"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_d" ; lv2:name "In D"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_a" ; lv2:name "Out A" ;
+        pg:group <urn:openmixer:test:layout-fixture#four-two-two-out>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_b" ; lv2:name "Out B" ;
+        pg:group <urn:openmixer:test:layout-fixture#four-two-two-out>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_c" ; lv2:name "Out C"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_d" ; lv2:name "Out D"
+    ] .
+
+<urn:openmixer:test:layout-fixture#four-two-two-out>
+    a pg:Group , pg:OutputGroup ;
+    lv2:symbol "out" ;
+    rdfs:label "Out" .
+
+# rule 3 in against side-chained outputs: four ungrouped inputs, four outputs of which two are side chains. The output
+# side's main port is its two other outputs, so the inputs are the main pair and two mono aux ports
+<urn:openmixer:test:layout-fixture#four-side>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (ungrouped four to two and two side-chain outputs)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_a" ; lv2:name "In A"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_b" ; lv2:name "In B"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_c" ; lv2:name "In C"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_d" ; lv2:name "In D"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_a" ; lv2:name "Out A"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_b" ; lv2:name "Out B"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "side_a" ; lv2:name "Side A" ;
+        lv2:portProperty lv2:isSideChain
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "side_b" ; lv2:name "Side B" ;
+        lv2:portProperty lv2:isSideChain
+    ] .
+
+# rule 3 in, rule 1 out: a mono input and a stereo main output group, two main ports of different widths
+<urn:openmixer:test:layout-fixture#mono-stereo>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (mono in, stereo main output group)" ;
+    pg:mainOutput <urn:openmixer:test:layout-fixture#mono-stereo-out> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out_l" ; lv2:name "Out L" ;
+        pg:group <urn:openmixer:test:layout-fixture#mono-stereo-out> ; lv2:designation pg:left
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_r" ; lv2:name "Out R" ;
+        pg:group <urn:openmixer:test:layout-fixture#mono-stereo-out> ; lv2:designation pg:right
+    ] .
+
+<urn:openmixer:test:layout-fixture#mono-stereo-out>
+    a pg:StereoGroup , pg:OutputGroup ;
+    lv2:symbol "out" ;
+    rdfs:label "Out" .
+
+# rule 3: two ungrouped inputs, one output
+<urn:openmixer:test:layout-fixture#two-one>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (ungrouped two to one)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .
+
+# rule 1 out: a crossover's shape, the main output group and three stereo band groups, each one auxiliary output
+<urn:openmixer:test:layout-fixture#bands>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (main pair and three band outputs)" ;
+    pg:mainOutput <urn:openmixer:test:layout-fixture#bands-main> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-main>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-main>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "b1_l" ; lv2:name "Band 1 L" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-1>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "b1_r" ; lv2:name "Band 1 R" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-1>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "b2_l" ; lv2:name "Band 2 L" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-2>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "b2_r" ; lv2:name "Band 2 R" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-2>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 8 ; lv2:symbol "b3_l" ; lv2:name "Band 3 L" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-3>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 9 ; lv2:symbol "b3_r" ; lv2:name "Band 3 R" ;
+        pg:group <urn:openmixer:test:layout-fixture#bands-3>
+    ] .
+
+<urn:openmixer:test:layout-fixture#bands-main>
+    a pg:Group , pg:OutputGroup ;
+    lv2:symbol "main" ;
+    rdfs:label "Main Out" .
+
+<urn:openmixer:test:layout-fixture#bands-1>
+    a pg:Group , pg:OutputGroup ;
+    lv2:symbol "band_1" ;
+    rdfs:label "Band 1" .
+
+<urn:openmixer:test:layout-fixture#bands-2>
+    a pg:Group , pg:OutputGroup ;
+    lv2:symbol "band_2" ;
+    rdfs:label "Band 2" .
+
+<urn:openmixer:test:layout-fixture#bands-3>
+    a pg:Group , pg:OutputGroup ;
+    lv2:symbol "band_3" ;
+    rdfs:label "Band 3" .
+
+# pg:mainInput names a group no port belongs to: no main group, so rule 3 reads the two ungrouped inputs
+<urn:openmixer:test:layout-fixture#empty-main>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (a main group without members)" ;
+    pg:mainInput <urn:openmixer:test:layout-fixture#empty-main-group> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+<urn:openmixer:test:layout-fixture#empty-main-group>
+    a pg:StereoGroup , pg:InputGroup ;
+    lv2:symbol "main" ;
+    rdfs:label "Main" .
+
+# a 5.1 group each side, the members declared out of the group's element order: the table orders them by designation
+<urn:openmixer:test:layout-fixture#five-one>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (5.1 to 5.1)" ;
+    pg:mainInput <urn:openmixer:test:layout-fixture#five-one-in> ;
+    pg:mainOutput <urn:openmixer:test:layout-fixture#five-one-out> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_rearRight" ; lv2:name "in_rearRight" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-in> ; lv2:designation pg:rearRight
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_left" ; lv2:name "in_left" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-in> ; lv2:designation pg:left
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_lowFrequencyEffects" ; lv2:name "in_lowFrequencyEffects" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-in> ; lv2:designation pg:lowFrequencyEffects
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_center" ; lv2:name "in_center" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-in> ; lv2:designation pg:center
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "in_rearLeft" ; lv2:name "in_rearLeft" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-in> ; lv2:designation pg:rearLeft
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "in_right" ; lv2:name "in_right" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-in> ; lv2:designation pg:right
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_center" ; lv2:name "out_center" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-out> ; lv2:designation pg:center
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_right" ; lv2:name "out_right" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-out> ; lv2:designation pg:right
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 8 ; lv2:symbol "out_left" ; lv2:name "out_left" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-out> ; lv2:designation pg:left
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 9 ; lv2:symbol "out_lowFrequencyEffects" ; lv2:name "out_lowFrequencyEffects" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-out> ; lv2:designation pg:lowFrequencyEffects
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 10 ; lv2:symbol "out_rearRight" ; lv2:name "out_rearRight" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-out> ; lv2:designation pg:rearRight
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 11 ; lv2:symbol "out_rearLeft" ; lv2:name "out_rearLeft" ;
+        pg:group <urn:openmixer:test:layout-fixture#five-one-out> ; lv2:designation pg:rearLeft
+    ] .
+
+<urn:openmixer:test:layout-fixture#five-one-in>
+    a pg:FivePointOneGroup , pg:InputGroup ;
+    lv2:symbol "in" ;
+    rdfs:label "In" .
+
+<urn:openmixer:test:layout-fixture#five-one-out>
+    a pg:FivePointOneGroup , pg:OutputGroup ;
+    lv2:symbol "out" ;
+    rdfs:label "Out" .
+
+# a first-order ambisonic group each side, the inputs declared out of ACN order
+<urn:openmixer:test:layout-fixture#ambi-first>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (first-order ambisonic)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_ACN1" ; lv2:name "in_ACN1" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-in> ; lv2:designation pg:ACN1
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_ACN0" ; lv2:name "in_ACN0" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-in> ; lv2:designation pg:ACN0
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_ACN3" ; lv2:name "in_ACN3" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-in> ; lv2:designation pg:ACN3
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_ACN2" ; lv2:name "in_ACN2" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-in> ; lv2:designation pg:ACN2
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_ACN0" ; lv2:name "out_ACN0" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-out> ; lv2:designation pg:ACN0
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_ACN1" ; lv2:name "out_ACN1" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-out> ; lv2:designation pg:ACN1
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_ACN2" ; lv2:name "out_ACN2" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-out> ; lv2:designation pg:ACN2
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_ACN3" ; lv2:name "out_ACN3" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-first-out> ; lv2:designation pg:ACN3
+    ] .
+
+<urn:openmixer:test:layout-fixture#ambi-first-in>
+    a pg:AmbisonicBH1P1Group , pg:InputGroup ;
+    lv2:symbol "in" ;
+    rdfs:label "B-format In" .
+
+<urn:openmixer:test:layout-fixture#ambi-first-out>
+    a pg:AmbisonicBH1P1Group , pg:OutputGroup ;
+    lv2:symbol "out" ;
+    rdfs:label "B-format Out" .
+
+# a mixed-order ambisonic group each side (second order horizontal, first order periphonic): no CLAP ambisonic port
+<urn:openmixer:test:layout-fixture#ambi-mixed>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (mixed-order ambisonic)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_ACN0" ; lv2:name "in_ACN0" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-in> ; lv2:designation pg:ACN0
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_ACN1" ; lv2:name "in_ACN1" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-in> ; lv2:designation pg:ACN1
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_ACN2" ; lv2:name "in_ACN2" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-in> ; lv2:designation pg:ACN2
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_ACN3" ; lv2:name "in_ACN3" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-in> ; lv2:designation pg:ACN3
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "in_ACN4" ; lv2:name "in_ACN4" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-in> ; lv2:designation pg:ACN4
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "in_ACN8" ; lv2:name "in_ACN8" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-in> ; lv2:designation pg:ACN8
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_ACN0" ; lv2:name "out_ACN0" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-out> ; lv2:designation pg:ACN0
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_ACN1" ; lv2:name "out_ACN1" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-out> ; lv2:designation pg:ACN1
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 8 ; lv2:symbol "out_ACN2" ; lv2:name "out_ACN2" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-out> ; lv2:designation pg:ACN2
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 9 ; lv2:symbol "out_ACN3" ; lv2:name "out_ACN3" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-out> ; lv2:designation pg:ACN3
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 10 ; lv2:symbol "out_ACN4" ; lv2:name "out_ACN4" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-out> ; lv2:designation pg:ACN4
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 11 ; lv2:symbol "out_ACN8" ; lv2:name "out_ACN8" ;
+        pg:group <urn:openmixer:test:layout-fixture#ambi-mixed-out> ; lv2:designation pg:ACN8
+    ] .
+
+<urn:openmixer:test:layout-fixture#ambi-mixed-in>
+    a pg:AmbisonicBH2P1Group , pg:InputGroup ;
+    lv2:symbol "in" ;
+    rdfs:label "Mixed In" .
+
+<urn:openmixer:test:layout-fixture#ambi-mixed-out>
+    a pg:AmbisonicBH2P1Group , pg:OutputGroup ;
+    lv2:symbol "out" ;
+    rdfs:label "Mixed Out" .
