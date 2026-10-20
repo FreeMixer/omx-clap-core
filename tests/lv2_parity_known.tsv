@@ -1,0 +1,5 @@
+uri	cause	evidence
+http://plugin.org.uk/swh-plugins/dcRemove	plugin reads uninitialised memory (valgrind-confirmable)	varies through whichever host runs it, up to 1e26 (omx-clap-core#230)
+http://plugin.org.uk/swh-plugins/valve	plugin reads uninitialised memory (valgrind-confirmable)	varies through whichever host runs it, up to 1e25 (omx-clap-core#230)
+http://plugin.org.uk/swh-plugins/const	plugin reads uninitialised memory (valgrind-confirmable)	varies through whichever host runs it, by 4.6e-37 (omx-clap-core#230)
+https://github.com/asb2m10/dexed	plugin reads uninitialised memory (valgrind-confirmable)	one LSB of 16 bits from a note onset, through whichever host runs it (omx-clap-core#213, #230)
