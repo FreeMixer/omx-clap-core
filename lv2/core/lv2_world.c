@@ -901,30 +901,35 @@ static char *side_name(const LilvPlugin *pl, const LilvPort *port)
     return s;
 }
 
+/* the kind a port's channel count gives it: one is mono, two stereo, more unknown */
+static uint32_t kind_of_count(uint32_t n)
+{
+    return n == 1 ? LV2_PORT_MONO : n == 2 ? LV2_PORT_STEREO : LV2_PORT_UNKNOWN;
+}
+
 /* The audio inputs, sorted. The main input is, with pg:mainInput, the members of that group, more than two of them
  * refused as wider than the strip; without it, the first two inputs in port order that are no side chain. None is a
  * source, its main channels its outputs' (read_ports): an instrument when the plugin has a MIDI input, a generator (an
  * oscillator, a noise source) with no input of any kind (#184). Every other input is auxiliary, a side chain: an input
  * with lv2:isSideChain, or with pg:sideChainOf on the port or on its group, an input outside the main group, or an
- * input past the first two. A CLAP input is made of the members of one pg:group, or of one ungrouped port, in the order
- * of their first member: up to LV2_CORE_AUX_PORTS of them (one more is too many ports), each of up to
- * LV2_CORE_SIDE_CHANNELS channels (one more is too wide). Fills p->legs, p->in_ports and the side chains; returns the
- * refusal, or NULL. */
+ * input past the first two. An auxiliary port is made of the members of one pg:group, or of one ungrouped port, in the
+ * order of their first member: up to LV2_CORE_AUX_PORTS of them (one more is too many ports), each of up to
+ * LV2_CORE_PORT_CHANNELS channels (one more is too wide). Fills p->main_in and p->aux_in; returns the refusal, or NULL. */
 static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint32_t n)
 {
     char **group = calloc(n ? n : 1u, sizeof(*group));
     unsigned char *side = calloc(n ? n : 1u, sizeof(*side));
     uint32_t *owner = calloc(n ? n : 1u, sizeof(*owner));
     uint32_t *first = calloc(LV2_CORE_AUX_PORTS, sizeof(*first));
-    uint32_t *fill = calloc(LV2_CORE_AUX_PORTS, sizeof(*fill));
+    uint32_t *count = calloc(LV2_CORE_AUX_PORTS, sizeof(*count));
     const char *key[LV2_CORE_AUX_PORTS] = { NULL };
     LilvNodes *mg = L.lilv_plugin_get_value(pl, g.node[N_PG_MAIN_INPUT]);
     char *main_group = first_string(mg);
-    uint32_t i, k, nmain = 0, legs = 0, ncl = 0;
+    uint32_t i, k, nmain = 0, ncl = 0, main_first = 0;
     const char *refusal = NULL;
 
     L.lilv_nodes_free(mg);
-    if (!group || !side || !owner || !first || !fill)
+    if (!group || !side || !owner || !first || !count)
         refusal = LV2_CODE_NO_REALISATION;
     for (i = 0; i < n && !refusal; i++)
     {
@@ -944,8 +949,10 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
         side[i] = (unsigned char)(is_side != 0);
         if (is_side)
             continue;
+        if (nmain == 0)
+            main_first = i;
         if (nmain < 2)
-            p->in_ports[nmain] = i;
+            p->main_in.port[nmain] = i;
         nmain++;
     }
     if (!refusal && nmain > 2)
@@ -968,17 +975,16 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
             ncl++;
         }
         owner[i] = k;
-        p->side_channels[k]++;
-        legs++;
+        count[k]++;
     }
     for (k = 0; k < ncl && !refusal; k++)
-        if (p->side_channels[k] > LV2_CORE_SIDE_CHANNELS)
+        if (count[k] > LV2_CORE_PORT_CHANNELS)
             refusal = LV2_CODE_PORT_TOO_WIDE;
     for (k = 0; k < ncl && !refusal; k++)
     {
-        p->side_base[k] = k ? p->side_base[k - 1] + p->side_channels[k - 1] : 0;
-        p->side_name[k] = side_name(pl, L.lilv_plugin_get_port_by_index(pl, first[k]));
-        if (!p->side_name[k])
+        p->aux_in[k].name = side_name(pl, L.lilv_plugin_get_port_by_index(pl, first[k]));
+        p->aux_in[k].kind = kind_of_count(count[k]);
+        if (!p->aux_in[k].name)
             refusal = LV2_CODE_NO_REALISATION;
     }
     for (i = 0; i < n && !refusal; i++)
@@ -986,12 +992,19 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
         if (!side[i])
             continue;
         k = owner[i];
-        p->side_in[k][fill[k]++] = i;
+        p->aux_in[k].port[p->aux_in[k].n++] = i;
+    }
+    if (!refusal && nmain)
+    {
+        p->main_in.name = side_name(pl, L.lilv_plugin_get_port_by_index(pl, main_first));
+        p->main_in.kind = kind_of_count(nmain);
+        if (!p->main_in.name)
+            refusal = LV2_CODE_NO_REALISATION;
     }
     if (!refusal)
     {
-        p->n_side = ncl;
-        p->n_side_legs = legs;
+        p->n_aux_in = ncl;
+        p->main_in.n = nmain;
         p->legs = nmain;
         p->in_legs = nmain;
     }
@@ -1001,7 +1014,7 @@ static const char *read_inputs(struct lv2_plugin *p, const LilvPlugin *pl, uint3
     free(side);
     free(owner);
     free(first);
-    free(fill);
+    free(count);
     free(main_group);
     return refusal;
 }
@@ -1194,7 +1207,12 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             p->legs = nout;     // a source, an instrument or a generator: its outputs are its main channels
         if (nout != p->legs)
             return LV2_CODE_WIDER_THAN_STRIP;
-        memcpy(p->out_ports, out, sizeof(p->out_ports));
+        memcpy(p->main_out.port, out, nout * sizeof(out[0]));
+        p->main_out.n = nout;
+        p->main_out.kind = kind_of_count(nout);
+        p->main_out.name = side_name(pl, L.lilv_plugin_get_port_by_index(pl, out[0]));
+        if (!p->main_out.name)
+            return LV2_CODE_NO_REALISATION;
     }
     if (p->patch_in >= 0)
         return read_patches(p, pl);     // a property is writable only through an input port
@@ -1285,8 +1303,17 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->texts[k].name);
     }
     free(p->texts);
-    for (i = 0; i < LV2_CORE_AUX_PORTS; i++)    // every slot: a refused open has named some side chains, not set n_side
-        free(p->side_name[i]);
+    free(p->main_in.name);
+    free(p->main_out.name);
+    for (i = 0; i < LV2_CORE_AUX_PORTS; i++)    // every slot: a refused open has named some ports, not set the counts
+    {
+        if (p->aux_in)
+            free(p->aux_in[i].name);
+        if (p->aux_out)
+            free(p->aux_out[i].name);
+    }
+    free(p->aux_in);
+    free(p->aux_out);
     for (i = 0; i < LV2_CORE_CV_PORTS; i++)
     {
         free(p->cv_in_name[i]);
@@ -1320,7 +1347,9 @@ struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, c
     p->uri = strdup(uri);
     p->bundle_path = strdup(bundle->dir);
     p->uri_node = L.lilv_new_uri(g.world, uri);
-    if (!p->uri || !p->bundle_path || !p->uri_node)
+    p->aux_in = calloc(LV2_CORE_AUX_PORTS, sizeof(*p->aux_in));
+    p->aux_out = calloc(LV2_CORE_AUX_PORTS, sizeof(*p->aux_out));
+    if (!p->uri || !p->bundle_path || !p->uri_node || !p->aux_in || !p->aux_out)
     {
         lv2_plugin_close(p);
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
