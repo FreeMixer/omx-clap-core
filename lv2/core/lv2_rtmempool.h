@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: LicenseRef-Carla-PublicDomain */
+/* Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> for the provenance notes; the header itself, below, is public domain */
 /* The LV2 realtime-safe memory pool feature, lv2dynparam's, as Carla carries it (source/includes/lv2/lv2_rtmempool.h,
  * public domain, copied unchanged below): zynadd requires its deprecated URI (#265). Realised by lv2_rtmempool.c. */
 
