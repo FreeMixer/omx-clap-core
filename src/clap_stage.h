@@ -2089,10 +2089,49 @@ static inline void omx_clap_run_ports(struct omx_clap_stage *s, const float *con
  */
 static inline int omx_clap_prime_block(void *ctx, uint32_t n)
 {
-    return omx_clap_run_plugin((struct omx_clap_stage *)ctx, n);
+    struct omx_clap_stage *s = (struct omx_clap_stage *)ctx;
+    const uint32_t n_in = s->h.n_in ? s->proc.audio_inputs[0].channel_count : 0;
+
+    // the warm-up signal the legs carry, on every channel of a wide main input (a leg that is the bounce has it already)
+    for (uint32_t c = 0; s->wide && c < n_in; c++)
+        if (s->wide_in[c] != s->h.in_l)
+            memcpy(s->wide_in[c], s->h.in_l, n * sizeof(float));
+    return omx_clap_run_plugin(s, n);
 }
 
-/** Prime an idle plugin with `n` frames of the warm-up signal, then reset and stop it: the number of bad blocks, UINT32_MAX when it cannot run. */
+/**
+ * Control thread, from omx_clap_prime: every block the plugin reads or writes, a full max_block of it, made resident,
+ * so no page of a channel past the legs faults in on the first live block. The stage's own blocks (a wide main input,
+ * every output) are zeroed; a block that may be the caller's input (an auxiliary input, the silence, a leg) is read
+ * and written back as it is.
+ */
+static inline void omx_clap_prime_touch(struct omx_clap_stage *s)
+{
+    const uint32_t frames = s->h.max_block;
+
+    for (uint32_t i = 0; i < s->proc.audio_inputs_count; i++)
+    {
+        const clap_audio_buffer_t *b = &s->proc.audio_inputs[i];
+        const int own = s->wide && i == 0 && s->h.n_in;
+
+        for (uint32_t c = 0; c < b->channel_count; c++)
+        {
+            volatile float *v = b->data32[c];
+
+            if (own)
+                memset(b->data32[c], 0, frames * sizeof(float));
+            else
+                for (uint32_t k = 0; k < frames; k++)
+                    v[k] = v[k];
+        }
+    }
+    for (uint32_t i = 0; i < s->proc.audio_outputs_count; i++)
+        for (uint32_t c = 0; c < s->proc.audio_outputs[i].channel_count; c++)
+            memset(s->proc.audio_outputs[i].data32[c], 0, frames * sizeof(float));
+}
+
+/** Prime an idle plugin with `n` frames of the warm-up signal on every main input channel, every block it reads or writes
+ * first made resident for max_block frames, then reset and stop it: the number of bad blocks, UINT32_MAX when it cannot run. */
 static inline uint32_t omx_clap_prime(struct omx_clap_stage *s, uint32_t n)
 {
     uint32_t bad;
@@ -2103,6 +2142,7 @@ static inline uint32_t omx_clap_prime(struct omx_clap_stage *s, uint32_t n)
         return UINT32_MAX;
     if (s->plugin->start_processing && !s->plugin->start_processing(s->plugin))
         return UINT32_MAX;
+    omx_clap_prime_touch(s);
     bad = omx_hosted_prime(&s->h, n, omx_clap_prime_block, s);
     if (s->plugin->reset)
         s->plugin->reset(s->plugin);

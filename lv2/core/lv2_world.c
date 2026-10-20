@@ -1052,20 +1052,39 @@ struct side_port
     int main;                       // a member of the main port
 };
 
-/* The audio ports a side has that are no side chain, the count rule 3 compares with the other side's. */
-static uint32_t side_count(const LilvPlugin *pl, uint32_t n, int is_input)
+/* The width of a side's main port, the one rule 3 compares with: the members of its main group when it has one by rule 1
+ * or 2 (the declared group, when a port of the side carries it, else the first group), else its ungrouped audio ports.
+ * Side chains, and every group but the main one, are never counted. */
+static uint32_t side_main_width(const LilvPlugin *pl, uint32_t n, int is_input)
 {
-    uint32_t i, count = 0;
+    LilvNodes *mg = L.lilv_plugin_get_value(pl, g.node[is_input ? N_PG_MAIN_INPUT : N_PG_MAIN_OUTPUT]);
+    char *declared = first_string(mg), *first = NULL;
+    uint32_t i, plain = 0, in_declared = 0, in_first = 0;
 
+    L.lilv_nodes_free(mg);
     for (i = 0; i < n; i++)
     {
         const LilvPort *port = L.lilv_plugin_get_port_by_index(pl, i);
+        char *group;
 
-        if (audio_of(pl, i, is_input) && !L.lilv_port_has_property(pl, port, g.node[N_IS_SIDECHAIN])
-            && !port_has(pl, port, N_PG_SIDECHAIN_OF) && !group_has(pl, port, N_PG_SIDECHAIN_OF))
-            count++;
+        if (!audio_of(pl, i, is_input) || L.lilv_port_has_property(pl, port, g.node[N_IS_SIDECHAIN])
+            || port_has(pl, port, N_PG_SIDECHAIN_OF) || group_has(pl, port, N_PG_SIDECHAIN_OF))
+            continue;
+        group = port_group(pl, port);
+        if (!group)
+            plain++;
+        else
+        {
+            in_declared += declared && strcmp(group, declared) == 0;
+            if (!first)
+                first = strdup(group);
+            in_first += first && strcmp(group, first) == 0;
+        }
+        free(group);
     }
-    return count;
+    free(declared);
+    free(first);
+    return in_declared ? in_declared : first ? in_first : plain;
 }
 
 /* One port of the description: its channels (the members, at most LV2_CORE_PORT_CHANNELS of them: one more is too wide),
@@ -1090,8 +1109,9 @@ static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, cons
  * group) are auxiliary whatever else applies (rule 4); of the rest,
  *  1. a main group declared (pg:mainInput, pg:mainOutput) that has members on this side is the main port;
  *  2. else the group of the first grouped port is;
- *  3. else, no group at all: up to two ports are the main port, more than two as many as the other side's (`other`)
- *     are one main port of that width, and otherwise the first two are the main port.
+ *  3. else, no group at all: up to two ports are the main port, more than two as many as the other side's main port is
+ *     wide (`other`: its main group's members by rule 1 or 2, else its ungrouped ports; side chains and auxiliary groups
+ *     never count) are one main port of that width, and otherwise the first two are the main port.
  * Every other audio port is auxiliary: the members of one pg:group one port, an ungrouped port one mono port, in the
  * order of their first member, up to LV2_CORE_AUX_PORTS of them with the side's CV ports (one more is too many ports).
  * A port of more than LV2_CORE_PORT_CHANNELS channels is too wide. Fills p->main_in and p->aux_in, or p->main_out and
@@ -1099,7 +1119,7 @@ static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, cons
  */
 static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_input)
 {
-    const uint32_t n = L.lilv_plugin_get_num_ports(pl), other = side_count(pl, n, !is_input);
+    const uint32_t n = L.lilv_plugin_get_num_ports(pl), other = side_main_width(pl, n, !is_input);
     struct lv2_audio_port *main = is_input ? &p->main_in : &p->main_out;
     struct lv2_audio_port *aux = is_input ? p->aux_in : p->aux_out;
     uint32_t *n_aux = is_input ? &p->n_aux_in : &p->n_aux_out;
