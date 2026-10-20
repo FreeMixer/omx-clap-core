@@ -27,6 +27,7 @@
  *   org.omx-clap-host.test.widen       a mono main input and a stereo main output
  *   org.omx-clap-host.test.auxout      a stereo main pair and a stereo auxiliary output; process() writes
  *                                      FAKE_AUX_OUT_LEVEL / k on its channel k, as on every auxiliary output
+ *   (any of them, with FAKE_PROCESS_SLEEP set, answers CLAP_PROCESS_SLEEP from process())
  *   org.omx-clap-host.test.zero-port   a stereo main pair and an auxiliary input of 0 channels
  *   org.omx-clap-host.test.too-wide    a stereo main pair and an auxiliary output of 65 channels
  *   org.omx-clap-host.test.two-mains   a stereo main pair and a second stereo output flagged main
@@ -136,6 +137,7 @@ typedef struct FAKE_T {
     uint32_t aux_in_channels;   // the width of every auxiliary input
     uint32_t aux_out_channels;  // the width of every auxiliary output
     uint32_t two_mains;         // the first auxiliary output is flagged main too
+    uint32_t says_sleep;        // process() answers CLAP_PROCESS_SLEEP (FAKE_PROCESS_SLEEP)
     uint32_t aux_mix;           // what process() takes of auxiliary input 1 onto main output channel 1: one FAKE_AUX_*
     uint32_t copies_nothing;    // process() leaves every buffer as it is
     uint32_t mix;               // what process() writes of the main pair: one FAKE_MIX_*
@@ -898,7 +900,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
             for (i = 0; i < process->frames_count; i++)
                 process->audio_outputs[c].data32[k][i] = FAKE_AUX_OUT_LEVEL / (float)(k + 1);
     }
-    return CLAP_PROCESS_CONTINUE;
+    return fake->says_sleep ? CLAP_PROCESS_SLEEP : CLAP_PROCESS_CONTINUE;
 }
 
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
@@ -1017,6 +1019,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configs_no_main_in = getenv("FAKE_CONFIGS_NO_MAIN_IN") != NULL;
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
+    fake->says_sleep = getenv("FAKE_PROCESS_SLEEP") != NULL;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
     fake->latency_param = LATENCY_DEFAULT;
