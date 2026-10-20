@@ -228,19 +228,22 @@ and when it differs destroys the instance and answers
 a scheme the host does not know answers
 .BR "resp \-508" .
 .BI "audio_ports " N
-answers
-.B "resp 0"
-and a line per audio port of the instance, inputs first and each side's main
-port first:
-.BR in | out ,
-.BR main | aux ,
-the channels,
-.BR channels ,
-the kind, a surround port's
-.B map
-of CLAP surround ids or an ambisonic port's ordering and normalisation, the
-port's name in double quotes, and the JACK ports that carry it, as in
-.BR "in aux 1 channels mono \(dqin 1\(dq aux_in_1_1" .
+answers on one line
+.BR "resp 0" ,
+.B dry
+while the instance passes dry, and a record per port registered at
+.BR add ,
+inputs first and each side's main port first, separated by spaces:
+.IB side : role : index : channels : kind\fR[\fB:\fIlayout\fR][\fB:assumed\fR]\fB:"\fIname\fB":\fIjack\fB,\fIjack ,
+the layout a surround port's CLAP surround ids or an ambisonic port's ordering
+and normalisation joined by
+.BR + ,
+the name's
+.B \(dq
+and
+.B \e
+escaped with a backslash, as in
+.BR "in:aux:1:1:mono:\(dqin 1\(dq:aux_in_1_1" .
 .BI "track_info " "N name color" " [" kind ]
 passes the strip's name, colour and kind to the plugin through
 .BR clap.track\-info ;

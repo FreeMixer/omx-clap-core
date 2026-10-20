@@ -356,22 +356,36 @@ channel, both from 1 (the main pair keeps `in_<k>` and `out_<k>`). Each
 channel is bound to a block of the JACK buffer size, made again when that
 size changes; each cycle copies an auxiliary input's JACK buffer into its
 block before the plugin runs and an auxiliary output's block onto its JACK
-buffer after. A side chain nothing is linked to reads silence. A ports rescan
-that leaves the auxiliary ports other than the ones registered at `add` passes
-the instance dry until it is added again, as one that changes the main ports
-does.
+buffer after. A side chain nothing is linked to reads silence. The auxiliary
+outputs are guarded as the main ones are (the library's, for every carrier):
+on every block the plugin does not run usable (not processing, bypassed,
+faulted, asleep, a block longer than the bounce, an unusable block) they are
+silent, never the last block again; a non-finite sample on one makes the block
+unusable and strikes as on a main output; a sample past +24 dBFS is clamped
+and counted. A ports rescan that leaves the auxiliary ports other than the
+ones registered at `add` passes the instance dry until it is added again, as
+one that changes the main ports does.
 
-`audio_ports <N>` prints the description with those names, `resp 0` and a
-line per port, inputs first and each side's main port first:
+`audio_ports <N>` answers on one line: `resp 0`, then `dry` while the
+instance passes dry, then a record per port registered at `add`, inputs first
+and each side's main port first, separated by single spaces:
 
-    resp 0
-    in main 2 channels stereo "in 0" in_1 in_2
-    in aux 1 channels mono "in 1" aux_in_1_1
-    out main 2 channels stereo "out 0" out_1 out_2
+    resp 0 in:main:1:2:stereo:"in 0":in_1,in_2 in:aux:1:1:mono:"in 1":aux_in_1_1 out:main:1:2:stereo:"out 0":out_1,out_2
 
-a surround port adds `map` and its CLAP surround ids after the kind, an
-ambisonic port its ordering and normalisation; `resp -3` for an instance that
-is not there. `omx-clap-scan` prints the same names for every port it lists.
+A record is `side:role:index:channels:kind[:layout][:assumed]:"name":jacks`:
+`side` `in` or `out`, `role` `main` or `aux`, `index` the port's place among
+its side's auxiliary ports from 1 (1 for the main port), `channels` its
+registered width, `kind` `mono`, `stereo`, `surround`, `ambisonic` or
+`unknown`, `layout` a surround port's CLAP surround ids or an ambisonic port's
+ordering and normalisation joined by `+` (`0+1+2+3+9+10`, `acn+sn3d`),
+`assumed` when that ambisonic configuration is the host's (an LV2 group, or a
+CLAP plugin without `clap.ambisonic`), the name in double quotes with `"` and
+`\` escaped as `\"` and `\\`, and the JACK ports joined by `,`. A port whose
+description no longer has its registered width (a dry relayout) reads
+`unknown` and `""`. `resp -3` for an instance that is not there. plugin-hostd
+does not declare the verb yet (its Task 6.6, in that repository): behind it, it
+is not routed to the instance's worker. `omx-clap-scan` prints the same
+names, in the text form `in  aux 1 channels mono "in 1" aux_in_1_1`.
 
 `bypass <N> 1` on an instrument fades its output to silence over one block
 and then leaves the plugin idle: notes that arrive meanwhile are dropped.
@@ -678,11 +692,13 @@ instance that is initialised, read and destroyed without being activated:
   surround ids `clap.surround` names (0 to n-1 in index order without the
   extension), and an ambisonic port its ordering (`acn`, `fuma`) and
   normalisation (`sn3d`, `n3d`, `maxn`, `sn2d`, `n2d`) from `clap.ambisonic`
-  (`acn` and `sn3d` without it); then the JACK ports omx-clap-host registers
-  for the port (`in_<k>`, `out_<k>`, `aux_in_<p>_<k>`, `aux_out_<p>_<k>`;
-  `"jack"` in the JSON, after the name in the text form), none for a port it
-  refuses (no channels, more than 64, past the 64th auxiliary port, a second
-  main port). The text form is a line per port:
+  (`acn` and `sn3d` without it, `"assumed":true` and `assumed` then); then
+  the JACK ports omx-clap-host registers for the port (`in_<k>`, `out_<k>`,
+  `aux_in_<p>_<k>`, `aux_out_<p>_<k>`; `"jack"` in the JSON, after the name in
+  the text form), and none for any port of a plugin the core refuses (the scan
+  opens each plugin as omx-clap-host does, an instrument's note input and any
+  main width admitted, and lists a refused one from an instance only created).
+  The text form is a line per port, the name quoted with `"` and `\` escaped:
   `in  aux 1 channels mono "in 1" aux_in_1_1`;
 - the note port counts;
 - the note names (`clap.note-name`), each with its port, key and channel;
@@ -705,7 +721,7 @@ instance that is initialised, read and destroyed without being activated:
     {"id":"...","name":"...","vendor":"...","version":"...","description":"...",
      "url":"...","features":["audio-effect"],
      "params":[{"id":0,"name":"...","module":"","min":0,"max":1,"default":0,"flags":["stepped"]}],
-     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo"}],"outputs":[...]},
+     "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo","jack":["in_1","in_2"]}],"outputs":[...]},
      "note_ports":{"inputs":0,"outputs":0},
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
      "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}

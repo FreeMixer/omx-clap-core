@@ -18,7 +18,8 @@ version, description, url and features, then, from an initialised instance
 that is destroyed again and never activated, every parameter (id, name,
 module, min, max, default, flags by name), the audio ports (main or aux,
 channels, kind, a surround port's map or an ambisonic port's ordering and
-normalisation, the name, and the JACK ports omx\-clap\-host registers for it:
+normalisation, the name, and, for a plugin the core admits as omx\-clap\-host
+opens it, the JACK ports that host registers for it:
 .BI in_ k\fR,
 .BI out_ k\fR,
 .BI aux_in_ p _ k
