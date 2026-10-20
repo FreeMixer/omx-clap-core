@@ -103,7 +103,6 @@ OMX_CLAP_CORE_0.11
 OMX_CLAP_CORE_0.12
 {
   global:
-    omx_clap_host_bind_aux_output;
     omx_clap_host_note_name;
     omx_clap_host_note_name_count;
     omx_clap_host_note_names_changed;
@@ -116,3 +115,10 @@ OMX_CLAP_CORE_0.12
     omx_clap_host_state_save_context;
     omx_clap_host_tail;
 } OMX_CLAP_CORE_0.11;
+
+/* added in the soname-1 train (0.13.0) */
+OMX_CLAP_CORE_0.13
+{
+  global:
+    omx_clap_host_bind_aux_output;
+} OMX_CLAP_CORE_0.12;
