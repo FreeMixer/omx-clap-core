@@ -33,6 +33,15 @@ omx-clap-host (0.12.0) unstable; urgency=medium
     hosting.topology.no-audio-input is no longer raised: a plugin with no
     input is admitted as a source, and one with only control ports keeps
     hosting.topology.no-audio-output.
+  * An LV2 plugin is hosted as mod-host hosts it, checked plugin by plugin
+    against mod-host by the parity runner: a plugin that reports its latency
+    only after its first run is no longer reset by the restart that follows
+    (the LV2 instance stays active unless the rate, the block lengths or a
+    pending state load need a full activate; the core's warm-up still resets
+    it); control output ports start at their default, else their minimum, as
+    mod-host starts them (an equalizer that reads its own output port was 18
+    dB loud); and a default state is restored only for a plugin that has a
+    real state:state (an empty state wiped a synth's modulation matrix).
   * tests/lv2_parity.py compares every LV2 plugin that mod-host and this
     adapter both host, from the same cycles of one input, and classifies each
     (identical, within tolerance, differs, nondeterministic, silent, crash).
