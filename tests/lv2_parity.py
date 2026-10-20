@@ -751,9 +751,13 @@ def param_diff(hosts, uri, lv2_path):
     for sym in syms:
         a, _ = hosts['mod'].send(f'param_get 0 {sym}', 2)
         b, _ = hosts['omx'].send(f'param_get 2 {sym}', 2)
-        va, vb = (a or '').split()[2:3], (b or '').split()[2:3]
+        # a control one host does not read (resp -103: the adapter keeps lv2:freeWheeling and the like to itself)
+        # is no value to compare
+        if not (a or '').startswith('resp 0 ') or not (b or '').startswith('resp 0 '):
+            continue
+        va, vb = a.split()[2], b.split()[2]
         if va != vb:
-            diff.append(f"{sym} mod-host {va[0] if va else a} omx-clap-host {vb[0] if vb else b}")
+            diff.append(f"{sym} mod-host {va} omx-clap-host {vb}")
     return diff
 
 
@@ -999,10 +1003,15 @@ def report_text(rows, skipped, meta):
     table('HANG', 'HANG')
     table('REFUSED', 'REFUSED this time')
     table('ERROR', 'ERROR (the runner could not measure)')
-    noted = [r for r in rows if r.get('note')]
-    if noted:
+    notes = {}
+    for r in rows:
+        if r.get('note'):
+            notes.setdefault(r['note'], []).append(r)
+    if notes:
         L += ['', '## Notes', '']
-        L += [f"- {r['uri']} at {r['rate']}: {r['note']} ({r['class']})" for r in noted]
+        for note, rs in sorted(notes.items(), key=lambda kv: -len(kv[1])):
+            cls_n = ', '.join(f'{c} {sum(1 for r in rs if r["class"] == c)}' for c in CLASSES if any(r['class'] == c for r in rs))
+            L.append(f"- {note}: {len(rs)} measurements ({cls_n}): " + ', '.join(sorted({r['uri'] for r in rs})))
     lat = [r for r in rows if r.get('latency_mod', '') != r.get('latency_omx', '') or
            any(x != 'latency 0 frames' for x in (r.get('latency_log_omx') or 'latency 0 frames').split(' / '))]
     L += ['', '## Latency', '',
