@@ -9,7 +9,8 @@ Name: omx-clap-core
 Description: The CLAP hosting core of omx-clap-host: a plugin's process() on the caller's RT thread and the control thread that owns the plugin
 Version: @VERSION@
 Requires: clap
-# hosted_stage.h takes its DSP words from omx-dsp's headers; nothing of omx-dsp is linked
-Requires.private: omxdsp >= 0.18.0
+# hosted_stage.h takes its DSP words from omx-dsp's headers, clap_host.h its hosting codes from omx-contract's
+# omx_vocabulary.h; nothing of either is linked
+Requires.private: omxdsp >= 0.18.0, omx-contract >= 2.19.0
 Libs: -L${libdir} -lomx-clap-core
 Cflags: -I${includedir}
