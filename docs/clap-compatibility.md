@@ -201,30 +201,31 @@ Measured
 A desk measurement, not a CI result: `make clap-coverage` added every CLAP plugin installed on msi,
 one at a time, to this tree's omx-clap-host in a private namespace with a PipeWire of its own, and
 read the answer and the host's log of ids it did not offer. Run on 2026-10-20 with the host built
-on this change over main `5991b9c`; re-run it to measure again, from a fresh output directory (the
+on this change over main `a5d0dba`; re-run it to measure again, from a fresh output directory (the
 probe resumes from the last one).
 
-**Hosted 431 of 433 plugins** in 234 files: 2 refused, none crashed, and every file scanned.
+**Hosted 433 of 433 plugins** in 234 files: none refused, none crashed, and every file scanned.
 The extensions are counted for the hosted plugins only: a refused plugin ends before it asks.
 
-| refused with | plugins | for example |
-|---|---|---|
-| `hosting.topology.no-audio-output` | 2 | `com.madskjeldgaard.birdhouse`, `studio.kx.distrho.ildaeil#midi` |
-
-The two are note tools with no audio port at all: a note input, a note output, nothing to carry
-(#270). The four nebula bundles (`nebula-cluster.clap/libnebula_cluster.so` and the de-esser, delay
-and stereo delay beside it), which no earlier run could scan, are listed by their one object and
-hosted (#259). The installed set changed since the `07d70a1` run: QPitch, NoiseRF and ChowKick were
-removed from msi, so their crash and scan-failure rows are not measured here, not fixed.
+Nothing is refused. The two that the `5991b9c` run refused `hosting.topology.no-audio-output`,
+`com.madskjeldgaard.birdhouse` and `studio.kx.distrho.ildaeil#midi`, are note tools with no audio
+port at all: a note input, a note output. They are hosted as pass-through tools now, the host's
+placement (#270): the strip's audio through the stage untouched, the plugin run for its notes alone.
+That code is written for a plugin with an audio input or an auxiliary port and no main output (an
+analyser, every output a side chain), of which the desk has none. The four nebula bundles
+(`nebula-cluster.clap/libnebula_cluster.so` and the de-esser, delay and stereo delay beside it),
+which no earlier run could scan, are listed by their one object and hosted (#259). The installed set
+changed since the `07d70a1` run: QPitch, NoiseRF and ChowKick were removed from msi, so their crash
+and scan-failure rows are not measured here, not fixed.
 
 The ids the hosted plugins asked for most and were not given:
 
 | asked for | plugins | where it stands |
 |---|---|---|
-| `clap.gui` | 316 | out of scope |
-| `clap.audio-ports-config` (host-side) | 69 | unsupported, #263 |
-| `clap.context-menu.draft/0`, `clap.context-menu/1` | 67, 66 | out of scope |
-| `clap.resource-directory/1` | 66 | unsupported, P3 |
+| `clap.gui` | 317 | out of scope |
+| `clap.audio-ports-config` (host-side) | 70 | unsupported, #263 |
+| `clap.context-menu.draft/0`, `clap.context-menu/1` | 68, 67 | out of scope |
+| `clap.resource-directory/1` | 67 | unsupported, P3 |
 | `clap.undo/4` | 38 | out of scope |
 | `clap.mini-curve-display/3` | 36 | unsupported, #188 |
 | `clap.scratch-memory/1` | 36 | unruled |
