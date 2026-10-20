@@ -592,7 +592,8 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-feature-probe.lv2/omx-feature-probe.so \
               build/lv2/omx-path-fixture.lv2/omx-path-fixture.so \
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
-              build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so
+              build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so \
+              build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -627,6 +628,11 @@ build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so: $(LV2_FIXTURE_DIR)/lv2_atom_
 build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so: $(LV2_FIXTURE_DIR)/lv2_cv_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-cv-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-cv-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so: $(LV2_FIXTURE_DIR)/lv2_layout_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 build/lv2/omx-feature-probe.lv2/omx-feature-probe.so: $(LV2_FIXTURE_DIR)/lv2_feature_probe.c $(LV2_FIXTURE_DIR)/lv2_feature_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-feature-probe.lv2/*.ttl)
