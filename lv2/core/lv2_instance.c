@@ -1318,10 +1318,11 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
-    // an event's type is 16 bits: an ev:EventPort's MIDI id must fit one (it is among the first URIs the table maps), or
-    // the plugin is refused before it is instantiated
+    // an event's type is 16 bits and 0 is the event extension's reference-counted type: an ev:EventPort's MIDI id must
+    // be neither 0 (a table that could not map it) nor past 16 bits, or the plugin is refused before it is instantiated
     in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
-    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out) && in->urid_midi > UINT16_MAX)
+    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out)
+        && (in->urid_midi == 0 || in->urid_midi > UINT16_MAX))
     {
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;

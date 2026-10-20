@@ -45,7 +45,8 @@
  *             without uri-map refuses it hosting.features.missing before its binary is opened; an output spoilt one
  *             way at a time (data moved, an event past the buffer, stamps not frames, a short count) read only as far
  *             as it is sound; through a 128 KiB buffer a 65516-byte message kept and read back, 65517 refused; a table
- *             past 16 bits answers 0 under the event map and refuses the plugin before instantiate.
+ *             past 16 bits answers 0 under the event map and refuses the plugin before instantiate, and one that maps
+ *             midi:MidiEvent to 0 refuses it too.
  *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
  *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
@@ -972,6 +973,31 @@ static void t_event_run(void)
     lv2_plugin_close(p);
 }
 
+/* a table that cannot map midi:MidiEvent (its copy refused): the id is 0, the event extension's reference-counted type,
+ * and an ev:EventPort plugin is refused hosting.no-realisation before it is instantiated. A child: the table is the
+ * process's */
+static void event_zero_id(void)
+{
+    const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_event_fixture *seen;
+    struct lv2_plugin *p;
+    struct lv2_instance *in;
+
+    g_strdup_fail = LV2_MIDI__MidiEvent;
+    CHECK(lv2_core_configure(&config, why) == 0, "zero id: configured");
+    CHECK(omx_lv2_urid_map(LV2_MIDI__MidiEvent) == 0, "zero id: midi:MidiEvent maps to 0, its copy refused");
+    p = open_plugin(g_ev, EV_URI "#echo", why);
+    in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    seen = ev_seen();
+    CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == -1 && strcmp(why, LV2_CODE_NO_REALISATION) == 0,
+          "zero id: #echo is refused hosting.no-realisation (%s)", why);
+    CHECK(seen && seen->instantiated == 0, "zero id: before it was instantiated (%u)", seen ? seen->instantiated : 0u);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+    g_strdup_fail = NULL;
+}
+
 /* ---- the worker gain ---- */
 
 static struct lv2_worker_gain_probe *probe(void)
@@ -1484,6 +1510,7 @@ int main(int argc, char **argv)
     in_child("without uri-map", without_uri_map);
     in_child("event big buffer", event_big);
     in_child("event wide table", event_wide_table);
+    in_child("event zero id", event_zero_id);
     CHECK(!lilv_mapped(), "no lilv in this process before its first bundle");
     CHECK(lv2_core_configure(&config, why) == 0, "configure every provider (%s)", why);
     t_one_bundle();
