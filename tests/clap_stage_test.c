@@ -1710,7 +1710,7 @@ static int aux_all(float v) {
 }
 
 /** A stage with one stereo auxiliary output bound to g_aux, the main pair two-leg (`wide` 0, 2/2) or 6/6 wide over `wi`/`wo`. */
-static void aux_rig_up(struct rig *g, float (*scratch)[MAXB], int wide, float **wi, float **wo) {
+static void aux_rig_up_bound(struct rig *g, float (*scratch)[MAXB], int wide, float **wi, float **wo, int bind) {
   const struct omx_clap_port port = {.channels = 2};
   float *sp[2] = {scratch[0], scratch[1]}, *bp[2] = {g_aux[0], g_aux[1]};
 
@@ -1721,12 +1721,13 @@ static void aux_rig_up(struct rig *g, float (*scratch)[MAXB], int wide, float **
         "aux out: stage_init");
   CHECK(g->f.plugin.init(&g->f.plugin) && g->f.plugin.activate(&g->f.plugin, (double)g_rate, 1, MAXB), "aux out: init, activate");
   CHECK(omx_clap_bind_aux(&g->st, sp, 1, &port) == 0, "aux out: one stereo auxiliary output");
-  omx_clap_set_aux_out(&g->st, 0, 2, bp);
+  if (bind) omx_clap_set_aux_out(&g->st, 0, 2, bp);
   if (wide)
     CHECK(omx_clap_bind_wide(&g->st, wi, 6, wo, 6) == 0 && omx_clap_bind_ports(&g->st, &g->f.plugin, 6, 6) == 0, "aux out: bind 6/6 wide");
   else
     CHECK(omx_clap_bind(&g->st, &g->f.plugin, 2) == 0, "aux out: bind the two legs");
 }
+static void aux_rig_up(struct rig *g, float (*scratch)[MAXB], int wide, float **wi, float **wo) { aux_rig_up_bound(g, scratch, wide, wi, wo, 1); }
 
 static void t_aux_out_dry(void) {
   static struct rig g;
@@ -1778,6 +1779,24 @@ static void t_aux_out_dry(void) {
         "aux out: a NaN on an auxiliary output alone: the block is unusable, struck, and the auxiliary outputs silent (%u, %g)",
         atomic_load(&g.st.h.nonfinite_blocks), (double)g_aux[0][0]);
   CHECK(l[0] == 0.5f, "aux out: and the main lane dry (%g)", (double)l[0]);
+
+  /* an auxiliary output nobody bound writes its scratch, which nothing reads: never scanned, clamped nor silenced */
+  aux_rig_up_bound(&g, scratch, 0, NULL, NULL, 0);
+  omx_clap_arm(&g.st);
+  g.f.aux_nan = 1;
+  for (int k = 0; k < 2; k++) {
+    fill(l, MAXB, 0.5f);
+    fill(r, MAXB, 0.5f);
+    run(&g, l, r, MAXB);
+  }
+  CHECK(atomic_load(&g.st.h.nonfinite_blocks) == 0 && l[0] == 0.5f * PAD_GAIN,
+        "aux out: a NaN on an unbound auxiliary output strikes nothing and the mains stay wet (%u, %g)",
+        atomic_load(&g.st.h.nonfinite_blocks), (double)l[0]);
+  g.f.aux_nan = 0;
+  g.f.aux_level = 100.0f;
+  run(&g, l, r, MAXB);
+  CHECK(atomic_load(&g.st.h.clamped_samples) == 0 && scratch[0][0] == 100.0f,
+        "aux out: an unbound hot auxiliary output is not clamped nor counted (%u, %g)", atomic_load(&g.st.h.clamped_samples), (double)scratch[0][0]);
 
   /* the wide path */
   for (uint32_t c = 0; c < 6; c++) {
