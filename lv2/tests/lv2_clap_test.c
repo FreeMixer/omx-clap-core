@@ -2553,7 +2553,7 @@ static void t_sidechain_core(double rate)
         omx_clap_lv2_entry_release(entry);
         return;
     }
-    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
+    CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 2 && in->in_channels == 2, "core %.0f: one stereo auxiliary input beside the stereo pair", rate);
     for (i = 0; i < BLOCK; i++)
         l[i] = 0.5f, r[i] = -0.25f, sl[i] = 0.25f, sr[i] = 0.125f;
     CHECK(omx_clap_host_bind_aux_input(in, 0, sl, sr, MAXB) == 0, "core %.0f: bind the side chain before activation", rate);
@@ -2728,7 +2728,7 @@ static void t_cv_core(double rate)
         omx_clap_lv2_entry_release(entry);
         return;
     }
-    CHECK(in->aux_inputs == 1 && in->aux_in_channels[0] == 1 && in->aux_outputs == 1 && in->aux_channels[0] == 1,
+    CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 1 && in->aux_outputs == 1 && in->aux_out[0].channels == 1,
           "cv core %.0f: one mono auxiliary input and one mono auxiliary output (%u, %u)", rate, in->aux_inputs, in->aux_outputs);
     for (i = 0; i < MAXB; i++)
         cv[i] = 0.25f;
