@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.12.0
+Version:        0.13.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -145,6 +145,29 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
+- Every audio port a plugin declares is described, main and auxiliary, up to
+  64 a side and 64 channels a port, with the refusal codes of omx-contract for
+  what the bus cannot carry; the main pair may differ in width and the carrier
+  runs any width (run_ports); an LV2 plugin's main and auxiliary ports are
+  told apart by the port-group rules; surround and ambisonic ports are read
+  through the CLAP extensions, a rescan reported and never a restart;
+  request_layout asks a plugin for the carrier's layout; omx-clap-host binds a
+  JACK port per auxiliary channel. The calls, with bind_aux_input in its per-
+  channel-buffer shape and bind_aux_output, are in the version node
+  OMX_CLAP_CORE_0.13.
+- The LV2 adapter reads an ev:EventPort MIDI port as it reads the atom MIDI
+  port, hosts a control-only plugin or a MIDI sink as a pass-through tool, and
+  counts a CV port against the auxiliary limit of 64 a side and nothing else:
+  the cap of 8 is gone and hosting.features.cv-ports is no longer raised.
+- A CLAP plugin is admitted by what its ports declare, as the LV2 adapter
+  decides; the descriptor's feature list refuses nothing and hosting.clap.not-
+  audio-effect is no longer raised.
+- tests/clap_coverage.py measures which installed CLAP plugins the host hosts
+  and which extensions they ask for and are not offered; docs/clap-
+  compatibility.md names every CLAP id the host offers or reads and the test
+  behind it.
+- The library ABI is 14. omx-contract 2.19.0 or newer.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.12.0-1
 - The host offers a plugin clap.note-ports, clap.note-name and
   clap.voice-info: supported_dialects answers CLAP, MIDI, MIDI MPE and
