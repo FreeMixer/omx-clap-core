@@ -15,7 +15,7 @@ How to read the tables
 
 - One row per id: every id the installed CLAP headers spell, stable and draft (a draft id the host
   answers or asks for is a row of its own), then the factories. `tests/clap_doc_check.sh` fails when
-  the headers spell an id this page has no row for. The headers are msi's `clap-devel` 1.2.10: 63
+  the headers spell an id this page has no row for. The headers are the installed `clap-devel`: 1.2.10 on msi, 1.2.7 in CI, which spells `clap.transport-control/1` where 1.2.10 spells `/2` (both have rows). On msi they are 63
   ids, 58 of extensions under `ext/` and `ext/draft/` and 5 of factories; the 9 rows of
   [Ids outside the headers](#ids-outside-the-headers) come beside them. A runner with another set
   is held to the ids it finds; the rows stay.
@@ -50,7 +50,7 @@ The tests named below:
 | `tests/clap_core_test.c` | the core over plugins built into the test: the audio role, the side chain, the meters, the transport (`make test-fake`) |
 | `tests/clap_unoffered_test.c` | the log of ids the host did not offer, from the audio role and the control thread (`make test-fake`) |
 | `tests/clap_scan_test.c` | omx-clap-scan against the fakes and a plugin that crashes (`make test-fake`) |
-| `tests/param_contract_test.c` | the rules of `org.openmixer.param-contract/1` (`make test-param-contract`, in `make test-fake`) |
+| `tests/param_contract_test.c` | the rules of `org.openmixer.param-contract/1` (`tests/param_contract_test.c`, in `make test-fake`) |
 | `tests/jack_info_e2e.sh` | omx-clap-host over jack: `track_info`, the remote pages, `param_info` (`make test-jack-info`) |
 | `tests/jack_meters_e2e.sh` | omx-clap-host over jack: the meters as `output_set` lines (`make test-jack-meters`) |
 | `tests/jack_params_e2e.sh` | omx-clap-host over jack: a plugin's own parameter changes, gestures and rescans (`make test-jack-params`) |
@@ -74,15 +74,15 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.audio-ports` | supported: `rescan`, any flags, active or not, is parked and reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_rescan_flag_supported` answers false (`tests/clap_host_test.c:rescan_checks`, `tests/clap_core_test.c:t_rescan_across_warmup`) | supported: every port described, its channels, `port_type` and `in_place_pair`; a main pair of any width up to 64 channels, auxiliary ports beside it on both sides (`tests/clap_host_test.c:t_layout_description`, `tests/clap_host_test.c:t_run_ports`, `tests/clap_core_test.c:t_side_chain`) | offered | refused: a port of no channel `hosting.topology.port-without-channels`, a port past 64 channels `hosting.topology.port-too-wide`, two main ports or too many auxiliary ones `hosting.topology.too-many-ports` (`tests/clap_host_test.c:t_layout_description`), no output `hosting.topology.no-audio-output` (`tests/clap_host_test.c:t_request_layout`); a main port wider than the caller's lane is refused at activate, `hosting.topology.wider-than-strip` (`tests/clap_host_test.c:synth_checks`). The LV2 adapter serves it too (`lv2/tests/lv2_clap_test.c:t_layouts`) |
 | `clap.audio-ports-activation/2` | — | supported: before each activate every auxiliary port, input or output, is set active only while its buffers are bound (tested on an auxiliary output: `tests/clap_ext_test.c`) | — | omx-clap-host binds every auxiliary port to its JACK ports |
 | `clap.audio-ports-activation/draft-2` | — | read, untested: asked when the plugin lacks the final id, and used the same way | — | |
-| `clap.audio-ports-config` | unsupported: the host's `rescan` half is not offered; no issue yet | supported: asked only by `omx_clap_host_request_layout`, the plugin inactive, after `clap.configurable-audio-ports` fails or is absent: the first config whose main ports match the caller's requests in channels and port type is selected (`tests/clap_host_test.c:t_request_layout`) | 65 | omx-clap-host asks for its lane's width (`-c`, 2 by default) at `add` and after a reported rescan |
+| `clap.audio-ports-config` | unsupported: the host's `rescan` half is not offered (#263) | supported: asked only by `omx_clap_host_request_layout`, the plugin inactive, after `clap.configurable-audio-ports` fails or is absent: the first config whose main ports match the caller's requests in channels and port type is selected (`tests/clap_host_test.c:t_request_layout`) | 65 | omx-clap-host asks for its lane's width (`-c`, 2 by default) at `add` and after a reported rescan |
 | `clap.audio-ports-config-info/1` | — | unsupported: not asked; the host reads the config's ports from the description after selecting it | — | |
 | `clap.audio-ports-config-info/draft-0` | — | unsupported: not asked | — | |
 | `clap.configurable-audio-ports/1` | — | supported: asked only by `omx_clap_host_request_layout`, the plugin inactive, before `clap.audio-ports-config`: `can_apply_configuration`, then `apply_configuration`, and the description read again (`tests/clap_host_test.c:t_request_layout`) | — | |
 | `clap.configurable-audio-ports.draft1` | — | read, untested: asked when the plugin lacks the final id | — | |
 | `clap.surround/4` | supported: `changed` is a ports rescan, reported once, never a restart (`tests/clap_host_test.c:t_surround_ambisonic`) | supported: `get_channel_map` gives a surround port's map; `is_channel_mask_supported` asked by `omx_clap_host_request_layout` with the mask of the caller's map (`tests/clap_host_test.c:t_surround_ambisonic`, `tests/clap_host_test.c:t_request_layout`) | offered | refused `hosting.topology.channel-map-unknown`: a map naming an id past `CLAP_SURROUND_TSR` or of the wrong count, a surround port of more than `CLAP_SURROUND_TSR` + 1 channels without the extension (index order is assumed below that), a mask the plugin refuses (`tests/clap_host_test.c:t_surround_ambisonic`, `tests/clap_host_test.c:t_request_layout`). The LV2 adapter serves it for a typed surround group (`lv2/tests/lv2_clap_test.c:t_layouts`) |
-| `clap.surround.draft/4` | supported: answered as the final id, the same object (`tests/clap_host_test.c:t_surround_ambisonic`) | read, untested: asked when the plugin lacks the final id | — | |
+| `clap.surround.draft/4` | supported: answered as the final id, the same object (`tests/clap_host_test.c:t_surround_ambisonic`) | read, untested: asked when the plugin lacks the final id | offered, not counted | |
 | `clap.ambisonic/3` | supported: `changed` is a ports rescan, reported once, never a restart (`tests/clap_host_test.c:t_surround_ambisonic`) | supported: `get_config` gives an ambisonic port's ordering and normalisation, ACN and SN3D assumed without it or when it answers false; `is_config_supported` asked by `omx_clap_host_request_layout` (`tests/clap_host_test.c:t_surround_ambisonic`, `tests/clap_host_test.c:t_request_layout`) | offered | refused: a configuration the plugin does not support `hosting.topology.ambisonic-config` (`tests/clap_host_test.c:t_request_layout`); a channel count that is no (order+1)² `hosting.topology.port-too-wide` (`tests/clap_host_test.c:t_surround_ambisonic`) |
-| `clap.ambisonic.draft/3` | supported: answered as the final id, the same object (`tests/clap_host_test.c:t_surround_ambisonic`) | read, untested: asked when the plugin lacks the final id | — | |
+| `clap.ambisonic.draft/3` | supported: answered as the final id, the same object (`tests/clap_host_test.c:t_surround_ambisonic`) | read, untested: asked when the plugin lacks the final id | offered, not counted | |
 | `clap.context-menu/1` | out of scope: the console draws its own menus (ruled 2026-10-19, #95) | out of scope: the same ruling | 62 | |
 | `clap.context-menu.draft/0` | out of scope: the same ruling | out of scope: the same ruling | 63 | |
 | `clap.event-registry` | offered, untested: `query` answers false for every space, the host reads no event space but CLAP's core one | — | offered | |
@@ -127,6 +127,7 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.project-location/2` | — | unruled (#207) | — | |
 | `clap.resource-directory/1` | unsupported: ruled P3 (2026-10-19, #95) | unsupported: the same | 62 | |
 | `clap.scratch-memory/1` | unruled: not on #207's list; plugin-qualify#116 wants it as a resource-profile term | — | 33 | |
+| `clap.transport-control/1` | unruled (#207) | — | — | the spelling of `clap-devel` 1.2.7 (CI's); 1.2.10 spells `/2` |
 | `clap.transport-control/2` | unruled (#207) | — | 3 | |
 | `clap.triggers/1` | unruled (#207) | unruled (#207) | — | |
 | `clap.tuning/2` | unsupported: the host has no tuning of its own to share yet, #186 | unsupported: #186 | — | |
@@ -228,7 +229,7 @@ The ids the hosted plugins asked for most and were not given:
 | asked for | plugins | where it stands |
 |---|---|---|
 | `clap.gui` | 297 | out of scope |
-| `clap.audio-ports-config` (host-side) | 65 | unsupported, no issue yet |
+| `clap.audio-ports-config` (host-side) | 65 | unsupported, #263 |
 | `clap.context-menu.draft/0`, `clap.context-menu/1` | 63, 62 | out of scope |
 | `clap.resource-directory/1` | 62 | unsupported, P3 |
 | `clap.undo/4` | 35 | out of scope |
@@ -257,7 +258,7 @@ In the order #196 gives them, with what the desk measured and where each stands 
 7. **`clap.audio-ports-config`, `clap.surround`, `clap.ambisonic`**: the #92 work carries the
    plugin-side of all three and the host-side of surround and ambisonic. The host-side of
    `clap.audio-ports-config` (its `rescan`) is not offered, and 65 hosted plugins asked for it: the
-   largest unanswered ask after `clap.gui`. No issue covers it yet.
+   largest unanswered ask after `clap.gui`: #263.
 
 What the probe found beyond those, each filed: #257 (23 plugins refused on their feature list
 alone; admit by ports), #258 (QPitch aborts at `add` and takes the host with it), #259 (a bundle
