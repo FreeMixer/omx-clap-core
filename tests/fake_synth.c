@@ -149,6 +149,8 @@ typedef struct FAKE_SYNTH_POLY_STATS_T {
     uint32_t ports_gone;        ///< 1: the note ports answer none (set by _rescan with RESCAN_ALL | 1u << 31)
     uint32_t renamed;           ///< 1: the first note name reads "Bass drum" (set by _rename)
     char last_preset[512];      ///< the last preset-load: "<kind>|<location or ->|<key or ->"
+    int32_t status;             ///< what process() returns (CLAP_PROCESS_CONTINUE until a test sets it)
+    uint32_t process_calls;     ///< process() calls
 } fake_synth_poly_stats_t;
 
 static fake_synth_poly_stats_t g_poly;
@@ -634,6 +636,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         if (synth->layout->note_outputs)
             arp_send(synth, process->out_events, i);
     }
+    if (synth->layout->poly)
+    {
+        g_poly.process_calls++;
+        return g_poly.status;
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -689,6 +696,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     {
         memset(&g_poly, 0, sizeof(g_poly));
         g_poly.voice_count = FAKE_SYNTH_VOICE_COUNT;
+        g_poly.status = CLAP_PROCESS_CONTINUE;
         g_poly_host = host;
     }
     synth->sample_rate = 48000.0;

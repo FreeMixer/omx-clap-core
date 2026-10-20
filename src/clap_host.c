@@ -42,6 +42,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
+#include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -461,6 +462,119 @@ static bool host_event_registry_query(const clap_host_t *host, const char *space
 }
 
 static const clap_host_event_registry_t g_host_event_registry = { host_event_registry_query };
+
+static uint64_t now_ns(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000000u + (uint64_t)ts.tv_nsec;
+}
+
+/* timer-support: a slot of the instance, its first call one period from now; the tick calls on_timer when it is due */
+static bool host_register_timer(const clap_host_t *host, uint32_t period_ms, clap_id *timer_id)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    uint32_t i;
+
+    if (!main_thread_call(host) || !timer_id)
+        return false;
+    for (i = 0; i < OMX_CLAP_TIMERS && in->timers[i].used; i++)
+        ;
+    if (i == OMX_CLAP_TIMERS)
+        return false;
+    in->timers[i].used = 1;
+    in->timers[i].id = in->timer_next_id++;
+    in->timers[i].period_ms = period_ms < OMX_CLAP_TIMER_MIN_MS ? OMX_CLAP_TIMER_MIN_MS : period_ms;
+    in->timers[i].due_ns = now_ns() + (uint64_t)in->timers[i].period_ms * 1000000u;
+    *timer_id = in->timers[i].id;
+    return true;
+}
+
+static bool host_unregister_timer(const clap_host_t *host, clap_id timer_id)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (!main_thread_call(host))
+        return false;
+    for (uint32_t i = 0; i < OMX_CLAP_TIMERS; i++)
+        if (in->timers[i].used && in->timers[i].id == timer_id)
+        {
+            in->timers[i].used = 0;
+            return true;
+        }
+    return false;
+}
+
+/* posix-fd-support: a slot of the instance; the tick polls the descriptors and calls on_fd with what is ready */
+static int fd_slot(struct omx_clap_instance *in, int fd)
+{
+    for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
+        if (in->fds[i].fd == fd)
+            return (int)i;
+    return -1;
+}
+
+static bool host_register_fd(const clap_host_t *host, int fd, clap_posix_fd_flags_t flags)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    int i;
+
+    if (!main_thread_call(host) || fd < 0 || fd_slot(in, fd) >= 0 || (i = fd_slot(in, -1)) < 0)
+        return false;
+    in->fds[i].fd = fd;
+    in->fds[i].flags = flags;
+    return true;
+}
+
+static bool host_modify_fd(const clap_host_t *host, int fd, clap_posix_fd_flags_t flags)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    int i;
+
+    if (!main_thread_call(host) || fd < 0 || (i = fd_slot(in, fd)) < 0)
+        return false;
+    in->fds[i].flags = flags;
+    return true;
+}
+
+static bool host_unregister_fd(const clap_host_t *host, int fd)
+{
+    struct omx_clap_instance *in = instance_of(host);
+    int i;
+
+    if (!main_thread_call(host) || fd < 0 || (i = fd_slot(in, fd)) < 0)
+        return false;
+    in->fds[i].fd = -1;
+    in->fds[i].flags = 0;
+    return true;
+}
+
+/* thread-pool, on the audio role inside process(): every task runs before the call returns, one after the other on the
+ * calling thread, which is real-time safe and what the extension allows; anywhere else the request is refused */
+static bool host_request_exec(const clap_host_t *host, uint32_t num_tasks)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (!in->thread_pool || !in->thread_pool->exec || !on_audio_role(in) || in->in_exec)
+        return false;       // a request made from inside exec would nest the tasks: refused, the plugin runs its own
+    in->in_exec = 1;
+    for (uint32_t i = 0; i < num_tasks; i++)
+        in->thread_pool->exec(in->plugin, i);
+    in->in_exec = 0;
+    return true;
+}
+
+/* tail: the tick reads it again */
+static void host_tail_changed(const clap_host_t *host)
+{
+    atomic_store_explicit(&instance_of(host)->tail_changed, 1u, memory_order_relaxed);
+}
+
+static const clap_host_timer_support_t g_host_timer_support = { host_register_timer, host_unregister_timer };
+static const clap_host_posix_fd_support_t g_host_posix_fd_support = { host_register_fd, host_modify_fd, host_unregister_fd };
+static const clap_host_thread_pool_t g_host_thread_pool = { host_request_exec };
+static const clap_host_tail_t g_host_tail = { host_tail_changed };
 static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
 static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
 static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
@@ -511,6 +625,14 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_voice_info;
     if (!strcmp(id, CLAP_EXT_EVENT_REGISTRY))
         return &g_host_event_registry;
+    if (!strcmp(id, CLAP_EXT_TIMER_SUPPORT))
+        return &g_host_timer_support;
+    if (!strcmp(id, CLAP_EXT_POSIX_FD_SUPPORT))
+        return &g_host_posix_fd_support;
+    if (!strcmp(id, CLAP_EXT_THREAD_POOL))
+        return &g_host_thread_pool;
+    if (!strcmp(id, CLAP_EXT_TAIL))
+        return &g_host_tail;
     return NULL;
 }
 
@@ -519,9 +641,10 @@ static void host_request_restart(const clap_host_t *host)
     atomic_store_explicit(&instance_of(host)->restart_requested, 1u, memory_order_relaxed);
 }
 
+/* a sleeping plugin is woken for its next block; one that is awake is processed anyway */
 static void host_request_process(const clap_host_t *host)
 {
-    (void)host;     // a published plugin is always processed
+    atomic_store_explicit(&instance_of(host)->sleep.wake, 1u, memory_order_relaxed);
 }
 
 static void host_request_callback(const clap_host_t *host)
@@ -691,6 +814,8 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->host.request_restart = host_request_restart;
     in->host.request_process = host_request_process;
     in->host.request_callback = host_request_callback;
+    for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
+        in->fds[i].fd = -1;     // before init, which may register one
     in->plugin = bin->factory->create_plugin(bin->factory, &in->host, desc->id);
     if (!in->plugin || !in->plugin->init(in->plugin))
     {
@@ -706,6 +831,10 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->audio_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS);
     in->note_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_NOTE_PORTS);
     in->state = in->plugin->get_extension(in->plugin, CLAP_EXT_STATE);
+    in->timer_support = in->plugin->get_extension(in->plugin, CLAP_EXT_TIMER_SUPPORT);
+    in->fd_support = in->plugin->get_extension(in->plugin, CLAP_EXT_POSIX_FD_SUPPORT);
+    in->thread_pool = in->plugin->get_extension(in->plugin, CLAP_EXT_THREAD_POOL);
+    in->tail = in->plugin->get_extension(in->plugin, CLAP_EXT_TAIL);
     in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD);
     if (!in->preset_load)
         in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
@@ -2032,6 +2161,45 @@ void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_c
     atomic_compare_exchange_strong(&in->stage.state, &held, state);
 }
 
+static void tail_read(struct omx_clap_instance *in);
+
+/* audio-ports-activation, while the plugin is inactive: an auxiliary output is never connected, and an auxiliary input
+ * only while its buffers are bound, so the plugin may skip the work of a port nobody reads or writes; the main ports stay
+ * active. A plugin with no extension keeps every port active. */
+static void ports_activate(struct omx_clap_instance *in)
+{
+    const clap_plugin_audio_ports_activation_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION);
+    uint32_t aux = 0;
+
+    if (!ext)
+        ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
+    if (!ext || !ext->set_active || !in->audio_ports)
+        return;
+    for (int dir = 0; dir < 2; dir++)
+    {
+        const bool is_input = dir == 0;
+        const uint32_t count = in->audio_ports->count(in->plugin, is_input);
+
+        for (uint32_t i = 0; i < count; i++)
+        {
+            clap_audio_port_info_t info;
+
+            memset(&info, 0, sizeof(info));
+            if (!in->audio_ports->get(in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
+                continue;
+            if (is_input)
+            {
+                const bool bound = aux < CLAP_HOST_AUX_INPUTS && in->aux_in_bound[aux][0] != NULL;
+
+                aux++;
+                ext->set_active(in->plugin, true, i, bound, 32);
+            }
+            else
+                ext->set_active(in->plugin, false, i, false, 32);
+        }
+    }
+}
+
 int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
 {
     struct omx_clap_role role;
@@ -2062,6 +2230,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         return -1;
     }
     omx_clap_set_bypass(&in->stage, in->bypass_wanted);
+    ports_activate(in);
     if (!in->plugin->activate(in->plugin, rate, 1, max_block))
     {
         drop_bounce(in);
@@ -2114,6 +2283,12 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
     }
     voice_info_ask(in);
+    tail_read(in);
+    in->sleep.asleep = 0;
+    in->sleep.have_last = 0;
+    in->sleep.quiet_frames = 0;
+    in->sleep.quiet_out_frames = 0;
+    in->sleep.quiet_min_frames = (uint32_t)(rate * OMX_CLAP_SLEEP_QUIET_MS / 1000.0);
     publish_latency(in);
     if (why)
         why[0] = '\0';
@@ -2564,6 +2739,51 @@ int omx_clap_host_state_load(struct omx_clap_instance *in, const void *buf, size
     return in->state->load(in->plugin, &is) ? 0 : -1;
 }
 
+int omx_clap_host_state_save_context(struct omx_clap_instance *in, uint32_t context, void *buf, size_t cap, size_t *len)
+{
+    struct bounded_stream b = { buf, NULL, cap, 0, 0, 0 };
+    const clap_ostream_t os = { &b, ostream_write };
+    const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+
+    if (!in || !buf || !len || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
+        return -1;
+    if (!ext || !ext->save)
+        return omx_clap_host_state_save(in, buf, cap, len);
+    if (!ext->save(in->plugin, &os, context) || b.overflow)
+        return -1;
+    *len = b.len;
+    return 0;
+}
+
+int omx_clap_host_state_load_context(struct omx_clap_instance *in, uint32_t context, const void *buf, size_t len)
+{
+    struct bounded_stream b = { NULL, buf, len, len, 0, 0 };
+    const clap_istream_t is = { &b, istream_read };
+    const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+
+    if (!in || !buf || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
+        return -1;
+    if (!ext || !ext->load)
+        return omx_clap_host_state_load(in, buf, len);
+    return ext->load(in->plugin, &is, context) ? 0 : -1;
+}
+
+int omx_clap_host_set_render(struct omx_clap_instance *in, int32_t mode)
+{
+    const clap_plugin_render_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_RENDER) : NULL;
+
+    if (!ext || !ext->set || (mode != CLAP_RENDER_REALTIME && mode != CLAP_RENDER_OFFLINE))
+        return -1;
+    if (mode == CLAP_RENDER_OFFLINE && ext->has_hard_realtime_requirement && ext->has_hard_realtime_requirement(in->plugin))
+        return -1;
+    return ext->set(in->plugin, mode) ? 0 : -1;
+}
+
+uint32_t omx_clap_host_tail(const struct omx_clap_instance *in)
+{
+    return in ? atomic_load_explicit(&in->tail_frames, memory_order_relaxed) : 0;
+}
+
 int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location)
 {
     if (!in->preset_load)
@@ -2658,6 +2878,68 @@ int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const ch
     return 0;
 }
 
+/* the plugin's tail, as the RT's sleep reads it: 0 with no extension */
+static void tail_read(struct omx_clap_instance *in)
+{
+    atomic_store_explicit(&in->tail_frames, in->tail && in->tail->get ? in->tail->get(in->plugin) : 0u, memory_order_relaxed);
+}
+
+/* every timer that is due gets its on_timer, once, and its next due time a period on (from now when the tick ran late) */
+static void timers_serve(struct omx_clap_instance *in)
+{
+    uint64_t now = 0;
+
+    for (uint32_t i = 0; i < OMX_CLAP_TIMERS; i++)
+    {
+        struct omx_clap_timer *t = &in->timers[i];
+
+        if (!t->used)
+            continue;
+        if (!now)
+            now = now_ns();
+        if (t->due_ns > now)
+            continue;
+        t->due_ns += (uint64_t)t->period_ms * 1000000u;
+        if (t->due_ns <= now)
+            t->due_ns = now + (uint64_t)t->period_ms * 1000000u;
+        if (in->timer_support && in->timer_support->on_timer)
+            in->timer_support->on_timer(in->plugin, t->id);
+    }
+}
+
+/* the registered descriptors, polled without waiting; each that is ready gets its on_fd with what it is ready for */
+static void fds_serve(struct omx_clap_instance *in)
+{
+    struct pollfd p[OMX_CLAP_FDS];
+    nfds_t n = 0;
+
+    for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
+        if (in->fds[i].fd >= 0)
+        {
+            p[n].fd = in->fds[i].fd;
+            p[n].events = (short)(((in->fds[i].flags & CLAP_POSIX_FD_READ) ? POLLIN : 0) |
+                                  ((in->fds[i].flags & CLAP_POSIX_FD_WRITE) ? POLLOUT : 0));
+            p[n].revents = 0;
+            n++;
+        }
+    if (n == 0 || poll(p, n, 0) <= 0)
+        return;
+    for (nfds_t k = 0; k < n; k++)
+    {
+        uint32_t flags = 0;
+
+        if (p[k].revents & POLLIN)
+            flags |= CLAP_POSIX_FD_READ;
+        if (p[k].revents & POLLOUT)
+            flags |= CLAP_POSIX_FD_WRITE;
+        if (p[k].revents & (POLLERR | POLLHUP | POLLNVAL))
+            flags |= CLAP_POSIX_FD_ERROR;
+        // a descriptor the plugin unregistered from an earlier on_fd of this same tick is not called
+        if (flags && fd_slot(in, p[k].fd) >= 0 && in->fd_support && in->fd_support->on_fd)
+            in->fd_support->on_fd(in->plugin, p[k].fd, flags);
+    }
+}
+
 int omx_clap_host_tick(struct omx_clap_instance *in)
 {
     const uint32_t rescan = atomic_exchange_explicit(&in->params_rescan_flags, 0u, memory_order_relaxed);
@@ -2684,6 +2966,10 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     }
     if (atomic_exchange_explicit(&in->voice_info_changed, 0u, memory_order_relaxed) && in->active)
         voice_info_ask(in);
+    if (atomic_exchange_explicit(&in->tail_changed, 0u, memory_order_relaxed) && in->active)
+        tail_read(in);
+    timers_serve(in);
+    fds_serve(in);
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         in->plugin->on_main_thread(in->plugin);
     if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))
