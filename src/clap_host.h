@@ -76,7 +76,8 @@
  * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
  * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
- * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port).
+ * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, and the ports rescan the
+ * tick reports).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. Until the first release of
@@ -480,9 +481,11 @@ struct omx_clap_instance
     struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
 
     // the layout extensions (ABI 14): read at open, asked by describe at open for a surround or an ambisonic port; the
-    // host's changed of either is a ports rescan
+    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, which the tick reports and never
+    // turns into a restart
     const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
     const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
+    _Atomic uint32_t ports_rescanned;  ///< 1 once the tick saw a ports rescan, until omx_clap_host_ports_rescanned
 };
 
 
@@ -778,6 +781,12 @@ OMX_CLAP_EXPORT int omx_clap_host_note_names_changed(struct omx_clap_instance *i
  * refuses with hosting.clap.note-input when the new ports are ones open would have refused. Control thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in);
 
+/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
+ * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
+ * plugin's. Nothing is restarted or read again for it. A rescan made inside omx_clap_host_activate (the plugin's
+ * deactivate in the warm-up's cycle, or in a restart) is cleared by it, before any tick. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
+
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
  * waits for the next take. Control thread. */
@@ -833,9 +842,10 @@ OMX_CLAP_EXPORT const char *omx_clap_param_scale_name(uint32_t scale);
 OMX_CLAP_EXPORT int omx_clap_param_number(double value, char *out, size_t size);
 
 /** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency, take
- * the plugin's parameter and note-port rescans and ask its voice info again when it said it changed. A ports rescan
- * (clap.audio-ports rescan, or the surround or ambisonic layout changed) asks for a restart. Returns nonzero when the
- * plugin asked for a restart (the caller performs it). */
+ * the plugin's parameter, note-port and audio-port rescans and ask its voice info again when it said it changed. A ports
+ * rescan (clap.audio-ports rescan, or clap.surround's or clap.ambisonic's changed) is reported through
+ * omx_clap_host_ports_rescanned and asks for no restart. Returns nonzero when the plugin asked for a restart (the
+ * caller performs it). */
 OMX_CLAP_EXPORT int omx_clap_host_tick(struct omx_clap_instance *in);
 
 /** The last log message the tick drained, once: NULL when it was taken already. */

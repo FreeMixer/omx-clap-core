@@ -210,18 +210,53 @@ static void t_run_ports(const char *path)
 }
 
 /*
+ * A plugin whose deactivate says its layout changed (`what`, the host's surround or ambisonic changed): activated, a
+ * restart around a deactivate and the first tick after it read no restart and no rescan (activate answers what its own
+ * deactivate raised); a plain deactivate's changed is reported once by the tick, then cleared, and asks for no restart;
+ * the host's clap.audio-ports rescan, by names while active and of the list while inactive, is reported the same way.
+ */
+static void rescan_checks(struct omx_clap_instance *in, const char *id, const char *what)
+{
+    const clap_host_audio_ports_t *ports = in->host.get_extension(&in->host, CLAP_EXT_AUDIO_PORTS);
+    char why[OMX_CLAP_WHY_MAX];
+
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", id, why);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: the first tick after activate: no restart, no rescan", id);
+    CHECK(omx_clap_host_restart(in) == 0, "%s restarts: its deactivate calls %s", id, what);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: the first tick after the restart: no restart, no rescan (activate answered its deactivate's %s)", id, what);
+    CHECK(omx_clap_host_tick(in) == 0, "%s: and none on the next tick either: no restart loop", id);
+    CHECK(ports != NULL, "the host offers clap.audio-ports");
+    if (ports)
+    {
+        ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
+        CHECK(omx_clap_host_tick(in) == 0 && in->active, "%s: audio-ports.rescan(NAMES) while active asks for no restart", id);
+        CHECK(omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0, "%s: and is reported once, then cleared", id);
+    }
+    omx_clap_host_deactivate(in);
+    CHECK(omx_clap_host_tick(in) == 0, "%s: %s after a plain deactivate asks for no restart", id, what);
+    CHECK(omx_clap_host_ports_rescanned(in) == 1, "%s: the tick reports %s as a ports rescan", id, what);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: reported once, then cleared", id);
+    if (ports)
+    {
+        ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+              "%s: audio-ports.rescan(LIST) while inactive is reported once, no restart", id);
+    }
+}
+
+/*
  * Surround and ambisonic ports, described through their extensions: the 5.1 pair's map read by clap.surround, a map
  * naming an id past CLAP_SURROUND_TSR or one id short refused, a surround port with no clap.surround mapped in index
  * order; the first-order pair's ordering and normalisation read by clap.ambisonic, five ambisonic channels (no (order+1)²)
  * refused. Deactivated, each says its layout changed through the host's surround or ambisonic changed, and the tick
- * reports it as a ports rescan.
+ * reports it as a ports rescan, once, with no restart (rescan_checks).
  */
 static void t_surround_ambisonic(const char *path)
 {
     static const uint8_t five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL,
                                          CLAP_SURROUND_SR };
     struct omx_clap_instance *in = NULL;
-    char why[OMX_CLAP_WHY_MAX];
     uint32_t c;
     int same;
 
@@ -236,15 +271,14 @@ static void t_surround_ambisonic(const char *path)
         for (same = 1, c = 0; c < 6; c++)
             same = same && in->main_in.map[c] == five_one[c] && in->main_out.map[c] == five_one[c];
         CHECK(same, "%s: both maps are FL FR FC LFE SL SR", FAKE_SURROUND);
-        CHECK(omx_clap_host_tick(in) == 0, "%s: no rescan before the plugin says its layout changed", FAKE_SURROUND);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: no rescan before the plugin says its layout changed",
+              FAKE_SURROUND);
         CHECK(in->host.get_extension(&in->host, CLAP_EXT_SURROUND) != NULL
                   && in->host.get_extension(&in->host, CLAP_EXT_SURROUND_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_SURROUND)
                   && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC) != NULL
                   && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC),
               "the host answers clap.surround/4 and clap.ambisonic/3 under their draft ids too");
-        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", FAKE_SURROUND, why);
-        omx_clap_host_deactivate(in);
-        CHECK(omx_clap_host_tick(in) != 0, "%s: surround.changed after the deactivate, and the tick reports a ports rescan", FAKE_SURROUND);
+        rescan_checks(in, FAKE_SURROUND, "surround.changed");
         omx_clap_host_close(in);
         in = NULL;
     }
@@ -270,9 +304,7 @@ static void t_surround_ambisonic(const char *path)
         CHECK(in->main_out.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_out.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D
                   && in->main_in.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_in.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D,
               "%s: ACN and SN3D (%u, %u)", FAKE_AMBISONIC, in->main_out.ambisonic_ordering, in->main_out.ambisonic_normalization);
-        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", FAKE_AMBISONIC, why);
-        omx_clap_host_deactivate(in);
-        CHECK(omx_clap_host_tick(in) != 0, "%s: ambisonic.changed after the deactivate, and the tick reports a ports rescan", FAKE_AMBISONIC);
+        rescan_checks(in, FAKE_AMBISONIC, "ambisonic.changed");
         omx_clap_host_close(in);
         in = NULL;
     }
