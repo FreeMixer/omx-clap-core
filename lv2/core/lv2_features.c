@@ -58,6 +58,7 @@
 #include <lv2/worker/worker.h>
 
 #include "lv2_core_internal.h"
+#include "lv2_rtmempool.h"
 
 
 /*
@@ -75,6 +76,7 @@ const char *const lv2_feature_uri[LV2_FEATURE_KINDS] =
     [F_WORKER] = LV2_WORKER__schedule,
     [F_DEFAULT_STATE] = LV2_STATE__loadDefaultState,
     [F_LOG] = LV2_LOG__log,
+    [F_RTMEMPOOL] = LV2_RTSAFE_MEMORY_POOL__Pool,
 };
 
 const char *const lv2_core_provided[] = LV2_CORE_PROVIDED_INIT;
@@ -221,6 +223,9 @@ static int provider_of(const char *uri)
     for (k = 0; k < LV2_FEATURE_KINDS; k++)
         if (strcmp(lv2_feature_uri[k], uri) == 0)
             return k;
+    // the pool's deprecated URI and its spelled one are the same pool, served by its kind
+    if (strcmp(uri, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) == 0 || strcmp(uri, LV2_RTMEMPOOL_POOL_SPELLED_URI) == 0)
+        return F_RTMEMPOOL;
     return -1;
 }
 
@@ -469,6 +474,19 @@ uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, cons
         ptrs[n] = &features[n];
         n++;
     }
+    // the pool under its deprecated URI, the struct of that URI over the same pool (zynadd requires this one)
+    if (on & OMX_LV2_FEATURE_BIT(F_RTMEMPOOL))
+    {
+        features[n].URI = LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI;
+        features[n].data = (void *)lv2_rtmempool_feature_v1();
+        ptrs[n] = &features[n];
+        n++;
+        // and spelled with the '#', the current struct again, for code that matches the specification's spelling
+        features[n].URI = LV2_RTMEMPOOL_POOL_SPELLED_URI;
+        features[n].data = (void *)lv2_rtmempool_feature();
+        ptrs[n] = &features[n];
+        n++;
+    }
     // the state path features, uri-map and event, last: the configuration's alone
     for (k = F_MAKE_PATH; k < LV2_INSTANCE_KINDS; k++)
     {
@@ -568,6 +586,7 @@ const char *const omx_lv2_feature_uris[OMX_LV2_FEATURE_KINDS] =
     [OMX_LV2_F_WORKER] = LV2_WORKER__schedule,
     [OMX_LV2_F_DEFAULT_STATE] = LV2_STATE__loadDefaultState,
     [OMX_LV2_F_LOG] = LV2_LOG__log,
+    [OMX_LV2_F_RTMEMPOOL] = LV2_RTSAFE_MEMORY_POOL__Pool,
 };
 
 void omx_lv2_feature_options_init(struct omx_lv2_feature_options *o)
@@ -715,6 +734,7 @@ const LV2_Feature *const *omx_lv2_features_build(struct omx_lv2_feature_block *b
     data[F_OPTIONS] = b->opts;
     data[F_WORKER] = schedule;
     data[F_LOG] = &b->log;
+    data[F_RTMEMPOOL] = (void *)lv2_rtmempool_feature();
     lv2_features_fill(b->features, b->ptrs, &b->options, OMX_LV2_FEATURES_ALL, data);
     return b->ptrs;
 }
