@@ -38,6 +38,15 @@
  *             the plugin's own objects): admitted, never a MIDI input, fed a valid sequence at every block, the
  *             transport's object when it takes time:Position, and the audio bit for bit; an atom input that is no
  *             sequence and a fifth control input refused hosting.features.atom-in-unfed.
+ *   ll midi   the ll-plugins MIDI port fixture: an llext:MidiPort is the MIDI input (4) and output (5) over an LV2_MIDI
+ *             buffer, the only MIDI port its way (a second one, or an atom or ev:EventPort MIDI port beside it in
+ *             either index order, refuses the plugin hosting.features.midi-in-fed-empty), nothing of the binary opened
+ *             from the TTL alone
+ *   ll midi run  the echo over LV2_MIDI buffers, read as zynadd reads them: five messages at their frames and lengths,
+ *             the stamp after the last event the host's +inf, nothing carried over, 53 of 61 kept and 8 counted, a block
+ *             filled to exactly the capacity read whole with the slack past it, and the output spoilt one way at a
+ *             time (data moved and offered afresh, an oversize event, stamps negative, NaN and 2^24, a short count, a
+ *             size past the capacity) read only as far as it is sound
  *   event     the event fixture: an ev:EventPort supporting midi:MidiEvent is the MIDI input (or output) as an atom MIDI
  *             port is, a second one each way fed empty or never read, one supporting no MIDI refused
  *             hosting.features.midi-in-fed-empty; through the instance, MIDI in comes back out at its frame, a note one
@@ -1236,11 +1245,22 @@ static void t_ll_midi_ports(void)
               && !p->midi_out_event && p->legs == 2 && p->in_legs == 2 && p->n_event_in == 0 && p->n_atom_in == 0 && p->n_notify == 0,
           "ll midi: #echo is admitted, its llext:MidiPorts its MIDI input (4) and output (5), its audio a stereo pair (%s)", why);
     lv2_plugin_close(p);
-    p = open_plugin(g_ll, LL_URI "#two-in", why);
-    CHECK(!p && strcmp(why, LV2_CODE_MIDI_IN) == 0,
-          "ll midi: a second llext:MidiPort input is one more than the adapter feeds: refused hosting.features.midi-in-fed-empty (%s)", why);
+    {
+        static const char *const twins[6] = { "#two-in", "#two-out", "#atom-then-ll", "#ll-then-atom", "#ev-then-ll", "#ll-then-ev" };
+        char uri[128];
+        uint32_t i;
+
+        for (i = 0; i < 6; i++)
+        {
+            snprintf(uri, sizeof(uri), LL_URI "%s", twins[i]);
+            p = open_plugin(g_ll, uri, why);
+            CHECK(!p && strcmp(why, LV2_CODE_MIDI_IN) == 0,
+                  "ll midi: %s: an llext:MidiPort is the only MIDI port its way, in either index order: refused hosting.features.midi-in-fed-empty (%s)",
+                  twins[i], why);
+            lv2_plugin_close(p);
+        }
+    }
     CHECK(ll_seen() == NULL, "ll midi: from the TTL alone, before the binary is opened");
-    lv2_plugin_close(p);
 }
 
 /* the echo through the instance over LV2_MIDI buffers: what goes in comes out at its frame, a note one key up */
@@ -1273,8 +1293,14 @@ static void t_ll_midi_run(void)
     lv2_instance_run(in, BLOCK, NULL, NULL);
     lv2_instance_midi_out_each(in, collect, &g);
     CHECK(seen->n == 5 && seen->frame[0] == 0 && seen->size[1] == 2 && seen->frame[2] == 9 && seen->size[2] == 6
-              && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0,
-          "ll midi run: the plugin read five MIDI events at their frames and lengths, walking the buffer as zynadd does (%u)", seen->n);
+              && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0 && seen->count_seen == 5 && seen->size_seen == 5u * 16u + 17u,
+          "ll midi run: the plugin read five MIDI events at their frames and lengths, walking the buffer as zynadd does; the header's count and size agree (%u, %u, %u)",
+          seen->n, seen->count_seen, seen->size_seen);
+    // zynadd's step reads the stamp at data + size after the last event: on a partial block that is inside the
+    // capacity, whatever bytes lie there (the fixture records it; its value is not a stamp and zynadd's loop stops on
+    // the position first); the slack past the capacity is what the full block below reads
+    CHECK(seen->trailing_stamp == 0.0, "ll midi run: the stamp zynadd's step reads after the last event lies inside the buffer on a partial block (%g)",
+          seen->trailing_stamp);
     CHECK(g.n == 5 && same_message(&g, 0, 0, on_up, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
               && same_message(&g, 3, 17, cc, 3) && same_message(&g, 4, 63, off_up, 3),
           "ll midi run: five out at their frames, the note on and off one key up, the rest byte for byte (%u)", g.n);
@@ -1296,18 +1322,38 @@ static void t_ll_midi_run(void)
           seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
     CHECK(same_message(&g, LL_CAPACITY - 1u, LL_CAPACITY - 1u, on_up, 3), "ll midi run: the last one that fits is at its own frame");
 
+    // a block filled to exactly the capacity: 52 notes (19 bytes each) and 2 program changes (18 each) are 1024 bytes;
+    // zynadd's step then reads the stamp at data + capacity, the slack the host keeps past it
+    for (i = 0; i < 52u; i++)
+        lv2_instance_midi_in_add(in, i, on, 3);
+    lv2_instance_midi_in_add(in, 60, pc, 2);
+    lv2_instance_midi_in_add(in, 61, pc, 2);
+    lv2_instance_counters(in, &before);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_counters(in, &after);
+    CHECK(seen->size_seen == 1024u && seen->n == 54 && g.n == 54 && after.midi_in_dropped == before.midi_in_dropped,
+          "ll midi run: a block filled to exactly the capacity (%u bytes) is read whole, 54 events, none dropped (%u, %u)", seen->size_seen, seen->n, g.n);
+    CHECK(isinf(seen->trailing_stamp) && seen->trailing_stamp > 0,
+          "ll midi run: on the full block the stamp read past the last event is the slack's +inf, inside the host's allocation (%g)", seen->trailing_stamp);
+
     // the plugin's output spoilt one way at a time: only what lies inside the buffer it was given, in frames, up to
     // its count, from the data the host handed it, is read
     {
-        static const struct { uint32_t kind, want; const char *what; } bad[4] =
+        static const struct { uint32_t kind, want; const char *what; } bad[8] =
         {
             { LV2_LL_MIDI_FIXTURE_MOVED, 0, "a buffer whose data pointer the plugin moved is not read" },
+            { LV2_LL_MIDI_FIXTURE_WELL, 2, "the output is offered afresh before the next run, its data pointer the host's again, and read" },
             { LV2_LL_MIDI_FIXTURE_OVERSIZE, 0, "an event whose size runs past the buffer is not read" },
-            { LV2_LL_MIDI_FIXTURE_STAMP, 1, "an event whose timestamp is not a frame is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP, 1, "an event whose timestamp is negative is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP_NAN, 1, "an event whose timestamp is NaN is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP_FAR, 1, "an event whose timestamp is 2^24 is skipped, the next one read" },
             { LV2_LL_MIDI_FIXTURE_COUNT, 1, "a buffer is read up to its event count, not past it" },
+            { LV2_LL_MIDI_FIXTURE_SIZE_PAST, 54, "a size past the capacity with a huge count over a buffer full to its capacity reads the 54 events it holds and stops at the capacity" },
         };
 
-        for (i = 0; i < 4; i++)
+        for (i = 0; i < 8; i++)
         {
             seen->misbehave = bad[i].kind;
             lv2_instance_midi_in_add(in, 3, on, 3);

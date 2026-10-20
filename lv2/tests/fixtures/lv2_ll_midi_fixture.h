@@ -20,8 +20,12 @@
 /*
  * The ll-plugins MIDI port fixture: MIDI through llext:MidiPort, the port class zynadd declares its MIDI input as, over
  * an LV2_MIDI buffer (lv2_ll_midi.h), read the way zynadd reads it. #echo: a stereo pair in and out, one llext:MidiPort
- * input and one output; what comes in goes out at its frame, a note on or off one key up. #two-in: a mono pair and two
- * llext:MidiPort inputs, one more than the adapter feeds, refused. What the last run read is recorded here for the test.
+ * input and one output; what comes in goes out at its frame, a note on or off one key up. The input is read the way
+ * zynadd's run reads it (lv2-midifunctions.h: a position walked by each event's size until it reaches `size`, the
+ * event count unread, and the stamp after the last event read before any check). #two-in and #two-out: a mono pair
+ * and two llext:MidiPorts one way, one more than the adapter feeds, refused; #atom-then-ll, #ll-then-atom,
+ * #ev-then-ll, #ll-then-ev: an llext:MidiPort input beside an atom or ev:EventPort MIDI input in either index order,
+ * refused the same. What the last run read is recorded here for the test.
  */
 #ifndef OMX_TEST_LV2_LL_MIDI_FIXTURE_H
 #define OMX_TEST_LV2_LL_MIDI_FIXTURE_H
@@ -38,6 +42,9 @@ enum
     LV2_LL_MIDI_FIXTURE_OVERSIZE = 2,   /* the first event's size 65520, the buffer's size its whole capacity */
     LV2_LL_MIDI_FIXTURE_STAMP = 3,      /* the first event's timestamp -1: not a frame */
     LV2_LL_MIDI_FIXTURE_COUNT = 4,      /* its event count one short of the events it holds */
+    LV2_LL_MIDI_FIXTURE_STAMP_NAN = 5,  /* the first event's timestamp NaN */
+    LV2_LL_MIDI_FIXTURE_STAMP_FAR = 6,  /* the first event's timestamp 2^24: past any frame */
+    LV2_LL_MIDI_FIXTURE_SIZE_PAST = 7,  /* filled to exactly its capacity (54 events), then its size 256 bytes past it and its count 1000 */
 };
 
 struct lv2_ll_midi_fixture
@@ -46,6 +53,9 @@ struct lv2_ll_midi_fixture
     uint32_t instantiated;          /* instantiate() calls */
     uint32_t runs;                  /* run() calls */
     uint32_t n;                     /* the MIDI events of the last run's input */
+    uint32_t count_seen;            /* the input header's event_count as handed, unused by the walk, as zynadd leaves it */
+    uint32_t size_seen;             /* the input header's size as handed */
+    double trailing_stamp;          /* the stamp read after the last event, as zynadd's lv2midi_step reads it */
     uint32_t frame[LV2_LL_MIDI_FIXTURE_SEEN];
     uint32_t size[LV2_LL_MIDI_FIXTURE_SEEN];
     uint8_t data[LV2_LL_MIDI_FIXTURE_SEEN][4];

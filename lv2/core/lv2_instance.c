@@ -104,6 +104,7 @@ LV2_DISABLE_DEPRECATION_WARNINGS
 #define LL_HEADER_BYTES                 ((((uint32_t)sizeof(LV2_MIDI)) + 7u) & ~7u)
 #define LL_EVENT_HEAD                   ((uint32_t)(sizeof(double) + sizeof(size_t)))
 #define LL_DATA(buf)                    ((uint8_t *)(buf) + LL_HEADER_BYTES)
+#define LL_SLACK                        ((uint32_t)sizeof(double))   // past the capacity: the stamp zynadd reads after the last event
 _Static_assert(EVENT_HEADER_BYTES % 8u == 0 && EVENT_HEADER_BYTES >= sizeof(LV2_Event_Buffer),
                "an event buffer's data starts 8-aligned after its header");
 
@@ -385,17 +386,22 @@ static void event_reset(LV2_Event_Buffer *buf, uint32_t capacity)
     lv2_event_buffer_reset(buf, LV2_EVENT_AUDIO_STAMP, EVENT_DATA(buf));
 }
 
-/* [audio] one event at the end of `buf`, of `capacity` data bytes: 0, or -1 with no room left */
-/* an llext:MidiPort's buffer emptied, its capacity in its header, its data pointer the host's */
+/* [audio] an llext:MidiPort's buffer emptied, its capacity in its header, its data pointer the host's; the slack past
+ * the capacity holds +inf: zynadd's reader (lv2-midifunctions.h's lv2midi_step) reads the stamp after the last event
+ * before it checks the size, so on a block filled to the capacity it reads the slack, and +inf is a stamp no block
+ * reaches: no further event */
 static void ll_reset(LV2_MIDI *buf, uint32_t capacity)
 {
+    const double past = HUGE_VAL;
+
     buf->event_count = 0;
     buf->capacity = capacity;
     buf->size = 0;
     buf->data = LL_DATA(buf);
+    memcpy(LL_DATA(buf) + capacity, &past, sizeof(past));
 }
 
-/* one MIDI message appended to an llext:MidiPort's buffer: -1 when it does not fit */
+/* [audio] one MIDI message appended to an llext:MidiPort's buffer: -1 when it does not fit */
 static int ll_append(LV2_MIDI *buf, uint32_t capacity, uint32_t frame, const uint8_t *data, uint32_t size)
 {
     const double stamp = frame;
@@ -412,6 +418,7 @@ static int ll_append(LV2_MIDI *buf, uint32_t capacity, uint32_t frame, const uin
     return 0;
 }
 
+/* [audio] one event at the end of `buf`, of `capacity` data bytes: 0, or -1 with no room left */
 static int event_append(LV2_Event_Buffer *buf, uint32_t capacity, uint32_t frame, uint16_t type, const uint8_t *data,
                         uint32_t size)
 {
@@ -1408,7 +1415,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         free(in->midi[k]);
         in->midi[k] = NULL;
         if (port >= 0 && (k ? p->midi_out_ll : p->midi_in_ll))
-            in->midi[k] = calloc(1, LL_HEADER_BYTES + (size_t)in->midi_bytes);
+            in->midi[k] = calloc(1, LL_HEADER_BYTES + (size_t)in->midi_bytes + LL_SLACK);
         else if (port >= 0 && event)
             in->midi[k] = calloc(1, EVENT_HEADER_BYTES + (size_t)in->midi_bytes);
         else if (port >= 0)
@@ -2189,7 +2196,7 @@ static void ll_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void 
 
         memcpy(&stamp, at, sizeof(stamp));
         memcpy(&size, at + sizeof(stamp), sizeof(size));
-        if (size > limit - off - LL_EVENT_HEAD)
+        if (size == 0 || size > limit - off - LL_EVENT_HEAD)      // no message is empty: stale zeros end the walk
             break;
         if (isfinite(stamp) && stamp >= 0.0 && stamp < 16777216.0)       // 2^24: a frame, exact in a float
             fn(ctx, (int64_t)stamp, at + LL_EVENT_HEAD, (uint32_t)size);
