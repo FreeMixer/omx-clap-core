@@ -91,6 +91,8 @@ int effects_transport(int rolling, double bpb, double bpm);
 int effects_transport_sync(const char *mode);
 /* -t, before the first add: every plugin reads the JACK transport instead of the host's */
 void effects_follow_jack_transport(int on);
+/* -c, before the first add: the lane's width, 1 or 2, asked of a plugin whose main ports differ (request_layout) */
+void effects_set_lane_channels(uint32_t channels);
 /* note_out_drops: "resp 0 <dropped> <unmapped> <port_full>", the instance's note output counters since add */
 int effects_note_out_drops(int effect_id, char *reply, size_t size);
 /* note_input: "resp 0 midi_in" or "resp 0 -", whether the instance takes notes */

@@ -11,6 +11,8 @@ omx\-clap\-host \- CLAP plugin host for JACK, driven over mod\-host's socket pro
 .IR port ]
 .RB [ \-s
 .IR dir ]
+.RB [ \-c
+.IR channels ]
 .br
 .B omx\-clap\-host
 .RB { \-V | \-h }
@@ -115,6 +117,13 @@ the song position, its bars and beats when a timebase master gives them.
 Without it the host's own transport, which
 .BR set_bpm ", " set_bpb " and " transport
 drive, is handed instead; the host never moves the JACK transport.
+.TP
+.BR \-c ", " \-\-channels =\fIchannels\fR
+The lane's width, 1 or 2 (default 2). A plugin whose main ports differ is
+asked for that many channels on each, mono or stereo, before it is
+activated (clap.configurable\-audio\-ports, then clap.audio\-ports\-config);
+one that cannot offer it keeps its declared layout, a JACK port per main
+channel as always. A ports rescan the plugin reports asks again.
 .TP
 .BR \-V ", " \-\-version
 Print the version and exit.

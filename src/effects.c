@@ -132,6 +132,9 @@ typedef struct EFFECT_T {
     jack_client_t *jack_client;
     jack_port_t *input_ports[CLAP_HOST_PORT_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_PORT_CHANNELS];
+    uint32_t in_ports, out_ports;           // the main ports registered at add: what each cycle reads and writes
+    int relayout_pending;                   // a reported ports rescan not yet answered (ports_relayout)
+    int relayout_drain;                     // a relayout ran on the last tick: a rescan its activate made is its own
     jack_port_t *midi_port;
     struct omx_msgring note_ring;           // control thread -> audio thread: the note verbs' MIDI messages
     void *note_ring_buf;                    // its NOTE_RING_BYTES, NULL for a plugin that takes no notes
@@ -177,6 +180,8 @@ static const char *g_state_root_given;
 static struct host_transport_intent g_intent = { 0, 0, 0.0, HOST_TRANSPORT_BPB_DEFAULT, 0, 0.0, 0.0 };
 static struct host_transport g_transport;
 static int g_follow_jack;
+/* -c: the lane's width, 1 or 2, asked of a plugin whose main ports differ */
+static uint32_t g_lane_channels = 2;
 
 
 /*
@@ -376,21 +381,23 @@ static int process(jack_nframes_t nframes, void *arg)
                 omx_clap_host_note_in(effect->clap, event.time, event.buffer, event.size);
     }
 
-    for (c = 0; c < effect->clap->in_channels; c++)
+    // the ports registered at add, never the description: a relayout reads that again while this cycle runs, and the
+    // instance is active only while its main ports are these
+    for (c = 0; c < effect->in_ports; c++)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
-    for (c = 0; c < effect->clap->channels; c++)
+    for (c = 0; c < effect->out_ports; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
-    // a cycle while the instance is deactivated (buffer_size re-activating it; JACK stops this client's cycle for the
-    // callback, but this thread waits on nothing of it): the audio passes dry, a source's output silent, and the
-    // plugin is not run
+    // a cycle while the instance is deactivated (buffer_size re-activating it, JACK stopping this client's cycle for
+    // the callback but this thread waiting on nothing of it; a relayout): the audio passes dry, a source's output
+    // silent, and the plugin is not run
     if (!effect->clap->active)
     {
-        for (c = 0; c < effect->clap->channels; c++)
+        for (c = 0; c < effect->out_ports; c++)
         {
-            if (effect->clap->in_channels == 0)
+            if (effect->in_ports == 0)
                 memset(outputs[c], 0, nframes * sizeof(float));
-            else if (outputs[c] != inputs[c < effect->clap->in_channels ? c : effect->clap->in_channels - 1])
-                memcpy(outputs[c], inputs[c < effect->clap->in_channels ? c : effect->clap->in_channels - 1], nframes * sizeof(float));
+            else if (outputs[c] != inputs[c < effect->in_ports ? c : effect->in_ports - 1])
+                memcpy(outputs[c], inputs[c < effect->in_ports ? c : effect->in_ports - 1], nframes * sizeof(float));
         }
         return 0;
     }
@@ -777,6 +784,77 @@ static int clap_state_load(struct omx_clap_instance *clap, const char *filename)
         ok = omx_clap_host_state_load(clap, buffer, length) == 0;
     free(buffer);
     return ok ? SUCCESS : ERR_LV2_CANT_LOAD_STATE;
+}
+
+/* The lane's width asked of an inactive plugin (request_layout): -c channels on each main port, mono or stereo, the
+ * input asked only of a plugin that has one. 0 applied, OMX_CLAP_LAYOUT_DECLARED when the plugin keeps its declared
+ * layout (the ports carry it as it is), -1 refused with `why`; the description is read again either way. */
+static int lane_request(struct omx_clap_instance *clap, char why[OMX_CLAP_WHY_MAX])
+{
+    clap_audio_port_configuration_request_t reqs[2];
+    const char *type = g_lane_channels == 1 ? CLAP_PORT_MONO : CLAP_PORT_STEREO;
+    uint32_t n = 0;
+
+    memset(reqs, 0, sizeof(reqs));
+    if (clap->in_channels)
+    {
+        reqs[n].is_input = true;
+        reqs[n].channel_count = g_lane_channels;
+        reqs[n].port_type = type;
+        n++;
+    }
+    reqs[n].is_input = false;
+    reqs[n].channel_count = g_lane_channels;
+    reqs[n].port_type = type;
+    n++;
+    return omx_clap_host_request_layout(clap, reqs, n, why);
+}
+
+/*
+ * A ports rescan the tick reported: the plugin's layout may have moved, and only an inactive plugin is asked. The
+ * instance is unpublished and deactivated, the lane's width asked again (lane_request, which reads the description
+ * again whatever the plugin answers), and the instance activated again when its main ports are still the JACK ports
+ * registered at add, so an unchanged description resumes as it was. A description those ports do not carry, or one
+ * refused, leaves it deactivated, its audio passing dry, said on stderr; its next rescan asks again. A rescan reported
+ * on the tick right after a relayout is that relayout's own activate's, taken without another; an RT that does not
+ * stop in time leaves the rescan for the next tick.
+ */
+static void ports_relayout(effect_t *effect)
+{
+    struct omx_clap_instance *clap = effect->clap;
+    char why[OMX_CLAP_WHY_MAX] = "";
+    const int drain = effect->relayout_drain;
+
+    effect->relayout_drain = 0;
+    if (omx_clap_host_ports_rescanned(clap) && !drain)
+        effect->relayout_pending = 1;
+    if (!effect->relayout_pending)
+        return;
+    pthread_mutex_lock(&g_reactivate);
+    if (clap->active)
+    {
+        if (omx_clap_host_unpublish(clap, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) != 0)
+        {
+            pthread_mutex_unlock(&g_reactivate);
+            return;
+        }
+        omx_clap_host_stop(clap);
+        omx_clap_host_deactivate(clap);
+    }
+    effect->relayout_pending = 0;
+    if (lane_request(clap, why) < 0)
+        fprintf(stderr, "%s: its layout after the ports rescan is refused: %s; it passes dry\n", clap->desc->id, why);
+    else if (clap->in_channels != effect->in_ports || clap->channels != effect->out_ports)
+        fprintf(stderr, "%s: its main ports are now %u in and %u out, not the %u and %u it was added with; it passes dry until it "
+                "is added again\n", clap->desc->id, clap->in_channels, clap->channels, effect->in_ports, effect->out_ports);
+    else if (omx_clap_host_activate(clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
+        fprintf(stderr, "%s: it does not activate again after the ports rescan: %s; it passes dry\n", clap->desc->id, why);
+    else
+    {
+        omx_clap_host_arm(clap);
+        effect->relayout_drain = 1;
+    }
+    pthread_mutex_unlock(&g_reactivate);
 }
 
 /* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle took */
@@ -1391,6 +1469,19 @@ int effects_add(const char *uri, int instance, const char *client_name)
         error = ERR_LV2_INSTANTIATION;
         goto error;
     }
+    // the lane's width asked before the ports are registered from the description: a plugin that cannot offer it
+    // keeps its declared layout (OMX_CLAP_LAYOUT_DECLARED), carried as it is
+    if ((effect->clap->in_channels && effect->clap->in_channels != g_lane_channels) || effect->clap->channels != g_lane_channels)
+    {
+        why[0] = '\0';
+        if (lane_request(effect->clap, why) < 0)
+        {
+            fprintf(stderr, "%s: %s\n", id, why);
+            snprintf(g_add_reason, sizeof(g_add_reason), "%s", why);
+            error = ERR_LV2_INSTANTIATION;
+            goto error;
+        }
+    }
 
     for (c = 0; c < effect->clap->in_channels; c++)
     {
@@ -1402,6 +1493,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
             goto error;
         }
     }
+    effect->in_ports = effect->clap->in_channels;
     for (c = 0; c < effect->clap->channels; c++)
     {
         snprintf(port_name, sizeof(port_name), "out_%u", c + 1);
@@ -1412,6 +1504,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
             goto error;
         }
     }
+    effect->out_ports = effect->clap->channels;
 
     if (effect->clap->note_inputs)
     {
@@ -1785,6 +1878,11 @@ void effects_follow_jack_transport(int on)
     g_follow_jack = on != 0;
 }
 
+void effects_set_lane_channels(uint32_t channels)
+{
+    g_lane_channels = channels == 1 ? 1 : 2;
+}
+
 /* note_out_drops: the plugin's note output counters, read relaxed as the audio thread leaves them: the events the
  * library's ring had no room for, those with no MIDI form, and the messages midi_out had no room for */
 int effects_note_out_drops(int effect_id, char *reply, size_t size)
@@ -1811,6 +1909,7 @@ void effects_idle(void)
         if (!instance_exist(i))
             continue;
         clap_idle(effect->clap);
+        ports_relayout(effect);
         if (omx_clap_host_remote_controls_changed(effect->clap))
         {
             char line[64];
