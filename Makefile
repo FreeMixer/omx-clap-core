@@ -276,12 +276,12 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket
+test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -333,14 +333,34 @@ test-msgring: tests/msgring_test
 test-transport: tests/transport_seqlock_test
 	./tests/transport_seqlock_test
 
-test-transport-tsan: tests/transport_seqlock_tsan
+# test-transport-tsan also runs the cycle gate: omx-clap-host's restart and relayout against a cycle thread that never
+# stops, the core compiled into the test under ThreadSanitizer (-Wno-tsan: the core's one fence orders atomics only, which
+# ThreadSanitizer sees without it)
+test-transport-tsan: tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/fake.clap
 	TSAN_OPTIONS=halt_on_error=1 ./tests/transport_seqlock_tsan
+	TSAN_OPTIONS=halt_on_error=1 ./tests/cycle_gate_tsan $(abspath tests/fake.clap)
+
+tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS)
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
 tests/transport_seqlock_test: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DOMX_TEST_WITNESS $(WRAP_ALLOC) -pthread -o $@ $< -lm
 
 tests/transport_seqlock_tsan: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror -fsanitize=thread -pthread -o $@ $< -lm
+
+# the sabotage of the cycle gate: a gate whose enter always answers open must let a cycle race the deactivate, which
+# ThreadSanitizer reports (needs libtsan; CI runs it beside test-transport-tsan)
+test-cycle-gate-sabotage: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS) tests/fake.clap
+	mkdir -p build/cycle-gate-sabotage
+	sed -e 's|    return atomic_load(&g->closed) == 0u;|    return 1;|' src/cycle_gate.h > build/cycle-gate-sabotage/cycle_gate.h
+	! cmp -s src/cycle_gate.h build/cycle-gate-sabotage/cycle_gate.h
+	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
+	    -Wextra -Werror -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u \
+	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) -ldl -lpthread -lm
+	! TSAN_OPTIONS=halt_on_error=1 ./build/cycle-gate-sabotage/test $(abspath tests/fake.clap) > build/cycle-gate-sabotage/log 2>&1
+	grep -q 'ThreadSanitizer: data race' build/cycle-gate-sabotage/log
 
 # the sabotage of test-transport: the read without its sequence re-check must let torn records through
 test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
@@ -349,6 +369,11 @@ test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hos
 	! grep -q 'memory_order_relaxed) != s1' build/transport-sabotage/clap_stage.h
 	$(CC) -Ibuild/transport-sabotage -Isrc $(CLAP_CFLAGS) $(CFLAGS) -pthread -o build/transport-sabotage/test $< -lm
 	! ./build/transport-sabotage/test
+
+# the sabotage of the audio layouts (#92): each rule broken in a copy of the sources under build/sabotage-<arm>, the
+# test that guards it built there and red on the check that names it; an arm that survives fails the target
+test-layouts-sabotage:
+	./tests/layout_sabotage.sh
 
 # the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
 test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
@@ -441,11 +466,12 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(VERSION_NUM)u -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
 
-# what one stage block costs, as the header is and with omx_clap_run's two in_cycle stores relaxed: a measurement
+# what one stage block costs, as the header is and with the four in_cycle stores relaxed (omx_clap_run's two and
+# omx_clap_run_ports' two): a measurement
 bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_clap_midi.h
 	mkdir -p build/bench-relaxed
 	sed -e 's/atomic_store(&s->in_cycle, \([01]\));/atomic_store_explicit(\&s->in_cycle, \1, memory_order_relaxed);/' src/clap_stage.h > build/bench-relaxed/clap_stage.h
-	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 2
+	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 4
 	cp src/hosted_stage.h src/clap_host_limits.h src/omx_clap_midi.h build/bench-relaxed/
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< -lm
 	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< -lm
@@ -485,11 +511,16 @@ test-socket: $(PROG)
 	./tests/socket_e2e.sh
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
-test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
+test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe tests/jack_meter_source tests/jack_synth_probe
 	CLAP_TEST_PLUGIN=$(CLAP_TEST_PLUGIN) ./tests/jack_e2e.sh
 
 tests/jack_latency_probe: tests/jack_latency_probe.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
+
+# the auxiliary ports over jack against the fake plugins alone (#92): a side chain heard, an auxiliary output read, both
+# after the buffer size changes, a bypassed plugin's auxiliary output silent; CI runs it, omx-delay is not needed
+test-jack-fake: $(PROG) tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
+	./tests/jack_fake_e2e.sh
 
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/fake.clap tests/jack_synth_probe
@@ -591,7 +622,8 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-feature-probe.lv2/omx-feature-probe.so \
               build/lv2/omx-path-fixture.lv2/omx-path-fixture.so \
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
-              build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so
+              build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so \
+              build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -626,6 +658,11 @@ build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so: $(LV2_FIXTURE_DIR)/lv2_atom_
 build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so: $(LV2_FIXTURE_DIR)/lv2_cv_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-cv-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-cv-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so: $(LV2_FIXTURE_DIR)/lv2_layout_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 build/lv2/omx-feature-probe.lv2/omx-feature-probe.so: $(LV2_FIXTURE_DIR)/lv2_feature_probe.c $(LV2_FIXTURE_DIR)/lv2_feature_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-feature-probe.lv2/*.ttl)

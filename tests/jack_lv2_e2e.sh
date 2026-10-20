@@ -145,7 +145,11 @@ expect "add $fixture 1" "resp 1"
 expect "add lv2:$fixture 3" "resp 3"
 
 # ---- refusals: the adapter's code after the error code, and on stderr ----
-expect "add lv2:$fixture#wide 2" "resp -102 hosting.topology.wider-than-strip"
+# a mono input and a stereo output are two main ports of different widths (#92): a JACK port per channel each side
+expect "add lv2:$fixture#wide 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:in_1 " ]; step $? "the mono-in stereo-out twin's inputs: $(ports effect_2 i)"
+[ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "the mono-in stereo-out twin's outputs: $(ports effect_2 o)"
+expect "remove 2" "resp 0"
 expect "add lv2:$fixture#atom 2" "resp -102 hosting.features.atom-in-unfed"
 # a second MIDI input is admitted, fed empty (#199): the client carries one midi_in, the first port's
 expect "add lv2:$fixture#midi-two 2" "resp 2"
@@ -158,7 +162,7 @@ expect "add lv2:$fixture#fixed 2" "resp 2"
 expect "remove 2" "resp 0"
 expect "add lv2:$fixture#mappath 2" "resp -102 hosting.no-realisation"
 expect "add lv2:$fixture#no-ports 2" "resp -102 hosting.topology.no-audio-output"
-for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.no-realisation hosting.topology.no-audio-output; do
+for code in hosting.features.atom-in-unfed hosting.no-realisation hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
 done
 expect "add lv2:urn:openmixer:test:on-no-path 2" "resp -101"
@@ -167,7 +171,7 @@ expect "add lv2:not-a-uri 2" "resp -101"
 # found through a prefixed name in its manifest, refused at init: the binary is not there
 expect "add lv2:urn:openmixer:test:nobin 2" "resp -102 hosting.no-realisation"
 # a CLAP plugin's refusal carries its code the same way
-expect "add clap:$fake#org.omx-clap-host.test.wide 2" "resp -102 hosting.topology.wider-than-strip"
+expect "add clap:$fake#org.omx-clap-host.test.too-wide 2" "resp -102 hosting.topology.port-too-wide"
 # a refusal names no later add
 expect "add lv2:$fixture 2" "resp 2"
 expect "remove 2" "resp 0"
@@ -232,6 +236,30 @@ for _ in $(seq 50); do grep -q playing "$runtime/source.log" && break; sleep 0.1
 grep -q playing "$runtime/source.log"; step $? "the source plays 0.5 into effect_0 and 0.25 into effect_3"
 pw-link effect_0:out_1 effect_1:in_1; step $? "effect_0:out_1 -> effect_1:in_1"
 
+# ---- auxiliary ports (#92): an LV2 plugin's auxiliary groups, a JACK port per channel, bound to the plugin ----
+layout=urn:openmixer:test:layout-fixture
+level() { echo | timeout 10 "$probe" - "$@" 2>>"$runtime/probe.log"; }
+expect "add lv2:$layout#main-aux 6" "resp 6"
+[ "$(ports effect_6 i)" = "effect_6:aux_in_1_1 effect_6:aux_in_1_2 effect_6:aux_in_2_1 effect_6:aux_in_2_2 effect_6:in_1 effect_6:in_2 " ]
+step $? "the main group and two stereo aux groups: $(ports effect_6 i)"
+pw-link jack_meter_source:out_l effect_6:aux_in_2_1; step $? "the source's 0.5 into effect_6:aux_in_2_1, nothing on the mains"
+expect "add lv2:$layout#bands 7" "resp 7"
+[ "$(ports effect_7 o)" = "effect_7:aux_out_1_1 effect_7:aux_out_1_2 effect_7:aux_out_2_1 effect_7:aux_out_2_2 effect_7:aux_out_3_1 effect_7:aux_out_3_2 effect_7:out_1 effect_7:out_2 " ]
+step $? "the main pair and three stereo band outputs: $(ports effect_7 o)"
+pw-link jack_meter_source:out_l effect_7:in_1; step $? "the source's 0.5 into effect_7:in_1"
+sleep 0.3
+# main-aux sums its main and both aux pairs: out_1 is the second aux group's left, a dry pass reads silence
+aux_reads() {
+    local w
+    w=$(level effect_6:out_1); near "${w%% *}" 0.5 0.0001; step $? "$1effect_6:out_1 carries aux_in_2_1, 0.5 ($w)"
+    w=$(level effect_6:out_2); near "${w%% *}" 0 0.000001; step $? "$1effect_6:out_2 is silent ($w)"
+    # band k writes in * k/4
+    w=$(level effect_7:aux_out_2_1); near "${w%% *}" 0.25 0.0001; step $? "$1effect_7:aux_out_2_1 is in * 2/4, 0.25 ($w)"
+    w=$(level effect_7:aux_out_3_1); near "${w%% *}" 0.375 0.0001; step $? "$1effect_7:aux_out_3_1 is in * 3/4, 0.375 ($w)"
+    w=$(level effect_7:aux_out_2_2); near "${w%% *}" 0 0.000001; step $? "$1effect_7:aux_out_2_2 is the silent right ($w)"
+}
+aux_reads ""
+
 # the default state: -20 dB from the port's default, -6 dB from state:loadDefaultState
 reads 3 meter "$(db 0.25 -26)" 0.00006 "the default state"
 reads 0 meter "$(db 0.5 -26)" 0.00006 "the default state"
@@ -245,6 +273,9 @@ pw-metadata -n settings 0 clock.force-quantum 2048 >/dev/null 2>&1; step $? "the
 reads 0 meter "$(db 0.5 -26)" 0.00006 "after the growth effect_0 still passes audio"
 pw-metadata -n settings 0 clock.force-quantum 1024 >/dev/null 2>&1; step $? "the quantum forced back to 1024"
 reads 0 meter "$(db 0.5 -26)" 0.00006 "and back at 1024, effect_0 still passes audio"
+aux_reads "after the shrink and the growth, "
+expect "remove 7" "resp 0"
+expect "remove 6" "resp 0"
 
 # ---- parameters by symbol, and by id ----
 expect "param_get 0 gain_db" "resp 0 -20.0000"

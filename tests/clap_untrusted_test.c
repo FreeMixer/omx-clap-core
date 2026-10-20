@@ -265,9 +265,33 @@ static void t_name_is_bounded(void) {
   g_unterminated = 0;
 }
 
+/* a port's two text forms (layout_port_text): a name's quote and backslash escaped, a control byte a space; a surround
+ * map and an ambisonic configuration in each; JACK names only when they are registered */
+static char *port_text(const struct layout_port_text *t, int record) {
+  static char buf[1024];
+  FILE *f = fmemopen(buf, sizeof buf, "w");
+  layout_port_text(f, t, record);
+  fclose(f);
+  return buf;
+}
+
+static void t_layout_port_text(void) {
+  static const uint8_t map[6] = {0, 1, 2, 3, 9, 10};
+  struct layout_port_text t = {.is_input = true, .aux = 1, .channels = 2, .kind = "stereo", .name = "a \"b\" c\\d\te", .jack = true};
+  CHECK(!strcmp(port_text(&t, 0), "in  aux 2 channels stereo \"a \\\"b\\\" c\\\\d e\" aux_in_2_1 aux_in_2_2"), "port text: %s", port_text(&t, 0));
+  CHECK(!strcmp(port_text(&t, 1), "in:aux:2:2:stereo:\"a \\\"b\\\" c\\\\d e\":aux_in_2_1,aux_in_2_2"), "port record: %s", port_text(&t, 1));
+  t = (struct layout_port_text){.is_input = false, .aux = LAYOUT_PORT_MAIN, .channels = 6, .kind = "surround", .map = map, .map_n = 6, .name = "out", .jack = true};
+  CHECK(!strcmp(port_text(&t, 1), "out:main:1:6:surround:0+1+2+3+9+10:\"out\":out_1,out_2,out_3,out_4,out_5,out_6"), "surround record: %s", port_text(&t, 1));
+  CHECK(!strcmp(port_text(&t, 0), "out main 6 channels surround map 0 1 2 3 9 10 \"out\" out_1 out_2 out_3 out_4 out_5 out_6"), "surround text: %s", port_text(&t, 0));
+  t = (struct layout_port_text){.is_input = true, .aux = LAYOUT_PORT_MAIN, .channels = 4, .kind = "ambisonic", .ordering = "acn", .normalization = "sn3d", .assumed = true, .name = "in"};
+  CHECK(!strcmp(port_text(&t, 1), "in:main:1:4:ambisonic:acn+sn3d:assumed:\"in\":"), "ambisonic record, no JACK name: %s", port_text(&t, 1));
+  CHECK(!strcmp(port_text(&t, 0), "in  main 4 channels ambisonic acn sn3d assumed \"in\""), "ambisonic text: %s", port_text(&t, 0));
+}
+
 int main(void) {
   t_count_is_capped();
   t_layout_pin_refuses_past_cap();
+  t_layout_port_text();
   t_failed_calloc_refuses();
   t_name_is_bounded();
   if (failures) {

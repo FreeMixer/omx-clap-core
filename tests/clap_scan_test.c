@@ -86,25 +86,64 @@ static int count(const char *out, const char *text)
     return n;
 }
 
+/* whether the entry of plugin org.omx-clap-host.test.<id> (up to the next plugin's) holds `text` */
+static int plugin_has(const char *out, const char *id, const char *text)
+{
+    char key[128];
+    const char *a, *b, *t;
+
+    snprintf(key, sizeof(key), "\"id\":\"org.omx-clap-host.test.%s\"", id);
+    if (!(a = strstr(out, key)))
+        return 0;
+    b = strstr(a + strlen(key), "\"id\":\"org.omx-clap-host.test.");
+    t = strstr(a, text);
+    return t && (!b || t < b);
+}
+
 static void fake_checks(const char *scan, const char *fake, char *out)
 {
     int status = run(out, "%s --json %s", scan, fake);
 
     CHECK(status == 0, "scan of fake.clap exits 0 (%i)", status);
     CHECK(out[0] == '{' && has(out, "\"scanner\":\"omx-clap-scan\""), "one JSON document with the scanner named");
-    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 12, "the twelve plugins of the factory are listed (%i)",
+    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 23, "the twenty-three plugins of the factory are listed (%i)",
           count(out, "\"id\":\"org.omx-clap-host.test."));
     CHECK(has(out, "\"id\":\"org.omx-clap-host.test.passthrough\",\"name\":\"passthrough\",\"vendor\":\"omx-clap-host\","
                    "\"version\":\"0\""), "descriptor id, name, vendor, version");
     CHECK(has(out, "\"features\":[\"audio-effect\"]"), "features");
     CHECK(count(out, "{\"id\":0,\"name\":\"latency\",\"module\":\"\",\"min\":0,\"max\":4096,\"default\":64,"
-                     "\"flags\":[\"stepped\"]}") == 12, "each plugin's parameter: id, name, module, min, max, default, flags");
-    CHECK(has(out, "\"audio_ports\":{\"inputs\":[{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"unknown\"}]"),
-          "the wide plugin's 6-channel main input, of no port type");
-    CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":1,\"kind\":\"mono\"}"), "the sidechain plugin's mono aux input");
+                     "\"flags\":[\"stepped\"]}") == 23, "each plugin's parameter: id, name, module, min, max, default, flags");
+    CHECK(has(out, "\"audio_ports\":{\"inputs\":[{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"unknown\","
+                   "\"jack\":[\"in_1\",\"in_2\",\"in_3\",\"in_4\",\"in_5\",\"in_6\"]}]"),
+          "the wide plugin's 6-channel main input, of no port type, a JACK port per channel");
+    CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":1,\"kind\":\"mono\",\"jack\":[\"aux_in_1_1\"]}"),
+          "the sidechain plugin's mono aux input, aux_in_1_1");
+    CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":4,\"kind\":\"unknown\","
+                   "\"jack\":[\"aux_in_1_1\",\"aux_in_1_2\",\"aux_in_1_3\",\"aux_in_1_4\"]}"), "the aux-wide plugin's 4-channel aux input");
+    CHECK(has(out, "{\"id\":1,\"name\":\"out 1\",\"role\":\"aux\",\"channels\":2,\"kind\":\"stereo\",\"jack\":[\"aux_out_1_1\",\"aux_out_1_2\"]}"),
+          "the auxout plugin's stereo aux output, aux_out_1_1 and aux_out_1_2");
+    CHECK(plugin_has(out, "many-aux", "\"name\":\"in 65\"") && !plugin_has(out, "many-aux", "\"jack\"") && !has(out, "aux_in_65_"),
+          "many-aux, refused too-many-ports: none of its 65 aux inputs is named");
+    CHECK(plugin_has(out, "too-wide", "\"name\":\"in 0\"") && !plugin_has(out, "too-wide", "\"jack\""),
+          "too-wide, refused port-too-wide: its admissible main pair is not named either");
+    CHECK(plugin_has(out, "two-mains", "\"name\":\"out 0\"") && !plugin_has(out, "two-mains", "\"jack\""),
+          "two-mains, refused too-many-ports: no port named");
+    CHECK(plugin_has(out, "aux-max", "\"jack\":[\"aux_in_64_1\","), "aux-max, admitted: its 64th aux input is named");
+    CHECK(has(out, "\"role\":\"aux\",\"channels\":65,\"kind\":\"unknown\"}"), "too-wide: a 65-channel port has no JACK port");
+    CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,9,10],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}") == 1,
+          "the surround plugin's 5.1 map by clap.surround, SL and SR as 9 and 10 (%i)",
+          count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,9,10],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}"));
+    CHECK(count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}") == 1,
+          "the plain surround plugin's map in index order, no clap.surround (%i)",
+          count(out, "{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"surround\",\"map\":[0,1,2,3,4,5],\"jack\":[\"out_1\",\"out_2\",\"out_3\",\"out_4\",\"out_5\",\"out_6\"]}"));
+    CHECK(has(out, "\"kind\":\"surround\",\"map\":[0,1,2,3,9,25]}"), "surround-bad's map, its id 25 as the plugin names it, and no JACK name: refused");
+    CHECK(has(out, "{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4,\"kind\":\"ambisonic\",\"ordering\":\"acn\","
+                   "\"normalization\":\"sn3d\",\"jack\":[\"in_1\",\"in_2\",\"in_3\",\"in_4\"]}"),
+          "the ambisonic plugin's ordering and normalisation by clap.ambisonic");
+    CHECK(!has(out, "\"assumed\""), "a configuration every plugin states is not marked assumed");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
     CHECK(!has(out, "\"presets\""), "fake.clap has no preset-discovery factory: no presets key");
-    CHECK(count(out, "\"latency\":64") == 12, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
+    CHECK(count(out, "\"latency\":64") == 23, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
     CHECK(!has(out, "\"error\""), "no error on a clean file");
 }
 
@@ -207,6 +246,19 @@ static void text_checks(const char *scan, const char *fake, char *out)
 
     CHECK(status == 0 && has(out, "plugin org.omx-clap-host.test.wide") && has(out, "param 0 latency"),
           "without --json a listing for a person");
+    CHECK(has(out, "\n  plugin org.omx-clap-host.test.wide \"wide\" vendor omx-clap-host"), "the plugin's name quoted");
+    CHECK(has(out, "\n    in  aux 1 channels mono \"in 1\" aux_in_1_1\n"), "a port per line: role, channels, kind, name, JACK names");
+    CHECK(has(out, "\n    out main 6 channels surround map 0 1 2 3 9 10 \"out 0\" out_1 out_2 out_3 out_4 out_5 out_6\n"),
+          "a surround port's map before its name");
+    CHECK(has(out, "\n    in  main 4 channels ambisonic acn sn3d \"in 0\" in_1 in_2 in_3 in_4\n"), "an ambisonic port's ordering and normalisation");
+    CHECK(!has(out, " assumed "), "without --json the ambisonic port's ordering and normalisation, stated, not assumed");
+    status = run(out, "FAKE_AMBISONIC_SILENT=1 %s %s", scan, fake);
+    CHECK(status == 0 && has(out, "\n    in  main 4 channels ambisonic acn sn3d assumed \"in 0\" in_1 in_2 in_3 in_4\n"),
+          "without --json an ambisonic port whose get_config answers false reads acn sn3d assumed (%i)", status);
+    status = run(out, "FAKE_AMBISONIC_SILENT=1 %s --json %s", scan, fake);
+    CHECK(status == 0 && has(out, "{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4,\"kind\":\"ambisonic\",\"ordering\":\"acn\","
+                                  "\"normalization\":\"sn3d\",\"assumed\":true,\"jack\":[\"in_1\",\"in_2\",\"in_3\",\"in_4\"]}"),
+          "an ambisonic port whose get_config answers false: ACN and SN3D, \"assumed\":true, from the core's description (%i)", status);
 }
 
 /* the synths: an instrument feature, no audio input, one note input with the dialects the port declares, and a note
@@ -220,7 +272,8 @@ static void synth_checks(const char *scan, const char *synth, char *out)
           count(out, "\"id\":\"org.omx-clap-host.test."));
     CHECK(has(out, "\"id\":\"org.omx-clap-host.test.synth\",\"name\":\"synth\"") && has(out, "\"features\":[\"instrument\",\"synthesizer\"]"),
           "the synth is an instrument");
-    CHECK(has(out, "\"audio_ports\":{\"inputs\":[],\"outputs\":[{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":2,\"kind\":\"stereo\"}]}"),
+    CHECK(has(out, "\"audio_ports\":{\"inputs\":[],\"outputs\":[{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":2,\"kind\":\"stereo\","
+                   "\"jack\":[\"out_1\",\"out_2\"]}]}"),
           "with no audio input and a stereo main output");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 8, "one note input on eight of them (%i)",
           count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}"));
