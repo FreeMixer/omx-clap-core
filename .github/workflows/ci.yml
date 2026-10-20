@@ -272,6 +272,11 @@ jobs:
       - name: Test the CLAP coverage probe's rules
         run: make test-clap-coverage-self
 
+      # docs/clap-compatibility.md against this runner's clap-devel headers: every id they spell a row, every supported
+      # cell naming a test that exists, each rule broken once and seen red (tests/clap_doc_check.sh)
+      - name: Test the CLAP compatibility page against the headers
+        run: make test-clap-doc-check
+
       # The parity runner end to end on the fixture bundles, mod-host against the adapter, in a PipeWire of its own
       - name: Test LV2 parity on the fixtures
         run: |

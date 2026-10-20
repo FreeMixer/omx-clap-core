@@ -463,7 +463,9 @@ def offered_extensions(extensions, fields=None, header=os.path.join(ROOT, 'src',
     by_name = {name: ext for ext, name in extensions.items()}
     fields = configured_fields() if fields is None else fields
     configured = {by_name[n] for f in fields for n in (f'CLAP_EXT_{f.upper()}', f'CLAP_EXT_{f.upper()}_COMPAT') if n in by_name}
-    return set(declared) | configured
+    # the surround and ambisonic draft ids are answered as the final ids whatever the configuration (host_get_extension)
+    always = {by_name[n] for n in ('CLAP_EXT_SURROUND_COMPAT', 'CLAP_EXT_AMBISONIC_COMPAT') if n in by_name}
+    return set(declared) | configured | always
 
 
 def classify(plugins, host, missing, extensions, offered, unsaid=()):
