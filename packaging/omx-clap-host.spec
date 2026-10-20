@@ -24,6 +24,7 @@ BuildRequires: libasan
 # make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
 BuildRequires: perl-interpreter
 BuildRequires: pipewire-jack-audio-connection-kit-devel
+BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 # LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
@@ -107,7 +108,7 @@ sed -i 's,LDFLAGS += -s,LDFLAGS +=,g' Makefile
 
 %install
 
-%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir}
+%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir} UDEVDIR=%{_udevrulesdir}
 
 %check
 
@@ -121,6 +122,7 @@ make test-lv2
 %{_bindir}/omx-clap-scan
 %{_mandir}/man1/omx-clap-host.1*
 %{_mandir}/man1/omx-clap-scan.1*
+%{_udevrulesdir}/60-omx-clap-host.rules
 
 %files tests
 %license COPYING

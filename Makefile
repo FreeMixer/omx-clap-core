@@ -185,6 +185,7 @@ INCLUDEDIR = $(PREFIX)/include
 DATADIR = $(PREFIX)/share
 MANDIR = $(DATADIR)/man/man1
 LIBEXECDIR = $(PREFIX)/libexec
+UDEVDIR = $(PREFIX)/lib/udev/rules.d
 # the test fixtures, in a directory of their own so no plugin scanner finds them
 TESTDIR = $(LIBEXECDIR)/$(PROG)/tests
 TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_source tests/socket_conformance.py
@@ -244,8 +245,9 @@ test-contract:
 	node tests/hosting-values-check.mjs --self-test build/contract/json/omx-contract.json src
 
 install: install-lib install-lv2 install-tests install_man install-contract
-	install -d $(DESTDIR)$(BINDIR)
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(UDEVDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
+	install -m 644 packaging/udev/60-omx-clap-host.rules $(DESTDIR)$(UDEVDIR)/
 
 install_man:
 	install -d $(DESTDIR)$(MANDIR)

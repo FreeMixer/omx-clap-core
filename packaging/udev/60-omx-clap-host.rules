@@ -1,0 +1,3 @@
+# omx-clap-host: libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is active (omx-clap-host(1),
+# --idle-hold). The device is root's by default; a user of the audio group may hold it with this rule.
+KERNEL=="cpu_dma_latency", GROUP="audio", MODE="0660"
