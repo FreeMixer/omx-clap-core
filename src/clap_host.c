@@ -1030,9 +1030,13 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
     const char *code;
     uint32_t i;
 
-    // both extensions are [main-thread & !active]: an active plugin is asked nothing
+    // both extensions are [main-thread & !active]: an active plugin is asked nothing. No hosting code names a caller's
+    // mistake, so `why` is emptied rather than left holding an older answer
     if (!in || in->active || (n && !reqs))
+    {
+        why_set(why, "");
         return -1;
+    }
     for (i = 0; i < n; i++)
     {
         const char *refused = request_supported(in, &reqs[i]);
