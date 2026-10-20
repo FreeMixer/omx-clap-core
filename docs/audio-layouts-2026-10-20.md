@@ -3,7 +3,7 @@ Audio layouts: every port a plugin declares, described; the carrier judges the f
 
 Status: design, 2026-10-20, for issue #92 under the operator's ruling of the same day (support all LV2 and CLAP
 plugins; develop what is missing). Builds on #183/#184 (pass-through tools, sources) and the instruments spec of
-openmixer (`docs/design/specs/2026-10-06-instruments-on-channels.md`, §7.2 ruled 2026-10-19).
+openmixer (its instruments-on-channels design of 2026-10-06, §7.2 ruled 2026-10-19).
 
 Intent
 ------
