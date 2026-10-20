@@ -281,7 +281,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket
+test: test-codes test-clap-coverage-self tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -571,6 +571,21 @@ tests/jack_parity: tests/jack_parity.c
 # the parity rules on fake recordings, then each rule broken on purpose and seen red (numpy)
 test-parity-self:
 	python3 tests/lv2_parity.py --self-test
+
+# the CLAP coverage probe's rules: scan parsing, the host loop against a fake host, classify, each broken once and seen red
+test-clap-coverage-self:
+	python3 -I tests/clap_coverage.py --self-test
+
+# every CLAP plugin installed on this machine added on this tree's omx-clap-host, in a private namespace with a PipeWire
+# of its own: the answer per plugin and the extensions it asked for that the host did not offer. Desk only, never in CI
+CLAP_COVERAGE_OUT = build/clap-coverage
+CLAP_COVERAGE_DIRS = /usr/lib64/clap,/usr/lib/clap
+.PHONY: test-clap-coverage-self clap-coverage
+clap-coverage: $(PROG) $(SCAN_PROG)
+	mkdir -p $(CLAP_COVERAGE_OUT)
+	nice -n 10 python3 -I tests/clap_coverage.py scan --dirs $(CLAP_COVERAGE_DIRS) --out $(CLAP_COVERAGE_OUT)
+	nice -n 10 python3 -I tests/clap_coverage.py host --sandbox --out $(CLAP_COVERAGE_OUT) --omx-clap-host ./$(PROG)
+	python3 -I tests/clap_coverage.py classify --out $(CLAP_COVERAGE_OUT)
 
 # the fixture bundle through the parity runner end to end, in a PipeWire of its own, at 48 and 96 kHz; mod-host needed
 test-parity-lv2: $(PROG) tests/jack_parity $(LV2_BUNDLES)
