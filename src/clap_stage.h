@@ -458,6 +458,18 @@ static inline int omx_clap_note_id_names(const struct omx_clap_note_id *id, int1
     return id->state != 0 && (channel < 0 || id->channel == channel) && (key < 0 || id->key == key);
 }
 
+/** RT: whether a note the ids name may still sound at steady time `now`: one held, or released less than hold_frames
+ * ago with no NOTE_END yet. A stage with no ids bound (hold_frames 0) has none. */
+static inline int omx_clap_note_ids_live(const struct omx_clap_note_ids *n, int64_t now)
+{
+    if (!n || n->n_free == OMX_CLAP_NOTE_IDS || n->hold_frames == 0)
+        return 0;
+    for (uint32_t i = 0; i < OMX_CLAP_NOTE_IDS; i++)
+        if (n->ids[i].state == 1 || (n->ids[i].state == 2 && now - n->ids[i].released_at < (int64_t)n->hold_frames))
+            return 1;
+    return 0;
+}
+
 /** RT, inside process(): the plugin's CLAP_EVENT_NOTE_END. Its id is freed when the id still names the note the event
  * names (its channel and key, -1 in either matching any): an id whose hold ran out may already name a new note, and a
  * late NOTE_END for the old voice must not take the id from the one that sounds. With no id (-1), every id of its
@@ -1486,9 +1498,10 @@ static inline void omx_clap_expand_constant(struct omx_clap_stage *s, uint32_t n
 /**
  * The plugin's half of a block: drain, process, flush-to-zero, expand. Shared by the live body and the warm-up so the
  * warm-up exercises exactly the path the RT will. Returns 1 when the output is usable, 0 when the block must be
- * discarded (a process error or, for a stage that scans, a non-finite sample).
+ * discarded (a process error or, for a stage that scans, a non-finite sample). `*said`, when `said` is not NULL, is the
+ * status process() returned.
  */
-static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
+static inline int omx_clap_run_plugin_status(struct omx_clap_stage *s, uint32_t n, clap_process_status *said)
 {
     clap_process_status status;
 
@@ -1510,10 +1523,18 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
     omx_denormals_off();
     s->steady_time += (int64_t)n;
     s->n_events = 0;
+    if (said)
+        *said = status;
     if (status == CLAP_PROCESS_ERROR)
         return OMX_HOSTED_BLOCK_ERROR;       // counted once, in the strike (omx_hosted_run_end_why)
     omx_clap_expand_constant(s, n);
     return omx_hosted_out_finite(&s->h, n) ? OMX_HOSTED_BLOCK_USABLE : OMX_HOSTED_BLOCK_NONFINITE;
+}
+
+/** RT: omx_clap_run_plugin_status, the plugin's process status not kept. */
+static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
+{
+    return omx_clap_run_plugin_status(s, n, NULL);
 }
 
 /**
@@ -1635,8 +1656,8 @@ static inline void omx_clap_transport_fill(clap_event_transport_t *t, const stru
     t->tsig_denom = rec->tsig_denom;
 }
 
-static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
-                                       clap_event_transport_t *t, const struct omx_clap_transport *rec)
+static inline void omx_clap_run_locked_status(struct omx_clap_stage *s, float *l, float *r, uint32_t n, clap_event_transport_t *t,
+                                              const struct omx_clap_transport *rec, clap_process_status *said)
 {
     int usable;
 
@@ -1690,9 +1711,16 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
         omx_clap_transport_fill(t, rec);
         s->proc.transport = t;
     }
-    usable = omx_clap_run_plugin(s, n);
+    usable = omx_clap_run_plugin_status(s, n, said);
     s->proc.transport = NULL;
     omx_hosted_run_end_why(&s->h, usable, &s->process_errors, want_wet, l, r, n);
+}
+
+/** RT: omx_clap_run_locked_status, the plugin's process status not kept. */
+static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
+                                       clap_event_transport_t *t, const struct omx_clap_transport *rec)
+{
+    omx_clap_run_locked_status(s, l, r, n, t, rec, NULL);
 }
 
 /**
@@ -1700,11 +1728,14 @@ static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float
  * header comment lists them. A block longer than the bounce is passed through untouched and counted. The block marks
  * itself in_cycle, so the control thread taking the audio role waits for it, and forgets the notes it was handed.
  * omx_clap_run_transport is the same body handing a processing block the transport `rec` in `t` (NULL, or `rec` with no
- * flags: transport NULL); omx_clap_run hands none.
+ * flags: transport NULL); omx_clap_run hands none. `*said`, when `said` is not NULL, is the status the plugin's
+ * process() returned this block, or -1 when it was not called (not processing, bypassed and idle, an oversize block).
  */
-static inline void omx_clap_run_transport(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
-                                          clap_event_transport_t *t, const struct omx_clap_transport *rec)
+static inline void omx_clap_run_transport_status(struct omx_clap_stage *s, float *l, float *r, uint32_t n, clap_event_transport_t *t,
+                                                 const struct omx_clap_transport *rec, clap_process_status *said)
 {
+    if (said)
+        *said = -1;     // no process() was called
     if (s == NULL)
         return;
     if (s->plugin == NULL || l == NULL || n == 0)
@@ -1714,10 +1745,17 @@ static inline void omx_clap_run_transport(struct omx_clap_stage *s, float *l, fl
         return;
     }
     atomic_store(&s->in_cycle, 1);
-    omx_clap_run_locked(s, l, r, n, t, rec);
+    omx_clap_run_locked_status(s, l, r, n, t, rec, said);
     s->n_notes = 0;
     s->n_sysex = 0;
     atomic_store(&s->in_cycle, 0);
+}
+
+/** RT: omx_clap_run_transport_status, the plugin's process status not kept. */
+static inline void omx_clap_run_transport(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
+                                          clap_event_transport_t *t, const struct omx_clap_transport *rec)
+{
+    omx_clap_run_transport_status(s, l, r, n, t, rec, NULL);
 }
 
 /** Run one block of `n` frames in place on `l` and `r`, with no transport. */
