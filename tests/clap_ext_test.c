@@ -45,6 +45,7 @@ typedef struct
     uint32_t timer_calls;
     clap_id timer_id;
     uint32_t timer_registered, fd_calls, fd_flags, pool_refused_outside, pool_request, pool_ok, pool_done;
+    uint32_t pool_nested, pool_nested_ok, pool_nested_refused;
     int32_t render_mode;
     uint32_t hard_rt, tail;
     int32_t status;
@@ -343,6 +344,15 @@ int main(int argc, char **argv)
     run(in, 0.5f);
     CHECK(st->pool_ok && st->pool_done == 12, "inside process() request_exec runs all 12 tasks before it returns (%u, %u)", st->pool_ok,
           st->pool_done);
+    st->pool_request = 0;
+    /* a request made from inside exec is refused, and the outer request still runs every task */
+    st->pool_nested = 1;
+    st->pool_request = 5;
+    run(in, 0.5f);
+    CHECK(st->pool_ok && st->pool_done == 5, "nested: the outer request ran all 5 tasks (%u, %u)", st->pool_ok, st->pool_done);
+    CHECK(st->pool_nested_ok == 0 && st->pool_nested_refused == 5, "nested: request_exec from inside exec is refused every time (%u ran, %u refused)",
+          st->pool_nested_ok, st->pool_nested_refused);
+    st->pool_nested = 0;
     st->pool_request = 0;
 
     /* the sleep at the floor rates: the 200 ms window and the tail are rate-scaled */
