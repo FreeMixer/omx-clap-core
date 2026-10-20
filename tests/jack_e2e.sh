@@ -154,9 +154,10 @@ source_pid=$!
 pids+=("$source_pid")
 for _ in $(seq 50); do grep -q playing "$runtime/source.log" && break; sleep 0.1; done
 grep -q playing "$runtime/source.log"; step $? "the source plays 0.5 into effect_2:in_1 and 0.25 into effect_2:in_6"
-w=$(level effect_2:out_1); near "${w%% *}" 0.5 0.0001 && near "${w##* }" 0.5 0.0001; step $? "effect_2:out_1 carries in_1 at the fake's gain of 1 ($w)"
-w=$(level effect_2:out_6); near "${w%% *}" 0.25 0.0001; step $? "effect_2:out_6 carries in_6 ($w)"
-w=$(level effect_2:out_3); near "${w%% *}" 0 0.000001; step $? "effect_2:out_3 carries its silent input ($w)"
+# the fake reverses its channels: a dry pass would read 0.5 on out_1 and 0.25 on out_6
+w=$(level effect_2:out_1); near "${w%% *}" 0.25 0.0001 && near "${w##* }" 0.25 0.0001; step $? "effect_2:out_1 carries in_6, the plugin ran ($w)"
+w=$(level effect_2:out_6); near "${w%% *}" 0.5 0.0001 && near "${w##* }" 0.5 0.0001; step $? "effect_2:out_6 carries in_1 ($w)"
+w=$(level effect_2:out_3); near "${w%% *}" 0 0.000001; step $? "effect_2:out_3 carries the silent in_4 ($w)"
 expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 3" "resp 3"
 graph_has effect_3:in_1 && ! graph_has effect_3:in_2 && graph_has effect_3:out_1 && graph_has effect_3:out_2 && ! graph_has effect_3:out_3
 step $? "the mono-in, stereo-out plugin has in_1, out_1 and out_2"

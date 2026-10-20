@@ -144,8 +144,9 @@ static int activate(struct omx_clap_instance *instance)
 
 /*
  * On a lane of any width, omx_clap_host_run_ports carries every main channel: the 6-channel pair binds the wide bounce
- * and each output is its input (the fake copies), and a mono-in, stereo-out pair binds none and runs the two-leg path,
- * the right leg the plugin's second output.
+ * and output c is input 5 - c (the fake reverses them, so a dry block would differ), a mono-in, stereo-out pair binds
+ * none and runs the two-leg path, the right leg the plugin's second output, and a stereo-in, mono-out pair reads both
+ * inputs.
  */
 static void t_run_ports(const char *path)
 {
@@ -169,9 +170,9 @@ static void t_run_ports(const char *path)
     omx_clap_host_publish(in, pthread_self());
     omx_clap_host_run_ports(in, ins, outs, BLOCK);
     for (int c = 0; c < 6; c++)
-        wet = wet && memcmp(bufs[1][c], bufs[0][c], sizeof(bufs[0][c])) == 0;
-    CHECK(wet && atomic_load(&in->stage.h.runs) == 1, "run_ports: each of the six outputs carries its input (%g, %g)", (double)bufs[1][5][0],
-          (double)bufs[0][5][0]);
+        wet = wet && memcmp(bufs[1][c], bufs[0][5 - c], sizeof(bufs[0][c])) == 0;
+    CHECK(wet && atomic_load(&in->stage.h.runs) == 1, "run_ports: output c carries input 5 - c, the plugin's own map (%g, %g)",
+          (double)bufs[1][0][0], (double)bufs[1][5][0]);
     omx_clap_host_close(in);
     in = NULL;
 
@@ -209,7 +210,8 @@ static void t_run_ports(const char *path)
 }
 
 /* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
- * two legs, its other channels the bounce's, and run_ports carries any width; the exit status is the failures */
+ * two legs, its other channels the wide bounce's (silent: nothing fills them on that path), and run_ports carries any
+ * width; the exit status is the failures */
 static int lane_any_checks(const char *path)
 {
     struct omx_clap_host_config config;
@@ -235,7 +237,8 @@ static int lane_any_checks(const char *path)
     memcpy(in_r, in_l, sizeof(in_l));
     omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
     omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
-    CHECK(atomic_load(&in->stage.process_errors) == 0 && memcmp(out_l, in_l, sizeof(in_l)) == 0, "and runs a block on the legs");
+    CHECK(atomic_load(&in->stage.process_errors) == 0 && atomic_load(&in->stage.h.runs) == 2 && is_silent(out_l, 0, BLOCK) && is_silent(out_r, 0, BLOCK),
+          "and runs a block on the legs: the reversing fake's first two outputs are its silent sixth and fifth inputs");
     omx_clap_host_close(in);
     t_run_ports(path);
     return g_failures;
