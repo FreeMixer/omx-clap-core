@@ -381,6 +381,154 @@ static void contract_refused(const char *path, const char *arm, const char *rule
     omx_clap_host_close(instance);
 }
 
+/* the lines of the host's log over `ticks` ticks that start with `prefix`, the last such line in `last` */
+static unsigned unoffered_said(struct omx_clap_instance *instance, unsigned ticks, const char *prefix, char *last, size_t last_size)
+{
+    unsigned n = 0;
+    const char *said;
+
+    while (ticks--)
+    {
+        omx_clap_host_tick(instance);
+        said = omx_clap_host_log_take(instance);
+        if (said && strncmp(said, prefix, strlen(prefix)) == 0)
+        {
+            n++;
+            if (last)
+                snprintf(last, last_size, "%s", said);
+        }
+    }
+    return n;
+}
+
+/* more instances than the table has slots, each opened, asking, closed: every one is said, so a close frees its slots */
+static void unoffered_cycles(const char *path)
+{
+    struct omx_clap_instance *instance;
+    unsigned cycle, said_each = 0;
+
+    setenv("FAKE_ASK_EXTENSION", "clap.omx-test-cycle", 1);
+    for (cycle = 0; cycle < 300; cycle++)
+    {
+        instance = NULL;
+        if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
+            break;
+        said_each += unoffered_said(instance, 4, "extension not offered: clap.omx-test-cycle", NULL, 0) == 1;
+        omx_clap_host_close(instance);
+    }
+    unsetenv("FAKE_ASK_EXTENSION");
+    CHECK(said_each == 300, "300 instances opened and closed, each asking: said once for each (%u)", said_each);
+}
+
+/* a plugin that logs every tick: the unoffered id still has its turn, and the plugin's lines still come */
+static void unoffered_starve(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    const clap_host_log_t *log;
+    const char *said;
+    unsigned ticks, unoffered = 0, plugin = 0;
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
+    {
+        CHECK(0, "open %s for the chatty plugin", FAKE_PASSTHROUGH);
+        return;
+    }
+    log = instance->host.get_extension(&instance->host, CLAP_EXT_LOG);
+    instance->host.get_extension(&instance->host, "clap.omx-test-chatty");
+    for (ticks = 0; ticks < 8; ticks++)
+    {
+        log->log(&instance->host, CLAP_LOG_INFO, "every tick");
+        omx_clap_host_tick(instance);
+        said = omx_clap_host_log_take(instance);
+        unoffered += said && strcmp(said, "extension not offered: clap.omx-test-chatty") == 0;
+        plugin += said && strcmp(said, "every tick") == 0;
+    }
+    CHECK(unoffered == 1 && plugin == 7, "a plugin that logs every tick: the unoffered id said once (%u), the plugin's line on the other ticks (%u)",
+          unoffered, plugin);
+    omx_clap_host_close(instance);
+}
+
+struct unoffered_asker
+{
+    struct omx_clap_instance *instance;
+    pthread_barrier_t start;    ///< every thread asks each id at the same moment
+};
+
+static void *unoffered_ask(void *arg)
+{
+    struct unoffered_asker *a = arg;
+    char id[64];
+    unsigned i;
+
+    for (i = 0; i < 200; i++)
+    {
+        snprintf(id, sizeof(id), "clap.omx-test-thread/%u", i);
+        pthread_barrier_wait(&a->start);
+        a->instance->host.get_extension(&a->instance->host, id);
+    }
+    return NULL;
+}
+
+/* four threads ask the same 200 ids at once: each id is said exactly once */
+static void unoffered_threads(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct unoffered_asker asker;
+    pthread_t threads[4];
+    unsigned i, said;
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
+    {
+        CHECK(0, "open %s for the threads", FAKE_PASSTHROUGH);
+        return;
+    }
+    asker.instance = instance;
+    pthread_barrier_init(&asker.start, NULL, 4);
+    for (i = 0; i < 4; i++)
+        pthread_create(&threads[i], NULL, unoffered_ask, &asker);
+    for (i = 0; i < 4; i++)
+        pthread_join(threads[i], NULL);
+    pthread_barrier_destroy(&asker.start);
+    said = unoffered_said(instance, 400, "extension not offered: clap.omx-test-thread/", NULL, 0);
+    CHECK(said == 200, "200 ids asked from four threads at once: each said once (%u lines)", said);
+    omx_clap_host_close(instance);
+}
+
+/* more ids than the table holds: the table's worth said, the rest counted unsaid and said once as a count */
+static void unoffered_overflow(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    char id[64], last[CLAP_HOST_LOG_BYTES] = "";
+    const char *line;
+    unsigned i, ticks, said = 0, counts = 0;
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
+    {
+        CHECK(0, "open %s for the overflow", FAKE_PASSTHROUGH);
+        return;
+    }
+    for (i = 0; i < 300; i++)
+    {
+        snprintf(id, sizeof(id), "clap.omx-test-overflow/%u", i);
+        instance->host.get_extension(&instance->host, id);
+    }
+    for (ticks = 0; ticks < 300; ticks++)
+    {
+        omx_clap_host_tick(instance);
+        line = omx_clap_host_log_take(instance);
+        said += line && strncmp(line, "extension not offered: clap.omx-test-overflow/", 46) == 0;
+        if (line && strstr(line, "unsaid"))
+        {
+            counts++;
+            snprintf(last, sizeof(last), "%s", line);
+        }
+    }
+    CHECK(said == 256, "300 ids into a table of 256: 256 said (%u)", said);
+    CHECK(counts == 1 && strcmp(last, "44 unoffered ids unsaid, table full or busy") == 0, "and the 44 past it said once as a count (%u lines, \"%s\")",
+          counts, last);
+    omx_clap_host_close(instance);
+}
+
 /* an extension the host does not offer, asked twice by the plugin's init: the log says it once, with its id, and an
  * offered one asked for is never said */
 static void unoffered_checks(const char *path)
@@ -405,6 +553,10 @@ static void unoffered_checks(const char *path)
     CHECK(unoffered == 1, "an unoffered extension asked twice: said once in the log (%u times)", unoffered);
     CHECK(offered == 0, "an offered extension: never said (%u times)", offered);
     omx_clap_host_close(instance);
+    unoffered_cycles(path);
+    unoffered_starve(path);
+    unoffered_threads(path);
+    unoffered_overflow(path);
 }
 
 static void contract_checks(const char *path)
