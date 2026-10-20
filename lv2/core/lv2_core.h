@@ -332,6 +332,14 @@ uint32_t lv2_bundle_count(const struct lv2_bundle *bundle);
 const char *lv2_bundle_uri(const struct lv2_bundle *bundle, uint32_t index);
 const char *lv2_bundle_name(const struct lv2_bundle *bundle, uint32_t index);
 
+/* one preset of a bundle: the plugin it applies to, its URI (the load key clap.preset-load takes) and its label; return
+ * nonzero to stop the listing */
+typedef int (*lv2_preset_fn)(void *ctx, const char *plugin_uri, const char *preset_uri, const char *label);
+
+/* [main] Every pset:Preset of the bundle that applies to one of its plugins, plugin by plugin in the bundle's order:
+ * the presets listed, or -1 for no bundle. */
+int lv2_bundle_presets(const struct lv2_bundle *bundle, lv2_preset_fn fn, void *ctx);
+
 /* Read the plugin `uri` of `bundle`: its ports and its required features, refused with the verdict's code before any
  * binary is opened, including, under strict feature options, a required feature the configured list and the options do
  * not offer between them. Takes a reference on the bundle. */

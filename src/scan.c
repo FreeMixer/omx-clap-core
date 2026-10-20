@@ -87,6 +87,14 @@ typedef struct LIST_T {
 */
 
 static int g_json;
+static int g_presets_listed;  ///< the presets the file being written has listed so far
+
+static const flag_name_t g_preset_flags[] = {
+    { CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "factory" },
+    { CLAP_PRESET_DISCOVERY_IS_USER_CONTENT, "user" },
+    { CLAP_PRESET_DISCOVERY_IS_DEMO_CONTENT, "demo" },
+    { CLAP_PRESET_DISCOVERY_IS_FAVORITE, "favorite" },
+};
 
 static const flag_name_t g_param_flags[] = {
     { CLAP_PARAM_IS_STEPPED, "stepped" },
@@ -482,6 +490,96 @@ static void put_plugin(FILE *out, struct omx_clap_binary *binary, const clap_plu
 }
 
 /* one file's entry, written from the child */
+static void put_preset_flags(FILE *out, uint32_t flags)
+{
+    size_t i;
+    int first = 1;
+
+    for (i = 0; i < sizeof(g_preset_flags) / sizeof(g_preset_flags[0]); i++)
+        if (flags & g_preset_flags[i].bit)
+        {
+            fprintf(out, "%s\"%s\"", first ? "" : ",", g_preset_flags[i].name);
+            first = 0;
+        }
+}
+
+/* one preset of the file's preset-discovery factory, as a person or the JSON reads it */
+static int put_preset(void *ctx, const struct omx_clap_preset *p)
+{
+    FILE *out = ctx;
+    const char *kind = p->location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? "plugin" : "file";
+    uint32_t i;
+
+    if (g_json)
+    {
+        fputs(g_presets_listed++ ? ",\n{\"name\":" : "\n{\"name\":", out);
+        put_string(out, p->name);
+        fprintf(out, ",\"location_kind\":\"%s\",\"location\":", kind);
+        if (p->location)
+            put_string(out, p->location);
+        else
+            fputs("null", out);
+        fputs(",\"load_key\":", out);
+        if (p->load_key)
+            put_string(out, p->load_key);
+        else
+            fputs("null", out);
+        fputs(",\"provider\":", out);
+        put_string(out, p->provider_id);
+        fputs(",\"plugins\":[", out);
+        for (i = 0; i < p->plugin_count; i++)
+        {
+            if (i)
+                fputc(',', out);
+            put_string(out, p->plugin_ids[i]);
+        }
+        fputs("],\"flags\":[", out);
+        put_preset_flags(out, p->flags);
+        fputs("]}", out);
+    }
+    else
+    {
+        g_presets_listed++;
+        fputs("  preset \"", out);
+        put_string(out, p->name);
+        fprintf(out, "\" %s ", kind);
+        put_string(out, p->location ? p->location : "-");
+        fputs(" key ", out);
+        put_string(out, p->load_key ? p->load_key : "-");
+        for (i = 0; i < p->plugin_count; i++)
+        {
+            fputs(i ? "," : " for ", out);
+            put_string(out, p->plugin_ids[i]);
+        }
+        fputc('\n', out);
+    }
+    return 0;
+}
+
+/* the file's presets, when it has a preset-discovery factory: the key is absent when it has none */
+static void put_presets(FILE *out, struct omx_clap_binary *binary)
+{
+    g_presets_listed = 0;
+    if (g_json)
+    {
+        // a file with no factory has no key at all, which is known only after the listing: it is written to a buffer
+        char *buf = NULL;
+        size_t len = 0;
+        FILE *mem = open_memstream(&buf, &len);
+        int listed;
+
+        if (!mem)
+            return;
+        listed = omx_clap_host_presets(binary, put_preset, mem);
+        fclose(mem);
+        if (listed >= 0)
+            fprintf(out, ",\"presets\":[%s%s]", buf ? buf : "", g_presets_listed ? "\n" : "");
+        free(buf);
+        return;
+    }
+    omx_clap_host_presets(binary, put_preset, out);
+}
+
 static void put_file(FILE *out, const char *path)
 {
     char reason[REASON_SIZE], local[PATH_MAX];
@@ -537,7 +635,10 @@ static void put_file(FILE *out, const char *path)
         first = 0;
     }
     if (g_json)
-        fputs(first ? "]}" : "\n]}", out);
+        fputs(first ? "]" : "\n]", out);
+    put_presets(out, binary);
+    if (g_json)
+        fputc('}', out);
     omx_clap_host_binary_close(binary);
 }
 

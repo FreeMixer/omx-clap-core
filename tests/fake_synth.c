@@ -40,7 +40,9 @@
  *                                         layout offers voice-info. It names three keys through clap.note-name
  *                                         (the third answers no get), reads the host's clap.note-ports at init
  *                                         and calls the host's note-ports, note-name and voice-info back when a
- *                                         test asks it to (fake_synth_poly_rescan, _rename, _revoice)
+ *                                         test asks it to (fake_synth_poly_rescan, _rename, _revoice). Its
+ *                                         preset-load records the last load; the file's preset-discovery factory
+ *                                         lists its presets (below)
  *   org.omx-clap-host.test.silent         a generator: no input and no note input, admitted as a source; silent
  *   org.omx-clap-host.test.synth-arp      silent stereo out, a CLAP note input and a CLAP note output: an arpeggiator.
  *                                         A note on of key k at frame f sends note ons of k, k + 4 and k + 7 at f,
@@ -146,6 +148,9 @@ typedef struct FAKE_SYNTH_POLY_STATS_T {
     uint32_t voice_count;       ///< the voice count clap.voice-info answers (FAKE_SYNTH_VOICE_COUNT until _revoice)
     uint32_t ports_gone;        ///< 1: the note ports answer none (set by _rescan with RESCAN_ALL | 1u << 31)
     uint32_t renamed;           ///< 1: the first note name reads "Bass drum" (set by _rename)
+    char last_preset[512];      ///< the last preset-load: "<kind>|<location or ->|<key or ->"
+    int32_t status;             ///< what process() returns (CLAP_PROCESS_CONTINUE until a test sets it)
+    uint32_t process_calls;     ///< process() calls
 } fake_synth_poly_stats_t;
 
 static fake_synth_poly_stats_t g_poly;
@@ -565,6 +570,18 @@ static bool note_name_get(const clap_plugin_t *plugin, uint32_t index, clap_note
 
 static const clap_plugin_note_name_t g_note_name = { note_name_count, note_name_get };
 
+/* synth-poly's preset-load: it records what it was asked for, and refuses the key "missing" */
+static bool preset_from_location(const clap_plugin_t *plugin, uint32_t kind, const char *location, const char *key)
+{
+    (void)plugin;
+    if (key && !strcmp(key, "missing"))
+        return false;
+    snprintf(g_poly.last_preset, sizeof(g_poly.last_preset), "%u|%s|%s", kind, location ? location : "-", key ? key : "-");
+    return true;
+}
+
+static const clap_plugin_preset_load_t g_preset_load = { preset_from_location };
+
 static bool plugin_start_processing(const clap_plugin_t *plugin)
 {
     (void)plugin;
@@ -619,6 +636,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         if (synth->layout->note_outputs)
             arp_send(synth, process->out_events, i);
     }
+    if (synth->layout->poly)
+    {
+        g_poly.process_calls++;
+        return g_poly.status;
+    }
     return CLAP_PROCESS_CONTINUE;
 }
 
@@ -634,6 +656,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_voice_info;
     if (!strcmp(id, CLAP_EXT_NOTE_NAME) && synth->layout->poly)
         return &g_note_name;
+    if (!strcmp(id, CLAP_EXT_PRESET_LOAD) && synth->layout->poly)
+        return &g_preset_load;
     return NULL;
 }
 
@@ -672,6 +696,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     {
         memset(&g_poly, 0, sizeof(g_poly));
         g_poly.voice_count = FAKE_SYNTH_VOICE_COUNT;
+        g_poly.status = CLAP_PROCESS_CONTINUE;
         g_poly_host = host;
     }
     synth->sample_rate = 48000.0;
@@ -706,8 +731,145 @@ static void entry_deinit(void)
 {
 }
 
+/*
+ * The file's preset-discovery factory: one provider, org.omx-clap-host.test.presets. It declares the filetype
+ * .fspreset, a PLUGIN location holding two presets for synth-poly (one a favourite, with a description, and a plugin id
+ * of another format the host must leave out), and, when FAKE_SYNTH_PRESET_DIR names a directory, a FILE location
+ * there: a .fspreset file's first line is its preset's name (an empty line names none); a file whose first line is
+ * "#container" holds one preset per line after it, "<name>=<key>".
+ */
+#define PRESET_PROVIDER "org.omx-clap-host.test.presets"
+
+static const clap_preset_discovery_provider_descriptor_t g_provider_desc = { CLAP_VERSION_INIT, PRESET_PROVIDER, "fake presets", "omx-clap-host" };
+
+typedef struct PROVIDER_T {
+    clap_preset_discovery_provider_t provider;
+    const clap_preset_discovery_indexer_t *indexer;
+} provider_t;
+
+static bool provider_init(const clap_preset_discovery_provider_t *provider)
+{
+    const provider_t *p = provider->provider_data;
+    const char *dir = getenv("FAKE_SYNTH_PRESET_DIR");
+    const clap_preset_discovery_filetype_t type = { "fake preset", NULL, "fspreset" };
+    const clap_preset_discovery_location_t built_in = { CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "built in",
+                                                        CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL };
+
+    if (!p->indexer->declare_filetype(p->indexer, &type) || !p->indexer->declare_location(p->indexer, &built_in))
+        return false;
+    if (dir && dir[0])
+    {
+        const clap_preset_discovery_location_t user = { CLAP_PRESET_DISCOVERY_IS_USER_CONTENT, "user", CLAP_PRESET_DISCOVERY_LOCATION_FILE, dir };
+
+        p->indexer->declare_location(p->indexer, &user);
+    }
+    return true;
+}
+
+static void provider_destroy(const clap_preset_discovery_provider_t *provider)
+{
+    free(provider->provider_data);
+}
+
+static void preset_for_poly(const clap_preset_discovery_metadata_receiver_t *r)
+{
+    const clap_universal_plugin_id_t poly = { "clap", ID_SYNTH_POLY };
+
+    r->add_plugin_id(r, &poly);
+}
+
+static bool provider_get_metadata(const clap_preset_discovery_provider_t *provider, uint32_t kind, const char *location,
+                                  const clap_preset_discovery_metadata_receiver_t *r)
+{
+    const clap_universal_plugin_id_t other = { "vst3", "0123456789abcdef" };
+    char line[256];
+    FILE *f;
+
+    (void)provider;
+    if (kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+    {
+        if (!r->begin_preset(r, "Init", "init"))
+            return true;
+        preset_for_poly(r);
+        if (!r->begin_preset(r, "Bright \"pad\"", "bright"))
+            return true;
+        preset_for_poly(r);
+        r->add_plugin_id(r, &other);
+        r->set_flags(r, CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT | CLAP_PRESET_DISCOVERY_IS_FAVORITE);
+        r->set_description(r, "A pad");
+        return true;
+    }
+    f = location ? fopen(location, "r") : NULL;
+    if (!f)
+    {
+        r->on_error(r, 2, "cannot open the preset file");
+        return false;
+    }
+    if (!fgets(line, sizeof(line), f))
+        line[0] = '\0';
+    line[strcspn(line, "\n")] = '\0';
+    if (!strcmp(line, "#container"))
+    {
+        while (fgets(line, sizeof(line), f))
+        {
+            char *eq;
+
+            line[strcspn(line, "\n")] = '\0';
+            eq = strchr(line, '=');
+            if (!eq)
+                continue;
+            *eq = '\0';
+            if (!r->begin_preset(r, line, eq + 1))
+                break;
+            preset_for_poly(r);
+        }
+    }
+    else if (r->begin_preset(r, line[0] ? line : NULL, NULL))
+        preset_for_poly(r);
+    fclose(f);
+    return true;
+}
+
+static const void *provider_get_extension(const clap_preset_discovery_provider_t *provider, const char *id)
+{
+    (void)provider;
+    (void)id;
+    return NULL;
+}
+
+static uint32_t preset_factory_count(const clap_preset_discovery_factory_t *factory)
+{
+    (void)factory;
+    return 1;
+}
+
+static const clap_preset_discovery_provider_descriptor_t *preset_factory_descriptor(const clap_preset_discovery_factory_t *factory,
+                                                                                    uint32_t index)
+{
+    (void)factory;
+    return index == 0 ? &g_provider_desc : NULL;
+}
+
+static const clap_preset_discovery_provider_t *preset_factory_create(const clap_preset_discovery_factory_t *factory,
+                                                                     const clap_preset_discovery_indexer_t *indexer, const char *id)
+{
+    provider_t *p;
+
+    (void)factory;
+    if (!id || strcmp(id, PRESET_PROVIDER) != 0 || !(p = calloc(1, sizeof(*p))))
+        return NULL;
+    p->indexer = indexer;
+    p->provider = (clap_preset_discovery_provider_t){ &g_provider_desc, p, provider_init, provider_destroy, provider_get_metadata,
+                                                      provider_get_extension };
+    return &p->provider;
+}
+
+static const clap_preset_discovery_factory_t g_preset_factory = { preset_factory_count, preset_factory_descriptor, preset_factory_create };
+
 static const void *entry_get_factory(const char *factory_id)
 {
+    if (!strcmp(factory_id, CLAP_PRESET_DISCOVERY_FACTORY_ID))
+        return &g_preset_factory;
     return !strcmp(factory_id, CLAP_PLUGIN_FACTORY_ID) ? &g_factory : NULL;
 }
 
