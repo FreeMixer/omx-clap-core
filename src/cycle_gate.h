@@ -119,38 +119,95 @@ static inline int omx_cycle_gate_deactivate(struct omx_cycle_gate *g, struct omx
     return 0;
 }
 
-/** A change of the block size, on the carrier's own thread (JACK's buffer-size callback): under `lock`, the lock every
- * restart and relayout of the instance holds, an instance still active at another block is stopped, deactivated and
- * activated at `nframes`, the cycles shut out around it, and armed with the audio role it had. Its state is read under
- * the lock only: an instance a relayout or restart left inactive meanwhile (a layout refused, ports no longer the
- * carrier's, a rescan waiting for its relayout) is the relayout's to activate, at the size the carrier then reads, and
- * this leaves it inactive. Nonzero when it activated the instance again. */
+/** An activation a relayout left waiting for the carrier's next block-size change (its blocks were shorter than the new
+ * block): set, with the audio role the relayout saved, under the lock every restart, relayout and resize holds. */
+struct omx_cycle_gate_pending {
+    int set;
+    pthread_t thread;   ///< the audio role to give back
+    int held;
+};
+
+/** What a carrier keeps beside the instance across a change of the block size: buffers sized by the block (omx-clap-host's
+ * auxiliary blocks). `stale(ctx, nframes)` says whether they need making again for `nframes`; `reblock(ctx, nframes)`
+ * makes and binds them, the instance deactivated and the cycles shut out, 0 or -1 when it cannot. Either may be NULL:
+ * nothing kept. */
+struct omx_cycle_gate_blocks {
+    int (*stale)(void *ctx, uint32_t nframes);
+    int (*reblock)(void *ctx, uint32_t nframes);
+    void *ctx;
+};
+
+/** omx_cycle_gate_resize's answers */
+#define OMX_CYCLE_GATE_RESIZED          1   ///< activated at the new size
+#define OMX_CYCLE_GATE_UNCHANGED        0   ///< nothing to do, or an inactive instance left to its relayout
+#define OMX_CYCLE_GATE_REFUSED          (-1)    ///< the activation refused, `why` says why; the instance inactive
+#define OMX_CYCLE_GATE_REBLOCK_FAILED   (-2)    ///< the carrier's blocks could not be made; the instance inactive, pending
+
+/**
+ * A change of the block size, on the carrier's own thread (JACK's buffer-size callback), under `lock`, the lock every
+ * restart and relayout of the instance holds. When the instance is active at another block, the carrier's blocks are
+ * stale, or `pending` holds a relayout's waiting activation, the cycles are shut out: an active instance is stopped and
+ * deactivated, the carrier's blocks made again (`blocks`, inside the closed gate, for the cycles copy them), and the
+ * instance activated at `nframes` when it was active or pending, armed with the audio role it had (the pending one's
+ * saved role), then the gate opened. A failed reblock leaves the instance inactive, and pending with its role saved when
+ * it was to be activated, for the next change to try again; a refused activation leaves it inactive with `why` set. An instance a relayout left inactive
+ * and not pending is the relayout's to activate, at the size the carrier then reads. Its state is read under the lock
+ * only. Returns one of OMX_CYCLE_GATE_*.
+ */
 static inline int omx_cycle_gate_resize(struct omx_cycle_gate *g, struct omx_clap_instance *in, pthread_mutex_t *lock, double rate,
-                                        uint32_t nframes, unsigned poll_us)
+                                        uint32_t nframes, unsigned poll_us, const struct omx_cycle_gate_blocks *blocks,
+                                        struct omx_cycle_gate_pending *pending, char why[OMX_CLAP_WHY_MAX])
 {
-    int ok = 0;
+    int ret = OMX_CYCLE_GATE_UNCHANGED;
 
     pthread_mutex_lock(lock);
-    if (in->active && nframes != in->max_block)
     {
-        // stop takes the audio role for this thread and releases it: the cycle's is given back after
-        const pthread_t thread = in->audio_thread;
-        const int held = in->audio_role_held;
+        const int active = in->active;
+        const int waiting = pending && pending->set;
+        const int stale = blocks && blocks->stale && blocks->stale(blocks->ctx, nframes);
 
-        omx_cycle_gate_close(g, poll_us);
-        omx_clap_host_stop(in);
-        omx_clap_host_deactivate(in);
-        if (omx_clap_host_activate(in, rate, nframes, NULL) == 0)
+        if ((active && nframes != in->max_block) || stale || waiting)
         {
-            if (held)
-                omx_clap_host_set_audio_thread(in, thread);
-            omx_clap_host_arm(in);
-            ok = 1;
+            // stop takes the audio role for this thread and releases it: the cycle's is given back after, a pending
+            // relayout's is the one it saved
+            const pthread_t thread = active ? in->audio_thread : waiting ? pending->thread : in->audio_thread;
+            const int held = active ? in->audio_role_held : waiting ? pending->held : 0;
+
+            if (pending)
+                pending->set = 0;
+            omx_cycle_gate_close(g, poll_us);
+            if (active)
+            {
+                omx_clap_host_stop(in);
+                omx_clap_host_deactivate(in);
+            }
+            if (stale && blocks->reblock && blocks->reblock(blocks->ctx, nframes) != 0)
+            {
+                ret = OMX_CYCLE_GATE_REBLOCK_FAILED;
+                if (pending && (active || waiting))
+                {
+                    pending->set = 1;
+                    pending->thread = thread;
+                    pending->held = held;
+                }
+            }
+            else if (active || waiting)
+            {
+                if (omx_clap_host_activate(in, rate, nframes, why) == 0)
+                {
+                    if (held)
+                        omx_clap_host_set_audio_thread(in, thread);
+                    omx_clap_host_arm(in);
+                    ret = OMX_CYCLE_GATE_RESIZED;
+                }
+                else
+                    ret = OMX_CYCLE_GATE_REFUSED;
+            }
+            omx_cycle_gate_open(g);
         }
-        omx_cycle_gate_open(g);
     }
     pthread_mutex_unlock(lock);
-    return ok;
+    return ret;
 }
 
 #endif

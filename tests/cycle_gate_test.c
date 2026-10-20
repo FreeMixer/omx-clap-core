@@ -187,8 +187,36 @@ static void arm(const char *path, const char *knob, int want_rescanned)
     omx_clap_host_close(r.in);
 }
 
+/* the carrier's blocks as effects.c keeps its auxiliary ones: stale at another length, made again by the hook, which
+ * counts its calls, checks the cycles are shut out, and fails on demand */
+struct blocks {
+    struct rig *r;
+    uint32_t frames;
+    int calls, open_calls, fail;
+};
+
+static int blocks_stale(void *ctx, uint32_t nframes)
+{
+    return ((struct blocks *)ctx)->frames != nframes;
+}
+
+static int blocks_reblock(void *ctx, uint32_t nframes)
+{
+    struct blocks *b = ctx;
+
+    b->calls++;
+    if (atomic_load(&b->r->gate.closed) == 0u)
+        b->open_calls++;
+    if (b->fail)
+        return -1;
+    b->frames = nframes;
+    return 0;
+}
+
 struct resize_call {
     struct rig *r;
+    struct omx_cycle_gate_blocks *blocks;
+    struct omx_cycle_gate_pending *pending;
     pthread_mutex_t *lock;
     uint32_t nframes;
     _Atomic int started;
@@ -201,7 +229,10 @@ static void *resize_run(void *arg)
     struct resize_call *c = arg;
 
     atomic_store(&c->started, 1);
-    c->ret = omx_cycle_gate_resize(&c->r->gate, c->r->in, c->lock, SAMPLE_RATE, c->nframes, CLAP_HOST_ROLE_POLL_US);
+    char why[OMX_CLAP_WHY_MAX] = "";
+
+    c->ret = omx_cycle_gate_resize(&c->r->gate, c->r->in, c->lock, SAMPLE_RATE, c->nframes, CLAP_HOST_ROLE_POLL_US, c->blocks,
+                                   c->pending, why);
     return NULL;
 }
 
@@ -213,6 +244,9 @@ static void resize_checks(const char *path)
     static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
     struct rig r;
     struct resize_call c;
+    struct blocks b = { &r, BLOCK, 0, 0, 0 };
+    struct omx_cycle_gate_blocks hook = { blocks_stale, blocks_reblock, &b };
+    struct omx_cycle_gate_pending pending = { 0, 0, 0 };
     char why[OMX_CLAP_WHY_MAX] = "";
     pthread_t t, rt;
     uint32_t runs;
@@ -235,6 +269,8 @@ static void resize_checks(const char *path)
     c.r = &r;
     c.lock = &lock;
     c.nframes = 2 * BLOCK;
+    c.blocks = &hook;
+    c.pending = &pending;
     pthread_mutex_lock(&lock);
     if (pthread_create(&rt, NULL, resize_run, &c) == 0)
     {
@@ -246,8 +282,10 @@ static void resize_checks(const char *path)
         omx_cycle_gate_open(&r.gate);
         pthread_mutex_unlock(&lock);
         pthread_join(rt, NULL);
-        CHECK(c.ret == 0 && !r.in->active, "resize: the change that waited for it leaves the instance inactive (%d, active %d)", c.ret,
-              r.in->active);
+        CHECK(c.ret == OMX_CYCLE_GATE_UNCHANGED && !r.in->active && !pending.set,
+              "resize: the change that waited for it leaves the instance inactive (%d, active %d)", c.ret, r.in->active);
+        CHECK(b.calls == 1 && b.open_calls == 0 && b.frames == 2 * BLOCK,
+              "resize: the stale blocks made again once, the cycles shut out (%d calls, %d open)", b.calls, b.open_calls);
     }
     else
         pthread_mutex_unlock(&lock);
@@ -261,9 +299,36 @@ static void resize_checks(const char *path)
     omx_cycle_gate_open(&r.gate);
     pthread_mutex_unlock(&lock);
     cycles_wait(&r, 4);
-    CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 2 * BLOCK, CLAP_HOST_ROLE_POLL_US) == 1 && r.in->active
-              && r.in->max_block == 2 * BLOCK,
-          "resize: an active instance is re-activated at the new size (%u)", r.in->max_block);
+    CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 2 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+              == OMX_CYCLE_GATE_RESIZED && r.in->active && r.in->max_block == 2 * BLOCK && b.calls == 1,
+          "resize: an active instance is re-activated at the new size, its blocks already that long (%u, %d calls)", r.in->max_block,
+          b.calls);
+    runs = atomic_load(&r.in->stage.h.runs);
+    cycles_wait(&r, 8);
+    CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and runs on the cycle thread after it");
+
+    // the blocks cannot be made: the instance left inactive and pending, its role saved; the next change activates it
+    b.fail = 1;
+    CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 4 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+              == OMX_CYCLE_GATE_REBLOCK_FAILED && !r.in->active && pending.set && b.open_calls == 0,
+          "resize: a failed reblock leaves the instance inactive and pending (active %d, pending %d)", r.in->active, pending.set);
+    b.fail = 0;
+    CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 4 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+              == OMX_CYCLE_GATE_RESIZED && r.in->active && !pending.set && r.in->max_block == 4 * BLOCK && b.frames == 4 * BLOCK,
+          "resize: the next change makes the blocks and activates the pending instance (%u)", r.in->max_block);
+    runs = atomic_load(&r.in->stage.h.runs);
+    cycles_wait(&r, 8);
+    CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and it runs on the cycle thread, the saved role given back");
+
+    // a relayout that waits for the blocks (pending, its role saved): a change with nothing stale activates it
+    pthread_mutex_lock(&lock);
+    CHECK(omx_cycle_gate_deactivate(&r.gate, r.in, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) == 0, "resize: a relayout deactivates");
+    pending = (struct omx_cycle_gate_pending){ 1, t, 1 };
+    omx_cycle_gate_open(&r.gate);
+    pthread_mutex_unlock(&lock);
+    CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 4 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+              == OMX_CYCLE_GATE_RESIZED && r.in->active && !pending.set,
+          "resize: a pending relayout is activated by the change, the size unchanged (active %d)", r.in->active);
     runs = atomic_load(&r.in->stage.h.runs);
     cycles_wait(&r, 8);
     CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and runs on the cycle thread after it");
