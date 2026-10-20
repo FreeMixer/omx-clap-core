@@ -355,12 +355,19 @@ per channel of each, `aux_in_<p>_<k>` and `aux_out_<p>_<k>`, `p` the port's
 place among its side's auxiliary ports in the plugin's order and `k` the
 channel, both from 1 (the main pair keeps `in_<k>` and `out_<k>`). Each
 channel is bound to a block of the JACK buffer size, made again when that
-size changes; each cycle copies an auxiliary input's JACK buffer into its
+size changes. A change of the buffer size is applied on the control thread's
+next tick (the plugin's deactivate and activate are main-thread calls; JACK's
+buffer-size callback only records the size), and the cycles pass dry until
+then; each cycle copies an auxiliary input's JACK buffer into its
 block before the plugin runs and an auxiliary output's block onto its JACK
 buffer after. When the blocks cannot be made at a new size, the instance is
 left inactive, passing dry, and pending: the next change of the buffer size
-makes them and activates it; stderr says so in one line. An instance its
-relayout left dry until it is added again gets no blocks made. A side chain
+makes them and activates it; stderr says so in one line. A plugin that
+rescans its ports in the deactivate of a buffer-size change is not activated
+on its old description: it stays inactive, passing dry, stderr says so once,
+and the relayout in the same tick reads its description again and activates it
+at the new size. An instance its relayout left dry until it is added again
+gets no blocks made. A side chain
 nothing is linked to reads silence. The bound auxiliary outputs are guarded as
 the main ones are (the library's, for every carrier; an output still on its
 scratch block is read by no one and left alone): on every block the plugin does not run usable (not processing, bypassed,
