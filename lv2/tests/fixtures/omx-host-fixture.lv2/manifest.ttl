@@ -41,6 +41,11 @@
     lv2:binary <omx-host-fixture.so> ;
     rdfs:seeAlso <omx-host-fixture.ttl> .
 
+<urn:openmixer:test:host-fixture#no-ports>
+    a lv2:Plugin ;
+    lv2:binary <omx-host-fixture.so> ;
+    rdfs:seeAlso <omx-host-fixture.ttl> .
+
 <urn:openmixer:test:host-fixture#no-out>
     a lv2:Plugin ;
     lv2:binary <omx-host-fixture.so> ;
