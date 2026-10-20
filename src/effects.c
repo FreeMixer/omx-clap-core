@@ -404,12 +404,12 @@ static void process_gated(effect_t *effect, jack_nframes_t nframes, int open)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
     for (c = 0; c < effect->out_ports; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
-    // a cycle with the gate shut (a restart or a relayout deactivating the instance) or the instance deactivated
-    // (buffer_size re-activating it, JACK stopping this client's cycle for the callback but this thread waiting on
-    // nothing of it; a relayout that left it inactive), or a cycle longer than the auxiliary blocks: the audio passes
-    // dry, a source's output silent, and the plugin is not run. The flag and the blocks are read inside the open gate,
-    // where no control thread writes them
-    if (!open || !__atomic_load_n(&effect->clap->active, __ATOMIC_ACQUIRE)
+    // a cycle with the gate shut (a restart, a relayout or a resize deactivating the instance), the instance deactivated
+    // (a relayout or a resize that left it inactive), a block size JACK changed to that the tick has not applied yet
+    // (the instance is activated for the old one), or a cycle longer than the auxiliary blocks: the audio passes dry, a
+    // source's output silent, and the plugin is not run. The flag and the blocks are read inside the open gate, where no
+    // control thread writes them
+    if (!open || !__atomic_load_n(&effect->clap->active, __ATOMIC_ACQUIRE) || omx_cycle_gate_resizing(&effect->gate)
         || ((effect->aux_in_count || effect->aux_out_count) && nframes > effect->aux_frames))
     {
         for (c = 0; c < effect->out_ports; c++)
@@ -641,10 +641,10 @@ static int aux_carried(const effect_t *effect)
     return 1;
 }
 
-/* One effect is one JACK client, so a change of the buffer size calls this on as many client threads at once as there
- * are effects. A re-activation is a main-thread call of the plugin (CLAP's own rule) and, for an LV2 plugin, a lilv call
- * on the adapter's one world (the default state is loaded at activate), and neither bears two threads at a time: two
- * effects re-activating together crashed in sord's node table (jack_lv2_e2e, the shrink). One lock serialises them. */
+/* A re-activation (a resize, a relayout, a restart) is a main-thread call of the plugin (CLAP's own rule) and, for an LV2
+ * plugin, a lilv call on the adapter's one world (the default state is loaded at activate), and neither bears two
+ * threads at a time: two effects re-activating together crashed in sord's node table (jack_lv2_e2e, the shrink). All of
+ * them run on the control thread under this lock, which audio_ports takes too to read what they write. */
 static pthread_mutex_t g_reactivate = PTHREAD_MUTEX_INITIALIZER;
 
 /* omx_cycle_gate_resize's view of the auxiliary blocks: stale when an instance with auxiliary ports has them at another
@@ -661,27 +661,42 @@ static int aux_reblock(void *ctx, uint32_t nframes)
     return aux_blocks(ctx, nframes);
 }
 
-/* jack stops this client's process cycle while this runs, so this thread can take the audio thread's place: the
- * auxiliary blocks are made again at the new size and bound, and an active instance re-activated at it */
+/* JACK's thread, its process cycle stopped while this runs: the new size recorded for the control thread's next tick
+ * (resize_apply), and nothing of the plugin done here, since a deactivate and an activate are main-thread calls. Until
+ * the tick applies it the cycles pass dry (process_gated): the instance is still activated for the old size. */
 static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
+
+    if (effect && effect->clap)
+        omx_cycle_gate_resize_record(&effect->gate, nframes);
+    return 0;
+}
+
+/* the control thread's tick, before the relayout: a size buffer_size recorded applied by the gate's resize, under the
+ * lock every restart and relayout holds, with the cycles shut out. Any change, a shrink too: the adapter promised the
+ * plugin the activation's length (bufsz:fixedBlockLength) and refuses a cycle of another one. The auxiliary blocks,
+ * which a cycle copies, are made again at the new size; an active instance, or one whose relayout waits for these blocks
+ * (pending), is activated at it; one a relayout left inactive otherwise is the relayout's to activate; a plugin that
+ * rescans its ports in the deactivate stays inactive, the rescan reported, for the relayout that follows. */
+static void resize_apply(effect_t *effect)
+{
     const struct omx_cycle_gate_blocks blocks = { aux_stale, aux_reblock, effect };
     char why[OMX_CLAP_WHY_MAX] = "";
+    uint32_t nframes;
 
-    if (!effect || !effect->clap)
-        return 0;
-    // any change, a shrink too: the adapter promised the plugin the activation's length (bufsz:fixedBlockLength) and
-    // refuses a cycle of another one, so an instance left at the old size would run no block at all. The gate's resize,
-    // under the lock every restart and relayout holds, with the cycles shut out: the auxiliary blocks, which a cycle
-    // copies, made again at the new size; an active instance at another block, or one whose relayout waits for these
-    // blocks (pending), activated at it. An instance a relayout left inactive otherwise is the relayout's to activate.
-    switch (omx_cycle_gate_resize(&effect->gate, effect->clap, &g_reactivate, jack_get_sample_rate(effect->jack_client), nframes,
-                                  CLAP_HOST_ROLE_POLL_US, &blocks, &effect->pending, why))
+    switch (omx_cycle_gate_resize_tick(&effect->gate, effect->clap, &g_reactivate, jack_get_sample_rate(effect->jack_client),
+                                       CLAP_HOST_ROLE_POLL_US, &blocks, &effect->pending, why, &nframes))
     {
     case OMX_CYCLE_GATE_REBLOCK_FAILED:
         fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; it passes dry until %s\n", effect->instance,
                 nframes, effect->pending.set ? "the next change of the buffer size" : "it is added again");
+        break;
+    case OMX_CYCLE_GATE_RESCANNED:
+        // its ports changed in the deactivate: the rescan is reported (omx_clap_host_ports_rescanned), and the relayout
+        // right after reads the description again and activates
+        fprintf(stderr, "%s: its ports changed in the deactivate at %u frames; its relayout answers it\n", effect->clap->desc->id,
+                nframes);
         break;
     case OMX_CYCLE_GATE_REFUSED:
         fprintf(stderr, "%s: it does not activate again at %u frames: %s; it passes dry\n", effect->clap->desc->id, nframes, why);
@@ -689,7 +704,6 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
     default:
         break;
     }
-    return 0;
 }
 
 static void instance_free(effect_t *effect)
@@ -1111,9 +1125,9 @@ static void ports_relayout(effect_t *effect)
     pthread_mutex_unlock(&g_reactivate);
 }
 
-/* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle
- * took. A restart stopped by a ports rescan is the relayout's to answer (ports_relayout, right after); a failed one is
- * said on stderr */
+/* the control thread's tick of one effect: what the plugin asked of the host, its log, a block size JACK changed to
+ * (resize_apply), a restart, the writes no cycle took. A restart or a resize stopped by a ports rescan is the relayout's
+ * to answer (ports_relayout, right after, which so sees the new size); a failed restart is said on stderr */
 static void clap_idle(effect_t *effect)
 {
     struct omx_clap_instance *clap = effect->clap;
@@ -1122,6 +1136,7 @@ static void clap_idle(effect_t *effect)
 
     if (log)
         fprintf(stderr, "%s: %s\n", clap->desc->id, log);
+    resize_apply(effect);
     if (restart && clap->active)
     {
         int restarted;
@@ -1597,9 +1612,10 @@ static int configure_lv2_with(const char *root, char why[OMX_CLAP_LV2_WHY_MAX])
     config.state_root = root;
     if (omx_clap_lv2_configure(&config, why) != 0)
         return -1;
-    // Under JACK every process() gets the buffer size and any change of it, up or down, re-activates (buffer_size
-    // above), so within one activation the block length is fixed: declared, and the adapter refuses a cycle of another
-    // length, counted apart from the plugin's own faults (#192).
+    // Under JACK every process() gets the buffer size and any change of it, up or down, re-activates (recorded by
+    // buffer_size, applied by the tick's resize_apply, the cycles dry meanwhile), so within one activation the block
+    // length is fixed: declared, and the adapter refuses a cycle of another length, counted apart from the plugin's own
+    // faults (#192).
     {
         struct omx_lv2_feature_options options;
 

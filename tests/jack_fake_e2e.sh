@@ -150,6 +150,39 @@ expect "quit" "resp 0"
 sleep 0.3
 ! kill -0 "$host_pid" 2>/dev/null; step $? "host exited on quit"
 
+# ---- a plugin that rescans its ports in every deactivate (FAKE_RESCAN_ON_DEACTIVATE): a change of the buffer size
+# deactivates it, the rescan leaves it inactive and reported, and its relayout reads the description again and
+# activates it; never activated on the stale description ----
+port=$((port + 1))
+: >"$runtime/fake.log"
+FAKE_RESCAN_ON_DEACTIVATE=1 FAKE_LOG=$runtime/fake.log "$host" -n -p "$port" >"$runtime/host2.log" 2>&1 &
+pids+=($!)
+host_pid=$!
+for _ in $(seq 50); do grep -q "ready!" "$runtime/host2.log" && break; sleep 0.1; done
+grep -q "ready!" "$runtime/host2.log"; step $? "omx-clap-host ready on port $port, its plugins rescanning in every deactivate"
+exec 3>&-
+exec 3<>"/dev/tcp/127.0.0.1/$port"
+selected() { grep -c -x -F "org.omx-clap-host.test.configs select 2" "$runtime/fake.log" 2>/dev/null; }
+changed() { grep -c "test.configs: its ports changed in the deactivate" "$runtime/host2.log"; }
+expect "add clap:$fake#org.omx-clap-host.test.configs 0" "resp 0"
+run pw-link jack_meter_source:out_l effect_0:in_1 && run pw-link jack_meter_source:out_r effect_0:in_2
+step $? "the source's 0.5 into effect_0:in_1 and 0.25 into effect_0:in_2"
+for _ in $(seq 30); do [ "$(changed)" = 0 ] && w=$(level effect_0:out_1) && near "${w%% *}" 0.25 0.0001 && break; sleep 0.1; done
+w=$(level effect_0:out_1); near "${w%% *}" 0.25 0.0001; step $? "the configs plugin runs its stereo config: out_1 is half in_1 ($w)"
+n=$(selected)
+pw-metadata -n settings 0 clock.force-quantum 2048 >/dev/null 2>&1; step $? "the quantum forced to 2048"
+for _ in $(seq 30); do [ "$(selected)" -gt "$n" ] && break; sleep 0.1; done
+sleep 0.5
+[ "$(changed)" = 1 ]; step $? "the rescan in the resize's deactivate is said once ($(changed))"
+[ "$(selected)" = $((n + 1)) ]; step $? "and its relayout asked for the lane's width again, once ($n, then $(selected))"
+w=$(level effect_0:out_1); near "${w%% *}" 0.25 0.0001 && near "${w##* }" 0.25 0.0001; step $? "at 2048, out_1 is half in_1 again ($w)"
+w=$(level effect_0:out_2); near "${w%% *}" 0.125 0.0001; step $? "and out_2 half in_2 ($w)"
+pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1; step $? "and unforced"
+sleep 0.5
+w=$(level effect_0:out_1); near "${w%% *}" 0.25 0.0001; step $? "back at the default quantum, out_1 is half in_1 ($w)"
+expect "remove 0" "resp 0"
+expect "quit" "resp 0"
+
 if [ "$failures" -eq 0 ]; then
     echo "jack fake e2e ok"
     exit 0
