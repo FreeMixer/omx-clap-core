@@ -76,7 +76,7 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
 
-"$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
+FAKE_LOG=$runtime/fake.log "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pids+=($!)
 for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
 grep -q "ready!" "$runtime/host.log"
@@ -180,6 +180,25 @@ run pw-link jack_meter_source:out_l effect_4:in_1 && run pw-link jack_meter_sour
 step $? "the source's 0.5 into effect_4:in_1 and 0.25 into effect_4:in_2"
 sleep 0.3
 w=$(level effect_4:out_1); near "${w%% *}" 0.75 0.0001 && near "${w##* }" 0.75 0.0001; step $? "effect_4:out_1 is the sum of both inputs, 0.75 ($w)"
+
+# ---- the lane's width asked of a plugin that offers layouts (#92): -c 2, the default ----
+selected() { grep -c -x -F "org.omx-clap-host.test.configs select 2" "$runtime/fake.log" 2>/dev/null; }
+expect "add clap:$fake#org.omx-clap-host.test.configs 5" "resp 5"
+graph_has effect_5:in_1 && graph_has effect_5:in_2 && graph_has effect_5:out_1 && graph_has effect_5:out_2 && ! graph_has effect_5:in_3 && ! graph_has effect_5:out_3
+step $? "the configs plugin, declared mono in and stereo out, asked for the stereo lane: in_1, in_2, out_1 and out_2 (config 2)"
+[ "$(selected)" = 1 ]; step $? "config 2 selected once, at add ($(selected))"
+expect "param_get 5 1" "resp 0 1.0000"
+# a write makes the plugin say its ports changed (audio-ports rescan) while it runs: the lane's width is asked again
+expect "param_set 5 0 100" "resp 0"
+for _ in $(seq 30); do [ "$(selected)" = 2 ] && break; sleep 0.1; done
+[ "$(selected)" = 2 ]; step $? "the reported ports rescan asks for the lane's width again: config 2 selected a second time ($(selected))"
+expect "param_get 5 1" "resp 0 2.0000"
+graph_has effect_5:in_2 && graph_has effect_5:out_2 && ! graph_has effect_5:in_3; step $? "the description is the same: the ports stand, the plugin activated again"
+calls=$(send "param_get 5 2"); sleep 0.3
+[ "$(send "param_get 5 2")" != "$calls" ]; step $? "and it runs again: its process calls move past $calls"
+sleep 0.3
+[ "$(selected)" = 2 ]; step $? "and no relayout loop follows ($(selected))"
+expect "remove 5" "resp 0"
 kill "$source_pid" 2>/dev/null
 wait "$source_pid" 2>/dev/null
 expect "remove 4" "resp 0"
@@ -197,6 +216,25 @@ expect "quit" "resp 0"
 sleep 0.3
 ! kill -0 "${pids[1]}" 2>/dev/null; step $? "host exited on quit"
 [ "$(nodes effect_1)" -eq 0 ] && [ "$(nodes omx-clap-host)" -eq 0 ]; step $? "no host node left in the private graph"
+
+# ---- -c 1: a mono lane asked; the configs plugin offers no mono pair, its declared layout stands ----
+run "$host" -n -c 3 -p "$((port + 1))" >"$runtime/host3.log" 2>&1
+[ $? -ne 0 ] && grep -q -- "-c" "$runtime/host3.log"; step $? "-c 3 is refused: the lane is one or two channels ($(head -1 "$runtime/host3.log"))"
+"$host" -n -c 1 -p "$((port + 1))" >"$runtime/host1.log" 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do grep -q "ready!" "$runtime/host1.log" && break; sleep 0.1; done
+grep -q "ready!" "$runtime/host1.log"; step $? "omx-clap-host -c 1 ready on port $((port + 1))"
+exec 3>&-
+exec 3<>"/dev/tcp/127.0.0.1/$((port + 1))"
+expect "add clap:$fake#org.omx-clap-host.test.configs 0" "resp 0"
+graph_has effect_0:in_1 && ! graph_has effect_0:in_2 && graph_has effect_0:out_1 && graph_has effect_0:out_2
+step $? "under -c 1 the mono pair is asked, no config offers it: the declared in_1, out_1 and out_2 stand"
+expect "add clap:$fake#org.omx-clap-host.test.configurable 1" "resp 1"
+graph_has effect_1:in_1 && ! graph_has effect_1:in_2 && graph_has effect_1:out_1 && ! graph_has effect_1:out_2
+step $? "the configurable plugin, declared stereo, applies the mono pair asked: in_1 and out_1"
+expect "quit" "resp 0"
+sleep 0.3
+[ "$(nodes effect_0)" -eq 0 ]; step $? "the -c 1 host left no node"
 
 if [ "$failures" -eq 0 ]; then
     echo "jack e2e ok"
