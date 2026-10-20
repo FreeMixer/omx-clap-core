@@ -38,9 +38,11 @@
  *             the plugin's own objects): admitted, never a MIDI input, fed a valid sequence at every block, the
  *             transport's object when it takes time:Position, and the audio bit for bit; an atom input that is no
  *             sequence and a fifth control input refused hosting.features.atom-in-unfed.
- *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
- *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
- *             frame for frame, against the closed form computed here.
+ *   cv        the CV fixture's CV input and output read in index order with their names; sixteen CV inputs and sixteen
+ *             CV outputs admitted in port order with their names (#268: no cap of their own, they count against the
+ *             auxiliary limit of 64 a side, t_layouts) and each of the sixteen proven by value through run(); at every
+ *             declared rate the CV input reaches run() and the CV output comes back, frame for frame, against the
+ *             closed form computed here.
  *   worker    the worker gain: options carry the rate and the block lengths, ONE worker thread per instance, the gain
  *             reaches the audio only through the round trip, work() on that thread, the thread joined at deactivate.
  *   role      the host's audio-role predicate classifies urid:map and schedule_work.
@@ -396,6 +398,8 @@ static void t_layouts(void)
     static const struct { const char *uri, *code; } refused[] = {
         { LAYOUT_URI "#sixty-five", "hosting.topology.too-many-ports" },
         { LAYOUT_URI "#cv-sixty-five", "hosting.topology.too-many-ports" },
+        { LAYOUT_URI "#cv-sixty-five-out", "hosting.topology.too-many-ports" },
+        { LAYOUT_URI "#cv-sixty-five-only", "hosting.topology.too-many-ports" },
         { LAYOUT_URI "#wide-sixty-five", "hosting.topology.port-too-wide" },
     };
     char why[LV2_CORE_WHY_MAX] = "";
@@ -507,6 +511,15 @@ static void t_layouts(void)
     p = open_plugin(g_layout, LAYOUT_URI "#cv-sixty-four", why);
     CHECK(p && p->n_aux_in == LV2_CORE_AUX_PORTS - 2 && p->n_cv_in == 2,
           "layout cv-sixty-four: 62 auxiliary and 2 CV inputs are admitted (%s)", why);
+    lv2_plugin_close(p);
+    // #268: the output side counts the same way, and CV ports alone fill the same limit, with no cap of their own
+    p = open_plugin(g_layout, LAYOUT_URI "#cv-sixty-four-out", why);
+    CHECK(p && p->main_out.n == 2 && p->n_aux_out == LV2_CORE_AUX_PORTS - 2 && p->n_cv_out == 2 && p->cv_out[0] == 66 && p->cv_out[1] == 67,
+          "layout cv-sixty-four-out: a main pair, 62 auxiliary and 2 CV outputs (ports 66 and 67) are admitted (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_layout, LAYOUT_URI "#cv-sixty-four-only", why);
+    CHECK(p && p->main_in.n == 2 && p->n_aux_in == 0 && p->n_cv_in == LV2_CORE_AUX_PORTS && p->cv_in[0] == 2 && p->cv_in[LV2_CORE_AUX_PORTS - 1] == 65,
+          "layout cv-sixty-four-only: 64 CV inputs and no auxiliary port are admitted, ports 2 to 65 in order (%s, %u)", why, p ? p->n_cv_in : 0);
     lv2_plugin_close(p);
 
     // the group-type table: a 5.1 group's members ordered by their designations, the map in CLAP surround ids
@@ -789,10 +802,32 @@ static void t_cv(void)
     }
     lv2_plugin_close(p);
     p = open_plugin(g_cv, CV_URI "#many", why);
-    CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV inputs, one past the limit, are refused from the TTL (%s)", why);
+    CHECK(p && p->n_cv_in == 16 && p->n_cv_out == 0 && p->n_aux_in == 0, "cv: sixteen CV inputs are admitted, none as an auxiliary port (%s, %u)", why,
+          p ? p->n_cv_in : 0);
+    if (p)
+    {
+        uint32_t k, bad = 0;
+        char name[8];
+
+        for (k = 0; k < 16; k++)
+        {
+            snprintf(name, sizeof(name), "CV %u", k);
+            bad += p->cv_in[k] != 2 + k || !p->cv_in_name[k] || strcmp(p->cv_in_name[k], name) != 0;
+        }
+        CHECK(bad == 0, "cv: the sixteen CV inputs are ports 2 to 17 in port order, named CV 0 to CV 15 (%u wrong)", bad);
+    }
     lv2_plugin_close(p);
     p = open_plugin(g_cv, CV_URI "#many-out", why);
-    CHECK(!p && strcmp(why, "hosting.features.cv-ports") == 0, "cv: nine CV outputs, one past the limit, are refused from the TTL (%s)", why);
+    CHECK(p && p->n_cv_out == 16 && p->n_cv_in == 0 && p->n_aux_out == 0, "cv: sixteen CV outputs are admitted, none as an auxiliary port (%s, %u)", why,
+          p ? p->n_cv_out : 0);
+    if (p)
+    {
+        uint32_t k, bad = 0;
+
+        for (k = 0; k < 16; k++)
+            bad += p->cv_out[k] != 2 + k;
+        CHECK(bad == 0, "cv: the sixteen CV outputs are ports 2 to 17 in port order (%u wrong)", bad);
+    }
     lv2_plugin_close(p);
     p = open_plugin(g_fixture, FIXTURE_URI "#cv", why);
     CHECK(p && p->n_cv_in == 1 && p->cv_in[0] == 2 && p->n_cv_out == 0, "cv: the host fixture's CV twin is admitted, its CV input port 2 (%s)", why);
@@ -845,6 +880,82 @@ static void t_cv_run(double rate)
     CHECK(out_bad == 0, "cv %.0f: %u frames in blocks of 64, 17, 1, 64, 40, 64: the audio output is the input times the CV input on every frame (%u differ)",
           rate, at, out_bad);
     CHECK(env_bad == 0, "cv %.0f: the CV output is the one-pole of |out| on every frame, across the blocks (%u differ)", rate, env_bad);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
+/* the sixteen-CV twins at 48 kHz, by value: each CV input carries a ramp of its own and the audio output is the weighted
+ * sum the fixture computes (the weight k + 1 tells the ports apart); each of the sixteen CV outputs comes back as its
+ * weight times the audio input. A port the adapter mis-indexed or never connected changes a value here. */
+static void t_cv_many(void)
+{
+    static const uint32_t lens[] = { BLOCK, 17u, 1u, BLOCK };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_cv, CV_URI "#many", why);
+    struct lv2_instance *in = NULL;
+    uint32_t b, i, k, bad = 0, at = 0;
+
+    if (!p || lv2_plugin_load(p, why) != 0 || !(in = lv2_instance_new(p)) || lv2_instance_activate(in, 48000.0, 1, BLOCK, why) != 0)
+        CHECK(0, "cv many: the sixteen-CV-input twin runs (%s)", why);
+    else
+        for (b = 0; b < sizeof(lens) / sizeof(lens[0]); b++)
+        {
+            const uint32_t n = lens[b];
+            float x[BLOCK];
+
+            for (i = 0; i < n; i++)
+                x[i] = 0.5f * sinf(0.0613f * (float)(at + i));
+            memcpy(lv2_instance_audio_in(in, 0), x, n * sizeof(float));
+            for (k = 0; k < 16; k++)
+                for (i = 0; i < n; i++)
+                    lv2_instance_cv_in(in, k)[i] = (float)(at + i) / 256.0f - (float)k * 0.125f;
+            g_in_run = 1;
+            lv2_instance_run(in, n, NULL, NULL);
+            g_in_run = 0;
+            for (i = 0; i < n; i++)
+            {
+                float v = x[i];
+
+                for (k = 0; k < 16; k++)
+                    v += (float)(k + 1) * ((float)(at + i) / 256.0f - (float)k * 0.125f);
+                bad += memcmp(&lv2_instance_audio_out(in, 0)[i], &v, sizeof(float)) != 0;
+            }
+            at += n;
+        }
+    CHECK(bad == 0, "cv many: %u frames in blocks of 64, 17, 1, 64: the audio output is the input plus the weighted sixteen CV inputs on every frame (%u differ)",
+          at, bad);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+
+    in = NULL;
+    bad = 0;
+    at = 0;
+    p = open_plugin(g_cv, CV_URI "#many-out", why);
+    if (!p || lv2_plugin_load(p, why) != 0 || !(in = lv2_instance_new(p)) || lv2_instance_activate(in, 48000.0, 1, BLOCK, why) != 0)
+        CHECK(0, "cv many-out: the sixteen-CV-output twin runs (%s)", why);
+    else
+        for (b = 0; b < sizeof(lens) / sizeof(lens[0]); b++)
+        {
+            const uint32_t n = lens[b];
+            float x[BLOCK];
+
+            for (i = 0; i < n; i++)
+                x[i] = 0.5f * sinf(0.0613f * (float)(at + i));
+            memcpy(lv2_instance_audio_in(in, 0), x, n * sizeof(float));
+            g_in_run = 1;
+            lv2_instance_run(in, n, NULL, NULL);
+            g_in_run = 0;
+            for (k = 0; k < 16; k++)
+                for (i = 0; i < n; i++)
+                {
+                    const float v = (float)(k + 1) * x[i];
+
+                    bad += memcmp(&lv2_instance_cv_out(in, k)[i], &v, sizeof(float)) != 0;
+                }
+            at += n;
+        }
+    CHECK(bad == 0, "cv many-out: %u frames in blocks of 64, 17, 1, 64: each of the sixteen CV outputs is its weight times the input on every frame (%u differ)",
+          at, bad);
     lv2_instance_free(in);
     lv2_plugin_close(p);
 }
@@ -1412,6 +1523,7 @@ int main(int argc, char **argv)
     t_sidechain_names_oom();
     t_layouts();
     t_cv();
+    t_cv_many();
     for (r = 0; r < N_RATES; r++)
     {
         t_cv_run(RATES[r]);

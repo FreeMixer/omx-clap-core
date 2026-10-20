@@ -4,6 +4,9 @@
 # inputs and one output, so rule 3 makes the first two inputs the main pair and every other input a mono auxiliary port.
 # sixty-four: 66 inputs, 64 auxiliary ports, the limit; sixty-five: 67 inputs, 65, refused. cv-sixty-four: 64 audio
 # inputs and 2 CV inputs, 62 auxiliary ports and 2 CV ports, the limit; cv-sixty-five: 3 CV inputs, one past it.
+# The output side the same way: cv-sixty-four-out: 2 inputs, 64 audio outputs (a main pair and 62 auxiliary) and 2 CV
+# outputs, the limit; cv-sixty-five-out: 3 CV outputs, one past it. CV ports alone against the same limit:
+# cv-sixty-four-only: 2 inputs, 64 CV inputs and no auxiliary port, the limit; cv-sixty-five-only: 65, one past it.
 # wide-sixty-five: 65 inputs in one group, by rule 2 a main port of 65 channels, one past a port's limit.
 @prefix doap: <http://usefulinc.com/ns/doap#> .
 @prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
@@ -776,3 +779,567 @@
     a pg:Group , pg:InputGroup ;
     lv2:symbol "in" ;
     rdfs:label "In" .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four-out>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (62 auxiliary and 2 CV outputs)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_1" ; lv2:name "In 1"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_2" ; lv2:name "In 2"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_1" ; lv2:name "Out 1"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_2" ; lv2:name "Out 2"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_3" ; lv2:name "Out 3"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_4" ; lv2:name "Out 4"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_5" ; lv2:name "Out 5"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_6" ; lv2:name "Out 6"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 8 ; lv2:symbol "out_7" ; lv2:name "Out 7"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 9 ; lv2:symbol "out_8" ; lv2:name "Out 8"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 10 ; lv2:symbol "out_9" ; lv2:name "Out 9"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 11 ; lv2:symbol "out_10" ; lv2:name "Out 10"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 12 ; lv2:symbol "out_11" ; lv2:name "Out 11"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 13 ; lv2:symbol "out_12" ; lv2:name "Out 12"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 14 ; lv2:symbol "out_13" ; lv2:name "Out 13"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 15 ; lv2:symbol "out_14" ; lv2:name "Out 14"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 16 ; lv2:symbol "out_15" ; lv2:name "Out 15"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 17 ; lv2:symbol "out_16" ; lv2:name "Out 16"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 18 ; lv2:symbol "out_17" ; lv2:name "Out 17"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 19 ; lv2:symbol "out_18" ; lv2:name "Out 18"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 20 ; lv2:symbol "out_19" ; lv2:name "Out 19"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 21 ; lv2:symbol "out_20" ; lv2:name "Out 20"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 22 ; lv2:symbol "out_21" ; lv2:name "Out 21"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 23 ; lv2:symbol "out_22" ; lv2:name "Out 22"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 24 ; lv2:symbol "out_23" ; lv2:name "Out 23"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 25 ; lv2:symbol "out_24" ; lv2:name "Out 24"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 26 ; lv2:symbol "out_25" ; lv2:name "Out 25"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 27 ; lv2:symbol "out_26" ; lv2:name "Out 26"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 28 ; lv2:symbol "out_27" ; lv2:name "Out 27"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 29 ; lv2:symbol "out_28" ; lv2:name "Out 28"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 30 ; lv2:symbol "out_29" ; lv2:name "Out 29"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 31 ; lv2:symbol "out_30" ; lv2:name "Out 30"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 32 ; lv2:symbol "out_31" ; lv2:name "Out 31"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 33 ; lv2:symbol "out_32" ; lv2:name "Out 32"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 34 ; lv2:symbol "out_33" ; lv2:name "Out 33"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 35 ; lv2:symbol "out_34" ; lv2:name "Out 34"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 36 ; lv2:symbol "out_35" ; lv2:name "Out 35"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 37 ; lv2:symbol "out_36" ; lv2:name "Out 36"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 38 ; lv2:symbol "out_37" ; lv2:name "Out 37"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 39 ; lv2:symbol "out_38" ; lv2:name "Out 38"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 40 ; lv2:symbol "out_39" ; lv2:name "Out 39"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 41 ; lv2:symbol "out_40" ; lv2:name "Out 40"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 42 ; lv2:symbol "out_41" ; lv2:name "Out 41"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 43 ; lv2:symbol "out_42" ; lv2:name "Out 42"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 44 ; lv2:symbol "out_43" ; lv2:name "Out 43"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 45 ; lv2:symbol "out_44" ; lv2:name "Out 44"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 46 ; lv2:symbol "out_45" ; lv2:name "Out 45"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 47 ; lv2:symbol "out_46" ; lv2:name "Out 46"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 48 ; lv2:symbol "out_47" ; lv2:name "Out 47"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 49 ; lv2:symbol "out_48" ; lv2:name "Out 48"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 50 ; lv2:symbol "out_49" ; lv2:name "Out 49"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 51 ; lv2:symbol "out_50" ; lv2:name "Out 50"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 52 ; lv2:symbol "out_51" ; lv2:name "Out 51"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 53 ; lv2:symbol "out_52" ; lv2:name "Out 52"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 54 ; lv2:symbol "out_53" ; lv2:name "Out 53"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 55 ; lv2:symbol "out_54" ; lv2:name "Out 54"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 56 ; lv2:symbol "out_55" ; lv2:name "Out 55"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 57 ; lv2:symbol "out_56" ; lv2:name "Out 56"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 58 ; lv2:symbol "out_57" ; lv2:name "Out 57"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 59 ; lv2:symbol "out_58" ; lv2:name "Out 58"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 60 ; lv2:symbol "out_59" ; lv2:name "Out 59"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 61 ; lv2:symbol "out_60" ; lv2:name "Out 60"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 62 ; lv2:symbol "out_61" ; lv2:name "Out 61"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 63 ; lv2:symbol "out_62" ; lv2:name "Out 62"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 64 ; lv2:symbol "out_63" ; lv2:name "Out 63"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 65 ; lv2:symbol "out_64" ; lv2:name "Out 64"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 66 ; lv2:symbol "cv_out_1" ; lv2:name "CV Out 1"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 67 ; lv2:symbol "cv_out_2" ; lv2:name "CV Out 2"
+    ] .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five-out>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (62 auxiliary and 3 CV outputs)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_1" ; lv2:name "In 1"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_2" ; lv2:name "In 2"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_1" ; lv2:name "Out 1"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_2" ; lv2:name "Out 2"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_3" ; lv2:name "Out 3"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_4" ; lv2:name "Out 4"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 6 ; lv2:symbol "out_5" ; lv2:name "Out 5"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 7 ; lv2:symbol "out_6" ; lv2:name "Out 6"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 8 ; lv2:symbol "out_7" ; lv2:name "Out 7"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 9 ; lv2:symbol "out_8" ; lv2:name "Out 8"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 10 ; lv2:symbol "out_9" ; lv2:name "Out 9"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 11 ; lv2:symbol "out_10" ; lv2:name "Out 10"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 12 ; lv2:symbol "out_11" ; lv2:name "Out 11"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 13 ; lv2:symbol "out_12" ; lv2:name "Out 12"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 14 ; lv2:symbol "out_13" ; lv2:name "Out 13"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 15 ; lv2:symbol "out_14" ; lv2:name "Out 14"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 16 ; lv2:symbol "out_15" ; lv2:name "Out 15"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 17 ; lv2:symbol "out_16" ; lv2:name "Out 16"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 18 ; lv2:symbol "out_17" ; lv2:name "Out 17"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 19 ; lv2:symbol "out_18" ; lv2:name "Out 18"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 20 ; lv2:symbol "out_19" ; lv2:name "Out 19"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 21 ; lv2:symbol "out_20" ; lv2:name "Out 20"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 22 ; lv2:symbol "out_21" ; lv2:name "Out 21"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 23 ; lv2:symbol "out_22" ; lv2:name "Out 22"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 24 ; lv2:symbol "out_23" ; lv2:name "Out 23"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 25 ; lv2:symbol "out_24" ; lv2:name "Out 24"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 26 ; lv2:symbol "out_25" ; lv2:name "Out 25"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 27 ; lv2:symbol "out_26" ; lv2:name "Out 26"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 28 ; lv2:symbol "out_27" ; lv2:name "Out 27"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 29 ; lv2:symbol "out_28" ; lv2:name "Out 28"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 30 ; lv2:symbol "out_29" ; lv2:name "Out 29"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 31 ; lv2:symbol "out_30" ; lv2:name "Out 30"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 32 ; lv2:symbol "out_31" ; lv2:name "Out 31"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 33 ; lv2:symbol "out_32" ; lv2:name "Out 32"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 34 ; lv2:symbol "out_33" ; lv2:name "Out 33"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 35 ; lv2:symbol "out_34" ; lv2:name "Out 34"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 36 ; lv2:symbol "out_35" ; lv2:name "Out 35"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 37 ; lv2:symbol "out_36" ; lv2:name "Out 36"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 38 ; lv2:symbol "out_37" ; lv2:name "Out 37"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 39 ; lv2:symbol "out_38" ; lv2:name "Out 38"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 40 ; lv2:symbol "out_39" ; lv2:name "Out 39"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 41 ; lv2:symbol "out_40" ; lv2:name "Out 40"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 42 ; lv2:symbol "out_41" ; lv2:name "Out 41"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 43 ; lv2:symbol "out_42" ; lv2:name "Out 42"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 44 ; lv2:symbol "out_43" ; lv2:name "Out 43"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 45 ; lv2:symbol "out_44" ; lv2:name "Out 44"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 46 ; lv2:symbol "out_45" ; lv2:name "Out 45"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 47 ; lv2:symbol "out_46" ; lv2:name "Out 46"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 48 ; lv2:symbol "out_47" ; lv2:name "Out 47"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 49 ; lv2:symbol "out_48" ; lv2:name "Out 48"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 50 ; lv2:symbol "out_49" ; lv2:name "Out 49"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 51 ; lv2:symbol "out_50" ; lv2:name "Out 50"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 52 ; lv2:symbol "out_51" ; lv2:name "Out 51"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 53 ; lv2:symbol "out_52" ; lv2:name "Out 52"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 54 ; lv2:symbol "out_53" ; lv2:name "Out 53"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 55 ; lv2:symbol "out_54" ; lv2:name "Out 54"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 56 ; lv2:symbol "out_55" ; lv2:name "Out 55"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 57 ; lv2:symbol "out_56" ; lv2:name "Out 56"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 58 ; lv2:symbol "out_57" ; lv2:name "Out 57"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 59 ; lv2:symbol "out_58" ; lv2:name "Out 58"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 60 ; lv2:symbol "out_59" ; lv2:name "Out 59"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 61 ; lv2:symbol "out_60" ; lv2:name "Out 60"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 62 ; lv2:symbol "out_61" ; lv2:name "Out 61"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 63 ; lv2:symbol "out_62" ; lv2:name "Out 62"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 64 ; lv2:symbol "out_63" ; lv2:name "Out 63"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 65 ; lv2:symbol "out_64" ; lv2:name "Out 64"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 66 ; lv2:symbol "cv_out_1" ; lv2:name "CV Out 1"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 67 ; lv2:symbol "cv_out_2" ; lv2:name "CV Out 2"
+    ] , [
+        a lv2:CVPort , lv2:OutputPort ; lv2:index 68 ; lv2:symbol "cv_out_3" ; lv2:name "CV Out 3"
+    ] .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four-only>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (64 CV inputs, no auxiliary port)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_1" ; lv2:name "In 1"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_2" ; lv2:name "In 2"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "cv_1" ; lv2:name "CV 1"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "cv_2" ; lv2:name "CV 2"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "cv_3" ; lv2:name "CV 3"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "cv_4" ; lv2:name "CV 4"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 6 ; lv2:symbol "cv_5" ; lv2:name "CV 5"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 7 ; lv2:symbol "cv_6" ; lv2:name "CV 6"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 8 ; lv2:symbol "cv_7" ; lv2:name "CV 7"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "cv_8" ; lv2:name "CV 8"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "cv_9" ; lv2:name "CV 9"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 11 ; lv2:symbol "cv_10" ; lv2:name "CV 10"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 12 ; lv2:symbol "cv_11" ; lv2:name "CV 11"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 13 ; lv2:symbol "cv_12" ; lv2:name "CV 12"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 14 ; lv2:symbol "cv_13" ; lv2:name "CV 13"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 15 ; lv2:symbol "cv_14" ; lv2:name "CV 14"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 16 ; lv2:symbol "cv_15" ; lv2:name "CV 15"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 17 ; lv2:symbol "cv_16" ; lv2:name "CV 16"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 18 ; lv2:symbol "cv_17" ; lv2:name "CV 17"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 19 ; lv2:symbol "cv_18" ; lv2:name "CV 18"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 20 ; lv2:symbol "cv_19" ; lv2:name "CV 19"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 21 ; lv2:symbol "cv_20" ; lv2:name "CV 20"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 22 ; lv2:symbol "cv_21" ; lv2:name "CV 21"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 23 ; lv2:symbol "cv_22" ; lv2:name "CV 22"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 24 ; lv2:symbol "cv_23" ; lv2:name "CV 23"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 25 ; lv2:symbol "cv_24" ; lv2:name "CV 24"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 26 ; lv2:symbol "cv_25" ; lv2:name "CV 25"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 27 ; lv2:symbol "cv_26" ; lv2:name "CV 26"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 28 ; lv2:symbol "cv_27" ; lv2:name "CV 27"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 29 ; lv2:symbol "cv_28" ; lv2:name "CV 28"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 30 ; lv2:symbol "cv_29" ; lv2:name "CV 29"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 31 ; lv2:symbol "cv_30" ; lv2:name "CV 30"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 32 ; lv2:symbol "cv_31" ; lv2:name "CV 31"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 33 ; lv2:symbol "cv_32" ; lv2:name "CV 32"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 34 ; lv2:symbol "cv_33" ; lv2:name "CV 33"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 35 ; lv2:symbol "cv_34" ; lv2:name "CV 34"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 36 ; lv2:symbol "cv_35" ; lv2:name "CV 35"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 37 ; lv2:symbol "cv_36" ; lv2:name "CV 36"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 38 ; lv2:symbol "cv_37" ; lv2:name "CV 37"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 39 ; lv2:symbol "cv_38" ; lv2:name "CV 38"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 40 ; lv2:symbol "cv_39" ; lv2:name "CV 39"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 41 ; lv2:symbol "cv_40" ; lv2:name "CV 40"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 42 ; lv2:symbol "cv_41" ; lv2:name "CV 41"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 43 ; lv2:symbol "cv_42" ; lv2:name "CV 42"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 44 ; lv2:symbol "cv_43" ; lv2:name "CV 43"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 45 ; lv2:symbol "cv_44" ; lv2:name "CV 44"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 46 ; lv2:symbol "cv_45" ; lv2:name "CV 45"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 47 ; lv2:symbol "cv_46" ; lv2:name "CV 46"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 48 ; lv2:symbol "cv_47" ; lv2:name "CV 47"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 49 ; lv2:symbol "cv_48" ; lv2:name "CV 48"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 50 ; lv2:symbol "cv_49" ; lv2:name "CV 49"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 51 ; lv2:symbol "cv_50" ; lv2:name "CV 50"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 52 ; lv2:symbol "cv_51" ; lv2:name "CV 51"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 53 ; lv2:symbol "cv_52" ; lv2:name "CV 52"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 54 ; lv2:symbol "cv_53" ; lv2:name "CV 53"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 55 ; lv2:symbol "cv_54" ; lv2:name "CV 54"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 56 ; lv2:symbol "cv_55" ; lv2:name "CV 55"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 57 ; lv2:symbol "cv_56" ; lv2:name "CV 56"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 58 ; lv2:symbol "cv_57" ; lv2:name "CV 57"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 59 ; lv2:symbol "cv_58" ; lv2:name "CV 58"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 60 ; lv2:symbol "cv_59" ; lv2:name "CV 59"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 61 ; lv2:symbol "cv_60" ; lv2:name "CV 60"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 62 ; lv2:symbol "cv_61" ; lv2:name "CV 61"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 63 ; lv2:symbol "cv_62" ; lv2:name "CV 62"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 64 ; lv2:symbol "cv_63" ; lv2:name "CV 63"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 65 ; lv2:symbol "cv_64" ; lv2:name "CV 64"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 66 ; lv2:symbol "out_1" ; lv2:name "Out 1"
+    ] .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five-only>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (65 CV inputs, no auxiliary port)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_1" ; lv2:name "In 1"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_2" ; lv2:name "In 2"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "cv_1" ; lv2:name "CV 1"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "cv_2" ; lv2:name "CV 2"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "cv_3" ; lv2:name "CV 3"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "cv_4" ; lv2:name "CV 4"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 6 ; lv2:symbol "cv_5" ; lv2:name "CV 5"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 7 ; lv2:symbol "cv_6" ; lv2:name "CV 6"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 8 ; lv2:symbol "cv_7" ; lv2:name "CV 7"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "cv_8" ; lv2:name "CV 8"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "cv_9" ; lv2:name "CV 9"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 11 ; lv2:symbol "cv_10" ; lv2:name "CV 10"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 12 ; lv2:symbol "cv_11" ; lv2:name "CV 11"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 13 ; lv2:symbol "cv_12" ; lv2:name "CV 12"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 14 ; lv2:symbol "cv_13" ; lv2:name "CV 13"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 15 ; lv2:symbol "cv_14" ; lv2:name "CV 14"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 16 ; lv2:symbol "cv_15" ; lv2:name "CV 15"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 17 ; lv2:symbol "cv_16" ; lv2:name "CV 16"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 18 ; lv2:symbol "cv_17" ; lv2:name "CV 17"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 19 ; lv2:symbol "cv_18" ; lv2:name "CV 18"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 20 ; lv2:symbol "cv_19" ; lv2:name "CV 19"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 21 ; lv2:symbol "cv_20" ; lv2:name "CV 20"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 22 ; lv2:symbol "cv_21" ; lv2:name "CV 21"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 23 ; lv2:symbol "cv_22" ; lv2:name "CV 22"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 24 ; lv2:symbol "cv_23" ; lv2:name "CV 23"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 25 ; lv2:symbol "cv_24" ; lv2:name "CV 24"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 26 ; lv2:symbol "cv_25" ; lv2:name "CV 25"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 27 ; lv2:symbol "cv_26" ; lv2:name "CV 26"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 28 ; lv2:symbol "cv_27" ; lv2:name "CV 27"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 29 ; lv2:symbol "cv_28" ; lv2:name "CV 28"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 30 ; lv2:symbol "cv_29" ; lv2:name "CV 29"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 31 ; lv2:symbol "cv_30" ; lv2:name "CV 30"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 32 ; lv2:symbol "cv_31" ; lv2:name "CV 31"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 33 ; lv2:symbol "cv_32" ; lv2:name "CV 32"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 34 ; lv2:symbol "cv_33" ; lv2:name "CV 33"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 35 ; lv2:symbol "cv_34" ; lv2:name "CV 34"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 36 ; lv2:symbol "cv_35" ; lv2:name "CV 35"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 37 ; lv2:symbol "cv_36" ; lv2:name "CV 36"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 38 ; lv2:symbol "cv_37" ; lv2:name "CV 37"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 39 ; lv2:symbol "cv_38" ; lv2:name "CV 38"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 40 ; lv2:symbol "cv_39" ; lv2:name "CV 39"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 41 ; lv2:symbol "cv_40" ; lv2:name "CV 40"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 42 ; lv2:symbol "cv_41" ; lv2:name "CV 41"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 43 ; lv2:symbol "cv_42" ; lv2:name "CV 42"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 44 ; lv2:symbol "cv_43" ; lv2:name "CV 43"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 45 ; lv2:symbol "cv_44" ; lv2:name "CV 44"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 46 ; lv2:symbol "cv_45" ; lv2:name "CV 45"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 47 ; lv2:symbol "cv_46" ; lv2:name "CV 46"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 48 ; lv2:symbol "cv_47" ; lv2:name "CV 47"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 49 ; lv2:symbol "cv_48" ; lv2:name "CV 48"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 50 ; lv2:symbol "cv_49" ; lv2:name "CV 49"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 51 ; lv2:symbol "cv_50" ; lv2:name "CV 50"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 52 ; lv2:symbol "cv_51" ; lv2:name "CV 51"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 53 ; lv2:symbol "cv_52" ; lv2:name "CV 52"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 54 ; lv2:symbol "cv_53" ; lv2:name "CV 53"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 55 ; lv2:symbol "cv_54" ; lv2:name "CV 54"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 56 ; lv2:symbol "cv_55" ; lv2:name "CV 55"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 57 ; lv2:symbol "cv_56" ; lv2:name "CV 56"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 58 ; lv2:symbol "cv_57" ; lv2:name "CV 57"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 59 ; lv2:symbol "cv_58" ; lv2:name "CV 58"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 60 ; lv2:symbol "cv_59" ; lv2:name "CV 59"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 61 ; lv2:symbol "cv_60" ; lv2:name "CV 60"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 62 ; lv2:symbol "cv_61" ; lv2:name "CV 61"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 63 ; lv2:symbol "cv_62" ; lv2:name "CV 62"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 64 ; lv2:symbol "cv_63" ; lv2:name "CV 63"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 65 ; lv2:symbol "cv_64" ; lv2:name "CV 64"
+    ] , [
+        a lv2:CVPort , lv2:InputPort ; lv2:index 66 ; lv2:symbol "cv_65" ; lv2:name "CV 65"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 67 ; lv2:symbol "out_1" ; lv2:name "Out 1"
+    ] .
