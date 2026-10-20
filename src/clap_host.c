@@ -579,14 +579,6 @@ static const char *reread_note_input(struct omx_clap_instance *in)
     return code;
 }
 
-/*
- * The port layout, as the strip's topology reads it: one main output and one main input of the same width, 1 or 2
- * channels; an output besides them left unconnected (up to CLAP_HOST_AUX_OUTPUTS, each of 1 or 2 channels); an input
- * besides them a side chain, fed silence until the caller binds it (up to CLAP_HOST_AUX_INPUTS, each of 1 or 2 channels);
- * no main input at all is a source (an instrument with a note input, a generator without one, #184), its output its own;
- * where the configuration admits note inputs, one note input; otherwise no note input. Returns the hosting code that
- * refuses, or NULL.
- */
 /* a port as the plugin declares it, into the description */
 static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *info)
 {
@@ -603,10 +595,30 @@ static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *in
     port->in_place_pair = info->in_place_pair;
 }
 
+/* the next auxiliary port of a side into `ports`, its channels after the last one's in the flat arrays */
+static const char *aux_of(struct omx_clap_port *ports, uint32_t *base, uint32_t *count, uint32_t limit, const clap_audio_port_info_t *info)
+{
+    if (*count >= limit)
+        return CLAP_HOST_CODE_TOO_MANY_PORTS;
+    port_of(&ports[*count], info);
+    base[*count] = *count ? base[*count - 1] + ports[*count - 1].channels : 0;
+    (*count)++;
+    return NULL;
+}
+
+/*
+ * Every audio port the plugin declares, described: the main input and output (none of a side is channels 0) and each
+ * auxiliary port, in the plugin's order, up to CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS of them. Each port is
+ * judged as it is read: no channels refuses it (port-without-channels), more than CLAP_HOST_PORT_CHANNELS refuses it
+ * (port-too-wide), a second main port on a side or one auxiliary port past the limit refuses it (too-many-ports). Then
+ * the whole: no main output is nothing to carry (no-audio-output), a main pair of different widths is refused
+ * (wider-than-strip), no main input at all is a source (an instrument with a note input, a generator without one,
+ * #184), its output its own. Where the configuration admits note inputs, one note input; otherwise none. Returns the
+ * hosting code that refuses, or NULL. How wide a main port the caller's lane carries is activation's to judge.
+ */
 static const char *describe_ports(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
-    uint32_t main_in = 0, main_out = 0, n_main_in = 0, n_main_out = 0;
     const char *code;
     int dir;
 
@@ -623,6 +635,7 @@ static const char *describe_ports(struct omx_clap_instance *in)
         {
             const bool is_input = dir == 0;
             const uint32_t count = ports->count(in->plugin, is_input);
+            struct omx_clap_port *main = is_input ? &in->main_in : &in->main_out;
             uint32_t i;
 
             for (i = 0; i < count; i++)
@@ -632,46 +645,32 @@ static const char *describe_ports(struct omx_clap_instance *in)
                 memset(&info, 0, sizeof(info));
                 if (!ports->get(in->plugin, i, is_input, &info))
                     continue;
+                if (info.channel_count == 0)
+                    return CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS;
+                if (info.channel_count > CLAP_HOST_PORT_CHANNELS)
+                    return CLAP_HOST_CODE_PORT_TOO_WIDE;
                 if (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
                 {
-                    if (is_input)
-                        main_in = info.channel_count, n_main_in++, port_of(&in->main_in, &info);
-                    else
-                        main_out = info.channel_count, n_main_out++, port_of(&in->main_out, &info);
-                }
-                else if (is_input)
-                {
-                    if (info.channel_count == 0 || info.channel_count > 2)
-                        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-                    if (in->aux_inputs >= CLAP_HOST_AUX_INPUTS)
+                    if (main->channels)
                         return CLAP_HOST_CODE_TOO_MANY_PORTS;
-                    port_of(&in->aux_in[in->aux_inputs], &info);
-                    in->aux_in_base[in->aux_inputs] = in->aux_inputs ? in->aux_in_base[in->aux_inputs - 1] + in->aux_in[in->aux_inputs - 1].channels : 0;
-                    in->aux_inputs++;
+                    port_of(main, &info);
+                    continue;
                 }
-                else if (info.channel_count == 0 || info.channel_count > 2 || in->aux_outputs >= CLAP_HOST_AUX_OUTPUTS)
-                {
-                    return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-                }
-                else
-                {
-                    port_of(&in->aux_out[in->aux_outputs], &info);
-                    in->aux_out_base[in->aux_outputs] = in->aux_outputs ? in->aux_out_base[in->aux_outputs - 1] + in->aux_out[in->aux_outputs - 1].channels : 0;
-                    in->aux_outputs++;
-                }
+                code = is_input ? aux_of(in->aux_in, in->aux_in_base, &in->aux_inputs, CLAP_HOST_AUX_INPUTS, &info)
+                                : aux_of(in->aux_out, in->aux_out_base, &in->aux_outputs, CLAP_HOST_AUX_OUTPUTS, &info);
+                if (code)
+                    return code;
             }
         }
     }
-    if (n_main_out == 0 || main_out == 0)
+    if (in->main_out.channels == 0)
         return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
-    if (main_in > 2 || main_out > 2 || n_main_in > 1 || n_main_out > 1)
-        return CLAP_HOST_CODE_WIDER_THAN_STRIP;
-    if (n_main_in && main_in != main_out)
+    if (in->main_in.channels && in->main_in.channels != in->main_out.channels)
         return CLAP_HOST_CODE_WIDER_THAN_STRIP;
     if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
-    in->channels = main_out;
-    in->in_channels = n_main_in ? main_in : 0;
+    in->channels = in->main_out.channels;
+    in->in_channels = in->main_in.channels;
     in->note_outputs = in->note_ports ? in->note_ports->count(in->plugin, false) : 0;
     return NULL;
 }
@@ -1046,14 +1045,16 @@ static const clap_event_header_t *param_in_get(const struct clap_input_events *l
 }
 
 /* Blocks of max_block floats in one mapping with a guard page at each end, as many as the port description needs: one
- * silence block every unbound auxiliary input channel reads, one scratch block per auxiliary output channel, then the
- * stage's four, the last of them flush against the guard page above, so the first sample written past a block faults
- * here, in this mapping, and never lands in a foreign buffer. */
+ * silence block every unbound auxiliary input channel and every main input channel past the two legs reads, one scratch
+ * block per auxiliary output channel and per main output channel past the two legs, then the stage's four, the last of
+ * them flush against the guard page above, so the first sample written past a block faults here, in this mapping, and
+ * never lands in a foreign buffer. */
 static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
 {
     const size_t page = (size_t)sysconf(_SC_PAGESIZE);
     const uint32_t aux_out = in->aux_outputs ? in->aux_out_base[in->aux_outputs - 1] + in->aux_out[in->aux_outputs - 1].channels : 0;
-    const uint32_t blocks = 1 + aux_out + 4;
+    const uint32_t main_out = in->main_out.channels > 2 ? in->main_out.channels - 2 : 0;
+    const uint32_t blocks = 1 + aux_out + main_out + 4;
     const size_t used = (size_t)blocks * max_block * sizeof(float);
     const size_t body = (used + page - 1) / page * page;
     const size_t length = body + 2 * page;
@@ -1106,6 +1107,11 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
         return -1;
     for (k = 0; k < in->aux_outputs; k++)
         omx_clap_set_aux_out(&in->stage, k, in->aux_out[k].channels, &in->aux_out_bound[in->aux_out_base[k]]);
+    // the main channels past the legs: the inputs read the silence, each output writes a scratch block of its own
+    for (k = 2; k < in->main_in.channels; k++)
+        in->stage.in_ptrs[k] = b;
+    for (k = 2; k < in->main_out.channels; k++)
+        in->stage.out_ptrs[k] = b + (size_t)(1 + aux_out + k - 2) * max_block;
     return omx_clap_bind_aux_in(&in->aux_list, b, in->aux_inputs, in->aux_in, in->aux_in_bound, in->aux_in_base);
 }
 
@@ -1652,9 +1658,20 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     for (bad = 0; bad < in->aux_inputs; bad++)
         if (in->aux_in_frames[bad] && in->aux_in_frames[bad] < max_block)
         {
-            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // a bound pair shorter than the block: rebind it first
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // bound buffers shorter than the block: rebind them first
             return -1;
         }
+    for (bad = 0; bad < in->aux_outputs; bad++)
+        if (in->aux_out_frames[bad] && in->aux_out_frames[bad] < max_block)
+        {
+            why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+            return -1;
+        }
+    if (g_config.lane_channels && (in->main_in.channels > g_config.lane_channels || in->main_out.channels > g_config.lane_channels))
+    {
+        why_set(why, CLAP_HOST_CODE_WIDER_THAN_STRIP);          // a main port wider than the caller's lane
+        return -1;
+    }
     if (in->note_ports_stale)
     {
         const char *code = reread_note_input(in);
@@ -1894,22 +1911,43 @@ void omx_clap_host_set_transport(struct omx_clap_instance *in, const struct omx_
     in->transport_src = src;
 }
 
-int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *l, float *r, uint32_t frames)
+/* the caller's buffers into the flat list `bound` from `base`, or none: the rules both directions share */
+static int bind_aux(struct omx_clap_instance *in, const struct omx_clap_port *port, float **bound, uint32_t *bound_frames,
+                    float *const *bufs, uint32_t channels, uint32_t frames)
 {
-    if (!in || port >= in->aux_inputs)
-        return -1;
-    if (l && in->aux_in[port].channels == 2 && r == NULL)
+    uint32_t c;
+
+    if (channels != port->channels)
         return -1;
     if (in->active && !omx_clap_stopped(&in->stage))
         return -1;      // unpublish first
-    if (l && in->active && frames < in->max_block)
-        return -1;      // a block would read past the pair
-    in->aux_in_bound[in->aux_in_base[port]] = l;
-    if (in->aux_in[port].channels == 2)
-        in->aux_in_bound[in->aux_in_base[port] + 1] = l ? r : NULL;
-    in->aux_in_frames[port] = l ? frames : 0;
+    if (bufs && in->active && frames < in->max_block)
+        return -1;      // a block would run past the buffers
+    for (c = 0; c < channels; c++)
+        bound[c] = bufs ? bufs[c] : NULL;
+    *bound_frames = bufs ? frames : 0;
+    return 0;
+}
+
+int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
+{
+    if (!in || port >= in->aux_inputs)
+        return -1;
+    if (bind_aux(in, &in->aux_in[port], &in->aux_in_bound[in->aux_in_base[port]], &in->aux_in_frames[port], bufs, channels, frames) != 0)
+        return -1;
     if (in->active)
-        omx_clap_set_aux_in(&in->aux_list, port, in->aux_in[port].channels, &in->aux_in_bound[in->aux_in_base[port]]);
+        omx_clap_set_aux_in(&in->aux_list, port, channels, &in->aux_in_bound[in->aux_in_base[port]]);
+    return 0;
+}
+
+int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
+{
+    if (!in || port >= in->aux_outputs)
+        return -1;
+    if (bind_aux(in, &in->aux_out[port], &in->aux_out_bound[in->aux_out_base[port]], &in->aux_out_frames[port], bufs, channels, frames) != 0)
+        return -1;
+    if (in->active)
+        omx_clap_set_aux_out(&in->stage, port, channels, &in->aux_out_bound[in->aux_out_base[port]]);
     return 0;
 }
 
