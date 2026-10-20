@@ -1058,11 +1058,13 @@ def write_meta(a):
     omx = os.path.realpath(a.omx_clap_host)
     tree = os.path.dirname(omx)
     omx_v = _version(['git', '-C', tree, 'describe', '--always', '--dirty', '--tags']) or _version(['rpm', '-qf', omx])
+    jalv_v = _version(['jalv', '--version']).splitlines()
     meta.update(date=time.strftime('%Y-%m-%d'), rates=sorted(set(meta.get('rates', [])) | {int(r) for r in a.rates.split(',')}),
                 quantum=QUANTUM, seconds=a.seconds, warm_blocks=a.warm_blocks, warm_seconds=a.warm_seconds, hold_ms=a.hold_ms, paced=a.paced,
                 mod_host=f"{a.mod_host} ({_version(['rpm', '-qf', os.path.realpath(a.mod_host)])})",
                 omx_clap_host=f'{omx} ({omx_v})', lv2_path=a.lv2_path,
                 pipewire=_version(['pipewire', '--version']).splitlines()[-1:] or [''],
+                jalv=jalv_v[0] if jalv_v else 'not installed',
                 host=os.uname().nodename, out=os.path.abspath(a.out))
     with open(mp, 'w') as f:
         json.dump(meta, f, indent=1)
@@ -1150,7 +1152,15 @@ def report_text(rows, skipped, meta):
               'instances with each other, then the first instance of each host bit for bit. WITHIN-TOLERANCE: under 1e-6 '
               f'and under {REL_TOL:g} of the peak, rounding or subnormals, at no offset. An offset, even exact, is DIFFERS. '
               'NONDETERMINISTIC only when the plugin is random in both hosts and the hosts agree instance by instance, or '
-              f'differ by no more than {SPREAD_K} times its own spread and {SPREAD_DB} dB in level.', '']
+              f'differ by no more than {SPREAD_K} times its own spread and {SPREAD_DB} dB in level.', '',
+              f"A third host, jalv (the lilv reference host, what Zynthian uses): {meta.get('jalv', 'not installed')}. "
+              'Not run in this report: the classifier (tests/lv2_parity.py, omx-clap-core#282) is in place and self-tested '
+              'against a stub, but a later step drives jalv for real and chooses which plugins to run it on. When it has '
+              'run, a third column reads per plugin and rate: jalv agrees with mod-host, jalv agrees with the adapter, '
+              'jalv agrees with neither, or jalv fault (it crashed, hung, or produced no recording). Never a gate: the '
+              "mod-host removal gate stays adapter vs mod-host. jalv is a one-instance JACK client with no add/run "
+              "command socket, so it cannot be driven by the feeder's own triggered-cycle clock the way mod-host and "
+              'omx-clap-host are; that stays a stated limit of the measurement, not something to fake around.', '']
     L += ['## Counts per class', '', '| class | ' + ' | '.join(f'{r // 1000 if r % 1000 == 0 else r / 1000} kHz' for r in rates) + ' |',
           '|---|' + '---:|' * len(rates)]
     for c in CLASSES:
