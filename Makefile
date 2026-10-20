@@ -491,6 +491,11 @@ tests/jack_latency_probe: tests/jack_latency_probe.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
 
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
+# the auxiliary ports over jack against the fake plugins alone (#92): a side chain heard, an auxiliary output read, both
+# after the buffer size changes, a bypassed plugin's auxiliary output silent; CI runs it, omx-delay is not needed
+test-jack-fake: $(PROG) tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
+	./tests/jack_fake_e2e.sh
+
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/fake.clap tests/jack_synth_probe
 	./tests/jack_synth_e2e.sh
 
