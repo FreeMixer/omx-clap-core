@@ -115,6 +115,7 @@ struct fake {
   double rate;
   uint32_t runs, starts, stops, resets;
   float saw_in_r0;      /* the first sample the R input carried on the last process */
+  float peak_last_in;   /* the largest first sample the last main input channel carried on any process */
   int nan_on, error_on; /* K_NAN / K_ERROR: misbehave while set */
   int ftz_inside;       /* K_CLOBBER: whether FTZ was set when process() began */
   /* K_TALK: every param event seen, in order, with the fields §4.2 fixes */
@@ -204,6 +205,7 @@ static clap_process_status f_process(const clap_plugin_t *p, const clap_process_
   clap_audio_buffer_t *ao = &pr->audio_outputs[0];
   const uint32_t n = pr->frames_count;
   if (f->channels == 2) f->saw_in_r0 = ai->data32[1][0];
+  if (f->channels && ai->data32[f->channels - 1][0] > f->peak_last_in) f->peak_last_in = ai->data32[f->channels - 1][0];
   /* the transport, as delivered: what a tempo-synced plugin reads */
   f->saw_transport = pr->transport != NULL;
   f->saw_tempo = pr->transport && (pr->transport->flags & CLAP_TRANSPORT_HAS_TEMPO) ? pr->transport->tempo : 0.0;
@@ -572,6 +574,52 @@ static void t_prime(void) {
   b.f.plugin.activate(&b.f.plugin, (double)g_rate, 1, MAXB);
   omx_clap_bind(&b.st, &b.f.plugin, 2);
   CHECK(omx_clap_prime(&b.st, 128) == CLAP_HOST_WARMUP_BLOCKS, "a non-finite plugin refuses publish");
+}
+
+/* the warm-up on a wide stage: every channel of the 6/6 main pair and every auxiliary block is written, a full
+ * max_block of it, so no page past the legs is first touched by a live block; a caller's auxiliary input is kept */
+static void t_prime_wide(void) {
+  static struct rig g;
+  static struct omx_clap_aux_in a;
+  static float win[6][MAXB], wout[6][MAXB], aux_scratch[2][MAXB], aux_silence[MAXB], side[MAXB];
+  float *wi[6], *wo[6], *scratch[2] = {aux_scratch[0], aux_scratch[1]}, *sidep[1] = {side};
+  static float *bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];
+  const struct omx_clap_port aux_out = {.channels = 2}, aux_in = {.channels = 1};
+  const uint32_t base[1] = {0};
+  const float SENTINEL = 7.0f;
+
+  memset(&g, 0, sizeof g);
+  memset(&a, 0, sizeof a);
+  fake_up(&g.f, K_PAD, 6);
+  omx_clap_stage_init(&g.st, &(struct omx_hosted_bounce){g.in_l, g.in_r, g.out_l, g.out_r, MAXB}, g.recs, QCAP);
+  g.f.plugin.activate(&g.f.plugin, (double)g_rate, 1, MAXB);
+  for (uint32_t c = 0; c < 6; c++) {
+    wi[c] = win[c];
+    wo[c] = wout[c];
+  }
+  CHECK(omx_clap_bind_aux(&g.st, scratch, 1, &aux_out) == 0 && omx_clap_bind_aux_in(&a, aux_silence, 1, &aux_in, bound, base) == 0 &&
+            omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == 0,
+        "prime wide: one auxiliary output of 2, one auxiliary input of 1, six wide blocks a side");
+  omx_clap_set_aux_in(&a, 0, 1, sidep);
+  CHECK(omx_clap_bind_ports_aux(&g.st, &g.f.plugin, 6, 6, &a) == 0, "prime wide: bind the 6/6 pair with its auxiliary input");
+  for (uint32_t c = 0; c < 6; c++) {
+    win[c][0] = win[c][MAXB - 1] = SENTINEL;
+    wout[c][0] = wout[c][MAXB - 1] = SENTINEL;
+  }
+  for (uint32_t c = 0; c < 2; c++) aux_scratch[c][0] = aux_scratch[c][MAXB - 1] = SENTINEL;
+  side[0] = side[MAXB - 1] = SENTINEL;
+  /* half a max_block: a frame past the warm-up's own blocks is written by the warm-up's touch alone */
+  CHECK(omx_clap_prime(&g.st, MAXB / 2) == 0, "prime wide: the warm-up runs clean");
+  int wide = 1;
+  for (uint32_t c = 0; c < 6; c++)
+    wide = wide && win[c][0] == 0.0f && win[c][MAXB - 1] == 0.0f && wout[c][0] == 0.0f && wout[c][MAXB - 1] == 0.0f;
+  CHECK(wide, "prime wide: every wide block's first and last frame were written (channel 5: in %g %g, out %g %g)", (double)win[5][0],
+        (double)win[5][MAXB - 1], (double)wout[5][0], (double)wout[5][MAXB - 1]);
+  CHECK(aux_scratch[0][0] == 0.0f && aux_scratch[0][MAXB - 1] == 0.0f && aux_scratch[1][0] == 0.0f && aux_scratch[1][MAXB - 1] == 0.0f,
+        "prime wide: every auxiliary output block's first and last frame were written");
+  CHECK(side[0] == SENTINEL && side[MAXB - 1] == SENTINEL, "prime wide: the caller's auxiliary input is read, its samples kept");
+  CHECK(g.f.peak_last_in == omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS), "prime wide: channel 5 carried the warm-up level (%g)",
+        (double)g.f.peak_last_in);
 }
 
 /* ---- 11. STATE: stop request honoured by the RT ---- */
@@ -1765,6 +1813,7 @@ int main(void) {
     t_discard(K_NAN);
     t_clamp();
     t_prime();
+    t_prime_wide();
     t_state();
     t_out_events();
     t_xfade();
