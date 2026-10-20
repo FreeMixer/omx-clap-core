@@ -341,7 +341,14 @@ and more than `CLAP_SURROUND_TSR` + 1 channels
 (`hosting.topology.channel-map-unknown`) and an ambisonic port whose channels are not
 (order+1)² for any order (`hosting.topology.port-too-wide`). A plugin with no main input is a source, its output its
 own: an instrument when it has a note input, a generator (an oscillator, a noise
-source) when it has none; the client has `out_<k>` and no `in_<k>`. An extra audio
+source) when it has none; the client has `out_<k>` and no `in_<k>`. A plugin with no audio
+port at all (a note tool, a controller) is a pass-through tool, the host's placement: a
+stereo pair named `in (passthrough: host)` and `out (passthrough: host)` on both sides, the
+strip's audio through the stage bit for bit, the plugin handed no audio buffer and run for
+its notes and parameters alone; its latency applies to those, so the host reads 0 and says
+so on the log, as the LV2 adapter hosts a control-only tool. A plugin with an audio input or
+an auxiliary port but no main output (an analyser, every output a side chain) has nothing
+the host can carry (`hosting.topology.no-audio-output`). An extra audio
 input (a sidechain, of up to 64 channels, up to 64 of them) is admitted and fed
 silence until its buffers are bound. The library's caller binds a buffer to it with
 `omx_clap_host_bind_aux_input`, one buffer per channel. An extra audio output (of up
