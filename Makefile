@@ -652,6 +652,7 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
               build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so \
               build/lv2/omx-event-fixture.lv2/omx-event-fixture.so \
+              build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so \
               build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
@@ -694,6 +695,11 @@ build/lv2/omx-event-fixture.lv2/omx-event-fixture.so: $(LV2_FIXTURE_DIR)/lv2_eve
 	cp $(LV2_FIXTURE_DIR)/omx-event-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
+build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so: $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.c $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h lv2/core/lv2_ll_midi.h $(wildcard $(LV2_FIXTURE_DIR)/omx-ll-midi-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-ll-midi-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
 build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so: $(LV2_FIXTURE_DIR)/lv2_layout_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl $(@D)/
@@ -725,7 +731,7 @@ LV2_WRAP = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 lv2/tests/lv2_run_test: lv2/tests/lv2_run_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) $(LV2_WRAP) -ldl -lpthread -lm
 
-lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h
+lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
 
 lv2/tests/lv2_patch_test: lv2/tests/lv2_patch_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h
@@ -765,7 +771,7 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
-lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h
+lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it

@@ -79,6 +79,7 @@
 #include "lv2_core.h"
 #include "fixtures/lv2_atom_probe.h"
 #include "fixtures/lv2_event_fixture.h"
+#include "fixtures/lv2_ll_midi_fixture.h"
 #include "fixtures/lv2_feature_probe.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "lv2_test_util.h"
@@ -89,6 +90,7 @@
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
 static char g_ev[PATH_MAX], g_ev_so[PATH_MAX + 32];
+static char g_ll[PATH_MAX], g_ll_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX];
 static char g_layout[PATH_MAX];
@@ -1216,6 +1218,112 @@ static void t_event_ports(void)
     lv2_plugin_close(p);
 }
 
+#define LL_URI LV2_LL_MIDI_FIXTURE_URI
+#define LL_CAPACITY 53u         // a 3-byte event takes 19 bytes (a double, a size_t, the bytes) of the 1024-byte buffer
+
+static struct lv2_ll_midi_fixture *ll_seen(void)
+{
+    return loaded_symbol(g_ll_so, "lv2_ll_midi_fixture");
+}
+
+/* the ll-plugins MIDI port fixture's ports as the reader reads them, from the TTL */
+static void t_ll_midi_ports(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_ll, LL_URI "#echo", why);
+
+    CHECK(p && p->midi_in_port == 4 && p->midi_in_ll && !p->midi_in_event && p->midi_out_port == 5 && p->midi_out_ll
+              && !p->midi_out_event && p->legs == 2 && p->in_legs == 2 && p->n_event_in == 0 && p->n_atom_in == 0 && p->n_notify == 0,
+          "ll midi: #echo is admitted, its llext:MidiPorts its MIDI input (4) and output (5), its audio a stereo pair (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_ll, LL_URI "#two-in", why);
+    CHECK(!p && strcmp(why, LV2_CODE_MIDI_IN) == 0,
+          "ll midi: a second llext:MidiPort input is one more than the adapter feeds: refused hosting.features.midi-in-fed-empty (%s)", why);
+    CHECK(ll_seen() == NULL, "ll midi: from the TTL alone, before the binary is opened");
+    lv2_plugin_close(p);
+}
+
+/* the echo through the instance over LV2_MIDI buffers: what goes in comes out at its frame, a note one key up */
+static void t_ll_midi_run(void)
+{
+    static const uint8_t on[3] = { 0x90, 0x3c, 0x64 }, off[3] = { 0x80, 0x3c, 0x00 }, cc[3] = { 0xb1, 0x07, 0x7f };
+    static const uint8_t pc[2] = { 0xc3, 0x05 }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t on_up[3] = { 0x90, 0x3d, 0x64 }, off_up[3] = { 0x80, 0x3d, 0x00 };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_ll, LL_URI "#echo", why);
+    struct lv2_instance *in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    struct lv2_ll_midi_fixture *seen = ll_seen();
+    struct lv2_counters before, after;
+    struct got g;
+    uint32_t i;
+
+    CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "ll midi run: #echo instantiates and activates (%s)", why);
+    if (!in || !seen)
+    {
+        lv2_instance_free(in);
+        lv2_plugin_close(p);
+        return;
+    }
+    lv2_instance_midi_in_add(in, 0, on, 3);
+    lv2_instance_midi_in_add(in, 5, pc, 2);
+    lv2_instance_midi_in_add(in, 9, sysex, 6);
+    lv2_instance_midi_in_add(in, 17, cc, 3);
+    lv2_instance_midi_in_add(in, 63, off, 3);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == 5 && seen->frame[0] == 0 && seen->size[1] == 2 && seen->frame[2] == 9 && seen->size[2] == 6
+              && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0,
+          "ll midi run: the plugin read five MIDI events at their frames and lengths, walking the buffer as zynadd does (%u)", seen->n);
+    CHECK(g.n == 5 && same_message(&g, 0, 0, on_up, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
+              && same_message(&g, 3, 17, cc, 3) && same_message(&g, 4, 63, off_up, 3),
+          "ll midi run: five out at their frames, the note on and off one key up, the rest byte for byte (%u)", g.n);
+
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == 0 && g.n == 0, "ll midi run: a block with no input reads and writes nothing: nothing carries over (%u, %u)", seen->n, g.n);
+
+    lv2_instance_counters(in, &before);
+    for (i = 0; i < LL_CAPACITY + 8u; i++)
+        lv2_instance_midi_in_add(in, i < BLOCK ? i : BLOCK - 1u, on, 3);
+    lv2_instance_counters(in, &after);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == LL_CAPACITY && g.n == LL_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
+          "ll midi run: a block that does not fit keeps the first %u events and counts the 8 it dropped (%u, %u, %u)", LL_CAPACITY,
+          seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
+    CHECK(same_message(&g, LL_CAPACITY - 1u, LL_CAPACITY - 1u, on_up, 3), "ll midi run: the last one that fits is at its own frame");
+
+    // the plugin's output spoilt one way at a time: only what lies inside the buffer it was given, in frames, up to
+    // its count, from the data the host handed it, is read
+    {
+        static const struct { uint32_t kind, want; const char *what; } bad[4] =
+        {
+            { LV2_LL_MIDI_FIXTURE_MOVED, 0, "a buffer whose data pointer the plugin moved is not read" },
+            { LV2_LL_MIDI_FIXTURE_OVERSIZE, 0, "an event whose size runs past the buffer is not read" },
+            { LV2_LL_MIDI_FIXTURE_STAMP, 1, "an event whose timestamp is not a frame is skipped, the next one read" },
+            { LV2_LL_MIDI_FIXTURE_COUNT, 1, "a buffer is read up to its event count, not past it" },
+        };
+
+        for (i = 0; i < 4; i++)
+        {
+            seen->misbehave = bad[i].kind;
+            lv2_instance_midi_in_add(in, 3, on, 3);
+            lv2_instance_midi_in_add(in, 7, off, 3);
+            memset(&g, 0, sizeof(g));
+            lv2_instance_run(in, BLOCK, NULL, NULL);
+            lv2_instance_midi_out_each(in, collect, &g);
+            CHECK(seen->n == 2 && g.n == bad[i].want, "ll midi run: %s (%u of 2)", bad[i].what, g.n);
+        }
+        seen->misbehave = LV2_LL_MIDI_FIXTURE_WELL;
+    }
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 static const char *const *list_without(const char *uri);
 
 /* a list without uri-map: the echo, which requires it, is refused before its binary is opened */
@@ -1913,6 +2021,10 @@ int main(int argc, char **argv)
     if (abs_dir(dir, g_ev) != 0)
         return 1;
     snprintf(g_ev_so, sizeof(g_ev_so), "%somx-event-fixture.so", g_ev);
+    snprintf(dir, sizeof(dir), "%somx-ll-midi-fixture.lv2", g_build);
+    if (abs_dir(dir, g_ll) != 0)
+        return 1;
+    snprintf(g_ll_so, sizeof(g_ll_so), "%somx-ll-midi-fixture.so", g_ll);
     snprintf(g_atom_so, sizeof(g_atom_so), "%somx-atom-fixture.so", g_atom);
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
     if (abs_dir(dir, g_cv) != 0)
@@ -1946,6 +2058,8 @@ int main(int argc, char **argv)
     t_event_ports();
     t_event_run();
     t_event_mixed();
+    t_ll_midi_ports();
+    t_ll_midi_run();
     t_sidechains();
     t_sidechain_names_oom();
     t_layouts();
