@@ -1610,7 +1610,8 @@ static void without_default_state(void)
 
 #define PROBE_SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS \
                      | LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE \
-                     | LV2_FEATURE_PROBE_LOG | LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1)
+                     | LV2_FEATURE_PROBE_LOG | LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1 \
+                     | LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED)
 /* the features the configured list adds after the eight: mapPath and freePath (makePath needs a root), uri-map and
  * event */
 #define PROBE_PATHS (LV2_FEATURE_PROBE_MAP_PATH | LV2_FEATURE_PROBE_FREE_PATH | LV2_FEATURE_PROBE_URI_MAP \
@@ -1625,7 +1626,7 @@ static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
     [OMX_LV2_F_WORKER] = LV2_FEATURE_PROBE_WORKER,
     [OMX_LV2_F_DEFAULT_STATE] = LV2_FEATURE_PROBE_DEFAULT_STATE,
     [OMX_LV2_F_LOG] = LV2_FEATURE_PROBE_LOG,
-    [OMX_LV2_F_RTMEMPOOL] = LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1,
+    [OMX_LV2_F_RTMEMPOOL] = LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1 | LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED,
 };
 
 /* the probe `uri` opened, instantiated by an activation of `min` to `max` under the options now, and freed: a copy of
@@ -1757,15 +1758,15 @@ static void t_options(void)
     CHECK(lv2_core_feature_options()->features == OMX_LV2_FEATURES_ALL && lv2_core_feature_options()->strict,
           "options: the host starts at the defaults");
     seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 5u,
-          "options: by default the probe sees the eight features, the pool's deprecated URI, then mapPath, freePath, uri-map "
+    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 6u,
+          "options: by default the probe sees the eight features, the pool's two other URIs, then mapPath, freePath, uri-map "
           "and event, and nothing else (%s)", why);
-    CHECK(seen && seen->n_features == OMX_LV2_FEATURE_KINDS + 5u && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 3], LV2_URI_MAP_URI)
-              && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 4], LV2_EVENT_URI),
+    CHECK(seen && seen->n_features == OMX_LV2_FEATURE_KINDS + 6u && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 4], LV2_URI_MAP_URI)
+              && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 5], LV2_EVENT_URI),
           "options: uri-map and event last, in that order");
-    CHECK(seen && seen->pool_round_trip == 1 && seen->pool_v1_round_trip == 1,
-          "options: the probe makes a pool, takes and returns a chunk and destroys it, through both structs (%d, %d)",
-          seen ? seen->pool_round_trip : 0, seen ? seen->pool_v1_round_trip : 0);
+    CHECK(seen && seen->pool_round_trip == 1 && seen->pool_v1_round_trip == 1 && seen->pool_spelled_round_trip == 1,
+          "options: the probe makes a pool, takes and returns a chunk and destroys it, through all three entries (%d, %d, %d)",
+          seen ? seen->pool_round_trip : 0, seen ? seen->pool_v1_round_trip : 0, seen ? seen->pool_spelled_round_trip : 0);
     CHECK(seen && seen->map_midi != 0 && seen->uri_map_event == seen->map_midi && seen->uri_map_other == seen->map_midi,
           "options: uri-map's uri_to_id answers urid:map's id for midi:MidiEvent under the event map and under another (%u %u %u)",
           seen ? seen->map_midi : 0u, seen ? seen->uri_map_event : 0u, seen ? seen->uri_map_other : 0u);
@@ -1807,11 +1808,17 @@ static void t_options(void)
     seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_URI, 16, BLOCK, why);
     CHECK(seen && !strcmp(seen->uri, LV2_FEATURE_PROBE_RTMEMPOOL_URI) && seen->pool_v1_round_trip == 1,
           "options: the twin requiring the pool's deprecated URI is hosted, the pool behind it (%s)", why);
+    seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI, 16, BLOCK, why);
+    CHECK(seen && !strcmp(seen->uri, LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI) && seen->pool_spelled_round_trip == 1,
+          "options: the twin requiring rtmempool#Pool, the specification's spelling, is hosted, the pool behind it (%s)", why);
     o.features &= ~OMX_LV2_FEATURE_BIT(OMX_LV2_F_RTMEMPOOL);
     lv2_core_feature_options_set(&o, why);
     seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_URI, 16, BLOCK, why);
     CHECK(!seen && strcmp(why, LV2_CODE_FEATURES_MISSING) == 0,
           "options: strict with the pool withheld, the twin is refused hosting.features-missing (%s)", why);
+    seen = probe_sees(LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI, 16, BLOCK, why);
+    CHECK(!seen && strcmp(why, LV2_CODE_FEATURES_MISSING) == 0,
+          "options: and so is the twin requiring the '#' spelling (%s)", why);
 
     // the block: fixed declared admits the fixture's fixed twin, and the probe sees every declaration
     omx_lv2_feature_options_init(&o);

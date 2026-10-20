@@ -45,7 +45,10 @@
 #include <lv2/worker/worker.h>
 
 #include "omx_lv2_features.h"
+#include <pthread.h>
+#include <stdint.h>
 #include "lv2_rtmempool.h"
+#include "lv2_core.h"
 #include "fixtures/lv2_feature_probe.h"
 #include "lv2_test_util.h"
 
@@ -90,15 +93,15 @@ static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
     [OMX_LV2_F_WORKER] = LV2_FEATURE_PROBE_WORKER,
     [OMX_LV2_F_DEFAULT_STATE] = LV2_FEATURE_PROBE_DEFAULT_STATE,
     [OMX_LV2_F_LOG] = LV2_FEATURE_PROBE_LOG,
-    [OMX_LV2_F_RTMEMPOOL] = LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1,
+    [OMX_LV2_F_RTMEMPOOL] = LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1 | LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED,
 };
 
-/* the eight kinds as the probe sees them: the pool under both its URIs */
+/* the eight kinds as the probe sees them: the pool under its three URIs */
 #define SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS | LV2_FEATURE_PROBE_BOUNDED \
                | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE | LV2_FEATURE_PROBE_LOG \
-               | LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1)
-/* the array's length under the defaults: every kind, and the pool's deprecated URI after the declarations */
-#define SLOTS_DEFAULT (OMX_LV2_FEATURE_KINDS + 1u)
+               | LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1 | LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED)
+/* the array's length under the defaults: every kind, then the pool's deprecated and spelled URIs after the declarations */
+#define SLOTS_DEFAULT (OMX_LV2_FEATURE_KINDS + 2u)
 
 static void t_defaults(void)
 {
@@ -118,12 +121,14 @@ static void t_defaults(void)
     // what the plugin sees under them, through init and through NULL alike
     CHECK(observe(&o, 16, 256) == 0, "defaults: the probe instantiates");
     CHECK(g_probe->seen == SEVEN && g_probe->n_features == SLOTS_DEFAULT,
-          "defaults: the probe sees the eight features, the pool twice, and nothing else (0x%x, %u)", g_probe->seen, g_probe->n_features);
-    CHECK(!strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS], LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI),
-          "defaults: the pool's deprecated URI after the kinds");
-    CHECK(g_probe->pool_round_trip == 1 && g_probe->pool_v1_round_trip == 1,
-          "defaults: the probe makes a pool, takes and returns a chunk and destroys it, through both structs (%d, %d)",
-          g_probe->pool_round_trip, g_probe->pool_v1_round_trip);
+          "defaults: the probe sees the eight features, the pool three times, and nothing else (0x%x, %u)", g_probe->seen, g_probe->n_features);
+    CHECK(!strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS], LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI)
+          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 1], "http://kxstudio.sf.net/ns/lv2ext/rtmempool#Pool")
+          && !strcmp(g_probe->order[OMX_LV2_F_RTMEMPOOL], "http://kxstudio.sf.net/ns/lv2ext/rtmempoolPool"),
+          "defaults: the pool's kind is the header's spelling, its deprecated and '#' spellings after the kinds");
+    CHECK(g_probe->pool_round_trip == 1 && g_probe->pool_v1_round_trip == 1 && g_probe->pool_spelled_round_trip == 1,
+          "defaults: the probe makes a pool, takes and returns a chunk and destroys it, through all three entries (%d, %d, %d)",
+          g_probe->pool_round_trip, g_probe->pool_v1_round_trip, g_probe->pool_spelled_round_trip);
     for (k = 0; k < OMX_LV2_FEATURE_KINDS; k++)
         in_order &= strcmp(g_probe->order[k], omx_lv2_feature_uris[k]) == 0;
     CHECK(in_order, "defaults: in the kinds' order");
@@ -203,11 +208,12 @@ static void t_block(void)
           && (g_probe->seen & (LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2))
              == (LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2),
           "block: bounded, fixed and power of two declared, the probe sees all three");
-    CHECK(g_probe->n_features == OMX_LV2_FEATURE_KINDS + 3u
+    CHECK(g_probe->n_features == OMX_LV2_FEATURE_KINDS + 4u
           && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS], LV2_BUF_SIZE__fixedBlockLength)
           && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 1], LV2_BUF_SIZE__powerOf2BlockLength)
-          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 2], LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI),
-          "block: the declarations beyond bounded come after every kind, the pool's deprecated URI after them");
+          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 2], LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI)
+          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 3], LV2_RTMEMPOOL_POOL_SPELLED_URI),
+          "block: the declarations beyond bounded come after every kind, the pool's other URIs after them");
     CHECK(omx_lv2_feature_offered(&o, LV2_BUF_SIZE__fixedBlockLength)
           && omx_lv2_feature_offered(&o, LV2_BUF_SIZE__powerOf2BlockLength), "block: and are offered");
     CHECK(!omx_lv2_feature_offered(NULL, LV2_BUF_SIZE__fixedBlockLength), "block: fixed is not offered by default");
@@ -314,7 +320,7 @@ static void t_build(void)
     CHECK(omx_lv2_features_build(&b, &o, RATE, 16, 256, NULL) == NULL, "build: the worker offered with no schedule refuses");
     o.features &= ~OMX_LV2_FEATURE_BIT(OMX_LV2_F_WORKER);
     f = omx_lv2_features_build(&b, &o, RATE, 16, 256, NULL);
-    CHECK(f && f[OMX_LV2_FEATURE_KINDS] == NULL, "build: without the worker, seven features (the pool twice) and the NULL");
+    CHECK(f && f[OMX_LV2_FEATURE_KINDS + 1] == NULL, "build: without the worker, seven features (the pool three times) and the NULL");
     o.features = OMX_LV2_FEATURES_ALL << 1;
     CHECK(omx_lv2_features_build(&b, &o, RATE, 16, 256, &g_schedule) == NULL, "build: a bit past the kinds refuses");
     omx_lv2_feature_options_init(&o);
@@ -327,8 +333,10 @@ static void t_build(void)
     CHECK(f && f[OMX_LV2_F_BOUNDED]->data == NULL && f[OMX_LV2_F_DEFAULT_STATE]->data == NULL, "build: the flags carry no data");
     CHECK(f && f[OMX_LV2_F_RTMEMPOOL]->data != NULL && !strcmp(f[OMX_LV2_F_RTMEMPOOL]->URI, LV2_RTSAFE_MEMORY_POOL__Pool)
           && !strcmp(f[OMX_LV2_FEATURE_KINDS]->URI, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) && f[OMX_LV2_FEATURE_KINDS]->data != NULL
-          && f[OMX_LV2_FEATURE_KINDS]->data != f[OMX_LV2_F_RTMEMPOOL]->data,
-          "build: the pool carries its provider, and its deprecated URI the deprecated struct, after the kinds");
+          && f[OMX_LV2_FEATURE_KINDS]->data != f[OMX_LV2_F_RTMEMPOOL]->data
+          && !strcmp(f[OMX_LV2_FEATURE_KINDS + 1]->URI, LV2_RTMEMPOOL_POOL_SPELLED_URI)
+          && f[OMX_LV2_FEATURE_KINDS + 1]->data == f[OMX_LV2_F_RTMEMPOOL]->data,
+          "build: the pool carries its provider; after the kinds its deprecated URI the deprecated struct, its '#' spelling the same struct");
 }
 
 /* rtmempool#Pool through the built array: the chunks preallocated, the atomic path that never allocates, the sleepy one
@@ -379,6 +387,95 @@ static void t_rtmempool(void)
     v1->deallocate(h2, a);
     v1->destroy(h2);
     CHECK(v1->create("v1", 32, 2, 1, &h2) == 0u, "rtmempool: the deprecated create answers 0 for a refusal");
+    CHECK(!pool->create(&h, "huge", SIZE_MAX - 7, 0, 1) && !pool->create(&h, "huge", SIZE_MAX / 2, 0, 1),
+          "rtmempool: a size the header cannot be added to is refused");
+    // the maximum: chunks given back above it are freed by the next sleepy call, never by deallocate
+    CHECK(pool->create(&h, "max", 32, 1, 2) && h != NULL, "rtmempool: a pool of one to two chunks");
+    a = pool->allocate_sleepy(h);
+    c = pool->allocate_sleepy(h);
+    d = pool->allocate_sleepy(h);
+    e = pool->allocate_sleepy(h);
+    CHECK(a && c && d && e, "rtmempool: four taken sleepily");
+    pool->deallocate(h, a);
+    pool->deallocate(h, c);
+    pool->deallocate(h, d);
+    pool->deallocate(h, e);
+    CHECK(pool->allocate_atomic(h) && pool->allocate_atomic(h) && pool->allocate_atomic(h) && pool->allocate_atomic(h),
+          "rtmempool: all four come back atomically before any sleepy call trims");
+    a = pool->allocate_sleepy(h);        // the free list is empty: one made, topped up to one, nothing above two to trim
+    pool->deallocate(h, a);
+    pool->destroy(h);
+    CHECK(pool->create(&h, "trim", 32, 1, 2) && h != NULL, "rtmempool: a pool of one to two chunks again");
+    a = pool->allocate_sleepy(h);
+    c = pool->allocate_sleepy(h);
+    d = pool->allocate_sleepy(h);
+    e = pool->allocate_sleepy(h);
+    pool->deallocate(h, a);
+    pool->deallocate(h, c);
+    pool->deallocate(h, d);
+    pool->deallocate(h, e);
+    a = pool->allocate_sleepy(h);        // four free: one taken, three left, trimmed to the maximum of two
+    c = pool->allocate_atomic(h);
+    d = pool->allocate_atomic(h);
+    e = pool->allocate_atomic(h);
+    CHECK(a && c && d && e == NULL, "rtmempool: after a sleepy call the free list is at most the maximum: two more atomically, not three");
+    pool->destroy(h);
+}
+
+/* the audio thread takes and returns atomically while the main thread allocates sleepily: every sleepy take answers,
+ * and no chunk is handed to both */
+struct rt_arm { const LV2_RtMemPool_Pool *pool; LV2_RtMemPool_Handle h; unsigned taken, null; };
+
+static void *rt_atomic_thread(void *arg)
+{
+    struct rt_arm *a = arg;
+    unsigned i;
+
+    for (i = 0; i < 20000; i++)
+    {
+        void *c = a->pool->allocate_atomic(a->h);
+
+        if (c)
+        {
+            *(uint32_t *)c = 0xa110c;
+            a->taken++;
+            a->pool->deallocate(a->h, c);
+        }
+        else
+            a->null++;
+    }
+    return NULL;
+}
+
+static void t_rtmempool_threads(void)
+{
+    struct omx_lv2_feature_block b;
+    const LV2_Feature *const *f = omx_lv2_features_build(&b, NULL, RATE, 16, 256, &g_schedule);
+    const LV2_RtMemPool_Pool *pool = f ? f[OMX_LV2_F_RTMEMPOOL]->data : NULL;
+    struct rt_arm arm = { pool, NULL, 0, 0 };
+    pthread_t thread;
+    unsigned i, sleepy_null = 0;
+
+    CHECK(pool && pool->create(&arm.h, "threads", 64, 2, 8) && arm.h, "rtmempool threads: a pool of two to eight chunks");
+    if (!arm.h)
+        return;
+    pthread_create(&thread, NULL, rt_atomic_thread, &arm);
+    for (i = 0; i < 20000; i++)
+    {
+        void *c = pool->allocate_sleepy(arm.h);
+
+        if (c)
+        {
+            *(uint32_t *)c = 0x51ee9;
+            pool->deallocate(arm.h, c);
+        }
+        else
+            sleepy_null++;
+    }
+    pthread_join(thread, NULL);
+    CHECK(sleepy_null == 0, "rtmempool threads: every sleepy take answered (%u did not)", sleepy_null);
+    CHECK(arm.taken > 0, "rtmempool threads: the atomic thread took chunks beside it (%u, %u empty)", arm.taken, arm.null);
+    pool->destroy(arm.h);
 }
 
 static void t_urid(void)
@@ -386,6 +483,7 @@ static void t_urid(void)
     const char *const all[] = { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength,
                                 LV2_WORKER__schedule, LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_RTSAFE_MEMORY_POOL__Pool, NULL };
     const char *const v1[] = { LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, NULL };
+    const char *const spelled[] = { LV2_RTMEMPOOL_POOL_SPELLED_URI, NULL };
     const char *const foreign[] = { LV2_URID__map, LV2_BUF_SIZE__fixedBlockLength, NULL };
     char text[64];
     LV2_URID id;
@@ -403,6 +501,9 @@ static void t_urid(void)
     CHECK(omx_lv2_feature_mask(v1, &m) == 0 && m == OMX_LV2_FEATURE_BIT(OMX_LV2_F_RTMEMPOOL)
           && omx_lv2_feature_kind(LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) == OMX_LV2_F_RTMEMPOOL,
           "urid: the pool's deprecated URI is the pool's kind");
+    m = 0;
+    CHECK(omx_lv2_feature_mask(spelled, &m) == 0 && m == OMX_LV2_FEATURE_BIT(OMX_LV2_F_RTMEMPOOL),
+          "urid: the pool spelled with the '#' is the pool's kind");
     CHECK(omx_lv2_feature_mask(NULL, &m) == 0 && m == 0, "urid: the empty list is the empty mask");
     m = 7;
     CHECK(omx_lv2_feature_mask(foreign, &m) == -1 && m == 7, "urid: a URI no kind serves refuses, the mask untouched");
@@ -448,6 +549,7 @@ int main(int argc, char **argv)
     t_build();
     t_urid();
     t_rtmempool();
+    t_rtmempool_threads();
     t_open();
     dlclose(so);
     if (g_failures)

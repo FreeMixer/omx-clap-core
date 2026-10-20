@@ -58,6 +58,7 @@ static const struct
     { LV2_EVENT_URI, LV2_FEATURE_PROBE_EVENT },
     { LV2_RTSAFE_MEMORY_POOL__Pool, LV2_FEATURE_PROBE_RTMEMPOOL },
     { LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, LV2_FEATURE_PROBE_RTMEMPOOL_V1 },
+    { LV2_RTSAFE_MEMORY_POOL_PREFIX "Pool", LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED },
 };
 
 /* a pool of two 32-byte chunks through the current struct: created, a chunk taken atomically and given back, destroyed */
@@ -176,9 +177,11 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
     {
         const LV2_RtMemPool_Pool *pool = feature(features, LV2_RTSAFE_MEMORY_POOL__Pool);
         const LV2_RtMemPool_Pool_Deprecated *pool_v1 = feature(features, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI);
+        const LV2_RtMemPool_Pool *pool_spelled = feature(features, LV2_RTSAFE_MEMORY_POOL_PREFIX "Pool");
 
         p->pool_round_trip = pool ? pool_round_trip(pool) : -1;
         p->pool_v1_round_trip = pool_v1 ? pool_v1_round_trip(pool_v1) : -1;
+        p->pool_spelled_round_trip = pool_spelled ? pool_round_trip(pool_spelled) : -1;
     }
     return calloc(1, sizeof(struct fp));
 }
@@ -221,9 +224,15 @@ static const LV2_Descriptor g_needs_rtmempool =
     LV2_FEATURE_PROBE_RTMEMPOOL_URI, instantiate, connect_port, NULL, run, NULL, cleanup, NULL
 };
 
+static const LV2_Descriptor g_needs_rtmempool_spelled =
+{
+    LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI, instantiate, connect_port, NULL, run, NULL, cleanup, NULL
+};
+
 EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &g_probe : index == 1 ? &g_needs_worker : index == 2 ? &g_needs_rtmempool : NULL;
+    return index == 0 ? &g_probe : index == 1 ? &g_needs_worker : index == 2 ? &g_needs_rtmempool
+         : index == 3 ? &g_needs_rtmempool_spelled : NULL;
 }
 
 LV2_RESTORE_WARNINGS

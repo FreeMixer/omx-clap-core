@@ -14,6 +14,7 @@
 #define LV2_FEATURE_PROBE_URI "urn:openmixer:test:feature-probe"
 #define LV2_FEATURE_PROBE_WORKER_URI "urn:openmixer:test:feature-probe#needs-worker"
 #define LV2_FEATURE_PROBE_RTMEMPOOL_URI "urn:openmixer:test:feature-probe#needs-rtmempool"   /* requires the pool's deprecated URI, as zynadd does */
+#define LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED_URI "urn:openmixer:test:feature-probe#needs-rtmempool-spelled"   /* requires rtmempool#Pool */
 
 /* the line the probe logs at instantiate, with the rate as an integer */
 #define LV2_FEATURE_PROBE_LINE "feature-probe: instantiated at %d Hz\n"
@@ -38,6 +39,7 @@ enum
     LV2_FEATURE_PROBE_EVENT = 1u << 14,      /* event */
     LV2_FEATURE_PROBE_RTMEMPOOL = 1u << 15,  /* rtmempool#Pool */
     LV2_FEATURE_PROBE_RTMEMPOOL_V1 = 1u << 16,  /* the pool's deprecated URI */
+    LV2_FEATURE_PROBE_RTMEMPOOL_SPELLED = 1u << 17,  /* the pool spelled rtmempool#Pool */
 };
 
 struct lv2_feature_probe
@@ -59,6 +61,7 @@ struct lv2_feature_probe
     int pool_round_trip;            /* rtmempool#Pool: a pool created, a chunk allocated atomically, freed, the pool
                                      * destroyed: 1; 0 when a step refused, -1 without the feature */
     int pool_v1_round_trip;         /* the same through the deprecated URI's struct */
+    int pool_spelled_round_trip;    /* the same through the entry spelled rtmempool#Pool */
 };
 extern struct lv2_feature_probe lv2_feature_probe;
 

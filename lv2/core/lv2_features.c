@@ -223,8 +223,8 @@ static int provider_of(const char *uri)
     for (k = 0; k < LV2_FEATURE_KINDS; k++)
         if (strcmp(lv2_feature_uri[k], uri) == 0)
             return k;
-    // the pool's deprecated URI is the same pool, served by its kind
-    if (strcmp(uri, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) == 0)
+    // the pool's deprecated URI and its spelled one are the same pool, served by its kind
+    if (strcmp(uri, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) == 0 || strcmp(uri, LV2_RTMEMPOOL_POOL_SPELLED_URI) == 0)
         return F_RTMEMPOOL;
     return -1;
 }
@@ -479,6 +479,11 @@ uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, cons
     {
         features[n].URI = LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI;
         features[n].data = (void *)lv2_rtmempool_feature_v1();
+        ptrs[n] = &features[n];
+        n++;
+        // and spelled with the '#', the current struct again, for code that matches the specification's spelling
+        features[n].URI = LV2_RTMEMPOOL_POOL_SPELLED_URI;
+        features[n].data = (void *)lv2_rtmempool_feature();
         ptrs[n] = &features[n];
         n++;
     }
