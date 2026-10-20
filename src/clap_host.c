@@ -2643,9 +2643,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
          * and the first live block starts from it; a restart the plugin asked for during the warm-up is answered by this
          * same cycle.
          */
+        // what stood before and what the first activate raised stay; only the warm-up's own deactivate is dropped
+        pending |= atomic_load_explicit(&in->ports_rescan_requested, memory_order_relaxed);
         in->plugin->deactivate(in->plugin);
-        // the warm-up's own deactivate raised nothing the plugin's layout needs; a rescan the first activate raised is
-        // raised again by the second, so it is still reported
         atomic_store_explicit(&in->ports_rescan_requested, pending, memory_order_relaxed);
         if (!in->plugin->activate(in->plugin, rate, 1, max_block))
         {
