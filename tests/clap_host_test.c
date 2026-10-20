@@ -912,6 +912,22 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // a config carrying a side chain beside its main input matches a mains-only request by its mains; the side chain is
+    // described after, when the description is read again
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_SIDE", &in), "%s opens, its configs carrying a side chain", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: a config with a side chain matches the mains-only request by its mains (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 1, "%s: and its side chain is described after (%u aux in)", FAKE_CONFIGS,
+              in->aux_inputs);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // configurable-audio-ports: applied
     CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
     if (in)
@@ -949,7 +965,23 @@ static void t_request_layout(const char *path)
         reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
         CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->main_in.channels == 2 && strcmp(in->main_in.name, "in 0") == 0,
-              "%s: apply_configuration false is DECLARED, the declared pair stands (%d, %u in)", FAKE_CONFIGURABLE, ret, in->main_in.channels);
+              "%s: apply_configuration false and no config list to fall back to is DECLARED, the declared pair stands (%d, %u in)", FAKE_CONFIGURABLE, ret, in->main_in.channels);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // offering both, apply_configuration refusing: the config list is asked before DECLARED, and its match selected
+    setenv("FAKE_APPLY_FAILS", "1", 1);
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGURABLE_TOO", &in), "%s opens offering both, its apply answering false", FAKE_CONFIGS);
+    unsetenv("FAKE_APPLY_FAILS");
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: apply refused, the request falls back to the config list and config 2 is selected (%d, \"%s\")", FAKE_CONFIGS, ret,
+              in->main_in.name);
         omx_clap_host_close(in);
         in = NULL;
     }
