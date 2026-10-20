@@ -1438,13 +1438,17 @@ static void t_note_priority(void) {
   const size_t align = _Alignof(struct omx_clap_stage);
   const size_t before = offsetof(struct omx_clap_stage, start_refused) + sizeof NS.start_refused;
 
-  /* releases_dropped (ABI 5) sits in the tail padding on the 64-bit targets the library ships for: the stage is the size
-   * it was without it, every offset unchanged.
-   * The ABI check cannot see it (libabigail leaves _Atomic members out), so this is the check. */
-  CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before &&
-        sizeof(struct omx_clap_stage) == (before + align - 1) / align * align,
-        "releases_dropped is in the stage's tail padding: size %zu, the end of start_refused rounded to %zu is %zu",
-        sizeof(struct omx_clap_stage), align, (before + align - 1) / align * align);
+  const size_t ptr_align = _Alignof(float *);
+  const size_t wide_at = (before + sizeof NS.releases_dropped + ptr_align - 1) / ptr_align * ptr_align;
+  const size_t wide_end = offsetof(struct omx_clap_stage, wide) + sizeof NS.wide;
+
+  /* releases_dropped (ABI 5) follows start_refused with no gap, and the wide bounce (ABI 13) follows it: every member
+   * before them keeps its offset. The ABI check cannot see the atomic ones (libabigail leaves _Atomic members out), so
+   * this is the check. */
+  CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before && offsetof(struct omx_clap_stage, wide_in) == wide_at &&
+        sizeof(struct omx_clap_stage) == (wide_end + align - 1) / align * align,
+        "releases_dropped follows start_refused (%zu) and the wide bounce follows it (%zu): size %zu",
+        offsetof(struct omx_clap_stage, releases_dropped), offsetof(struct omx_clap_stage, wide_in), sizeof(struct omx_clap_stage));
 
   for (d = 0; d < 3; d++) {
     const char *what = NAMES[d];
@@ -1633,6 +1637,92 @@ static void t_aux_bind_wide(void) {
   CHECK(g.st.aout[2].data32[3] == scratch[4], "aux: unbound, back to its scratch");
 }
 
+/* ---- the wide path: a 6-channel main pair over blocks of its own, every channel carried, bypass switched hard ---- */
+static int wide_wet(float (*outs)[MAXB], float (*ins)[MAXB], float gain) {
+  for (uint32_t c = 0; c < 6; c++)
+    for (uint32_t i = 0; i < MAXB; i++)
+      if (outs[c][i] != ins[c][i] * gain) return 0;
+  return 1;
+}
+
+static void t_run_ports_wide(void) {
+  static struct rig g;
+  static float win[6][MAXB], wout[6][MAXB], ins[6][MAXB], outs[6][MAXB];
+  float *wi[6], *wo[6], *op[6];
+  const float *ip[6];
+
+  memset(&g, 0, sizeof g);
+  fake_up(&g.f, K_PAD, 6);
+  CHECK(omx_clap_stage_init(&g.st, &(struct omx_hosted_bounce){g.in_l, g.in_r, g.out_l, g.out_r, MAXB}, g.recs, QCAP) == 0, "wide: stage_init");
+  CHECK(g.f.plugin.init(&g.f.plugin) && g.f.plugin.activate(&g.f.plugin, (double)g_rate, 1, MAXB), "wide: init, activate");
+  for (uint32_t c = 0; c < 6; c++) {
+    wi[c] = win[c];
+    wo[c] = wout[c];
+    ip[c] = ins[c];
+    op[c] = outs[c];
+    fill(ins[c], MAXB, (float)c * 0.1f);
+  }
+  CHECK(omx_clap_bind_wide(&g.st, wi, CLAP_HOST_PORT_CHANNELS + 1, wo, 6) == -1, "wide: an input wider than the limit is refused");
+  wi[5] = NULL;
+  CHECK(omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == -1, "wide: a channel with no block is refused");
+  wi[5] = win[5];
+  CHECK(g.st.wide == 0, "wide: nothing bound by a refusal");
+  CHECK(omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == 0 && g.st.wide == 1, "wide: six blocks a side bind the wide bounce");
+  CHECK(omx_clap_bind_ports(&g.st, &g.f.plugin, 6, 6) == 0, "wide: bind the 6-channel pair");
+  CHECK(g.st.ain.data32 == g.st.wide_in && g.st.aout[0].data32 == g.st.wide_out && g.st.wide_in[5] == win[5] && g.st.wide_out[5] == wout[5],
+        "wide: the main buffers are the wide blocks");
+  omx_clap_arm(&g.st);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, PAD_GAIN), "wide: every output channel is the gain times its input from the first block (%g, %g)",
+        (double)outs[5][0], (double)ins[5][0]);
+  omx_clap_set_bypass(&g.st, 1);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, 1.0f), "wide: bypass is dry on the next block, no fade (%g, %g)", (double)outs[5][0], (double)ins[5][0]);
+  CHECK(g.f.runs == 1 && atomic_load(&g.st.h.runs) == 1, "wide: the plugin idles bypassed (%u runs)", g.f.runs);
+  omx_clap_set_bypass(&g.st, 0);
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, PAD_GAIN), "wide: back to wet on the next block, no fade");
+
+  /* the guards, per channel: a hot block clamped on every channel past the ceiling, a non-finite one delivered dry and struck */
+  g.f.kind = K_HOT;
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(atomic_load(&g.st.h.clamped_samples) == 4 * MAXB, "wide: every sample of the four channels past +24 dBFS clamped (%u)",
+        atomic_load(&g.st.h.clamped_samples));
+  CHECK(outs[5][0] == omx_db_to_lin(CLAP_HOST_CLAMP_DBFS), "wide: the sixth channel at the ceiling (%g)", (double)outs[5][0]);
+  g.f.kind = K_NAN;
+  g.f.nan_on = 1;
+  in_rt = 1;
+  omx_clap_run_ports(&g.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(wide_wet(outs, ins, 1.0f) && atomic_load(&g.st.h.nonfinite_blocks) == 1, "wide: a non-finite block delivers dry and strikes (%u)",
+        atomic_load(&g.st.h.nonfinite_blocks));
+
+  /* a stage that is not wide runs the two-leg path, bit for bit as omx_clap_run_io */
+  static struct rig a, b;
+  static float l[MAXB], r[MAXB], la[MAXB], ra[MAXB], lb[MAXB], rb[MAXB];
+  const float *two_in[2] = {l, r};
+  float *oa[2] = {la, ra}, *ob[2] = {lb, rb};
+  rig_up(&a, K_PAD, 2, QCAP);
+  rig_up(&b, K_PAD, 2, QCAP);
+  for (int k = 0; k < 3; k++) {
+    ramp(l, MAXB);
+    fill(r, MAXB, 0.25f);
+    in_rt = 1;
+    omx_clap_run_ports(&a.st, two_in, oa, MAXB);
+    omx_clap_run_io(&b.st, two_in, ob, MAXB);
+    in_rt = 0;
+    CHECK(a.st.wide == 0 && bytes_equal(la, lb, MAXB) && bytes_equal(ra, rb, MAXB), "wide: a two-leg stage through run_ports is run_io (block %d)", k);
+  }
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -1659,6 +1749,7 @@ int main(void) {
     t_sysex_pool_resets();
     t_notes_out();
     t_aux_bind_wide();
+    t_run_ports_wide();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
     printf("clap_stage @ %.0f: %d failure(s)\n", (double)g_rate, failures - before);

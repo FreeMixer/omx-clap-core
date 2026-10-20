@@ -142,8 +142,55 @@ static int activate(struct omx_clap_instance *instance)
     return omx_clap_host_activate(instance, SAMPLE_RATE, BLOCK, why) == 0;
 }
 
+/*
+ * On a lane of any width, omx_clap_host_run_ports carries every main channel: the 6-channel pair binds the wide bounce
+ * and each output is its input (the fake copies), and a mono-in, stereo-out pair binds none and runs the two-leg path,
+ * the right leg the plugin's second output.
+ */
+static void t_run_ports(const char *path)
+{
+    struct omx_clap_instance *in = NULL;
+    static float bufs[2][6][BLOCK];
+    const float *ins[6];
+    float *outs[6];
+    int wet = 1;
+
+    for (int c = 0; c < 6; c++)
+    {
+        ins[c] = bufs[0][c];
+        outs[c] = bufs[1][c];
+        for (int i = 0; i < BLOCK; i++)
+            bufs[0][c][i] = (float)c * 0.1f;
+    }
+    CHECK(open_ok(path, FAKE_WIDE, &in) && activate(in), "run_ports: %s activates on a lane of any width", FAKE_WIDE);
+    if (!in)
+        return;
+    CHECK(in->stage.wide == 1, "run_ports: the 6-channel pair binds the wide bounce");
+    omx_clap_host_publish(in, pthread_self());
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    for (int c = 0; c < 6; c++)
+        wet = wet && memcmp(bufs[1][c], bufs[0][c], sizeof(bufs[0][c])) == 0;
+    CHECK(wet && atomic_load(&in->stage.h.runs) == 1, "run_ports: each of the six outputs carries its input (%g, %g)", (double)bufs[1][5][0],
+          (double)bufs[0][5][0]);
+    omx_clap_host_close(in);
+    in = NULL;
+
+    CHECK(open_ok(path, FAKE_MONO_STEREO, &in) && activate(in), "run_ports: %s activates", FAKE_MONO_STEREO);
+    if (!in)
+        return;
+    CHECK(in->stage.wide == 0, "run_ports: one channel in and two out bind no wide bounce");
+    omx_clap_host_publish(in, pthread_self());
+    for (int i = 0; i < BLOCK; i++)
+        bufs[0][0][i] = 0.5f;
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    omx_clap_host_run_ports(in, ins, outs, BLOCK);
+    CHECK(bufs[1][0][0] == 0.5f && bufs[1][0][BLOCK - 1] == 0.5f && bufs[1][1][0] == -0.5f && bufs[1][1][BLOCK - 1] == -0.5f,
+          "run_ports: the two-leg path, the left leg the input and the right its negation (%g, %g)", (double)bufs[1][0][0], (double)bufs[1][1][0]);
+    omx_clap_host_close(in);
+}
+
 /* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
- * two legs, its other channels the bounce's; the exit status is the failures */
+ * two legs, its other channels the bounce's, and run_ports carries any width; the exit status is the failures */
 static int lane_any_checks(const char *path)
 {
     struct omx_clap_host_config config;
@@ -162,7 +209,8 @@ static int lane_any_checks(const char *path)
     if (!in)
         return 1;
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "the 6-channel main pair activates (%s)", why);
-    CHECK(in->bounce_blocks == 4 + 1 + 4, "the bounce: the legs, the silence and the four main outputs past the legs (%u)", in->bounce_blocks);
+    CHECK(in->bounce_blocks == 4 + 1 + 4 + 4, "the bounce: the legs, the silence and the four main outputs and inputs past the legs (%u)",
+          in->bounce_blocks);
     omx_clap_host_publish(in, pthread_self());
     fill_tone(in_l, BLOCK, 0, 0.5f);
     memcpy(in_r, in_l, sizeof(in_l));
@@ -170,6 +218,7 @@ static int lane_any_checks(const char *path)
     omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
     CHECK(atomic_load(&in->stage.process_errors) == 0 && memcmp(out_l, in_l, sizeof(in_l)) == 0, "and runs a block on the legs");
     omx_clap_host_close(in);
+    t_run_ports(path);
     return g_failures;
 }
 

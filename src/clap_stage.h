@@ -253,12 +253,17 @@ struct omx_clap_stage
     _Atomic uint32_t start_refused;                     ///< start_processing() answered false
     // ABI 5: in the stage's tail padding, so its size and every offset before it are unchanged
     _Atomic uint32_t releases_dropped;                  ///< of notes_dropped, the releases: past the whole list, CLAP_HOST_NOTES_PER_BLOCK
+
+    // ABI 13: the wide bounce, bound by the control thread before publish (omx_clap_bind_wide) when a main port is wider
+    // than the two legs; omx_clap_run_ports then carries every main channel through it
+    float *wide_in[CLAP_HOST_PORT_CHANNELS],            ///< one block per main input channel: the caller's input is copied here
+          *wide_out[CLAP_HOST_PORT_CHANNELS];           ///< one block per main output channel: the plugin writes here
+    uint32_t wide;                                      ///< 1 while the wide bounce is bound: the main buffers are wide_in and wide_out
 };
 
 /**
- * The note ids, the MPE zone and the note ends of one stage (ABI 6). The stage itself never grows (its tail padding is
- * taken), so these live beside it: at the end of the instance, which binds them to its stage at activate
- * (omx_clap_note_ids_bind). A stage fed through omx_clap_note_in has none, and its notes go with note id -1.
+ * The note ids, the MPE zone and the note ends of one stage (ABI 6). They live beside the stage, at the end of the
+ * instance, which binds them to its stage at activate (omx_clap_note_ids_bind). A stage fed through omx_clap_note_in has none, and its notes go with note id -1.
  */
 struct omx_clap_note_ids
 {
@@ -779,27 +784,58 @@ static inline int omx_clap_bind_aux_in(struct omx_clap_aux_in *a, float *silence
 }
 
 /**
+ * Control thread, after init and before omx_clap_bind_ports_aux: bind the wide bounce, `ins[c]` one block of max_block
+ * frames for each of the `n_in` main input channels (0 for a source) and `outs[c]` one for each of the `n_out` main
+ * output channels, every block distinct from the caller's buffers. The main buffers are then these blocks and
+ * omx_clap_run_ports carries every channel through them. Returns -1, binding nothing, on a width past
+ * CLAP_HOST_PORT_CHANNELS, no output or a channel with no block.
+ */
+static inline int omx_clap_bind_wide(struct omx_clap_stage *s, float *const *ins, uint32_t n_in, float *const *outs, uint32_t n_out)
+{
+    uint32_t c;
+
+    if (s == NULL || n_in > CLAP_HOST_PORT_CHANNELS || n_out < 1 || n_out > CLAP_HOST_PORT_CHANNELS || (n_in && ins == NULL) || outs == NULL)
+        return -1;
+    for (c = 0; c < n_in; c++)
+        if (ins[c] == NULL)
+            return -1;
+    for (c = 0; c < n_out; c++)
+        if (outs[c] == NULL)
+            return -1;
+    for (c = 0; c < n_in; c++)
+        s->wide_in[c] = ins[c];
+    for (c = 0; c < n_out; c++)
+        s->wide_out[c] = outs[c];
+    s->wide = 1;
+    return 0;
+}
+
+/**
  * Control thread, after init and activate: bind the plugin and its main port widths, `n_in` 0 (a source) up to
  * CLAP_HOST_PORT_CHANNELS and `n_out` 1 up to CLAP_HOST_PORT_CHANNELS, and its auxiliary inputs `aux` as
  * omx_clap_bind_aux_in bound them (NULL: none). The first two channels of each side are the hosted core's legs, which
  * carry at most two (h.n_in, h.n_out); a channel past them is the caller's to point in_ptrs and out_ptrs at before
- * this call. The audio buffers point at the bounce once, the addresses never move, and every fixed field of
- * clap_process_t is set here, so the RT writes only frames_count and steady_time.
+ * this call. A stage with the wide bounce bound (omx_clap_bind_wide) has its main buffers over wide_in and wide_out
+ * instead, every channel of them bound. The audio buffers point at the bounce once, the addresses never move, and every
+ * fixed field of clap_process_t is set here, so the RT writes only frames_count and steady_time.
  */
 static inline int omx_clap_bind_ports_aux(struct omx_clap_stage *s, const clap_plugin_t *plugin, uint32_t n_in, uint32_t n_out,
                                           struct omx_clap_aux_in *aux)
 {
     clap_audio_buffer_t *main_in;
+    float **ins, **outs;
 
     if (s == NULL || plugin == NULL || plugin->process == NULL)
         return -1;
     if (n_in > CLAP_HOST_PORT_CHANNELS || n_out < 1 || n_out > CLAP_HOST_PORT_CHANNELS)
         return -1;
-    for (uint32_t c = 2; c < n_in; c++)
-        if (s->in_ptrs[c] == NULL)
+    ins = s->wide ? s->wide_in : s->in_ptrs;
+    outs = s->wide ? s->wide_out : s->out_ptrs;
+    for (uint32_t c = s->wide ? 0 : 2; c < n_in; c++)
+        if (ins[c] == NULL)
             return -1;
-    for (uint32_t c = 2; c < n_out; c++)
-        if (s->out_ptrs[c] == NULL)
+    for (uint32_t c = s->wide ? 0 : 2; c < n_out; c++)
+        if (outs[c] == NULL)
             return -1;
     if (aux && aux->n_aux_in == 0)
         aux = NULL;
@@ -807,12 +843,12 @@ static inline int omx_clap_bind_ports_aux(struct omx_clap_stage *s, const clap_p
     s->plugin = plugin;
     s->h.n_in = n_in < 2 ? n_in : 2;
     s->h.n_out = n_out < 2 ? n_out : 2;
-    main_in->data32 = s->in_ptrs;
+    main_in->data32 = ins;
     main_in->data64 = NULL;
     main_in->channel_count = n_in;
     main_in->latency = 0;
     main_in->constant_mask = 0;
-    s->aout[0].data32 = s->out_ptrs;
+    s->aout[0].data32 = outs;
     s->aout[0].data64 = NULL;
     s->aout[0].channel_count = n_out;
     s->aout[0].latency = 0;
@@ -1536,7 +1572,7 @@ static inline void omx_clap_note_in(struct omx_clap_stage *s, uint32_t time, con
     omx_clap_note_in_ids(s, NULL, NULL, time, data, size);
 }
 
-/** RT: fill every output channel the plugin reported constant from its sample 0. */
+/** RT: fill every main output channel the plugin reported constant from its sample 0. */
 static inline void omx_clap_expand_constant(struct omx_clap_stage *s, uint32_t n)
 {
     const uint64_t mask = s->aout[0].constant_mask;
@@ -1544,14 +1580,14 @@ static inline void omx_clap_expand_constant(struct omx_clap_stage *s, uint32_t n
 
     if (mask == 0)
         return;
-    for (c = 0; c < s->h.n_out; c++)
+    for (c = 0; c < s->aout[0].channel_count; c++)
     {
         float *b;
         float v;
 
         if (!(mask & ((uint64_t)1 << c)))
             continue;
-        b = s->out_ptrs[c];
+        b = s->aout[0].data32[c];
         v = b[0];
         for (i = 1; i < n; i++)
             b[i] = v;
@@ -1859,6 +1895,167 @@ static inline void omx_clap_run_io(struct omx_clap_stage *s, const float *const 
 {
     omx_clap_io_lane(s, inputs, outputs, n);
     omx_clap_run(s, outputs[0], s->h.n_out == 2 ? outputs[1] : NULL, n);
+}
+
+/** The main input's channels as the stage was bound: 0 for a source. */
+static inline uint32_t omx_clap_main_in_channels(const struct omx_clap_stage *s)
+{
+    return s->h.n_in ? s->proc.audio_inputs[0].channel_count : 0;
+}
+
+/** RT: the dry block of the wide path: output channel `c` is input channel c, the last input past them, silence for a
+ * source. */
+static inline void omx_clap_ports_dry(const float *const *ins, uint32_t n_in, float *const *outs, uint32_t n_out, uint32_t n)
+{
+    uint32_t c;
+
+    for (c = 0; c < n_out; c++)
+    {
+        if (n_in == 0)
+        {
+            memset(outs[c], 0, n * sizeof(float));
+        }
+        else
+        {
+            const float *in = ins[c < n_in ? c : n_in - 1];
+
+            if (outs[c] != in)
+                memcpy(outs[c], in, n * sizeof(float));
+        }
+    }
+}
+
+/** RT: the state transitions a block makes before it runs (ARMED to PROCESSING with start_processing, STOPPING to
+ * STOPPED with stop_processing): the state the block runs in. */
+static inline uint32_t omx_clap_take_state(struct omx_clap_stage *s)
+{
+    uint32_t st = atomic_load_explicit(&s->state, memory_order_acquire);
+
+    if (st == OMX_CLAP_ARMED && atomic_compare_exchange_strong(&s->state, &st, OMX_CLAP_PROCESSING))
+    {
+        if (s->plugin->start_processing == NULL || s->plugin->start_processing(s->plugin))
+        {
+            st = OMX_CLAP_PROCESSING;
+        }
+        else
+        {
+            omx_hosted_count(&s->start_refused, 1);
+            st = OMX_CLAP_STOPPED;
+            atomic_store_explicit(&s->state, st, memory_order_release);
+        }
+    }
+    if (st == OMX_CLAP_STOPPING && atomic_compare_exchange_strong(&s->state, &st, OMX_CLAP_STOPPED))
+    {
+        if (s->plugin->stop_processing)
+            s->plugin->stop_processing(s->plugin);
+        st = OMX_CLAP_STOPPED;
+    }
+    return st;
+}
+
+/**
+ * RT, the wide path's body for one block: `ins` one buffer per main input channel, `outs` one per main output channel.
+ * Not processing, a block longer than the bounce (counted) or a commanded bypass or a fault carries dry; otherwise the
+ * input is copied into the wide bounce, the plugin runs, and each output channel is clamped (OMX_HOSTED_GUARD_CLAMP,
+ * counted in clamped_samples) and scanned (OMX_HOSTED_GUARD_NONFINITE): an unusable block delivers dry and strikes as
+ * omx_hosted_run_end_why does. Bypass switches the body hard, with no crossfade, on the block it is commanded.
+ */
+static inline void omx_clap_run_ports_locked(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
+                                             clap_event_transport_t *t, const struct omx_clap_transport *rec)
+{
+    const uint32_t n_in = omx_clap_main_in_channels(s);
+    const uint32_t n_out = s->aout[0].channel_count;
+    const float *const *dry = (const float *const *)s->wide_in;
+    uint32_t c, moved = 0;
+    int usable;
+
+    if (omx_clap_take_state(s) != OMX_CLAP_PROCESSING)
+    {
+        omx_clap_ports_dry(ins, n_in, outs, n_out, n);
+        atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
+        return;
+    }
+    if (n > s->h.max_block)
+    {
+        omx_hosted_count(&s->h.oversize_blocks, 1);
+        omx_clap_ports_dry(ins, n_in, outs, n_out, n);
+        atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
+        return;
+    }
+    if (atomic_load_explicit(&s->h.bypass, memory_order_acquire) != 0u
+        || atomic_load_explicit(&s->h.fault, memory_order_relaxed) != OMX_HOSTED_FAULT_NONE)
+    {
+        omx_clap_ports_dry(ins, n_in, outs, n_out, n);
+        atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
+        s->need_reset = 1;  ///< a tail may be frozen: the control thread resets the plugin at re-engage, never this one
+        return;
+    }
+    for (c = 0; c < n_in; c++)
+        memcpy(s->wide_in[c], ins[c], n * sizeof(float));
+    if (t && rec && rec->flags)
+    {
+        omx_clap_transport_fill(t, rec);
+        s->proc.transport = t;
+    }
+    usable = omx_clap_run_plugin(s, n);
+    s->proc.transport = NULL;
+    if (usable == OMX_HOSTED_BLOCK_USABLE && (s->h.guards & OMX_HOSTED_GUARD_NONFINITE))
+        for (c = 0; c < n_out; c++)
+            if (!omx_block_finite(s->wide_out[c], n))
+                usable = OMX_HOSTED_BLOCK_NONFINITE;
+    if (usable != OMX_HOSTED_BLOCK_USABLE)
+    {
+        omx_clap_ports_dry(dry, n_in, outs, n_out, n);
+        omx_hosted_run_end_why(&s->h, usable, &s->process_errors, 0u, NULL, NULL, n);   // counts, strikes, marks the body dry
+        return;
+    }
+    omx_hosted_count(&s->h.runs, 1);
+    if (s->h.guards & OMX_HOSTED_GUARD_CLAMP)
+    {
+        for (c = 0; c < n_out; c++)
+            moved += omx_hosted_clamp(s->wide_out[c], n);
+        if (moved)
+            omx_hosted_count(&s->h.clamped_samples, moved);
+    }
+    for (c = 0; c < n_out; c++)
+        memcpy(outs[c], s->wide_out[c], n * sizeof(float));
+    atomic_store_explicit(&s->h.rendered_wet, 1, memory_order_release);
+}
+
+/** RT: omx_clap_run_ports_locked inside the cycle bracket, handing a processing block the transport `rec` in `t` (NULL,
+ * or `rec` with no flags: transport NULL); the block forgets the notes it was handed. */
+static inline void omx_clap_run_ports_transport(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
+                                                clap_event_transport_t *t, const struct omx_clap_transport *rec)
+{
+    if (s == NULL)
+        return;
+    if (s->plugin == NULL || outs == NULL || (s->h.n_in && ins == NULL) || n == 0)
+    {
+        s->n_notes = 0;     // no block follows these events: they must not reach the next one with their old frame times
+        s->n_sysex = 0;
+        return;
+    }
+    atomic_store(&s->in_cycle, 1);
+    omx_clap_run_ports_locked(s, ins, outs, n, t, rec);
+    s->n_notes = 0;
+    s->n_sysex = 0;
+    atomic_store(&s->in_cycle, 0);
+}
+
+/**
+ * RT, a cycle with one buffer per main channel (JACK): `ins` one per main input channel (not read for a source, and may
+ * then be NULL), `outs` one per main output channel, the counts the stage was bound with. A stage without the wide
+ * bounce runs the two-leg path, omx_clap_run_io, bit for bit; a wide stage runs omx_clap_run_ports_transport with no
+ * transport.
+ */
+static inline void omx_clap_run_ports(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n)
+{
+    if (s && !s->wide)
+    {
+        omx_clap_run_io(s, ins, outs, n);
+        return;
+    }
+    omx_clap_run_ports_transport(s, ins, outs, n, NULL, NULL);
 }
 
 /**

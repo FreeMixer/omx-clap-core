@@ -1188,21 +1188,24 @@ static const clap_event_header_t *param_in_get(const struct clap_input_events *l
 }
 
 /* Blocks of max_block floats in one mapping with a guard page at each end, as many as the port description needs: one
- * silence block every unbound auxiliary input channel and every main input channel past the two legs reads, one scratch
- * block per auxiliary output channel and per main output channel past the two legs, then the stage's four, the last of
- * them flush against the guard page above, so the first sample written past a block faults here, in this mapping, and
- * never lands in a foreign buffer. */
+ * silence block every unbound auxiliary input channel reads, one scratch block per auxiliary output channel and per main
+ * output channel past the two legs, one block per main input channel past the two legs, then the stage's four, the last
+ * of them flush against the guard page above, so the first sample written past a block faults here, in this mapping,
+ * and never lands in a foreign buffer. A main port wider than the legs binds the wide bounce over the legs and those
+ * blocks (omx_clap_bind_wide), which omx_clap_host_run_ports carries; the two-leg path reads silence past the legs. */
 static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
 {
     const size_t page = (size_t)sysconf(_SC_PAGESIZE);
     const uint32_t aux_out = in->aux_outputs ? in->aux_out_base[in->aux_outputs - 1] + in->aux_out[in->aux_outputs - 1].channels : 0;
     const uint32_t main_out = in->main_out.channels > 2 ? in->main_out.channels - 2 : 0;
-    const uint32_t blocks = 1 + aux_out + main_out + 4;
+    const uint32_t main_in = in->main_in.channels > 2 ? in->main_in.channels - 2 : 0;
+    const uint32_t blocks = 1 + aux_out + main_out + main_in + 4;
     const size_t used = (size_t)blocks * max_block * sizeof(float);
     const size_t body = (used + page - 1) / page * page;
     const size_t length = body + 2 * page;
     uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     struct omx_hosted_bounce bounce;
+    float *wide_in[CLAP_HOST_PORT_CHANNELS], *wide_out[CLAP_HOST_PORT_CHANNELS];
     float **scratch;
     uint32_t k;
     float *b;
@@ -1255,6 +1258,16 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
         in->stage.in_ptrs[k] = b;
     for (k = 2; k < in->main_out.channels; k++)
         in->stage.out_ptrs[k] = b + (size_t)(1 + aux_out + k - 2) * max_block;
+    // wider than the legs: the wide bounce, the legs then a block of its own for each main channel past them
+    if (main_in || main_out)
+    {
+        for (k = 0; k < in->main_in.channels; k++)
+            wide_in[k] = k == 0 ? bounce.in_l : k == 1 ? bounce.in_r : b + (size_t)(1 + aux_out + main_out + k - 2) * max_block;
+        for (k = 0; k < in->main_out.channels; k++)
+            wide_out[k] = k == 0 ? bounce.out_l : k == 1 ? bounce.out_r : in->stage.out_ptrs[k];
+        if (omx_clap_bind_wide(&in->stage, wide_in, in->main_in.channels, wide_out, in->main_out.channels) != 0)
+            return -1;
+    }
     return omx_clap_bind_aux_in(&in->aux_list, b, in->aux_inputs, in->aux_in, in->aux_in_bound, in->aux_in_base);
 }
 
