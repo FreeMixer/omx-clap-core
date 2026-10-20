@@ -1,7 +1,7 @@
 # docs/adapter-seam.tsv: the class of every function of lv2/core, lv2/clap and the src/ headers they include, read from
 # its body (omx-clap-core#287). class: NEUTRAL (a VST3 adapter would use it unchanged), MIXED (neutral logic around a few
 # format calls: the hook it needs is in the reason), SPECIFIC (LV2 only). thread: AUDIO, WORKER, MAIN, or ANY.
-# ref: 0990c30 (the code the classes were read from; tools/adapter-seam.sh measures this ref unless OURS_REF says otherwise)
+# ref: 00a9b2e (the code the classes were read from; tools/adapter-seam.sh measures this ref unless OURS_REF says otherwise)
 # tools/adapter-seam.sh joins it with lizard's function list and sums it; an unclassed function or a stale row fails.
 # file	function	class	area	thread	reason
 lv2/core/lv2_features.c	urid_slot	SPECIFIC	features/urid/options/log	ANY	URID segment-table addressing; URID is an LV2-only concept, no VST3 analog
@@ -191,6 +191,21 @@ lv2/core/lv2_world.c	lv2_plugin_preset_text	SPECIFIC	state/presets/paths	MAIN	Pr
 lv2/core/lv2_world.c	lv2_plugin_state_check	SPECIFIC	state/presets/paths	MAIN	Validate-a-state-blob-parses concept generic; lilv Turtle parse is the mechanism; the body is LV2 calls, only the idea is shared
 lv2/core/lv2_world.c	plugin_presets	SPECIFIC	state/presets/paths	MAIN	List-presets-of-a-plugin-with-a-label concept generic; pset:Preset/appliesTo discovery LV2-specific; the body is LV2 calls, only the idea is shared
 lv2/core/lv2_world.c	lv2_bundle_presets	SPECIFIC	state/presets/paths	MAIN	Generic for-each-plugin-in-bundle dispatch loop; calls LV2-specific plugin_presets; the body is LV2 calls, only the idea is shared
+lv2/core/lv2_rtmempool.c	chunk_data	NEUTRAL	other	ANY	the data after a chunk header, plain pointer arithmetic
+lv2/core/lv2_rtmempool.c	chunk_of	NEUTRAL	other	ANY	the chunk header of a data pointer, plain pointer arithmetic
+lv2/core/lv2_rtmempool.c	chunk_new	NEUTRAL	other	MAIN	calloc of one header-plus-data chunk
+lv2/core/lv2_rtmempool.c	list_push	NEUTRAL	other	ANY	doubly linked list push, plain C
+lv2/core/lv2_rtmempool.c	list_unlink	NEUTRAL	other	ANY	doubly linked list unlink, plain C
+lv2/core/lv2_rtmempool.c	list_free	NEUTRAL	other	MAIN	frees a chunk list, plain C
+lv2/core/lv2_rtmempool.c	trim_to_max	NEUTRAL	other	MAIN	frees free chunks above the maximum under the lock; serves only the LV2 rtmempool feature
+lv2/core/lv2_rtmempool.c	pool_destroy	NEUTRAL	other	MAIN	frees both lists and the lock; generic pool, an LV2 feature its only consumer
+lv2/core/lv2_rtmempool.c	pool_create	NEUTRAL	other	MAIN	priority-inheriting lock and min chunks; generic pool, an LV2 feature its only consumer
+lv2/core/lv2_rtmempool.c	pool_allocate_atomic	NEUTRAL	other	AUDIO	O(1) free-to-used move under the lock; VST3 has no pool feature to serve
+lv2/core/lv2_rtmempool.c	pool_allocate_sleepy	NEUTRAL	other	MAIN	allocate, top up to min, trim to max; VST3 has no pool feature to serve
+lv2/core/lv2_rtmempool.c	pool_deallocate	NEUTRAL	other	AUDIO	O(1) used-to-free move under the lock; VST3 has no pool feature to serve
+lv2/core/lv2_rtmempool.c	pool_create_v1	SPECIFIC	features/urid/options/log	MAIN	the deprecated LV2 rtmempool struct order, a byte verdict
+lv2/core/lv2_rtmempool.c	lv2_rtmempool_feature	SPECIFIC	features/urid/options/log	MAIN	returns the LV2_RtMemPool_Pool feature struct
+lv2/core/lv2_rtmempool.c	lv2_rtmempool_feature_v1	SPECIFIC	features/urid/options/log	MAIN	returns the deprecated LV2 rtmempool feature struct
 lv2/clap/lv2_clap.c	why_set	NEUTRAL	refusal/errors	MAIN	plain snprintf of a code string; no format call
 lv2/clap/lv2_clap.c	host_log	NEUTRAL	refusal/errors	MAIN	uses only clap_host_log_t/CLAP_EXT_LOG; no LV2 call
 lv2/clap/lv2_clap.c	refuse	NEUTRAL	refusal/errors	MAIN	wraps why_set+host_log; no LV2 call
