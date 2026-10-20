@@ -45,6 +45,7 @@
 #include <lv2/worker/worker.h>
 
 #include "omx_lv2_features.h"
+#include "lv2_rtmempool.h"
 #include "fixtures/lv2_feature_probe.h"
 #include "lv2_test_util.h"
 
@@ -89,10 +90,15 @@ static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
     [OMX_LV2_F_WORKER] = LV2_FEATURE_PROBE_WORKER,
     [OMX_LV2_F_DEFAULT_STATE] = LV2_FEATURE_PROBE_DEFAULT_STATE,
     [OMX_LV2_F_LOG] = LV2_FEATURE_PROBE_LOG,
+    [OMX_LV2_F_RTMEMPOOL] = LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1,
 };
 
+/* the eight kinds as the probe sees them: the pool under both its URIs */
 #define SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS | LV2_FEATURE_PROBE_BOUNDED \
-               | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE | LV2_FEATURE_PROBE_LOG)
+               | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE | LV2_FEATURE_PROBE_LOG \
+               | LV2_FEATURE_PROBE_RTMEMPOOL | LV2_FEATURE_PROBE_RTMEMPOOL_V1)
+/* the array's length under the defaults: every kind, and the pool's deprecated URI after the declarations */
+#define SLOTS_DEFAULT (OMX_LV2_FEATURE_KINDS + 1u)
 
 static void t_defaults(void)
 {
@@ -111,8 +117,13 @@ static void t_defaults(void)
 
     // what the plugin sees under them, through init and through NULL alike
     CHECK(observe(&o, 16, 256) == 0, "defaults: the probe instantiates");
-    CHECK(g_probe->seen == SEVEN && g_probe->n_features == OMX_LV2_FEATURE_KINDS,
-          "defaults: the probe sees the seven features and nothing else (0x%x, %u)", g_probe->seen, g_probe->n_features);
+    CHECK(g_probe->seen == SEVEN && g_probe->n_features == SLOTS_DEFAULT,
+          "defaults: the probe sees the eight features, the pool twice, and nothing else (0x%x, %u)", g_probe->seen, g_probe->n_features);
+    CHECK(!strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS], LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI),
+          "defaults: the pool's deprecated URI after the kinds");
+    CHECK(g_probe->pool_round_trip == 1 && g_probe->pool_v1_round_trip == 1,
+          "defaults: the probe makes a pool, takes and returns a chunk and destroys it, through both structs (%d, %d)",
+          g_probe->pool_round_trip, g_probe->pool_v1_round_trip);
     for (k = 0; k < OMX_LV2_FEATURE_KINDS; k++)
         in_order &= strcmp(g_probe->order[k], omx_lv2_feature_uris[k]) == 0;
     CHECK(in_order, "defaults: in the kinds' order");
@@ -136,7 +147,7 @@ static void t_feature_set(void)
         omx_lv2_feature_options_init(&o);
         o.features &= ~OMX_LV2_FEATURE_BIT(k);
         CHECK(observe(&o, 16, 256) == 0 && g_probe->seen == (SEVEN & ~g_probe_bit[k]),
-              "features: %s withheld, the probe sees the other six (0x%x)", omx_lv2_feature_uris[k], g_probe->seen);
+              "features: %s withheld, the probe sees the other seven (0x%x)", omx_lv2_feature_uris[k], g_probe->seen);
         CHECK(!omx_lv2_feature_offered(&o, omx_lv2_feature_uris[k]), "features: %s is not offered", omx_lv2_feature_uris[k]);
     }
     omx_lv2_feature_options_init(&o);
@@ -192,10 +203,11 @@ static void t_block(void)
           && (g_probe->seen & (LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2))
              == (LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_FIXED | LV2_FEATURE_PROBE_POW2),
           "block: bounded, fixed and power of two declared, the probe sees all three");
-    CHECK(g_probe->n_features == OMX_LV2_FEATURE_KINDS + 2u
-          && !strcmp(g_probe->order[7], LV2_BUF_SIZE__fixedBlockLength)
-          && !strcmp(g_probe->order[8], LV2_BUF_SIZE__powerOf2BlockLength),
-          "block: the declarations beyond bounded come after every kind");
+    CHECK(g_probe->n_features == OMX_LV2_FEATURE_KINDS + 3u
+          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS], LV2_BUF_SIZE__fixedBlockLength)
+          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 1], LV2_BUF_SIZE__powerOf2BlockLength)
+          && !strcmp(g_probe->order[OMX_LV2_FEATURE_KINDS + 2], LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI),
+          "block: the declarations beyond bounded come after every kind, the pool's deprecated URI after them");
     CHECK(omx_lv2_feature_offered(&o, LV2_BUF_SIZE__fixedBlockLength)
           && omx_lv2_feature_offered(&o, LV2_BUF_SIZE__powerOf2BlockLength), "block: and are offered");
     CHECK(!omx_lv2_feature_offered(NULL, LV2_BUF_SIZE__fixedBlockLength), "block: fixed is not offered by default");
@@ -302,7 +314,7 @@ static void t_build(void)
     CHECK(omx_lv2_features_build(&b, &o, RATE, 16, 256, NULL) == NULL, "build: the worker offered with no schedule refuses");
     o.features &= ~OMX_LV2_FEATURE_BIT(OMX_LV2_F_WORKER);
     f = omx_lv2_features_build(&b, &o, RATE, 16, 256, NULL);
-    CHECK(f && f[OMX_LV2_FEATURE_KINDS - 1] == NULL, "build: without the worker, six features and the NULL");
+    CHECK(f && f[OMX_LV2_FEATURE_KINDS] == NULL, "build: without the worker, seven features (the pool twice) and the NULL");
     o.features = OMX_LV2_FEATURES_ALL << 1;
     CHECK(omx_lv2_features_build(&b, &o, RATE, 16, 256, &g_schedule) == NULL, "build: a bit past the kinds refuses");
     omx_lv2_feature_options_init(&o);
@@ -313,12 +325,67 @@ static void t_build(void)
     CHECK(f && f[OMX_LV2_F_WORKER]->data == &g_schedule, "build: worker:schedule carries the caller's schedule");
     CHECK(f && f[OMX_LV2_F_OPTIONS]->data == b.opts, "build: options:options points into the block");
     CHECK(f && f[OMX_LV2_F_BOUNDED]->data == NULL && f[OMX_LV2_F_DEFAULT_STATE]->data == NULL, "build: the flags carry no data");
+    CHECK(f && f[OMX_LV2_F_RTMEMPOOL]->data != NULL && !strcmp(f[OMX_LV2_F_RTMEMPOOL]->URI, LV2_RTSAFE_MEMORY_POOL__Pool)
+          && !strcmp(f[OMX_LV2_FEATURE_KINDS]->URI, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) && f[OMX_LV2_FEATURE_KINDS]->data != NULL
+          && f[OMX_LV2_FEATURE_KINDS]->data != f[OMX_LV2_F_RTMEMPOOL]->data,
+          "build: the pool carries its provider, and its deprecated URI the deprecated struct, after the kinds");
+}
+
+/* rtmempool#Pool through the built array: the chunks preallocated, the atomic path that never allocates, the sleepy one
+ * that does and tops the pool up, the refusals */
+static void t_rtmempool(void)
+{
+    struct omx_lv2_feature_block b;
+    const LV2_Feature *const *f = omx_lv2_features_build(&b, NULL, RATE, 16, 256, &g_schedule);
+    const LV2_RtMemPool_Pool *pool = f ? f[OMX_LV2_F_RTMEMPOOL]->data : NULL;
+    const LV2_RtMemPool_Pool_Deprecated *v1 = f ? f[OMX_LV2_FEATURE_KINDS]->data : NULL;
+    LV2_RtMemPool_Handle h = NULL, h2 = NULL;
+    void *a, *c, *d, *e;
+
+    CHECK(pool && v1, "rtmempool: both structs in the array");
+    if (!pool || !v1)
+        return;
+    CHECK(!pool->create(NULL, "x", 32, 1, 2) && !pool->create(&h, "x", 0, 1, 2) && !pool->create(&h, "x", 32, 3, 2) && h == NULL,
+          "rtmempool: no handle, no chunk size or a minimum above the maximum refuses");
+    CHECK(pool->create(&h, "test", 48, 2, 4) && h != NULL, "rtmempool: a pool of 48-byte chunks, two preallocated");
+    a = pool->allocate_atomic(h);
+    c = pool->allocate_atomic(h);
+    d = pool->allocate_atomic(h);
+    CHECK(a && c && a != c && d == NULL, "rtmempool: the two preallocated chunks come atomically, the third does not (never an allocation)");
+    CHECK(((uintptr_t)a & 15u) == 0 && ((uintptr_t)c & 15u) == 0, "rtmempool: chunks on a 16-byte boundary");
+    if (a)
+        memset(a, 1, 48);
+    if (c)
+        memset(c, 2, 48);
+    d = pool->allocate_sleepy(h);
+    CHECK(d != NULL && d != a && d != c, "rtmempool: the sleepy path allocates one when the pool is empty");
+    e = pool->allocate_atomic(h);
+    CHECK(e != NULL, "rtmempool: and tops the pool back up to its minimum, so the next atomic take succeeds");
+    pool->deallocate(h, a);
+    pool->deallocate(h, c);
+    pool->deallocate(h, d);
+    pool->deallocate(h, NULL);
+    a = pool->allocate_atomic(h);
+    c = pool->allocate_atomic(h);
+    d = pool->allocate_atomic(h);
+    CHECK(a && c && d, "rtmempool: chunks given back are taken again atomically, NULL given back is nothing");
+    pool->destroy(h);       // e, a, c and d still out: destroy frees them too
+    CHECK(pool->allocate_atomic(NULL) == NULL && pool->allocate_sleepy(NULL) == NULL, "rtmempool: a NULL pool answers nothing");
+    pool->deallocate(NULL, NULL);
+    pool->destroy(NULL);
+    CHECK(v1->create("v1", 32, 1, 1, &h2) == 1u && h2 != NULL, "rtmempool: the deprecated struct's create, the handle last, answers 1");
+    a = v1->allocate_atomic(h2);
+    CHECK(a != NULL && v1->allocate_atomic(h2) == NULL, "rtmempool: the same pool behind it");
+    v1->deallocate(h2, a);
+    v1->destroy(h2);
+    CHECK(v1->create("v1", 32, 2, 1, &h2) == 0u, "rtmempool: the deprecated create answers 0 for a refusal");
 }
 
 static void t_urid(void)
 {
     const char *const all[] = { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength,
-                                LV2_WORKER__schedule, LV2_STATE__loadDefaultState, LV2_LOG__log, NULL };
+                                LV2_WORKER__schedule, LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_RTSAFE_MEMORY_POOL__Pool, NULL };
+    const char *const v1[] = { LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, NULL };
     const char *const foreign[] = { LV2_URID__map, LV2_BUF_SIZE__fixedBlockLength, NULL };
     char text[64];
     LV2_URID id;
@@ -331,7 +398,11 @@ static void t_urid(void)
     CHECK(id != 0 && !strcmp(omx_lv2_urid_unmap(id), "urn:test:transient#7"), "urid: the table keeps its own copy");
     CHECK(omx_lv2_urid_map("urn:test:transient#7") == id, "urid: the same text maps to the same id");
     CHECK(omx_lv2_urid_map(NULL) == 0 && omx_lv2_urid_unmap(0) == NULL, "urid: NULL maps to 0, 0 unmaps to nothing");
-    CHECK(omx_lv2_feature_mask(all, &m) == 0 && m == OMX_LV2_FEATURES_ALL, "urid: the seven URIs are every kind");
+    CHECK(omx_lv2_feature_mask(all, &m) == 0 && m == OMX_LV2_FEATURES_ALL, "urid: the eight URIs are every kind");
+    m = 0;
+    CHECK(omx_lv2_feature_mask(v1, &m) == 0 && m == OMX_LV2_FEATURE_BIT(OMX_LV2_F_RTMEMPOOL)
+          && omx_lv2_feature_kind(LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI) == OMX_LV2_F_RTMEMPOOL,
+          "urid: the pool's deprecated URI is the pool's kind");
     CHECK(omx_lv2_feature_mask(NULL, &m) == 0 && m == 0, "urid: the empty list is the empty mask");
     m = 7;
     CHECK(omx_lv2_feature_mask(foreign, &m) == -1 && m == 7, "urid: a URI no kind serves refuses, the mask untouched");
@@ -376,6 +447,7 @@ int main(int argc, char **argv)
     t_log();
     t_build();
     t_urid();
+    t_rtmempool();
     t_open();
     dlclose(so);
     if (g_failures)

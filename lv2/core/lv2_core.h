@@ -62,6 +62,7 @@
 #include <omxcontract/omx_vocabulary.h>
 
 #include "omx_lv2_features.h"
+#include "lv2_rtmempool.h"
 
 
 /*
@@ -100,8 +101,8 @@
 /* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
 #define LV2_CORE_PROVIDED_INIT \
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
-      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, \
-      LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
+      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_RTSAFE_MEMORY_POOL__Pool, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, \
+      LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
 
 /* the refusals, the verdict's spelling: each the code omx-contract declares, from its omx_vocabulary.h */
 #define LV2_CODE_NO_REALISATION         OMX_HOSTING_NO_REALISATION
