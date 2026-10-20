@@ -36,6 +36,7 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
+#include <omxcontract/omx_vocabulary.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>

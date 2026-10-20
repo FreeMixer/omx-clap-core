@@ -50,6 +50,7 @@
 
 #include <clap/clap.h>
 #include <math.h>
+#include <omxcontract/omx_vocabulary.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
