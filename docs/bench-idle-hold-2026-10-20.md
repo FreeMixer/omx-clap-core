@@ -115,16 +115,19 @@ RSS = the same processes with every plugin loaded. The CLAP rows carry seven plu
 ### What it says
 
 - **The hold at 10 us cuts the cycle end three to five times on every path, and mod-host's lead is gone.** With the
-  hold off, mod-host and plugin-hostd end their cycles at 225 to 235 us where omx-clap-host and the in-process tier
-  take 311 to 392 (96 kHz). At 10 the six paths sit between 72 and 103 us; at 0 between 26 and 43. The operator's
+  hold off, mod-host and plugin-hostd end their cycles at 224 to 235 us where omx-clap-host and the in-process tier
+  take 324 to 392 (96 kHz). At 10 the six paths sit between 72 and 103 us; at 0 between 26 and 43. The operator's
   reading of the October bench holds: mod-host's advantage was the cores its extra clients kept awake, and once no
   core sleeps past C1 the hosts are equal within one plugin set. The two CLAP rows stay about 30 us above the LV2
   rows at every hold; that is the CLAP paths' own cost, not an idle effect.
 - **Overruns go with it.** 14 to 39 per 30 s with the hold off at 96 kHz / 128, 0 to 1 at 10.
-- **10 us costs one to two and a half watts; 0 costs sixty.** The hold at 10 reads 18.6 to 20.1 W against 17.6 to
-  19.4 at rest (mod-host's two are within its repetitions' spread, the others clear of it). The hold at 0 refuses
-  even C1, so all 24 threads poll between cycles: 79 to 80 W, four times the package power, for a further 45 to 60
-  us of cycle end. That settles the default as the issue has it: 10 shipped, 0 only as an explicit choice.
+- **10 us costs one to four watts, by rate and path; 0 costs sixty.** At 96 kHz the hold at 10 reads 1.2 to 2.2 W
+  more than rest on five of the six one-process paths and 0.7 W less on mod-host (inside its repetitions' spread);
+  at 48 kHz it reads 1.6 to 3.7 W more on every path (the cores have twice as long to sleep between cycles there, so
+  C1 forgoes more); jalv with the GUI up reads 3.6 W more at 96 kHz, headless 0.4 less at 96 and 1.5 more at 48. The
+  hold at 0 refuses even C1, so all 24 threads poll between cycles: 58 to 64 W more, 79 to 80 W in all, four times the
+  package power, for a further 45 to 60 us of cycle end. That settles the default as the issue has it: 10 shipped, 0
+  only as an explicit choice.
 - **Host CPU is clock time, so it falls as cycles shorten.** It is not the host working less.
 - **Memory does not move with the hold**, as one open descriptor should not. Between paths: in-process LV2 25 MiB,
   the adapter 29, mod-host and the CLAP rows 41 to 43 (the CLAP bundles are the larger binaries of the same
@@ -172,7 +175,7 @@ The node's duration (pw-profiler, active to finished) is the plugin plus what it
   get slower, on every host alike: caps-compressx2 from about 10 to 17 us, dragonfly-room from 28 to 50, omx-reverb
   from 6 to 8. At 0 everything is fastest. The whole-graph figure still falls at 10 because the idle-state exit it
   removes is hundreds of microseconds. The cause is not in this data; the placement section below is the check made
-  for it.
+  for it, and the observation is open as #298.
 
 ### Where the real-time threads ran, and at what clock
 
@@ -188,8 +191,8 @@ the namespace twice a second over the run (`machine.txt` carries the figures):
   rest and 10.
 
 So a reverb or a look-ahead compressor runs slower per cycle with every core halted in C1 than with the cores
-sleeping deeper or polling, on every host, and this run does not say why. It is written up as an open observation,
-not a reading of the hold; the whole-graph gain at 10 stands over it by an order of magnitude.
+sleeping deeper or polling, on every host, and this run does not say why. It is open as #298, an observation and not
+a reading of the hold; the whole-graph gain at 10 stands over it by an order of magnitude.
 
 ## jalv, as Zynthian runs a layer
 
