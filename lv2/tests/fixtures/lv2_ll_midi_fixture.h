@@ -25,7 +25,9 @@
  * event count unread, and the stamp after the last event read before any check). #two-in and #two-out: a mono pair
  * and two llext:MidiPorts one way, one more than the adapter feeds, refused; #atom-then-ll, #ll-then-atom,
  * #ev-then-ll, #ll-then-ev: an llext:MidiPort input beside an atom or ev:EventPort MIDI input in either index order,
- * refused the same. What the last run read is recorded here for the test.
+ * refused the same. #echo also carries two control inputs for the range rule (#254): `trim` (6) declares no range at
+ * all and `floor` (7) a minimum only; both are added to the audio out, so a write to them is heard, and what the run
+ * read of them is recorded. What the last run read is recorded here for the test.
  */
 #ifndef OMX_TEST_LV2_LL_MIDI_FIXTURE_H
 #define OMX_TEST_LV2_LL_MIDI_FIXTURE_H
@@ -56,6 +58,8 @@ struct lv2_ll_midi_fixture
     uint32_t count_seen;            /* the input header's event_count as handed, unused by the walk, as zynadd leaves it */
     uint32_t size_seen;             /* the input header's size as handed */
     double trailing_stamp;          /* the stamp read after the last event, as zynadd's lv2midi_step reads it */
+    float trim_seen;                /* the `trim` control (port 6, no range declared) as the last run read it */
+    float floor_seen;               /* the `floor` control (port 7, a minimum only) as the last run read it */
     uint32_t frame[LV2_LL_MIDI_FIXTURE_SEEN];
     uint32_t size[LV2_LL_MIDI_FIXTURE_SEEN];
     uint8_t data[LV2_LL_MIDI_FIXTURE_SEEN][4];
