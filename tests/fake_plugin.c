@@ -44,6 +44,7 @@
  *   org.omx-clap-host.test.surround-bad the same, the map's last id 25, past CLAP_SURROUND_TSR
  *   org.omx-clap-host.test.surround-short the same, the map five ids long for six channels
  *   org.omx-clap-host.test.surround-plain a 6-channel main pair of port type surround and no clap.surround
+ *                                      (with FAKE_SURROUND_PLAIN_CHANNELS set, the pair is that many channels wide)
  *   org.omx-clap-host.test.ambisonic   a first-order main pair, 4 channels of port type ambisonic, and clap.ambisonic:
  *                                      ACN, SN3D, that configuration supported; deactivate calls the host's
  *                                      ambisonic.changed (with FAKE_AMBISONIC_SILENT set, get_config answers false:
@@ -1014,6 +1015,8 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configs_twin = getenv("FAKE_CONFIGS_TWIN") != NULL;
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
+    if (fake->type == FAKE_TYPE_SURROUND_PLAIN && getenv("FAKE_SURROUND_PLAIN_CHANNELS"))
+        fake->main_channels = fake->out_channels = (uint32_t)atoi(getenv("FAKE_SURROUND_PLAIN_CHANNELS"));
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
     fake->latency_param = LATENCY_DEFAULT;

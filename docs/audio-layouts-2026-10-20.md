@@ -72,7 +72,7 @@ A plugin's audio layout, each side (input, output), is an ordered list of ports:
 
 | field | CLAP source | LV2 source |
 |---|---|---|
-| `id` | `clap_audio_port_info.id` | the port index of the group's first channel |
+| `id` | `clap_audio_port_info.id` | the CLAP port index (0, 1, 2… per side); its channels' LV2 port indexes are the adapter's port map, not the id |
 | `name` | `info.name` | the group's `lv2:name`/`rdfs:label`, else the port's `lv2:name` |
 | `main` | `CLAP_AUDIO_PORT_IS_MAIN` | the rules below |
 | `channels` | `info.channel_count` | the group's member count, 1 for an ungrouped port |

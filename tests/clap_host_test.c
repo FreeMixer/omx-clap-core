@@ -326,6 +326,29 @@ static void t_surround_ambisonic(const char *path)
         omx_clap_host_close(in);
         in = NULL;
     }
+    // with no clap.surround the index-order map names ids 0 to channels - 1: past CLAP_SURROUND_TSR it names none
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "21", 1);   // ids 0 to 20, one past TSR (19)
+    check_refused(path, FAKE_SURROUND_PLAIN, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN);
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "20", 1);
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s, twenty channels: ids 0 to TSR", FAKE_SURROUND_PLAIN);
+    if (in)
+    {
+        CHECK(in->main_out.channels == 20 && in->main_out.map[19] == CLAP_SURROUND_TSR, "%s: the twentieth channel is TSR (%u)",
+              FAKE_SURROUND_PLAIN, in->main_out.map[19]);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "6", 1);
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s, six channels set by the knob", FAKE_SURROUND_PLAIN);
+    unsetenv("FAKE_SURROUND_PLAIN_CHANNELS");
+    if (in)
+    {
+        for (same = 1, c = 0; c < 6; c++)
+            same = same && in->main_in.map[c] == c && in->main_out.map[c] == c;
+        CHECK(in->main_out.channels == 6 && same, "%s: six channels, admitted, both maps in index order", FAKE_SURROUND_PLAIN);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
 
     CHECK(open_ok(path, FAKE_AMBISONIC, &in), "open %s", FAKE_AMBISONIC);
     if (in)
