@@ -14,8 +14,20 @@
 #define LV2_EVENT_FIXTURE_URI "urn:openmixer:test:event-fixture"
 #define LV2_EVENT_FIXTURE_SEEN 80u      /* the input events kept, the first of the last run */
 
+/* what #echo does to its output after writing it, when the test sets `misbehave` */
+enum
+{
+    LV2_EVENT_FIXTURE_WELL = 0,         /* nothing: the output as written */
+    LV2_EVENT_FIXTURE_MOVED = 1,        /* its data pointer moved to a buffer of the plugin's own, holding the same events */
+    LV2_EVENT_FIXTURE_OVERSIZE = 2,     /* the first event's size 65520, the buffer's size its whole capacity */
+    LV2_EVENT_FIXTURE_STAMP = 3,        /* its stamp type 1: stamps that are not frames */
+    LV2_EVENT_FIXTURE_COUNT = 4,        /* its event count one short of the events it holds */
+};
+
 struct lv2_event_fixture
 {
+    uint32_t misbehave;             /* LV2_EVENT_FIXTURE_*, set by the test */
+    uint32_t instantiated;          /* instantiate() calls */
     uint32_t runs;                  /* run() calls, every descriptor's */
     uint32_t midi_type;             /* midi:MidiEvent's id as uri-map answered it at instantiate, 0 without uri-map */
     uint32_t n;                     /* the MIDI events of the last run's input (#echo), or of input A (#two) */

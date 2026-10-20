@@ -67,6 +67,7 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
     if (e && map)
         e->midi = (uint16_t)map->uri_to_id(map->callback_data, LV2_EVENT_URI, LV2_MIDI__MidiEvent);
     lv2_event_fixture.midi_type = e ? e->midi : 0;
+    lv2_event_fixture.instantiated++;
     return e;
 }
 
@@ -94,6 +95,36 @@ static void record(uint32_t i, const LV2_Event *ev, const uint8_t *data)
     lv2_event_fixture.size[i] = ev->size;
     memset(lv2_event_fixture.data[i], 0, sizeof(lv2_event_fixture.data[i]));
     memcpy(lv2_event_fixture.data[i], data, ev->size < 4u ? ev->size : 4u);
+}
+
+/* the output spoilt as the test asks, after it was written */
+static void misbehave(LV2_Event_Buffer *out)
+{
+    static uint8_t moved[256];
+
+    switch (lv2_event_fixture.misbehave)
+    {
+    case LV2_EVENT_FIXTURE_MOVED:
+        memcpy(moved, out->data, out->size < sizeof(moved) ? out->size : sizeof(moved));
+        out->data = moved;
+        break;
+    case LV2_EVENT_FIXTURE_OVERSIZE:
+        if (out->size >= sizeof(LV2_Event))
+        {
+            ((LV2_Event *)out->data)->size = 65520;
+            out->size = out->capacity;
+        }
+        break;
+    case LV2_EVENT_FIXTURE_STAMP:
+        out->stamp_type = 1;        // any type but LV2_EVENT_AUDIO_STAMP: stamps that are not frames
+        break;
+    case LV2_EVENT_FIXTURE_COUNT:
+        if (out->event_count)
+            out->event_count--;
+        break;
+    default:
+        break;
+    }
 }
 
 static void echo_run(LV2_Handle h, uint32_t n)
@@ -124,6 +155,7 @@ static void echo_run(LV2_Handle h, uint32_t n)
             m[1]++;
         lv2_event_write(&out, ev->frames, 0, e->midi, ev->size, ev->size <= 4u ? m : data);
     }
+    misbehave(e->out_a);
 }
 
 static void two_connect(LV2_Handle h, uint32_t port, void *data)

@@ -49,7 +49,9 @@ struct lv2_feature_probe
     int32_t min_block, max_block, nominal_block;
     int unmap_round_trip;           /* urid:unmap gave back what urid:map was handed */
     int log_answer;                 /* what log:log's printf answered, -1 without a log */
-    int uri_map_same;               /* uri-map's uri_to_id answered midi:MidiEvent's urid:map id, under the event map */
+    uint32_t map_midi;              /* urid:map's id of midi:MidiEvent, 0 without urid:map */
+    uint32_t uri_map_event;         /* uri-map's id of midi:MidiEvent under the event map, 0 without uri-map */
+    uint32_t uri_map_other;         /* uri-map's id of midi:MidiEvent under another map, 0 without uri-map */
     int event_answers;              /* event's lv2_event_ref and lv2_event_unref each answered 0: 2, -1 without event */
 };
 extern struct lv2_feature_probe lv2_feature_probe;

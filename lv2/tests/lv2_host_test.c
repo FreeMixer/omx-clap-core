@@ -42,7 +42,10 @@
  *             port is, a second one each way fed empty or never read, one supporting no MIDI refused
  *             hosting.features.midi-in-fed-empty; through the instance, MIDI in comes back out at its frame, a note one
  *             key up, nothing carries over, a block past the buffer keeps what fits and counts the rest; a list
- *             without uri-map refuses it hosting.features.missing before its binary is opened.
+ *             without uri-map refuses it hosting.features.missing before its binary is opened; an output spoilt one
+ *             way at a time (data moved, an event past the buffer, stamps not frames, a short count) read only as far
+ *             as it is sound; through a 128 KiB buffer a 65516-byte message kept and read back, 65517 refused; a table
+ *             past 16 bits answers 0 under the event map and refuses the plugin before instantiate.
  *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
  *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
@@ -887,6 +890,35 @@ static void t_event_run(void)
           seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
     CHECK(same_message(&g, EV_CAPACITY - 1u, EV_CAPACITY - 1u, on_up, 3), "event run: the last one that fits is at its own frame");
 
+    // the plugin's output spoilt one way at a time: only what lies inside the buffer it was given, in frames, up to
+    // its count, is read
+    {
+        static const struct { uint32_t kind, want; const char *what; } bad[4] =
+        {
+            { LV2_EVENT_FIXTURE_MOVED, 0, "a buffer whose data pointer the plugin moved is not read" },
+            { LV2_EVENT_FIXTURE_OVERSIZE, 0, "an event whose size runs past the buffer is not read" },
+            { LV2_EVENT_FIXTURE_STAMP, 0, "a buffer whose stamps are not frames is not read" },
+            { LV2_EVENT_FIXTURE_COUNT, 1, "a buffer is read up to its event count, not past it" },
+        };
+
+        for (i = 0; i < 4; i++)
+        {
+            seen->misbehave = bad[i].kind;
+            lv2_instance_midi_in_add(in, 1, on, 3);
+            lv2_instance_midi_in_add(in, 2, cc, 3);
+            memset(&g, 0, sizeof(g));
+            lv2_instance_run(in, BLOCK, NULL, NULL);
+            lv2_instance_midi_out_each(in, collect, &g);
+            CHECK(seen->n == 2 && g.n == bad[i].want, "event run: %s (%u read of 2)", bad[i].what, g.n);
+        }
+        seen->misbehave = LV2_EVENT_FIXTURE_WELL;
+        lv2_instance_midi_in_add(in, 1, on, 3);
+        memset(&g, 0, sizeof(g));
+        lv2_instance_run(in, BLOCK, NULL, NULL);
+        lv2_instance_midi_out_each(in, collect, &g);
+        CHECK(g.n == 1 && same_message(&g, 0, 1, on_up, 3), "event run: and the next well-formed block is read again (%u)", g.n);
+    }
+
     lv2_instance_counters(in, &before);
     CHECK(lv2_instance_midi_in_add(in, 0, on, 0x10000u) == -1, "event run: a message past an event's 16-bit size is refused, not copied");
     lv2_instance_counters(in, &after);
@@ -1154,6 +1186,97 @@ static const struct lv2_feature_probe *probe_sees(const char *uri, uint32_t min,
     return ok ? &copy : NULL;
 }
 
+/* the longest event an event buffer carries, 65516 bytes, through a buffer that holds more: kept and read back whole; one
+ * byte more refused and counted, never written; an output event that long or longer is not read. A child: the atom
+ * buffer is a configuration of its own, and an alarm turns a hang into a failure */
+static uint32_t g_big_n, g_big_size;
+
+static void big_collect(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    (void)ctx;
+    (void)frame;
+    (void)data;
+    g_big_n++;
+    g_big_size = size;
+}
+
+static void event_big(void)
+{
+    static uint8_t msg[65517];
+    const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 131072u, NULL, NULL };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p;
+    struct lv2_instance *in;
+    struct lv2_event_fixture *seen;
+    struct lv2_counters before, after;
+
+    alarm(30);
+    CHECK(lv2_core_configure(&config, why) == 0, "event big: configured with a 128 KiB atom buffer (%s)", why);
+    p = open_plugin(g_ev, EV_URI "#echo", why);
+    in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    seen = ev_seen();
+    CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "event big: #echo activates (%s)", why);
+    if (!in || !seen)
+        return;
+    memset(msg, 0x11, sizeof(msg));
+    msg[0] = 0xf0;
+    lv2_instance_counters(in, &before);
+    CHECK(lv2_instance_midi_in_add(in, 0, msg, 65516u) == 0, "event big: a 65516-byte message fits the buffer and is kept");
+    CHECK(lv2_instance_midi_in_add(in, 1, msg, 65517u) == -1, "event big: a 65517-byte message is refused: its padded length is past 16 bits");
+    lv2_instance_counters(in, &after);
+    CHECK(after.midi_in_dropped - before.midi_in_dropped == 1, "event big: and counted as dropped (%u)", after.midi_in_dropped - before.midi_in_dropped);
+    g_big_n = g_big_size = 0;
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, big_collect, NULL);
+    CHECK(seen->n == 1 && seen->size[0] == 65516u && g_big_n == 1 && g_big_size == 65516u,
+          "event big: the plugin read one 65516-byte event and the host read it back whole (%u, %u, %u)", seen->n, g_big_n, g_big_size);
+    seen->misbehave = LV2_EVENT_FIXTURE_OVERSIZE;
+    lv2_instance_midi_in_add(in, 0, msg, 3u);
+    g_big_n = 0;
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, big_collect, NULL);
+    CHECK(seen->n == 1 && g_big_n == 0, "event big: an output event of 65520 bytes inside the buffer is not read (%u)", g_big_n);
+    seen->misbehave = LV2_EVENT_FIXTURE_WELL;
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
+/* a table past 16 bits before the first instantiate: uri-map answers 0 under the event map and the id under another,
+ * and an ev:EventPort plugin, whose MIDI id is then no event type, is refused before it is instantiated. A child: the
+ * table is the process's */
+static void event_wide_table(void)
+{
+    const struct lv2_core_config config = { lv2_core_provided, 1000u, 4096u, 0u, NULL, NULL };
+    char why[LV2_CORE_WHY_MAX] = "", uri[64];
+    const struct lv2_feature_probe *probe;
+    struct lv2_event_fixture *seen;
+    struct lv2_plugin *p;
+    struct lv2_instance *in;
+    uint32_t i;
+
+    CHECK(lv2_core_configure(&config, why) == 0, "wide table: configured");
+    for (i = 0; i < 65536u; i++)
+    {
+        snprintf(uri, sizeof(uri), "urn:openmixer:test:fill#%u", i);
+        omx_lv2_urid_map(uri);
+    }
+    CHECK(omx_lv2_urid_map(LV2_MIDI__MidiEvent) > UINT16_MAX, "wide table: midi:MidiEvent maps past 16 bits (%u)",
+          omx_lv2_urid_map(LV2_MIDI__MidiEvent));
+    probe = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
+    CHECK(probe && probe->uri_map_event == 0 && probe->uri_map_other == omx_lv2_urid_map(LV2_MIDI__MidiEvent),
+          "wide table: uri-map answers 0 under the event map and urid:map's id under another (%u %u)",
+          probe ? probe->uri_map_event : 1u, probe ? probe->uri_map_other : 0u);
+    p = open_plugin(g_ev, EV_URI "#echo", why);
+    in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    seen = ev_seen();
+    CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == -1 && strcmp(why, LV2_CODE_NO_REALISATION) == 0,
+          "wide table: #echo is refused hosting.no-realisation (%s)", why);
+    CHECK(seen && seen->instantiated == 0, "wide table: before it was instantiated (%u)", seen ? seen->instantiated : 0u);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 static void t_options(void)
 {
     struct omx_lv2_feature_options o;
@@ -1171,7 +1294,9 @@ static void t_options(void)
     CHECK(seen && seen->n_features == OMX_LV2_FEATURE_KINDS + 4u && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 2], LV2_URI_MAP_URI)
               && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 3], LV2_EVENT_URI),
           "options: uri-map and event last, in that order");
-    CHECK(seen && seen->uri_map_same == 1, "options: uri-map's uri_to_id answers urid:map's id for midi:MidiEvent");
+    CHECK(seen && seen->map_midi != 0 && seen->uri_map_event == seen->map_midi && seen->uri_map_other == seen->map_midi,
+          "options: uri-map's uri_to_id answers urid:map's id for midi:MidiEvent under the event map and under another (%u %u %u)",
+          seen ? seen->map_midi : 0u, seen ? seen->uri_map_event : 0u, seen ? seen->uri_map_other : 0u);
     CHECK(seen && seen->event_answers == 2, "options: event's lv2_event_ref and lv2_event_unref answer 0");
     for (k = 0; seen && k < OMX_LV2_FEATURE_KINDS; k++)
         in_order &= strcmp(seen->order[k], lv2_core_provided[k]) == 0;
@@ -1333,6 +1458,8 @@ int main(int argc, char **argv)
     in_child("the configure", unknown_feature);
     in_child("options within the list", options_within_list);
     in_child("without uri-map", without_uri_map);
+    in_child("event big buffer", event_big);
+    in_child("event wide table", event_wide_table);
     CHECK(!lilv_mapped(), "no lilv in this process before its first bundle");
     CHECK(lv2_core_configure(&config, why) == 0, "configure every provider (%s)", why);
     t_one_bundle();

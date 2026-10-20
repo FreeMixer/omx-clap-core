@@ -119,9 +119,13 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
 
         p->unmap_round_trip = back && !strcmp(back, "urn:openmixer:test:feature-probe#round");
     }
-    if (map && uri_map)
-        p->uri_map_same = uri_map->uri_to_id(uri_map->callback_data, LV2_EVENT_URI, LV2_MIDI__MidiEvent)
-                          == map->map(map->handle, LV2_MIDI__MidiEvent);
+    if (map)
+        p->map_midi = map->map(map->handle, LV2_MIDI__MidiEvent);
+    if (uri_map)
+    {
+        p->uri_map_event = uri_map->uri_to_id(uri_map->callback_data, LV2_EVENT_URI, LV2_MIDI__MidiEvent);
+        p->uri_map_other = uri_map->uri_to_id(uri_map->callback_data, "urn:openmixer:test:feature-probe#map", LV2_MIDI__MidiEvent);
+    }
     p->event_answers = -1;
     if (event)
         p->event_answers = (event->lv2_event_ref(event->callback_data, NULL) == 0)
