@@ -973,6 +973,30 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // a refused request still reads the description again: a plugin whose deactivate switched it to the stereo pair
+    // (a restart answered RESCANNED, the report taken) asked for a map it cannot name is -1 with the map's code, and
+    // the description is the new one, never the old one left to activate on
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_SWITCH_ON_DEACTIVATE", &in), "%s opens, switching to config 2 in every deactivate",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        static const uint8_t past_tsr[2] = { CLAP_SURROUND_FL, 25 };
+
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0 && in->in_channels == 1, "%s activates, one channel in (%s)",
+              FAKE_CONFIGS, why);
+        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && omx_clap_host_ports_rescanned(in) == 1,
+              "%s: its restart stops on the rescan, reported", FAKE_CONFIGS);
+        reqs[0] = main_request(true, 2, CLAP_PORT_SURROUND, past_tsr);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == -1 && strcmp(why, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN) == 0, "%s: a map past TSR is refused with its code (%d, %s)",
+              FAKE_CONFIGS, ret, why);
+        CHECK(in->in_channels == 2 && in->main_in.channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: and the description is read again all the same: the stereo pair (%u in, \"%s\")", FAKE_CONFIGS, in->in_channels,
+              in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // configurable-audio-ports: applied
     CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
     if (in)

@@ -61,7 +61,8 @@
  *                                      with FAKE_CONFIGS_SIDE each config carries a mono side-chain input beside its
  *                                      main, which select declares; with FAKE_CONFIGS_NO_MAIN_IN config 1 is a
  *                                      source, no main input flagged (its stale mono input fields a host must
- *                                      ignore) and none declared once selected)
+ *                                      ignore) and none declared once selected; with FAKE_SWITCH_ON_DEACTIVATE every
+ *                                      deactivate switches to config 2 and rescans the list, as 101 does once)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
  *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
@@ -150,6 +151,7 @@ typedef struct FAKE_T {
                                     // activate only: FAKE_RESCAN_ON_FIRST_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
     uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
+    uint32_t switch_always;     // configs: every deactivate does (FAKE_SWITCH_ON_DEACTIVATE)
     uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
     uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
     const clap_host_thread_check_t *thread_check;  // the host's, read at init
@@ -771,6 +773,8 @@ static void plugin_deactivate(const clap_plugin_t *plugin)
 {
     fake_t *fake = plugin->plugin_data;
 
+    if (fake->switch_always)
+        fake->switch_on_deactivate = 1;
     if (fake->switch_on_deactivate || fake->input_lost == 2)
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
@@ -1000,6 +1004,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configs_untyped = getenv("FAKE_CONFIGS_UNTYPED") != NULL;
     fake->configs_side = getenv("FAKE_CONFIGS_SIDE") != NULL;
     fake->configs_no_main_in = getenv("FAKE_CONFIGS_NO_MAIN_IN") != NULL;
+    fake->switch_always = getenv("FAKE_SWITCH_ON_DEACTIVATE") != NULL && (fake->offers & FAKE_OFFERS_CONFIGS);
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
