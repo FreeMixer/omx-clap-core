@@ -19,6 +19,9 @@ member struct omx_clap_aux_in aux_in_ptrs 2088 32768 float * aux_in_ptrs[4096]
 member struct omx_clap_aux_in aux_in_base 34856 256 uint32_t aux_in_base[64]
 member struct omx_clap_aux_in aux_silence 35112 16 float * aux_silence[2]
 size struct omx_clap_aux_in 35128
+member struct omx_clap_fd fd 0 4 int fd
+member struct omx_clap_fd flags 4 4 uint32_t flags
+size struct omx_clap_fd 8
 member struct omx_clap_host_config abi 0 4 uint32_t abi
 member struct omx_clap_host_config size 4 4 uint32_t size
 member struct omx_clap_host_config clamp 8 4 int clamp
@@ -126,7 +129,18 @@ member struct omx_clap_instance note_ports_rescanned 267228 4 _Atomic uint32_t n
 member struct omx_clap_instance note_ports_stale 267232 4 uint32_t note_ports_stale
 member struct omx_clap_instance note_names_changed 267236 4 _Atomic uint32_t note_names_changed
 member struct omx_clap_instance voice_info_changed 267240 4 _Atomic uint32_t voice_info_changed
-size struct omx_clap_instance 267248
+member struct omx_clap_instance timer_support 267248 8 const clap_plugin_timer_support_t * timer_support
+member struct omx_clap_instance fd_support 267256 8 const clap_plugin_posix_fd_support_t * fd_support
+member struct omx_clap_instance thread_pool 267264 8 const clap_plugin_thread_pool_t * thread_pool
+member struct omx_clap_instance in_exec 267272 4 int in_exec
+member struct omx_clap_instance tail 267280 8 const clap_plugin_tail_t * tail
+member struct omx_clap_instance timers 267288 384 struct omx_clap_timer timers[16]
+member struct omx_clap_instance timer_next_id 267672 4 uint32_t timer_next_id
+member struct omx_clap_instance fds 267676 128 struct omx_clap_fd fds[16]
+member struct omx_clap_instance tail_frames 267804 4 _Atomic uint32_t tail_frames
+member struct omx_clap_instance tail_changed 267808 4 _Atomic uint32_t tail_changed
+member struct omx_clap_instance sleep 267816 96 struct omx_clap_sleep sleep
+size struct omx_clap_instance 267912
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
@@ -250,6 +264,16 @@ member struct omx_clap_port ambisonic_ordering 332 4 uint32_t ambisonic_ordering
 member struct omx_clap_port ambisonic_normalization 336 4 uint32_t ambisonic_normalization
 member struct omx_clap_port in_place_pair 340 4 clap_id in_place_pair
 size struct omx_clap_port 344
+member struct omx_clap_preset provider_id 0 8 const char * provider_id
+member struct omx_clap_preset name 8 8 const char * name
+member struct omx_clap_preset location_kind 16 4 uint32_t location_kind
+member struct omx_clap_preset location 24 8 const char * location
+member struct omx_clap_preset load_key 32 8 const char * load_key
+member struct omx_clap_preset flags 40 4 uint32_t flags
+member struct omx_clap_preset description 48 8 const char * description
+member struct omx_clap_preset plugin_count 56 4 uint32_t plugin_count
+member struct omx_clap_preset plugin_ids 64 64 const char * plugin_ids[8]
+size struct omx_clap_preset 128
 member struct omx_clap_raw lib 0 8 void * lib
 member struct omx_clap_raw entry 8 8 const clap_plugin_entry_t * entry
 member struct omx_clap_raw factory 16 8 const clap_plugin_factory_t * factory
@@ -263,6 +287,16 @@ member struct omx_clap_shadow delivered 8 8 double delivered
 member struct omx_clap_shadow cycle 16 4 uint32_t cycle
 member struct omx_clap_shadow valid 20 4 int valid
 size struct omx_clap_shadow 24
+member struct omx_clap_sleep asleep 0 4 uint32_t asleep
+member struct omx_clap_sleep quiet_frames 8 8 uint64_t quiet_frames
+member struct omx_clap_sleep quiet_out_frames 16 8 uint64_t quiet_out_frames
+member struct omx_clap_sleep quiet_min_frames 24 4 uint32_t quiet_min_frames
+member struct omx_clap_sleep wake 28 4 _Atomic uint32_t wake
+member struct omx_clap_sleep skipped 32 8 _Atomic uint64_t skipped
+member struct omx_clap_sleep last 40 48 struct omx_clap_transport last
+member struct omx_clap_sleep have_last 88 4 int have_last
+member struct omx_clap_sleep sleeps 92 4 _Atomic uint32_t sleeps
+size struct omx_clap_sleep 96
 member struct omx_clap_stage h 0 80 struct omx_hosted_stage h
 member struct omx_clap_stage plugin 80 8 const clap_plugin_t * plugin
 member struct omx_clap_stage in_ptrs 88 512 float * in_ptrs[64]
@@ -308,6 +342,11 @@ member struct omx_clap_stage releases_dropped 85132 4 _Atomic uint32_t releases_
 size struct omx_clap_stage 85136
 member struct omx_clap_tempo bpm_bits 0 8 _Atomic uint64_t bpm_bits
 size struct omx_clap_tempo 8
+member struct omx_clap_timer used 0 4 uint32_t used
+member struct omx_clap_timer id 4 4 clap_id id
+member struct omx_clap_timer period_ms 8 4 uint32_t period_ms
+member struct omx_clap_timer due_ns 16 8 uint64_t due_ns
+size struct omx_clap_timer 24
 member struct omx_clap_transport flags 0 4 uint32_t flags
 member struct omx_clap_transport tempo 8 8 double tempo
 member struct omx_clap_transport song_pos_beats 16 8 clap_beattime song_pos_beats
