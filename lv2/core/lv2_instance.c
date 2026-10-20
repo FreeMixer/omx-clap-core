@@ -81,6 +81,9 @@
 #include "omx_msgring.h"
 #include "lv2_core_internal.h"
 
+// the event and uri-map extensions are deprecated upstream, and the plugins written to them (ll-plugins) are hosted as
+// they are: their types are used here without the deprecation warning
+LV2_DISABLE_DEPRECATION_WARNINGS
 
 /*
 ************************************************************************************************************************
@@ -169,6 +172,8 @@ struct lv2_instance
     LV2_URID_Map map;
     LV2_URID_Unmap unmap;
     LV2_Log_Log log;
+    LV2_URI_Map_Feature uri_map;            // uri-map: urid:map's ids, the map argument ignored
+    LV2_Event_Feature event;                // event: no event of this host's is reference-counted
     _Atomic(lv2_audio_role_fn) is_audio;
     _Atomic(void *) role_ctx;
     _Atomic uint32_t map_on_audio;
@@ -366,6 +371,21 @@ static const char *inst_unmap(LV2_URID_Unmap_Handle h, LV2_URID id)
 {
     (void)h;
     return lv2_urid_unlookup(id);
+}
+
+/* uri-map: the id urid:map answers, counted the same on the audio role; the map the plugin names does not change it */
+static uint32_t inst_uri_to_id(LV2_URI_Map_Callback_Data data, const char *map, const char *uri)
+{
+    (void)map;
+    return inst_map(data, uri);
+}
+
+/* event: the events this host writes are plain MIDI, none of them reference-counted */
+static uint32_t inst_event_ref(LV2_Event_Callback_Data data, LV2_Event *event)
+{
+    (void)data;
+    (void)event;
+    return 0;
 }
 
 /* whether the instance has the provider `kind`: on the configured list and offered by its options */
@@ -1168,6 +1188,8 @@ static void features_build(struct lv2_instance *in)
     data[F_MAKE_PATH] = in->dir ? &in->make_path : NULL;
     data[F_MAP_PATH] = &in->map_path;
     data[F_FREE_PATH] = &in->free_path;
+    data[F_URI_MAP] = &in->uri_map;
+    data[F_EVENT] = &in->event;
     lv2_features_fill(in->features, in->feature_ptrs, &in->fopts, lv2_features_configured(), data);
     {
         uint32_t i, k = 0;
@@ -1487,6 +1509,11 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->map_path.absolute_path = inst_absolute_path;
     in->free_path.handle = in;
     in->free_path.free_path = inst_free_path;
+    in->uri_map.callback_data = in;
+    in->uri_map.uri_to_id = inst_uri_to_id;
+    in->event.callback_data = in;
+    in->event.lv2_event_ref = inst_event_ref;
+    in->event.lv2_event_unref = inst_event_ref;
     if (lv2_feature_on(F_MAKE_PATH) && config->state_root)
     {
         const size_t n = strlen(config->state_root) + 64u;
@@ -2150,3 +2177,5 @@ uint32_t lv2_instance_text_get(const struct lv2_instance *in, uint32_t j, char *
     } while ((s1 & 1u) || s1 != s2);
     return len;
 }
+
+LV2_RESTORE_WARNINGS

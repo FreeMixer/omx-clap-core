@@ -971,8 +971,10 @@ static void without_default_state(void)
 #define PROBE_SEVEN (LV2_FEATURE_PROBE_MAP | LV2_FEATURE_PROBE_UNMAP | LV2_FEATURE_PROBE_OPTIONS \
                      | LV2_FEATURE_PROBE_BOUNDED | LV2_FEATURE_PROBE_WORKER | LV2_FEATURE_PROBE_DEFAULT_STATE \
                      | LV2_FEATURE_PROBE_LOG)
-/* the state path features the configured list adds after the seven: mapPath and freePath (makePath needs a root) */
-#define PROBE_PATHS (LV2_FEATURE_PROBE_MAP_PATH | LV2_FEATURE_PROBE_FREE_PATH)
+/* the features the configured list adds after the seven: mapPath and freePath (makePath needs a root), uri-map and
+ * event */
+#define PROBE_PATHS (LV2_FEATURE_PROBE_MAP_PATH | LV2_FEATURE_PROBE_FREE_PATH | LV2_FEATURE_PROBE_URI_MAP \
+                     | LV2_FEATURE_PROBE_EVENT)
 
 static const uint32_t g_probe_bit[OMX_LV2_FEATURE_KINDS] =
 {
@@ -1023,8 +1025,14 @@ static void t_options(void)
     CHECK(lv2_core_feature_options()->features == OMX_LV2_FEATURES_ALL && lv2_core_feature_options()->strict,
           "options: the host starts at the defaults");
     seen = probe_sees(LV2_FEATURE_PROBE_URI, 16, BLOCK, why);
-    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 2u,
-          "options: by default the probe sees the seven features, then mapPath and freePath, and nothing else (%s)", why);
+    CHECK(seen && seen->seen == (PROBE_SEVEN | PROBE_PATHS) && seen->n_features == OMX_LV2_FEATURE_KINDS + 4u,
+          "options: by default the probe sees the seven features, then mapPath, freePath, uri-map and event, and nothing "
+          "else (%s)", why);
+    CHECK(seen && seen->n_features == OMX_LV2_FEATURE_KINDS + 4u && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 2], LV2_URI_MAP_URI)
+              && !strcmp(seen->order[OMX_LV2_FEATURE_KINDS + 3], LV2_EVENT_URI),
+          "options: uri-map and event last, in that order");
+    CHECK(seen && seen->uri_map_same == 1, "options: uri-map's uri_to_id answers urid:map's id for midi:MidiEvent");
+    CHECK(seen && seen->event_answers == 2, "options: event's lv2_event_ref and lv2_event_unref answer 0");
     for (k = 0; seen && k < OMX_LV2_FEATURE_KINDS; k++)
         in_order &= strcmp(seen->order[k], lv2_core_provided[k]) == 0;
     CHECK(seen && in_order, "options: by default in the providers' order");

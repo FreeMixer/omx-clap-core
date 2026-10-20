@@ -224,7 +224,7 @@ static int provider_of(const char *uri)
     return -1;
 }
 
-/* the configuration-only kinds, the state path features, by their URI: -1 for any other */
+/* the configuration-only kinds, the state path features, uri-map and event, by their URI: -1 for any other */
 static int instance_kind_of(const char *uri)
 {
     if (!uri)
@@ -235,6 +235,10 @@ static int instance_kind_of(const char *uri)
         return (int)F_MAP_PATH;
     if (strcmp(uri, LV2_STATE__freePath) == 0)
         return (int)F_FREE_PATH;
+    if (strcmp(uri, LV2_URI_MAP_URI) == 0)
+        return (int)F_URI_MAP;
+    if (strcmp(uri, LV2_EVENT_URI) == 0)
+        return (int)F_EVENT;
     return -1;
 }
 
@@ -465,10 +469,11 @@ uint32_t lv2_features_fill(LV2_Feature *features, const LV2_Feature **ptrs, cons
         ptrs[n] = &features[n];
         n++;
     }
-    // the state path features, last: the configuration's alone
+    // the state path features, uri-map and event, last: the configuration's alone
     for (k = F_MAKE_PATH; k < LV2_INSTANCE_KINDS; k++)
     {
-        static const char *const uri[] = { LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath };
+        static const char *const uri[] = { LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, LV2_URI_MAP_URI,
+                                           LV2_EVENT_URI };
 
         if (!(allowed & (1u << k)) || !data[k])
             continue;
