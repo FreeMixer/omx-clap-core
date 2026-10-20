@@ -209,21 +209,17 @@ static void t_run_ports(const char *path)
     omx_clap_host_close(in);
 }
 
-/* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
- * two legs, its other channels the wide bounce's (silent: nothing fills them on that path), and run_ports carries any
- * width; the exit status is the failures */
 /*
  * Surround and ambisonic ports, described through their extensions: the 5.1 pair's map read by clap.surround, a map
  * naming an id past CLAP_SURROUND_TSR or one id short refused, a surround port with no clap.surround mapped in index
- * order; the
- * first-order pair's ordering and normalisation read by clap.ambisonic, five ambisonic channels (no (order+1)²)
+ * order; the first-order pair's ordering and normalisation read by clap.ambisonic, five ambisonic channels (no (order+1)²)
  * refused. Deactivated, each says its layout changed through the host's surround or ambisonic changed, and the tick
  * reports it as a ports rescan.
  */
 static void t_surround_ambisonic(const char *path)
 {
-    static const uint8_t five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_BL,
-                                         CLAP_SURROUND_BR };
+    static const uint8_t five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL,
+                                         CLAP_SURROUND_SR };
     struct omx_clap_instance *in = NULL;
     char why[OMX_CLAP_WHY_MAX];
     uint32_t c;
@@ -234,10 +230,12 @@ static void t_surround_ambisonic(const char *path)
     {
         CHECK(in->main_out.kind == OMX_CLAP_PORT_SURROUND && in->main_in.kind == OMX_CLAP_PORT_SURROUND && in->main_out.channels == 6,
               "%s: a surround main pair of six channels (%u, %u)", FAKE_SURROUND, in->main_in.kind, in->main_out.kind);
-        CHECK(in->main_out.map[3] == CLAP_SURROUND_LFE, "%s: the output's fourth channel is the LFE (%u)", FAKE_SURROUND, in->main_out.map[3]);
+        CHECK(in->main_out.map[3] == CLAP_SURROUND_LFE && in->main_out.map[4] == CLAP_SURROUND_SL && in->main_out.map[5] == CLAP_SURROUND_SR,
+              "%s: the output's fourth channel is the LFE, its fifth and sixth SL and SR, as clap.surround names them (%u %u %u)",
+              FAKE_SURROUND, in->main_out.map[3], in->main_out.map[4], in->main_out.map[5]);
         for (same = 1, c = 0; c < 6; c++)
             same = same && in->main_in.map[c] == five_one[c] && in->main_out.map[c] == five_one[c];
-        CHECK(same, "%s: both maps are FL FR FC LFE BL BR", FAKE_SURROUND);
+        CHECK(same, "%s: both maps are FL FR FC LFE SL SR", FAKE_SURROUND);
         CHECK(omx_clap_host_tick(in) == 0, "%s: no rescan before the plugin says its layout changed", FAKE_SURROUND);
         CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", FAKE_SURROUND, why);
         omx_clap_host_deactivate(in);
@@ -276,6 +274,9 @@ static void t_surround_ambisonic(const char *path)
     check_refused(path, FAKE_AMBISONIC_BAD, "hosting.topology.port-too-wide");
 }
 
+/* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
+ * two legs, its other channels the wide bounce's (silent: nothing fills them on that path), and run_ports carries any
+ * width; the exit status is the failures */
 static int lane_any_checks(const char *path)
 {
     struct omx_clap_host_config config;
