@@ -69,7 +69,7 @@ A plugin's audio layout, each side (input, output), is an ordered list of ports:
 
 | field | CLAP source | LV2 source |
 |---|---|---|
-| `id` | `clap_audio_port_info.id` | the port index of the group's first channel |
+| `id` | `clap_audio_port_info.id` | the CLAP port index (0, 1, 2… per side); its channels' LV2 port indexes are the adapter's port map, not the id |
 | `name` | `info.name` | the group's `lv2:name`/`rdfs:label`, else the port's `lv2:name` |
 | `main` | `CLAP_AUDIO_PORT_IS_MAIN` | the rules below |
 | `channels` | `info.channel_count` | the group's member count, 1 for an ungrouped port |
@@ -128,7 +128,8 @@ Read, per side: `pg:mainInput`/`pg:mainOutput` on the plugin, `pg:group` on each
 2. **No main group, but groups**: the first group in port order is the main port; the rest and every ungrouped
    port are auxiliary as in 1. (lsp ab_tester_x2_mono: two mono groups, main a, aux b.)
 3. **No groups at all**: when the side has at most two ports, they are the main port (one mono, two stereo), as
-   today. When it has more than two and the other side has exactly as many, the side is one main port of that
+   today. When it has more than two and the other side's main is exactly as wide (its main group's members by
+   rule 1 or 2, else its ungrouped ports; side chains and aux groups never count), the side is one main port of that
    width (gareus surround meters, sisco, matrixmixer i8o8, essp, lufsmetermultichannel, patchbay N→N, mixtri,
    noise_generator_x4). Otherwise the first two ports are the main port and the rest are mono aux ports (xfade
    4→2: main a pair, aux b pair; sc3 3→2: main a pair, aux the side chain; bodeShifterCV 2→3: main pair out, aux
@@ -159,7 +160,7 @@ a group of a type the table lacks, orders by port index with kind unknown. The C
 | `pg:SevenPointOneWideGroup` | surround | 8 | FL FLC FC FRC FR BL BR LFE |
 | `pg:AmbisonicBH1P1Group`, `BH2P2Group`, `BH3P3Group` | ambisonic | 4, 9, 16 | ordering ACN (the elements are ACN0..ACN(n-1) in order) |
 | the other `pg:AmbisonicBH<h>P<p>Group`s (BH1P0 3, BH2P0 5, BH2P1 6, BH3P0 7, BH3P1 8, BH3P2 11) | unknown | the element count | mixed-order streams a CLAP ambisonic port cannot express: carried as discrete channels, the ACN designations in the description |
-| `pg:DiscreteGroup`, `pg:InputGroup`, `pg:OutputGroup`, an untyped group | unknown | member count | none |
+| `pg:DiscreteGroup`, `pg:InputGroup`, `pg:OutputGroup`, an untyped group, or a typed group whose members lack its designations | mono or stereo at one or two members, unknown above two | member count | none |
 
 LV2 port groups declare no normalisation. A full-order ambisonic group is exposed by the shim as a CLAP
 ambisonic port with ordering ACN and normalisation SN3D, the AmbiX convention, recorded below as a decision; the

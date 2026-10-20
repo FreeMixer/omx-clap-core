@@ -33,8 +33,8 @@
  *    fallback is 0 dB, so −26 dB proves the state was restored and −20 dB proves it was not;
  *  - the latency port reports 7 frames — a DECLARED figure for the host to publish, not a delay the
  *    fixture applies.
- * Its twins in the same TTL (an atom port, a mono-in/stereo-out pair) have NO descriptor here: the
- * host must refuse them from the TTL before it opens this binary at all.
+ * Its refused twins in the same TTL (an atom port, three inputs) have NO descriptor here: the host
+ * must refuse them from the TTL before it opens this binary at all.
  */
 #include <math.h>
 #include <stdlib.h>
@@ -233,8 +233,33 @@ static void generator_run(LV2_Handle h, uint32_t n)
 }
 static const LV2_Descriptor GENERATOR_TWIN = {FIXTURE_URI "#gen", generator_instantiate, generator_connect_port, NULL, generator_run, NULL, fixed_cleanup, NULL};
 
+/* the mono-in stereo-out twin (#wide): two main ports of different widths, out_l = in and out_r = in / 2 */
+struct wide { const float *in; float *out[2]; };
+static LV2_Handle wide_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *f)
+{
+    (void)d; (void)rate; (void)path; (void)f;
+    return calloc(1, sizeof(struct wide));
+}
+static void wide_connect_port(LV2_Handle h, uint32_t port, void *data)
+{
+    struct wide *w = h;
+    if (port == 0) w->in = data; else if (port < 3) w->out[port - 1] = data;
+}
+static void wide_run(LV2_Handle h, uint32_t n)
+{
+    struct wide *w = h;
+    uint32_t i;
+    for (i = 0; i < n; i++)
+    {
+        const float x = w->in[i];
+        w->out[0][i] = x;
+        w->out[1][i] = 0.5f * x;
+    }
+}
+static const LV2_Descriptor WIDE_TWIN = {FIXTURE_URI "#wide", wide_instantiate, wide_connect_port, NULL, wide_run, NULL, fixed_cleanup, NULL};
+
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
     return index == 0 ? &DESCRIPTOR : index == 1 ? &FIXED_TWIN : index == 2 ? &INPLACE_TWIN : index == 3 ? &MIDI_TWO_TWIN
-         : index == 4 ? &ANALYSER_TWIN : index == 5 ? &GENERATOR_TWIN : NULL;
+         : index == 4 ? &ANALYSER_TWIN : index == 5 ? &GENERATOR_TWIN : index == 6 ? &WIDE_TWIN : NULL;
 }

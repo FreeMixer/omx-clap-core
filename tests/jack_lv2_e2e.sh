@@ -145,7 +145,11 @@ expect "add $fixture 1" "resp 1"
 expect "add lv2:$fixture 3" "resp 3"
 
 # ---- refusals: the adapter's code after the error code, and on stderr ----
-expect "add lv2:$fixture#wide 2" "resp -102 hosting.topology.wider-than-strip"
+# a mono input and a stereo output are two main ports of different widths (#92): a JACK port per channel each side
+expect "add lv2:$fixture#wide 2" "resp 2"
+[ "$(ports effect_2 i)" = "effect_2:in_1 " ]; step $? "the mono-in stereo-out twin's inputs: $(ports effect_2 i)"
+[ "$(ports effect_2 o)" = "effect_2:out_1 effect_2:out_2 " ]; step $? "the mono-in stereo-out twin's outputs: $(ports effect_2 o)"
+expect "remove 2" "resp 0"
 expect "add lv2:$fixture#atom 2" "resp -102 hosting.features.atom-in-unfed"
 # a second MIDI input is admitted, fed empty (#199): the client carries one midi_in, the first port's
 expect "add lv2:$fixture#midi-two 2" "resp 2"
@@ -158,7 +162,7 @@ expect "add lv2:$fixture#fixed 2" "resp 2"
 expect "remove 2" "resp 0"
 expect "add lv2:$fixture#mappath 2" "resp -102 hosting.no-realisation"
 expect "add lv2:$fixture#ctl-only 2" "resp -102 hosting.topology.no-audio-output"
-for code in hosting.topology.wider-than-strip hosting.features.atom-in-unfed hosting.no-realisation hosting.topology.no-audio-output; do
+for code in hosting.features.atom-in-unfed hosting.no-realisation hosting.topology.no-audio-output; do
     grep -q "^$fixture#[a-z-]*: $code\$" "$runtime/host.log"; step $? "stderr names $code"
 done
 expect "add lv2:urn:openmixer:test:on-no-path 2" "resp -101"
