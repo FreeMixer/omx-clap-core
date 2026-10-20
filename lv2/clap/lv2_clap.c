@@ -1018,8 +1018,13 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         float *dst = lv2_instance_audio_in(s->in, leg);
         const clap_audio_buffer_t *b = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
 
-        if (b && b->data32 && b->channel_count)
-            memcpy(dst, b->data32[leg < b->channel_count ? leg : 0], n * sizeof(float));
+        // a channel the host does not hand reads silence, except a mono buffer on a main pair, which feeds both legs
+        const float *src = !b || !b->data32 || !b->channel_count ? NULL
+                         : leg < b->channel_count ? b->data32[leg]
+                         : s->lv2->in_legs <= 2 ? b->data32[0] : NULL;
+
+        if (src)
+            memcpy(dst, src, n * sizeof(float));
         else
             memset(dst, 0, n * sizeof(float));
     }
@@ -1094,9 +1099,16 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         const clap_audio_buffer_t *b = process->audio_outputs_count > 1u + leg ? &process->audio_outputs[1u + leg] : NULL;
         uint32_t c;
 
-        for (c = 0; b && b->data32 && c < b->channel_count && c < s->lv2->aux_out[leg].n; c++)
-            if (b->data32[c])
+        // a channel past the plugin's own is silence
+        for (c = 0; b && b->data32 && c < b->channel_count; c++)
+        {
+            if (!b->data32[c])
+                continue;
+            if (c < s->lv2->aux_out[leg].n)
                 memcpy(b->data32[c], lv2_instance_aux_out(s->in, leg, c), n * sizeof(float));
+            else
+                memset(b->data32[c], 0, n * sizeof(float));
+        }
     }
     for (leg = 0; leg < s->lv2->n_cv_out; leg++)
     {

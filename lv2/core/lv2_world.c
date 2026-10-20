@@ -1152,7 +1152,8 @@ static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_
     }
     if (!refusal && nm)
         refusal = describe(main, pl, main_group, members, nm);
-    // the auxiliary ports, in the order of their first member
+    // the auxiliary ports, in the order of their first member. A member of the main group that carries lv2:isSideChain is
+    // one of them (rule 4), named after the main group it is declared in
     for (i = 0; i < ns && !refusal; i++)
     {
         uint32_t m = 0;
