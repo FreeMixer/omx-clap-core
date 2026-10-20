@@ -1067,9 +1067,10 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
             clap_audio_ports_config_t config;
 
             memset(&config, 0, sizeof(config));
-            if (!configs->get(in->plugin, i, &config) || !config_matches(&config, reqs, n))
+            // a match the plugin refuses to select is passed over for the next one; none selected is DECLARED
+            if (!configs->get(in->plugin, i, &config) || !config_matches(&config, reqs, n) || !configs->select(in->plugin, config.id))
                 continue;
-            ret = configs->select(in->plugin, config.id) ? 0 : OMX_CLAP_LAYOUT_DECLARED;
+            ret = 0;
             break;
         }
     }
