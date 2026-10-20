@@ -16,10 +16,6 @@
         "code": "hosting.topology.channel-map-unknown",
         "doc": "a surround port names a channel id the host does not know, or refuses the carrier's channel mask"
       },
-      "topologyExtraInputs": {
-        "code": "hosting.topology.extra-inputs-fed-silence",
-        "doc": "retired for hosting.topology.too-many-ports: the plugin has extra inputs, fed silence; written by nobody since omx-clap-core#92, removed with required-not-provided (omx-contract#132)"
-      },
       "topologyInstrument": {
         "code": "hosting.topology.instrument"
       },

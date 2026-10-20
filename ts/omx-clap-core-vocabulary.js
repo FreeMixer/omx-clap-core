@@ -19,10 +19,6 @@ export const HOSTING_CLAP_CODES = {
   "clapLatencyMismatch": {
     "code": "hosting.clap.latency-mismatch"
   },
-  "clapNotAudioEffect": {
-    "code": "hosting.clap.not-audio-effect",
-    "doc": "the plugin is not an audio effect"
-  },
   "clapNoteInput": {
     "code": "hosting.clap.note-input",
     "doc": "the plugin declares a note input the configuration refuses"
@@ -76,10 +72,6 @@ export const HOSTING_FEATURES_CODES = {
     "code": "hosting.features.midi-in-fed-empty"
   },
   "featuresMissing": {
-    "code": "hosting.features.required-not-provided",
-    "doc": "retired (omx-contract#127): hosting.features.missing names the same fact; removed in the release after plugin-qualify stops naming it (omx-contract#132)"
-  },
-  "featuresMissingAtLoad": {
     "code": "hosting.features.missing"
   },
   "featuresPortsUnreadable": {
@@ -91,22 +83,6 @@ export const HOSTING_FEATURES_CODES = {
   },
   "featuresUnscanned": {
     "code": "hosting.features.scan-predates-field"
-  }
-};
-
-/**
- * The hosting codes of the integrity dimension: hosting.integrity.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).
- * @see data/hosting/integrity.json
- */
-export const HOSTING_INTEGRITY_CODES = {
-  "integrityBinaryMismatch": {
-    "code": "hosting.integrity.binary-mismatch"
-  },
-  "integrityLayoutMismatch": {
-    "code": "hosting.integrity.layout-mismatch"
-  },
-  "integrityUnpinned": {
-    "code": "hosting.integrity.unpinned"
   }
 };
 
@@ -323,10 +299,6 @@ export const HOSTING_TOPOLOGY_CODES = {
   "topologyChannelMapUnknown": {
     "code": "hosting.topology.channel-map-unknown",
     "doc": "a surround port names a channel id the host does not know, or refuses the carrier's channel mask"
-  },
-  "topologyExtraInputs": {
-    "code": "hosting.topology.extra-inputs-fed-silence",
-    "doc": "retired for hosting.topology.too-many-ports: the plugin has extra inputs, fed silence; written by nobody since omx-clap-core#92, removed with required-not-provided (omx-contract#132)"
   },
   "topologyInstrument": {
     "code": "hosting.topology.instrument"
