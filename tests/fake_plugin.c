@@ -70,7 +70,7 @@
  * Every plugin reads back three read-only parameters: 1 the calls of activate and 2 the calls of process, which is how a
  * test sees a warm-up, and 3 whether the host it was created in offers the preset-load extension.
  * FAKE_RESCAN_ON_ACTIVATE and FAKE_RESCAN_ON_DEACTIVATE make every plugin call the host's audio-ports rescan from its
- * activate (NAMES) or its deactivate (LIST).
+ * activate (NAMES) or its deactivate (LIST); FAKE_RESCAN_ON_FIRST_ACTIVATE from its first activate only.
  * FAKE_LAYOUT_DEFAULT is the default parameter 0 declares (64 without it): the same binary with another layout.
  * FAKE_CONTRACT makes every plugin offer org.openmixer.param-contract/1 over its four parameters (0 latency, frames,
  * stepped; the read-only three, no unit, stepped), whole with "good", at version 2 with one rename step with "migrated",
@@ -138,7 +138,8 @@ typedef struct FAKE_T {
     uint32_t apply_fails;       // apply_configuration answers false (FAKE_APPLY_FAILS)
     uint32_t configurable_any;  // any channel count and type can be applied (FAKE_CONFIGURABLE_ANY)
     uint32_t configs_untyped;   // the configs name no port type (FAKE_CONFIGS_UNTYPED)
-    uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE)
+    uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE; 2, its first
+                                    // activate only: FAKE_RESCAN_ON_FIRST_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
     uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
     uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
@@ -727,6 +728,9 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
 
+        if (fake->rescan_on_activate == 2)
+            fake->rescan_on_activate = 0;
+
         if (host_ports)
             host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
     }
@@ -972,7 +976,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->apply_fails = getenv("FAKE_APPLY_FAILS") != NULL;
     fake->configurable_any = getenv("FAKE_CONFIGURABLE_ANY") != NULL;
     fake->configs_untyped = getenv("FAKE_CONFIGS_UNTYPED") != NULL;
-    fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") != NULL;
+    fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
