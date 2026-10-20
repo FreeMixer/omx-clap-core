@@ -19,7 +19,8 @@ host     adds each plugin of plugins.tsv on omx-clap-host (`add clap:<file>#<id>
          remove). Between a hosted add and its remove it waits for the host's log to go quiet, and takes from it
          the lines "<plugin id>: extension not offered: <extension id>" into missing.tsv (file, id, extension).
          The host says those for a hosted plugin only: a refused plugin's instance ends before the host's tick.
-         A "<N> unoffered ids unsaid" line in the window is the row's unsaid count.
+         A "<N> unoffered ids unsaid" line is the host's count, not the plugin's: it goes to unsaid.tsv (batch,
+         count) and into coverage.md's header, never onto a plugin's row.
          Resumable: a plugin already in host.tsv is not added again (remove the out dir for a fresh run).
          --sandbox runs the hosts in a private user, net, pid and mount namespace, with a tmpfs over the user's
          runtime dir and a PipeWire of its own with a null sink, under nice 10: nothing of the desk's graph is
@@ -53,7 +54,8 @@ SABOTAGE = os.environ.get('CLAP_COVERAGE_SABOTAGE', '')
 
 PLUGIN_COLS = ['file', 'id', 'name', 'vendor', 'features', 'audio_in', 'audio_out', 'note_in', 'note_out', 'params',
                'latency', 'instrument', 'scan']
-HOST_COLS = ['file', 'id', 'answer', 'code', 'reply', 'unsaid', 'seconds', 'batch']
+HOST_COLS = ['file', 'id', 'answer', 'code', 'reply', 'seconds', 'batch']
+UNSAID_COLS = ['batch', 'count']
 MISSING_COLS = ['file', 'id', 'extension']
 COVERAGE_COLS = ['id', 'file', 'answer', 'code', 'missing']
 
@@ -303,7 +305,7 @@ def status_of(rc):
 
 def host_loop(a, env):
     plugins = [r for r in read_tsv(os.path.join(a.out, 'plugins.tsv')) if r.get('scan') == 'ok' and r.get('id')]
-    hostp, missp = os.path.join(a.out, 'host.tsv'), os.path.join(a.out, 'missing.tsv')
+    hostp, missp, unsaidp = os.path.join(a.out, 'host.tsv'), os.path.join(a.out, 'missing.tsv'), os.path.join(a.out, 'unsaid.tsv')
     done = {(r['file'], r['id']) for r in read_tsv(hostp)} if SABOTAGE != 'resume-blind' else set()
     todo = [r for r in plugins if (r['file'], r['id']) not in done]
     logdir, cwd = os.path.join(a.out, 'logs'), os.path.join(a.out, 'cwd')
@@ -337,7 +339,9 @@ def host_loop(a, env):
         if row['answer'] == 'hosted':
             h.settle()
             said = h.log_since(offset)
-            row['unsaid'] = unsaid_of(said) or ''
+            unsaid = unsaid_of(said)
+            if unsaid:
+                append_tsv(unsaidp, UNSAID_COLS, dict(batch=row['batch'], count=unsaid))
             for ext in unoffered_of(said, r['id']):
                 append_tsv(missp, MISSING_COLS, dict(file=r['file'], id=r['id'], extension=ext))
             _, err = h.send(f'remove {n}')
@@ -460,7 +464,7 @@ def offered_extensions(extensions, fields=None, header=os.path.join(ROOT, 'src',
     return set(declared) | configured
 
 
-def classify(plugins, host, missing, extensions, offered):
+def classify(plugins, host, missing, extensions, offered, unsaid=()):
     """coverage rows and the summary's numbers, a pure function of the tables"""
     answers = {(r['file'], r['id']): r for r in host}
     asked = collections.defaultdict(list)
@@ -494,7 +498,7 @@ def classify(plugins, host, missing, extensions, offered):
                              offered='yes' if e in offered else 'no'))
     return dict(rows=rows, total=len(rows), hosted=len(hosted), refusals=refusals, broken=broken, failed_files=failed_files,
                 not_run=sum(r['answer'] == 'not-run' for r in rows), errors=sum(r['answer'] == 'error' for r in rows),
-                unsaid=sum(int(h.get('unsaid') or 0) for h in host),
+                unsaid=sum(int(u.get('count') or 0) for u in unsaid),
                 extensions=ext_rows)
 
 
@@ -528,7 +532,7 @@ def cmd_classify(a):
     host = read_tsv(os.path.join(a.out, 'host.tsv'))
     missing = read_tsv(os.path.join(a.out, 'missing.tsv'))
     extensions = header_extensions(a.clap_include)
-    c = classify(plugins, host, missing, extensions, offered_extensions(extensions))
+    c = classify(plugins, host, missing, extensions, offered_extensions(extensions), read_tsv(os.path.join(a.out, 'unsaid.tsv')))
     write_tsv(os.path.join(a.out, 'coverage.tsv'), COVERAGE_COLS, c['rows'])
     with open(os.path.join(a.out, 'coverage.md'), 'w') as f:
         f.write(render(c))
@@ -659,7 +663,9 @@ def self_test():
           and by.get('p.ok2', {}).get('batch') == by.get('p.bare', {}).get('batch') and len({r['batch'] for r in host}) == 5)
         t('host: a fresh host after a crash: the next plugin is hosted', by.get('p.ok2', {}).get('answer') == 'hosted'
           and by['p.ok2'].get('batch') != by.get('p.crash', {}).get('batch'))
-        t('host: the host\'s unsaid count kept on the row', by.get('p.ok1', {}).get('unsaid') == '3')
+        unsaid = read_tsv(os.path.join(out, 'unsaid.tsv'))
+        t('host: the host\'s unsaid count kept for the run, never on a plugin\'s row',
+          [u['count'] for u in unsaid] == ['3'] and not any('unsaid' in r for r in host))
         missing = read_tsv(os.path.join(out, 'missing.tsv'))
         t('host: the unoffered ids of a hosted plugin, each once',
           sorted(r['extension'] for r in missing if r['id'] == 'p.ok1') == ['clap.gui', 'clap.render'])
@@ -688,7 +694,7 @@ def self_test():
           and 'clap.gui' not in offered)
         t('offered: a field the configuration leaves off is not offered',
           'clap.preset-load/2' not in offered_extensions(exts, fields=['track_info']) and 'clap.track-info/1' in offered_extensions(exts, fields=['track_info']))
-        c = classify(read_tsv(os.path.join(out, 'plugins.tsv')), host, missing, exts, offered)
+        c = classify(read_tsv(os.path.join(out, 'plugins.tsv')), host, missing, exts, offered, unsaid)
         t('classify: hosted 3 of 8, the failed file apart', c['hosted'] == 3 and c['total'] == 8 and len(c['failed_files']) == 1)
         t('classify: refusals by code', dict((k, len(v)) for k, v in c['refusals'].items()) == {'hosting.clap.note-input': 1, 'resp -101': 1})
         t('classify: crashes and hangs by file', len(c['broken'].get('/x/a.clap', [])) == 3)
