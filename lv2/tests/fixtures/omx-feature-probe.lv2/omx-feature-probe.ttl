@@ -46,6 +46,14 @@
         lv2:name "Out"
     ] .
 
+# the pool's two URIs are features: declared here, as the kxstudio bundle declares the current one, so the validator
+# knows them (zynadd's bundle declares neither)
+<http://kxstudio.sf.net/ns/lv2ext/rtmempool#Pool>
+    a lv2:Feature .
+
+<http://home.gna.org/lv2dynparam/rtmempool/v1>
+    a lv2:Feature .
+
 # the twin that requires the pool under lv2dynparam's URI, as zynadd does (omx-clap-core#265)
 <urn:openmixer:test:feature-probe#needs-rtmempool>
     a lv2:Plugin , lv2:UtilityPlugin ;
