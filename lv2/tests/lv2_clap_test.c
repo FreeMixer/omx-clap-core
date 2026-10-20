@@ -1691,10 +1691,10 @@ static void t_midi_extra(double rate)
 
 static void mi_clap_note(struct midi_in *m, uint16_t type, uint32_t time, int16_t port, int16_t channel, int16_t key, double velocity);
 
-/* no audio output (#183, #253): a MIDI tool (notes in and out, no audio port), an analyser (audio in, no output) and a
- * control-only plugin (control ports alone) or a MIDI sink (a MIDI input and control ports) are hosted with the strip's audio passing through them bit for bit, the
- * host's placement said in the port's name, no latency on that audio, the tool's notes transformed and the control
- * outputs read-only parameters read after the block */
+/* no audio output (#183, #253): a MIDI tool (notes in and out, no audio port), an analyser (audio in, no output), a
+ * control-only plugin (control ports alone) and a MIDI sink (a MIDI input and control ports) are hosted with the
+ * strip's audio passing through them bit for bit, the host's placement said in the port's name, no latency on that
+ * audio, the tool's notes transformed and the control outputs read-only parameters read after the block */
 static void t_passthrough(double rate)
 {
     struct midi_in mi;
@@ -1777,7 +1777,8 @@ static void t_passthrough(double rate)
         CHECK(twice != CLAP_INVALID_ID && param(&g, twice) == 0.5, "control only %.0f: `amount` set 0.25 by event, `twice` reads 0.5 after the block (%g)",
               rate, twice != CLAP_INVALID_ID ? param(&g, twice) : -1.0);
         rig_down(&g);
-    }    if (rig_up(&g, g_fixture, FIXTURE_URI "#ctl-only", rate, BLOCK) == 0)
+    }
+    if (rig_up(&g, g_fixture, FIXTURE_URI "#ctl-only", rate, BLOCK) == 0)
     {
         const clap_plugin_note_ports_t *np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
         clap_param_info_t pi;
