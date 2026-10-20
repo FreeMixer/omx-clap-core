@@ -30,6 +30,7 @@
 #include <lv2/log/log.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
+#include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
 
@@ -158,7 +159,139 @@ static const LV2_Descriptor DESCRIPTOR = {
 
 const LV2_Descriptor *lv2_worker_gain_descriptor(void) { return &DESCRIPTOR; }
 
+/* ---- the live twin ---- */
+
+struct live_msg {
+  int32_t kind; /* 0: the gain port's dB, 1: the state's trim in dB; a response carries the linear value */
+  float value;
+};
+
+struct live {
+  struct fx fx;
+  LV2_URID trim_key, float_t, max_key, int_t;
+  float trim; /* linear; moved ONLY by work_response */
+};
+
+static LV2_Handle live_instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features) {
+  struct fx *base = instantiate(d, rate, path, features);
+  if (!base) return NULL;
+  struct live *l = calloc(1, sizeof *l);
+  if (!l) {
+    free(base);
+    return NULL;
+  }
+  l->fx = *base;
+  free(base);
+  l->trim = 1.0f;
+  l->trim_key = l->fx.map->map(l->fx.map->handle, LV2_WORKER_GAIN_LIVE_URI "-trim");
+  l->float_t = l->fx.map->map(l->fx.map->handle, LV2_ATOM__Float);
+  l->max_key = l->fx.map->map(l->fx.map->handle, LV2_BUF_SIZE__maxBlockLength);
+  l->int_t = l->fx.map->map(l->fx.map->handle, LV2_ATOM__Int);
+  return l;
+}
+
+static void live_run(LV2_Handle h, uint32_t n) {
+  struct live *l = h;
+  struct fx *f = &l->fx;
+  if (n > f->max_block) atomic_fetch_add(&lv2_worker_gain_probe.over_block, 1);
+  const struct live_msg m = {0, *f->gain_db};
+  if (m.value != f->scheduled_db && f->schedule->schedule_work(f->schedule->handle, sizeof m, &m) == LV2_WORKER_SUCCESS) {
+    f->scheduled_db = m.value;
+    atomic_fetch_add(&lv2_worker_gain_probe.scheduled, 1);
+  }
+  for (uint32_t i = 0; i < n; i++) f->out[i] = f->in[i] * f->applied * l->trim;
+}
+
+static LV2_Worker_Status live_work(LV2_Handle h, LV2_Worker_Respond_Function respond, LV2_Worker_Respond_Handle rh,
+                                   uint32_t size, const void *data) {
+  (void)h;
+  struct live_msg m;
+  if (size != sizeof m) return LV2_WORKER_ERR_UNKNOWN;
+  memcpy(&m, data, sizeof m);
+  m.value = powf(10.0f, m.value / 20.0f);
+  atomic_fetch_add(&lv2_worker_gain_probe.works, 1);
+  return respond(rh, sizeof m, &m);
+}
+
+static LV2_Worker_Status live_response(LV2_Handle h, uint32_t size, const void *data) {
+  struct live *l = h;
+  struct live_msg m;
+  if (size != sizeof m) return LV2_WORKER_ERR_UNKNOWN;
+  memcpy(&m, data, sizeof m);
+  if (m.kind == 1) {
+    l->trim = m.value;
+    lv2_worker_gain_probe.trim_applied = m.value;
+  } else {
+    l->fx.applied = m.value;
+  }
+  atomic_fetch_add(&lv2_worker_gain_probe.responses, 1);
+  return LV2_WORKER_SUCCESS;
+}
+
+static uint32_t live_options_get(LV2_Handle h, LV2_Options_Option *options) {
+  (void)h;
+  (void)options;
+  return LV2_OPTIONS_ERR_UNKNOWN;
+}
+
+/* a block length told while the plugin lives: run() checks against it from now on */
+static uint32_t live_options_set(LV2_Handle h, const LV2_Options_Option *options) {
+  struct live *l = h;
+  for (const LV2_Options_Option *o = options; o->key; o++)
+    if (o->key == l->max_key && o->type == l->int_t) {
+      l->fx.max_block = (uint32_t)*(const int32_t *)o->value;
+      lv2_worker_gain_probe.max_block_set = *(const int32_t *)o->value;
+    }
+  atomic_fetch_add(&lv2_worker_gain_probe.options_set, 1);
+  return LV2_OPTIONS_SUCCESS;
+}
+
+static LV2_State_Status live_save(LV2_Handle h, LV2_State_Store_Function store, LV2_State_Handle sh, uint32_t flags,
+                                  const LV2_Feature *const *features) {
+  struct live *l = h;
+  (void)flags, (void)features;
+  return store(sh, l->trim_key, &lv2_worker_gain_probe.save_trim_db, sizeof(float), l->float_t, LV2_STATE_IS_POD | LV2_STATE_IS_PORTABLE);
+}
+
+/* thread-safe: nothing here touches what run() reads; the trim goes to the worker, from the schedule restore() is given */
+static LV2_State_Status live_restore(LV2_Handle h, LV2_State_Retrieve_Function retrieve, LV2_State_Handle sh, uint32_t flags,
+                                     const LV2_Feature *const *features) {
+  struct live *l = h;
+  const LV2_Worker_Schedule *schedule = NULL;
+  size_t size = 0;
+  uint32_t type = 0, vflags = 0;
+  (void)flags;
+  atomic_fetch_add(&lv2_worker_gain_probe.restores, 1);
+  for (int i = 0; features && features[i]; i++)
+    if (!strcmp(features[i]->URI, LV2_WORKER__schedule)) schedule = features[i]->data;
+  lv2_worker_gain_probe.restore_had_schedule = schedule != NULL;
+  const float *db = retrieve(sh, l->trim_key, &size, &type, &vflags);
+  if (!db || size != sizeof(float) || type != l->float_t) return LV2_STATE_ERR_NO_PROPERTY;
+  const struct live_msg m = {1, *db};
+  if (!schedule || schedule->schedule_work(schedule->handle, sizeof m, &m) != LV2_WORKER_SUCCESS) return LV2_STATE_ERR_UNKNOWN;
+  return LV2_STATE_SUCCESS;
+}
+
+static const LV2_Worker_Interface LIVE_WORKER = {live_work, live_response, NULL};
+static const LV2_Options_Interface LIVE_OPTIONS = {live_options_get, live_options_set};
+static const LV2_State_Interface LIVE_STATE = {live_save, live_restore};
+
+static const void *live_extension_data(const char *uri) {
+  if (!strcmp(uri, LV2_WORKER__interface)) return &LIVE_WORKER;
+  if (!strcmp(uri, LV2_OPTIONS__interface)) return &LIVE_OPTIONS;
+  if (!strcmp(uri, LV2_STATE__interface)) return &LIVE_STATE;
+  return NULL;
+}
+
+static const LV2_Descriptor LIVE_DESCRIPTOR = {
+  LV2_WORKER_GAIN_LIVE_URI, live_instantiate, connect_port, activate, live_run, NULL, cleanup, live_extension_data,
+};
+
+const LV2_Descriptor *lv2_worker_gain_live_descriptor(void) { return &LIVE_DESCRIPTOR; }
+
 #ifdef LV2_WORKER_GAIN_BUNDLE
 /* built as the bundle omx-worker-gain.lv2: the entry point a host walks */
-LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index) { return index == 0 ? lv2_worker_gain_descriptor() : NULL; }
+LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index) {
+  return index == 0 ? lv2_worker_gain_descriptor() : index == 1 ? lv2_worker_gain_live_descriptor() : NULL;
+}
 #endif
