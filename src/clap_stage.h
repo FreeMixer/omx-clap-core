@@ -1639,6 +1639,49 @@ static inline int omx_clap_run_plugin(struct omx_clap_stage *s, uint32_t n)
 }
 
 /**
+ * RT, a live block the plugin ran with the verdict `usable` on its main output: every auxiliary output channel scanned
+ * when the stage guards for non-finite output (one non-finite sample makes the block OMX_HOSTED_BLOCK_NONFINITE, which
+ * strikes and delivers as a main one does) and, the block still usable, clamped when the stage clamps (counted in
+ * clamped_samples). Returns the block's verdict.
+ */
+static inline int omx_clap_aux_out_guard(struct omx_clap_stage *s, int usable, uint32_t n)
+{
+    uint32_t i, c, moved = 0;
+
+    if (usable == OMX_HOSTED_BLOCK_USABLE && (s->h.guards & OMX_HOSTED_GUARD_NONFINITE))
+        for (i = 0; i < s->n_aux && usable == OMX_HOSTED_BLOCK_USABLE; i++)
+            for (c = 0; c < s->aout[1 + i].channel_count; c++)
+                if (!omx_block_finite(s->aout[1 + i].data32[c], n))
+                {
+                    usable = OMX_HOSTED_BLOCK_NONFINITE;
+                    break;
+                }
+    if (usable != OMX_HOSTED_BLOCK_USABLE || !(s->h.guards & OMX_HOSTED_GUARD_CLAMP))
+        return usable;
+    for (i = 0; i < s->n_aux; i++)
+        for (c = 0; c < s->aout[1 + i].channel_count; c++)
+            moved += omx_hosted_clamp(s->aout[1 + i].data32[c], n);
+    if (moved)
+        omx_hosted_count(&s->h.clamped_samples, moved);
+    return usable;
+}
+
+/**
+ * RT, a block whose auxiliary outputs the plugin did not write usable (not processing, a block longer than the bounce,
+ * a bypass, a fault, an unusable block, a sleep): each auxiliary output channel silent for the block, never the last
+ * block's samples again. At most max_block frames, the length every bound block has.
+ */
+static inline void omx_clap_aux_out_silence(struct omx_clap_stage *s, uint32_t n)
+{
+    const uint32_t m = n < s->h.max_block ? n : s->h.max_block;
+    uint32_t i, c;
+
+    for (i = 0; i < s->n_aux; i++)
+        for (c = 0; c < s->aout[1 + i].channel_count; c++)
+            memset(s->aout[1 + i].data32[c], 0, m * sizeof(float));
+}
+
+/**
  * The transport a host holds, as a processing block hands it to the plugin: `flags` the CLAP_TRANSPORT_* bits that
  * are valid (0: none, and the plugin gets a NULL transport), and each value under its flag. Beats and seconds are
  * CLAP's fixed point (clap_beattime, clap_sectime).
@@ -1757,8 +1800,9 @@ static inline void omx_clap_transport_fill(clap_event_transport_t *t, const stru
     t->tsig_denom = rec->tsig_denom;
 }
 
-static inline void omx_clap_run_locked_status(struct omx_clap_stage *s, float *l, float *r, uint32_t n, clap_event_transport_t *t,
-                                              const struct omx_clap_transport *rec, clap_process_status *said)
+/* the two-leg body; 1 when the plugin wrote this block's auxiliary outputs usable, 0 when the caller silences them */
+static inline int omx_clap_run_locked_status(struct omx_clap_stage *s, float *l, float *r, uint32_t n, clap_event_transport_t *t,
+                                             const struct omx_clap_transport *rec, clap_process_status *said)
 {
     int usable;
 
@@ -1795,15 +1839,15 @@ static inline void omx_clap_run_locked_status(struct omx_clap_stage *s, float *l
             omx_hosted_deliver(0, 1, l, r, s->h.in_l, s->h.in_r, s->h.out_l, s->h.n_out == 2 ? s->h.out_r : s->h.out_l, n);
         }
         atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
-        return;
+        return 0;
     }
     switch (omx_hosted_run_begin(&s->h, l, r, n, &want_wet))
     {
         case OMX_HOSTED_SKIP:
-            return;
+            return 0;
         case OMX_HOSTED_IDLE:
             s->need_reset = 1;  ///< a tail may be frozen: the control thread resets the plugin at re-engage, never this one
-            return;
+            return 0;
         case OMX_HOSTED_GO:
             break;
     }
@@ -1812,16 +1856,18 @@ static inline void omx_clap_run_locked_status(struct omx_clap_stage *s, float *l
         omx_clap_transport_fill(t, rec);
         s->proc.transport = t;
     }
-    usable = omx_clap_run_plugin_status(s, n, said);
+    usable = omx_clap_aux_out_guard(s, omx_clap_run_plugin_status(s, n, said), n);
     s->proc.transport = NULL;
     omx_hosted_run_end_why(&s->h, usable, &s->process_errors, want_wet, l, r, n);
+    return usable == OMX_HOSTED_BLOCK_USABLE;
 }
 
 /** RT: omx_clap_run_locked_status, the plugin's process status not kept. */
 static inline void omx_clap_run_locked(struct omx_clap_stage *s, float *l, float *r, uint32_t n,
                                        clap_event_transport_t *t, const struct omx_clap_transport *rec)
 {
-    omx_clap_run_locked_status(s, l, r, n, t, rec, NULL);
+    if (!omx_clap_run_locked_status(s, l, r, n, t, rec, NULL))
+        omx_clap_aux_out_silence(s, n);
 }
 
 /**
@@ -1846,7 +1892,8 @@ static inline void omx_clap_run_transport_status(struct omx_clap_stage *s, float
         return;
     }
     atomic_store(&s->in_cycle, 1);
-    omx_clap_run_locked_status(s, l, r, n, t, rec, said);
+    if (!omx_clap_run_locked_status(s, l, r, n, t, rec, said))
+        omx_clap_aux_out_silence(s, n);
     s->n_notes = 0;
     s->n_sysex = 0;
     atomic_store(&s->in_cycle, 0);
@@ -1973,10 +2020,12 @@ static inline uint32_t omx_clap_take_state(struct omx_clap_stage *s)
  * Not processing, a block longer than the bounce (counted) or a commanded bypass or a fault carries dry; otherwise the
  * input is copied into the wide bounce, the plugin runs, and each output channel is clamped (OMX_HOSTED_GUARD_CLAMP,
  * counted in clamped_samples) and scanned (OMX_HOSTED_GUARD_NONFINITE): an unusable block delivers dry and strikes as
- * omx_hosted_run_end_why does. Bypass switches the body hard, with no crossfade, on the block it is commanded.
+ * omx_hosted_run_end_why does. Bypass switches the body hard, with no crossfade, on the block it is commanded. The
+ * auxiliary outputs are guarded with the main ones (omx_clap_aux_out_guard). Returns 1 when the plugin wrote them
+ * usable, 0 on every dry path, where the caller silences them (omx_clap_aux_out_silence).
  */
-static inline void omx_clap_run_ports_locked(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
-                                             clap_event_transport_t *t, const struct omx_clap_transport *rec)
+static inline int omx_clap_run_ports_locked(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
+                                            clap_event_transport_t *t, const struct omx_clap_transport *rec)
 {
     const uint32_t n_in = omx_clap_main_in_channels(s);
     const uint32_t n_out = s->aout[0].channel_count;
@@ -1988,14 +2037,14 @@ static inline void omx_clap_run_ports_locked(struct omx_clap_stage *s, const flo
     {
         omx_clap_ports_dry(ins, n_in, outs, n_out, n);
         atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
-        return;
+        return 0;
     }
     if (n > s->h.max_block)
     {
         omx_hosted_count(&s->h.oversize_blocks, 1);
         omx_clap_ports_dry(ins, n_in, outs, n_out, n);
         atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
-        return;
+        return 0;
     }
     if (atomic_load_explicit(&s->h.bypass, memory_order_acquire) != 0u
         || atomic_load_explicit(&s->h.fault, memory_order_relaxed) != OMX_HOSTED_FAULT_NONE)
@@ -2003,7 +2052,7 @@ static inline void omx_clap_run_ports_locked(struct omx_clap_stage *s, const flo
         omx_clap_ports_dry(ins, n_in, outs, n_out, n);
         atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
         s->need_reset = 1;  ///< a tail may be frozen: the control thread resets the plugin at re-engage, never this one
-        return;
+        return 0;
     }
     for (c = 0; c < n_in; c++)
         memcpy(s->wide_in[c], ins[c], n * sizeof(float));
@@ -2018,11 +2067,12 @@ static inline void omx_clap_run_ports_locked(struct omx_clap_stage *s, const flo
         for (c = 0; c < n_out; c++)
             if (!omx_block_finite(s->wide_out[c], n))
                 usable = OMX_HOSTED_BLOCK_NONFINITE;
+    usable = omx_clap_aux_out_guard(s, usable, n);
     if (usable != OMX_HOSTED_BLOCK_USABLE)
     {
         omx_clap_ports_dry(dry, n_in, outs, n_out, n);
         omx_hosted_run_end_why(&s->h, usable, &s->process_errors, 0u, NULL, NULL, n);   // counts, strikes, marks the body dry
-        return;
+        return 0;
     }
     omx_hosted_count(&s->h.runs, 1);
     if (s->h.guards & OMX_HOSTED_GUARD_CLAMP)
@@ -2035,6 +2085,7 @@ static inline void omx_clap_run_ports_locked(struct omx_clap_stage *s, const flo
     for (c = 0; c < n_out; c++)
         memcpy(outs[c], s->wide_out[c], n * sizeof(float));
     atomic_store_explicit(&s->h.rendered_wet, 1, memory_order_release);
+    return 1;
 }
 
 /** RT: omx_clap_run_ports_locked inside the cycle bracket, handing a processing block the transport `rec` in `t` (NULL,
@@ -2051,7 +2102,8 @@ static inline void omx_clap_run_ports_transport(struct omx_clap_stage *s, const 
         return;
     }
     atomic_store(&s->in_cycle, 1);
-    omx_clap_run_ports_locked(s, ins, outs, n, t, rec);
+    if (!omx_clap_run_ports_locked(s, ins, outs, n, t, rec))
+        omx_clap_aux_out_silence(s, n);
     s->n_notes = 0;
     s->n_sysex = 0;
     atomic_store(&s->in_cycle, 0);

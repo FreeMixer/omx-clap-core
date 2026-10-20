@@ -1044,6 +1044,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         {
             in->stage.steady_time += (int64_t)n;    // the plugin's clock moves on while it sleeps
             atomic_fetch_add_explicit(&z->skipped, 1u, memory_order_relaxed);
+            omx_clap_aux_out_silence(&in->stage, n);    // a sleeping plugin writes nothing: its auxiliary outputs are silent
             return;
         }
         z->asleep = 0;

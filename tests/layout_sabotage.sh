@@ -70,6 +70,12 @@ arm aux-silence src/clap_stage.h \
     's/= bufs \&\& bufs\[c\] ? bufs\[c\] : a->aux_silence\[0\];/= bufs \&\& bufs[c] \&\& 0 ? bufs[c] : a->aux_silence[0];/' \
     "the plugin read the side chain's fourth channel" host_test
 
+# 4. every dry path silences the auxiliary outputs: without it a bypassed plugin's auxiliary outputs repeat its last block
+arm aux-out-silence src/clap_stage.h \
+    's/            memset(s->aout\[1 + i\]\.data32\[c\], 0, m \* sizeof(float));/            (void)m;/' \
+    'bypassed, the plugin idles and its auxiliary outputs are silent' \
+    sh -c "make -j$jobs tests/clap_stage_test && ./tests/clap_stage_test"
+
 if [ "$failures" -eq 0 ]; then
     echo "layout sabotage ok"
     exit 0
