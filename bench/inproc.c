@@ -269,16 +269,22 @@ int main(int argc, char **argv)
         return 2;
     }
     setvbuf(stdout, NULL, _IOLBF, 0);
-    /* OMX_BENCH_GUARDS=off: omx-clap-host's configuration (no clamp, no non-finite scan, no warm-up), to tell the
-     * engine's per-block guards from the hosting path itself; unset, the core's defaults, which the engine runs */
-    if (getenv("OMX_BENCH_GUARDS") && !strcmp(getenv("OMX_BENCH_GUARDS"), "off"))
     {
+        /* OMX_BENCH_GUARDS=off: omx-clap-host's configuration (no clamp, no non-finite scan, no warm-up), to tell the
+         * engine's per-block guards from the hosting path itself; unset, the core's defaults, which the engine runs.
+         * OMX_BENCH_IDLE_HOLD: the CPU idle hold, off or microseconds (#296); unset, the library's own default */
         struct omx_clap_host_config config;
+        const char *guards = getenv("OMX_BENCH_GUARDS"), *hold = getenv("OMX_BENCH_IDLE_HOLD");
 
         omx_clap_host_config_default(&config);
-        config.clamp = 0;
-        config.nonfinite = 0;
-        config.warmup = 0;
+        if (guards && !strcmp(guards, "off"))
+        {
+            config.clamp = 0;
+            config.nonfinite = 0;
+            config.warmup = 0;
+        }
+        if (hold && *hold)
+            config.idle_hold_us = !strcmp(hold, "off") ? OMX_CLAP_IDLE_HOLD_OFF : atoi(hold);
         if (omx_clap_host_configure(&config) != 0)
             return 2;
     }

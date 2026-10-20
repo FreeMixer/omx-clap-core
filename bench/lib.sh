@@ -6,6 +6,14 @@
 
 mod_host=${MOD_HOST:-$(command -v mod-host)}
 clap_host=${OMX_CLAP_HOST:-$root/omx-clap-host}
+hostd=${PLUGIN_HOSTD:-$(command -v plugin-hostd)}
+jalv=${JALV:-$(command -v jalv)}
+# the CPU idle hold of the run (#296, #105): default (the library's own, 10 us), off, 0 or a latency in microseconds. A
+# host that links libomx-clap-core holds the device itself (omx-clap-host --idle-hold, inproc through its
+# configuration, plugin-hostd's workers through the wrapper below); mod-host and jalv have no library, so the bench
+# keeps the same request on the device for them (hold_external), which is what an operator's playbook would do
+idle_hold=${BENCH_IDLE_HOLD:-default}
+device=${OMX_CLAP_IDLE_HOLD_DEVICE:-/dev/cpu_dma_latency}
 plugins=${PLUGINS:-$here/plugins.tsv}
 probe=$root/build/bench/probe
 inproc=$root/build/bench/inproc
@@ -99,7 +107,8 @@ plugin_set() {
 # the add line of one plugin for this path: <clap file> <clap id> <lv2 bundle> <lv2 uri>
 add_line() {
     case $path in
-        modhost) echo "add $4" ;;
+        modhost | jalv) echo "add $4" ;;
+        hostd) echo "add lv2:$4" ;;
         clap) echo "add clap:$1#$2" ;;
         adapter) echo "add clap:$bridge#$4" ;;
         inproc-clap) echo "add clap $1 $2" ;;
@@ -108,20 +117,63 @@ add_line() {
     esac
 }
 
+# the hold as omx-clap-host's option: nothing for default
+hold_opt() { [ "$idle_hold" = default ] || echo "--idle-hold=$idle_hold"; }
+
+# the request a host with no library would make, kept by the bench for the run: nothing for default and off
+hold_external() {
+    case $idle_hold in default | off) return 0 ;; esac
+    python3 -I -c 'import os, signal, struct, sys
+fd = os.open(sys.argv[1], os.O_RDWR)
+os.pwrite(fd, struct.pack("i", int(sys.argv[2])), 0)
+signal.pause()' "$device" "$idle_hold" &
+    holder_pid=$!
+}
+
+# what the device holds across every requester, or - when it cannot be read (the device is root's without the rule)
+device_reads() {
+    local v
+    v=$(od -An -td4 "$device" 2>/dev/null | tr -d ' ')
+    echo "${v:--}"
+}
+
+# the directories of the run's LV2 bundles, for a host that searches a path
+lv2_dirs() {
+    echo "$lv2_bundles" | tr ':' '\n' | xargs -n1 dirname | sort -u | paste -sd:
+}
+
 # the path's host, its pid in host_pid, ready for `send`; t_spawn and t_ready around it
 host_start() {
     local line
     t_spawn=$(now_ns)
     case $path in
         modhost)
+            hold_external
             LV2_PATH=$(dirname "$fakes"):/usr/lib64/lv2:/usr/lib/lv2 "$mod_host" -n -p $port >"$raw/host.log" 2>&1 &
             host_pid=$! ;;
         clap | adapter)
-            OMX_BENCH_LV2_BUNDLES=$lv2_bundles "$clap_host" -n -p $port >"$raw/host.log" 2>&1 &
+            # shellcheck disable=SC2046
+            OMX_BENCH_LV2_BUNDLES=$lv2_bundles "$clap_host" -n $(hold_opt) -p $port >"$raw/host.log" 2>&1 &
             host_pid=$! ;;
+        hostd)
+            # the daemon, its LV2 worker omx-clap-host through the adapter (the lane's binary, with the hold as its
+            # option, behind a wrapper the daemon spawns), every plugin in one pool worker; no pins, as the other
+            # paths check none
+            printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$clap_host" "$(hold_opt)" >"$runtime/omx-clap-host"
+            chmod 755 "$runtime/omx-clap-host"
+            printf 'clap_host %s\nlv2_worker omx-clap-host\nlv2_path %s\nrequire_pins 0\nstate_root %s\n' \
+                "$runtime/omx-clap-host" "$(lv2_dirs)" "$runtime" >"$runtime/hostd.conf"
+            "$hostd" -n -p $port -c "$runtime/hostd.conf" >"$raw/host.log" 2>&1 &
+            host_pid=$! ;;
+        jalv)
+            # one jalv process per plugin, as Zynthian runs its layers: spawned by send; no host before the first add
+            hold_external
+            jalv_pids=()
+            host_pid= ;;
         inproc-*)
             rm -f "$runtime/host.in" "$runtime/host.out"
             mkfifo "$runtime/host.in" "$runtime/host.out"
+            [ "$idle_hold" = default ] || export OMX_BENCH_IDLE_HOLD=$idle_hold
             "$inproc" "$rate" <"$runtime/host.in" >"$runtime/host.out" 2>"$raw/host.log" &
             host_pid=$!
             exec 7>"$runtime/host.in" 8<"$runtime/host.out" ;;
@@ -129,20 +181,54 @@ host_start() {
     case $path in
         inproc-*)
             read -r -t 10 line <&8 && [ "$line" = ready ] || die "inproc did not start" ;;
+        jalv) ;;
         *)
             for _ in $(seq 500); do grep -q ready "$raw/host.log" && break; sleep 0.01; done
             grep -q ready "$raw/host.log" || die "host not ready: $(tail -3 "$raw/host.log")"
             exec 3<>"/dev/tcp/127.0.0.1/$port" ;;
     esac
     t_ready=$(now_ns)
+    case $path in
+        hostd) added "$(send "policy_set lv2 pool:bench")" 0 || die "policy_set: $(send "policy_set lv2 pool:bench")" ;;
+    esac
 }
 
+# the host's processes: one, or every jalv
+host_pids() {
+    case $path in
+        jalv) echo "${jalv_pids[@]}" ;;
+        *) echo "$host_pid" ;;
+    esac
+}
+host_rss_kb() { local p t=0; for p in $(host_pids); do t=$((t + $(rss_kb "$p"))); done; echo "$t"; }
+host_cpu_ticks() { local p t=0; for p in $(host_pids); do t=$((t + $(cpu_ticks "$p"))); done; echo "$t"; }
+host_alive() { local p; for p in $(host_pids); do kill -0 "$p" 2>/dev/null || return 1; done; return 0; }
+
 send() {
-    local reply
+    local reply uri k p
     case $path in
         inproc-*)
             echo "$1" >&7
             IFS= read -r -t 30 reply <&8 ;;
+        jalv)
+            # "add <uri> <k>": jalv -s -n effect_<k> <uri>, ready when its client's ports are in the graph; "quit" ends them
+            case $1 in
+                add\ *)
+                    uri=$(echo "$1" | awk '{ print $2 }'); k=$(echo "$1" | awk '{ print $3 }')
+                    LV2_PATH=$(dirname "$fakes"):/usr/lib64/lv2:/usr/lib/lv2 "$jalv" -i -s -n "effect_$k" "$uri" </dev/null >"$raw/jalv-$k.log" 2>&1 &
+                    jalv_pids+=($!)
+                    [ -n "$host_pid" ] || host_pid=$!
+                    reply="resp -102"
+                    for _ in $(seq 200); do
+                        if python3 -I "$here/stats.py" ports "effect_$k" | grep -q .; then reply="resp $k"; break; fi
+                        kill -0 "${jalv_pids[-1]}" 2>/dev/null || break
+                        sleep 0.05
+                    done ;;
+                quit)
+                    for p in "${jalv_pids[@]}"; do kill "$p" 2>/dev/null; done
+                    reply="resp 0" ;;
+                *) reply="resp -1" ;;
+            esac ;;
         *)
             printf '%s\0' "$1" >&3
             IFS= read -r -d '' -t 30 reply <&3 ;;
@@ -152,8 +238,11 @@ send() {
 
 # what the host's threads run at: name, policy (0 other, 1 fifo, 2 rr), rt priority
 host_threads() {
-    for t in /proc/"$host_pid"/task/*; do
-        echo "$(cat "$t/comm") policy=$(awk '{ print $41 }' "$t/stat") rtprio=$(awk '{ print $40 }' "$t/stat")"
+    local p
+    for p in $(host_pids); do
+        for t in /proc/"$p"/task/*; do
+            echo "$(cat "$t/comm") policy=$(awk '{ print $41 }' "$t/stat") rtprio=$(awk '{ print $40 }' "$t/stat")"
+        done
     done
 }
 

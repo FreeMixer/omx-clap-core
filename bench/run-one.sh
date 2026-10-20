@@ -10,7 +10,10 @@
 #
 # path: modhost (LV2 through mod-host), clap (CLAP through omx-clap-host), adapter (LV2 through omx-clap-host and
 # libomx-clap-lv2), inproc-clap / inproc-lv2 (the plugin in a PipeWire filter's own process callback through
-# libomx-clap-core, the LV2 one through libomx-clap-lv2: the engine's in-process tier).
+# libomx-clap-core, the LV2 one through libomx-clap-lv2: the engine's in-process tier), hostd (LV2 through
+# plugin-hostd, its worker omx-clap-host with the adapter, one pool worker for the set), jalv (LV2, one jalv process
+# per plugin, as Zynthian runs its layers; RSS and CPU are the sum over them, RSS empty is 0: no host before an add).
+# BENCH_IDLE_HOLD: the CPU idle hold of the run (bench/lib.sh), recorded with the device's aggregate in runs.csv.
 #
 # Writes <out dir>/plugins.csv and <out dir>/runs.csv rows (appended, no header) and keeps the raw profiler log,
 # pw-top snapshots and host logs under <out dir>/raw/<path>-<rate>-<quantum>-<rep>/.
@@ -37,6 +40,7 @@ fi
 
 settle=${SETTLE:-3}
 tag=$path-$rate-$quantum-$rep
+[ "${BENCH_IDLE_HOLD:-default}" = default ] || tag=$tag-hold-$BENCH_IDLE_HOLD
 raw=$out/raw/$tag
 rm -rf "$raw"
 mkdir -p "$raw"
@@ -54,7 +58,7 @@ n_fx=${#names[@]}
 probe_start "$n_fx" 2
 host_start
 sleep 0.5
-rss_empty=$(rss_kb "$host_pid")
+rss_empty=$(host_rss_kb)
 
 declare -A t_add add_ms link_ms refused
 n_refused=0
@@ -80,20 +84,24 @@ added "$reply" "$n_fx" || die "pad: $pad -> $reply"
 link_fx "effect_$n_fx" bench-src:imp bench-src:imp bench-rec:lat_1 || die "pad: ports"
 
 sleep "$settle"
-rss_loaded=$(rss_kb "$host_pid")
+rss_loaded=$(host_rss_kb)
 python3 -I "$here/stats.py" nodes >"$raw/nodes.txt"
 host_threads >"$raw/threads.txt"
+# the hold as the device answers it with every plugin active: the kernel's limit across every requester
+cpu_latency=$(device_reads)
 
 # ---- the measured window ----
 pw-top -b -n 2 >"$raw/top-before.txt" 2>&1
 probe_reset
 case $path in inproc-*) send reset >/dev/null ;; esac
-host_cpu0=$(cpu_ticks "$host_pid") pw_cpu0=$(cpu_ticks "$pw_pid")
+host_cpu0=$(host_cpu_ticks) pw_cpu0=$(cpu_ticks "$pw_pid")
+date +%s%N >"$raw/window.txt"
 (cd "$raw" && timeout "$seconds" pw-profiler -o prof.log >/dev/null 2>&1)
-host_cpu1=$(cpu_ticks "$host_pid") pw_cpu1=$(cpu_ticks "$pw_pid")
+date +%s%N >>"$raw/window.txt"
+host_cpu1=$(host_cpu_ticks) pw_cpu1=$(cpu_ticks "$pw_pid")
 pw-top -b -n 2 >"$raw/top-after.txt" 2>&1
 probe_stats "$raw/probe.txt"
-kill -0 "$host_pid" 2>/dev/null || die "the host died during the window: $(tail -3 "$raw/host.log")"
+host_alive || die "the host died during the window: $(tail -3 "$raw/host.log" 2>/dev/null)"
 
 ids=$(awk '$2 ~ /^effect_/ { print $1 }' "$raw/nodes.txt" | tr '\n' ' ')
 python3 -I "$here/stats.py" profile "$raw/prof.log" $ids >"$raw/profile.txt"
@@ -134,11 +142,12 @@ drv_name=$(awk '$2 ~ /Driver$/ && $2 !~ /Freewheel/ { print $2 }' "$raw/err-afte
 pct() { awk -v d="$1" -v hz="$hz" -v s="$seconds" 'BEGIN { printf "%.2f", 100 * d / hz / s }'; }
 host_cpu_pct=$(pct $((host_cpu1 - host_cpu0)))
 pw_cpu_pct=$(pct $((pw_cpu1 - pw_cpu0)))
-echo "$path,$rate,$quantum,$rep,$((n_fx - $n_refused)),$(ms "$t_spawn" "$t_ready"),$rss_empty,$rss_loaded,$host_cpu_pct,$pw_cpu_pct,$(echo "$drv" | field cycles),$(echo "$drv" | field end_p50),$(echo "$drv" | field end_p99),$(echo "$drv" | field end_max),$(err_delta "$drv_name"),$(echo "$drv" | field overruns),$(echo "$client" | field late),$(echo "$client" | field xruns),$(echo "$client" | field max_gap_us),$(echo "$lat_ref" | field lat_min),$(echo "$lat_ref" | field lat_max),$(echo "$lat_pad" | field lat_min),$(echo "$lat_pad" | field lat_max),$(echo "$lat_pad" | field lat_n)" >>"$out/runs.csv"
-echo "run $tag: $((n_fx - $n_refused)) plugins ($n_refused refused), driver end p50 $(echo "$drv" | field end_p50) us, pad latency $(echo "$lat_pad" | field lat_min)..$(echo "$lat_pad" | field lat_max) frames (reference $(echo "$lat_ref" | field lat_min))"
+echo "$path,$rate,$quantum,$rep,$((n_fx - $n_refused)),$(ms "$t_spawn" "$t_ready"),$rss_empty,$rss_loaded,$host_cpu_pct,$pw_cpu_pct,$(echo "$drv" | field cycles),$(echo "$drv" | field end_p50),$(echo "$drv" | field end_p99),$(echo "$drv" | field end_max),$(err_delta "$drv_name"),$(echo "$drv" | field overruns),$(echo "$client" | field late),$(echo "$client" | field xruns),$(echo "$client" | field max_gap_us),$(echo "$lat_ref" | field lat_min),$(echo "$lat_ref" | field lat_max),$(echo "$lat_pad" | field lat_min),$(echo "$lat_pad" | field lat_max),$(echo "$lat_pad" | field lat_n),$idle_hold,$cpu_latency" >>"$out/runs.csv"
+echo "run $tag: $((n_fx - $n_refused)) plugins ($n_refused refused), driver end p50 $(echo "$drv" | field end_p50) us, pad latency $(echo "$lat_pad" | field lat_min)..$(echo "$lat_pad" | field lat_max) frames (reference $(echo "$lat_ref" | field lat_min)), idle hold $idle_hold, device $cpu_latency"
 
 case $path in
     inproc-*) echo quit >&7 ;;
+    jalv) send quit >/dev/null ;;
     *) printf 'quit\0' >&3 ;;
 esac
 echo quit >&5
