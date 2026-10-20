@@ -1,6 +1,6 @@
 name: abi
 
-# libomx-clap-core.so.0 compared with the baseline of its last release (abi/libomx-clap-core.so.0.abi): tests/abi-check.sh
+# libomx-clap-core.so.1 compared with the baseline of its last release (abi/libomx-clap-core.so.1.abi): tests/abi-check.sh
 # reads the rule off the report. Called by ci.yml on every push and pull request and by release.yml before anything is built.
 
 on:

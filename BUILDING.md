@@ -19,7 +19,7 @@ binary's rpath; `JACK_DIR` defaults to `../jack-dev`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
-builds `libomx-clap-core.so.0`, checks its exports and the libraries it needs
+builds `libomx-clap-core.so.1`, checks its exports and the libraries it needs
 (`tests/exports.sh`), links `tests/core_link_test.c` to the installed library
 and runs it with the defaults, and runs the lifecycle test against a plugin without jack, and against
 `tests/fake.clap`, a plugin built for the test that carries the port
@@ -146,7 +146,7 @@ The core library
 ----------------
 
 The CLAP hosting core, everything that runs a plugin except the jack plumbing and
-the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.0`, so that
+the mod-host verbs, is a shared library of its own, `libomx-clap-core.so.1`, so that
 a program that hosts CLAP plugins in its own process runs the same core. omx-clap-host
 and omx-clap-scan link it; a program that hosts plugins in its own process links the same file.
 
@@ -214,9 +214,10 @@ What a host differs in is a configuration, set once per process with
 | note inputs and instruments | refused | admitted |
 | `clap.preset-load` host extension | not offered | offered |
 | `clap.track-info` and `clap.remote-controls` host extensions | not offered | offered |
+| widest main port activation admits (`lane_channels`; 0 any) | 2 | 2 |
 | host name, vendor, url | omx-clap-core, Pau Aliagas | omx-clap-host, Pau Aliagas |
 
-The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core0`
+The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core1`
 and `libomx-clap-core-dev` (deb), built from the same tag as omx-clap-host, which
 depends on the library.
 

@@ -124,8 +124,8 @@ make test-lv2
 
 %files -n omx-clap-core
 %license COPYING
-%{_libdir}/libomx-clap-core.so.0
-%{_libdir}/libomx-clap-core.so.0.*
+%{_libdir}/libomx-clap-core.so.1
+%{_libdir}/libomx-clap-core.so.%{version}
 
 %files -n omx-clap-core-devel
 %{_libdir}/libomx-clap-core.so
