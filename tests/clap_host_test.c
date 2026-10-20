@@ -210,10 +210,12 @@ static void t_run_ports(const char *path)
 }
 
 /*
- * A plugin whose deactivate says its layout changed (`what`, the host's surround or ambisonic changed): activated, a
- * restart around a deactivate and the first tick after it read no restart and no rescan (activate answers what its own
- * deactivate raised); a plain deactivate's changed is reported once by the tick, then cleared, and asks for no restart;
- * the host's clap.audio-ports rescan, by names while active and of the list while inactive, is reported the same way.
+ * A plugin whose deactivate says its layout changed (`what`, the host's surround or ambisonic changed), CLAP's sequence
+ * for a layout change: a restart leaves it inactive with the rescan reported once and its audio role kept, and
+ * request_layout (nothing asked) reads the description again and answers it, so after the activate the next tick shows
+ * none; a plain deactivate's changed is reported once by the tick, then cleared, and asks for no restart, and one
+ * request_layout answered before the tick is not reported at all; the host's clap.audio-ports rescan, by names while
+ * active and of the list while inactive, is reported the same way.
  */
 static void rescan_checks(struct omx_clap_instance *in, const char *id, const char *what)
 {
@@ -222,10 +224,22 @@ static void rescan_checks(struct omx_clap_instance *in, const char *id, const ch
 
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", id, why);
     CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: the first tick after activate: no restart, no rescan", id);
-    CHECK(omx_clap_host_restart(in) == 0, "%s restarts: its deactivate calls %s", id, what);
-    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0,
-          "%s: the first tick after the restart: no restart, no rescan (activate answered its deactivate's %s)", id, what);
-    CHECK(omx_clap_host_tick(in) == 0, "%s: and none on the next tick either: no restart loop", id);
+    {
+        const pthread_t thread = in->audio_thread;
+        const int held = in->audio_role_held;
+
+        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && !in->active,
+              "%s: a restart whose deactivate calls %s answers OMX_CLAP_RESTART_RESCANNED, not a failure, and leaves it inactive", id, what);
+        CHECK(pthread_equal(in->audio_thread, thread) && in->audio_role_held == held, "%s: with its audio role as it was", id);
+    }
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: the rescan its deactivate made is reported once, no restart", id);
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates again", id);
+    CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && !in->active, "%s: restarted again, rescanned and inactive again", id);
+    CHECK(omx_clap_host_request_layout(in, NULL, 0, why) == OMX_CLAP_LAYOUT_DECLARED && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: request_layout, nothing asked, reads the description again and answers the reported rescan", id);
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s: and it activates (%s)", id, why);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: the next tick shows no rescan, no restart", id);
     CHECK(ports != NULL, "the host offers clap.audio-ports");
     if (ports)
     {
@@ -237,6 +251,11 @@ static void rescan_checks(struct omx_clap_instance *in, const char *id, const ch
     CHECK(omx_clap_host_tick(in) == 0, "%s: %s after a plain deactivate asks for no restart", id, what);
     CHECK(omx_clap_host_ports_rescanned(in) == 1, "%s: the tick reports %s as a ports rescan", id, what);
     CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: reported once, then cleared", id);
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates once more", id);
+    omx_clap_host_deactivate(in);
+    CHECK(omx_clap_host_request_layout(in, NULL, 0, why) == OMX_CLAP_LAYOUT_DECLARED, "%s: deactivated, the description read again", id);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: the %s of that deactivate, answered by the read before the tick, is not reported", id, what);
     if (ports)
     {
         ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
@@ -827,6 +846,357 @@ static int legs_are(const float *l, const float *r, float lv, float rv)
         if (l[i] != lv || r[i] != rv)
             return 0;
     return 1;
+}
+
+/* one request for a main port of `channels`, of `type` (a CLAP_PORT_* id, or NULL) with its `details` */
+static clap_audio_port_configuration_request_t main_request(bool is_input, uint32_t channels, const char *type, const void *details)
+{
+    clap_audio_port_configuration_request_t r;
+
+    memset(&r, 0, sizeof(r));
+    r.is_input = is_input;
+    r.port_index = 0;
+    r.channel_count = channels;
+    r.port_type = type;
+    r.port_details = details;
+    return r;
+}
+
+/* open `id` with the fake's environment knob `knob` set (NULL: none), the knob unset again after the create read it */
+static int open_with(const char *path, const char *id, const char *knob, struct omx_clap_instance **in)
+{
+    int ok;
+
+    if (knob)
+        setenv(knob, "1", 1);
+    ok = open_ok(path, id, in);
+    if (knob)
+        unsetenv(knob);
+    return ok;
+}
+
+/*
+ * omx_clap_host_request_layout asks an inactive plugin for the carrier's layout: configurable-audio-ports first, then
+ * the audio-ports-config list, then OMX_CLAP_LAYOUT_DECLARED (the declared layout stands); after an applied request
+ * the description is read again, and its refusals refuse the request. A plugin's is_channel_mask_supported or
+ * is_config_supported refusing the carrier's surround mask or ambisonic configuration is -1 with its code; an active
+ * instance is -1 with nothing applied.
+ */
+static void t_request_layout(const char *path)
+{
+    static const uint8_t five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL,
+                                         CLAP_SURROUND_SR };
+    static const uint8_t six_zero[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_BC, CLAP_SURROUND_SL,
+                                         CLAP_SURROUND_SR };
+    static const uint8_t unknown_id[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL, 25 };
+    const clap_ambisonic_config_t fuma = { CLAP_AMBISONIC_ORDERING_FUMA, CLAP_AMBISONIC_NORMALIZATION_MAXN };
+    const clap_ambisonic_config_t ambix = { CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
+    struct omx_clap_instance *in = NULL;
+    clap_audio_port_configuration_request_t reqs[2] = { 0 };
+    char why[OMX_CLAP_WHY_MAX];
+    int ret;
+
+    CHECK(omx_clap_host_request_layout(NULL, reqs, 0, why) == -1, "request_layout: no instance is -1");
+    CHECK(open_ok(path, FAKE_CONFIGS, &in), "open %s", FAKE_CONFIGS);
+    if (in)
+    {
+        strcpy(why, "untouched");
+        CHECK(omx_clap_host_request_layout(in, NULL, 1, why) == -1 && why[0] == '\0' && in->in_channels == 1,
+              "request_layout: requests counted but none given is -1, why emptied, nothing applied");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // audio-ports-config: the stereo pair selected, a layout no config offers left as it is
+    CHECK(open_ok(path, FAKE_CONFIGS, &in) && in->in_channels == 1 && in->channels == 2, "%s opens as it declares: one channel in, two out",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && in->main_in.channels == 2 && in->channels == 2,
+              "%s: a stereo pair asked, config 2 selected and the description read again (%d, %u in)", FAKE_CONFIGS, ret, in->in_channels);
+        CHECK(strcmp(in->main_in.name, "in 0 config 2") == 0 && in->main_in.kind == OMX_CLAP_PORT_STEREO,
+              "%s: the main input is the selected config's (\"%s\")", FAKE_CONFIGS, in->main_in.name);
+        reqs[0] = main_request(true, 6, CLAP_PORT_SURROUND, five_one);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 2 && in->channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: a 5.1 input no config offers is DECLARED, the description as it was (%d, %u in)", FAKE_CONFIGS, ret, in->in_channels);
+        reqs[0] = main_request(true, 1, CLAP_PORT_MONO, NULL);
+        reqs[1] = main_request(false, 1, CLAP_PORT_MONO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 2 && in->channels == 2,
+              "%s: a mono pair, which no config offers, is DECLARED (%d)", FAKE_CONFIGS, ret);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a config naming no port type: a stereo request of two channels matches it
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_UNTYPED", &in), "%s opens, its configs naming no port type", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: an untyped config of two channels matches a stereo request (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        reqs[0] = main_request(true, 2, CLAP_PORT_SURROUND, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_SURROUND, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED, "%s: but not a surround request of two (%d)", FAKE_CONFIGS, ret);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a config carrying a side chain beside its main input matches a mains-only request by its mains; the side chain is
+    // described after, when the description is read again
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_SIDE", &in), "%s opens, its configs carrying a side chain", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: a config with a side chain matches the mains-only request by its mains (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 1, "%s: and its side chain is described after (%u aux in)", FAKE_CONFIGS,
+              in->aux_inputs);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a side not asked takes a config with no main there, and a side asked never takes one: a source's output-only
+    // request matches no config carrying a main input, and the source config, flagging no main input, matches no
+    // request with one, its stale input fields (one channel, mono) notwithstanding
+    CHECK(open_ok(path, FAKE_CONFIGS, &in), "open %s", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 1,
+              "%s: an output-only request matches no config with a main input: DECLARED (%d, %u in)", FAKE_CONFIGS, ret, in->in_channels);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_NO_MAIN_IN", &in), "%s opens, its config 1 a source", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 1, CLAP_PORT_MONO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
+              "%s: a mono input asked never takes the source config flagging no main input: DECLARED (%d, \"%s\")", FAKE_CONFIGS, ret,
+              in->main_in.name);
+        reqs[0] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == 0 && in->in_channels == 0 && strcmp(in->main_out.name, "out 0 config 1") == 0,
+              "%s: the output-only request selects the source config (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels,
+              in->main_out.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a refused request still reads the description again: a plugin whose deactivate switched it to the stereo pair
+    // (a restart answered RESCANNED, the report taken) asked for a map it cannot name is -1 with the map's code, and
+    // the description is the new one, never the old one left to activate on
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_SWITCH_ON_DEACTIVATE", &in), "%s opens, switching to config 2 in every deactivate",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        static const uint8_t past_tsr[2] = { CLAP_SURROUND_FL, 25 };
+
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0 && in->in_channels == 1, "%s activates, one channel in (%s)",
+              FAKE_CONFIGS, why);
+        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && omx_clap_host_ports_rescanned(in) == 1,
+              "%s: its restart stops on the rescan, reported", FAKE_CONFIGS);
+        reqs[0] = main_request(true, 2, CLAP_PORT_SURROUND, past_tsr);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == -1 && strcmp(why, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN) == 0, "%s: a map past TSR is refused with its code (%d, %s)",
+              FAKE_CONFIGS, ret, why);
+        CHECK(in->in_channels == 2 && in->main_in.channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: and the description is read again all the same: the stereo pair (%u in, \"%s\")", FAKE_CONFIGS, in->in_channels,
+              in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a rate change whose deactivate raised a rescan stops there as a restart does: inactive, reported once, and the
+    // caller re-describes and activates at the new rate
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_SWITCH_ON_DEACTIVATE", &in), "%s opens for a rate change", FAKE_CONFIGS);
+    if (in)
+    {
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates (%s)", FAKE_CONFIGS, why);
+        ret = omx_clap_host_set_rate(in, 2 * SAMPLE_RATE, BLOCK, why);
+        CHECK(ret == OMX_CLAP_RESTART_RESCANNED && !in->active && in->in_channels == 1,
+              "%s: a rate change whose deactivate rescanned answers RESCANNED, inactive, the description not yet read (%d)", FAKE_CONFIGS,
+              ret);
+        CHECK(omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0, "%s: the rescan is reported once",
+              FAKE_CONFIGS);
+        CHECK(omx_clap_host_request_layout(in, NULL, 0, why) >= 0 && in->in_channels == 2
+                  && omx_clap_host_activate(in, 2 * SAMPLE_RATE, BLOCK, why) == 0 && in->rate == 2 * SAMPLE_RATE,
+              "%s: re-described, the stereo pair activates at the new rate (%s)", FAKE_CONFIGS, why);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a match select refuses is passed over: the next matching config is selected
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_TWIN", &in), "%s opens with a second stereo config, select refusing the first",
+          FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 3") == 0,
+              "%s: config 2's select refused, config 3 is selected (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // configurable-audio-ports: applied
+    CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
+    if (in)
+    {
+        reqs[0] = main_request(true, 1, CLAP_PORT_MONO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->main_in.channels == 1 && in->in_channels == 1 && in->main_out.channels == 2
+                  && strcmp(in->main_in.name, "in 0 configured") == 0,
+              "%s: one in, two out asked and applied, the description read again (%d, %u in, \"%s\")", FAKE_CONFIGURABLE, ret,
+              in->main_in.channels, in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // a plugin offering both: configurable-audio-ports is asked first
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGURABLE_TOO", &in), "%s opens offering configurable-audio-ports too", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 configured") == 0,
+              "%s: offering both, the request is applied through configurable-audio-ports, not a config (%d, \"%s\")", FAKE_CONFIGS, ret,
+              in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // apply_configuration answering false after can_apply_configuration said it could
+    CHECK(open_with(path, FAKE_CONFIGURABLE, "FAKE_APPLY_FAILS", &in), "%s opens, its apply answering false", FAKE_CONFIGURABLE);
+    if (in)
+    {
+        reqs[0] = main_request(true, 1, CLAP_PORT_MONO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->main_in.channels == 2 && strcmp(in->main_in.name, "in 0") == 0,
+              "%s: apply_configuration false and no config list to fall back to is DECLARED, the declared pair stands (%d, %u in)", FAKE_CONFIGURABLE, ret, in->main_in.channels);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // offering both, apply_configuration refusing: the config list is asked before DECLARED, and its match selected
+    setenv("FAKE_APPLY_FAILS", "1", 1);
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGURABLE_TOO", &in), "%s opens offering both, its apply answering false", FAKE_CONFIGS);
+    unsetenv("FAKE_APPLY_FAILS");
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: apply refused, the request falls back to the config list and config 2 is selected (%d, \"%s\")", FAKE_CONFIGS, ret,
+              in->main_in.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // applied, but the layout read again is one open refuses: refused with its code, and the instance cannot activate
+    CHECK(open_with(path, FAKE_CONFIGURABLE, "FAKE_CONFIGURABLE_ANY", &in), "%s opens, applying any width", FAKE_CONFIGURABLE);
+    if (in)
+    {
+        reqs[0] = main_request(true, 65, NULL, NULL);
+        reqs[1] = main_request(false, 65, NULL, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == -1 && strcmp(why, "hosting.topology.port-too-wide") == 0,
+              "%s: 65 channels applied, the description read again refuses it port-too-wide (%d, %s)", FAKE_CONFIGURABLE, ret, why);
+        ret = omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why);
+        CHECK(ret == -1 && strcmp(why, "hosting.topology.no-audio-output") == 0 && in->main_out.channels == 0,
+              "%s: and an instance left with no description does not activate (%d, %s)", FAKE_CONFIGURABLE, ret, why);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // no layout extension at all
+    CHECK(open_ok(path, FAKE_WIDE, &in), "open %s", FAKE_WIDE);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 6 && in->channels == 6,
+              "%s: no layout extension, DECLARED and its six channels stand (%d)", FAKE_WIDE, ret);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // the carrier's surround mask, asked of clap.surround
+    CHECK(open_ok(path, FAKE_SURROUND_REFUSES, &in), "open %s", FAKE_SURROUND_REFUSES);
+    if (in)
+    {
+        reqs[0] = main_request(true, 6, CLAP_PORT_SURROUND, five_one);
+        reqs[1] = main_request(false, 6, CLAP_PORT_SURROUND, five_one);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == -1 && strcmp(why, "hosting.topology.channel-map-unknown") == 0,
+              "%s: the 5.1 mask it does not support refused channel-map-unknown (%d, %s)", FAKE_SURROUND_REFUSES, ret, why);
+        CHECK(in->main_in.map[3] == CLAP_SURROUND_BC, "%s: and the description is its own 6.0 one", FAKE_SURROUND_REFUSES);
+        reqs[0] = main_request(true, 6, CLAP_PORT_SURROUND, six_zero);
+        reqs[1] = main_request(false, 6, CLAP_PORT_SURROUND, six_zero);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED, "%s: its own 6.0 mask is supported, and with no layout extension DECLARED (%d)",
+              FAKE_SURROUND_REFUSES, ret);
+        reqs[0] = main_request(true, 6, CLAP_PORT_SURROUND, unknown_id);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == -1 && strcmp(why, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN) == 0, "%s: a carrier's map naming id 25 is refused (%d, %s)",
+              FAKE_SURROUND_REFUSES, ret, why);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // the carrier's ambisonic configuration, asked of clap.ambisonic
+    CHECK(open_ok(path, FAKE_AMBISONIC, &in), "open %s", FAKE_AMBISONIC);
+    if (in)
+    {
+        reqs[0] = main_request(true, 4, CLAP_PORT_AMBISONIC, &fuma);
+        reqs[1] = main_request(false, 4, CLAP_PORT_AMBISONIC, &fuma);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == -1 && strcmp(why, "hosting.topology.ambisonic-config") == 0,
+              "%s: FuMa and maxN, which it does not support, refused ambisonic-config (%d, %s)", FAKE_AMBISONIC, ret, why);
+        reqs[0] = main_request(true, 4, CLAP_PORT_AMBISONIC, &ambix);
+        reqs[1] = main_request(false, 4, CLAP_PORT_AMBISONIC, &ambix);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED, "%s: ACN and SN3D supported, and with no layout extension DECLARED (%d)", FAKE_AMBISONIC, ret);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    // active: refused, nothing asked, nothing applied
+    CHECK(open_ok(path, FAKE_CONFIGS, &in) && activate(in), "%s opens and activates", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        strcpy(why, "stale");
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == -1 && why[0] == '\0' && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
+              "%s: asked while active, -1 with why emptied and nothing applied (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels,
+              in->main_in.name);
+        omx_clap_host_deactivate(in);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 2, "%s: deactivated, the same request is applied (%d)", FAKE_CONFIGS, ret);
+        CHECK(activate(in) && in->bounce_blocks > 0, "%s: and activates into the stereo pair", FAKE_CONFIGS);
+        omx_clap_host_close(in);
+    }
 }
 
 /*
@@ -1960,6 +2330,7 @@ int main(int argc, char **argv)
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
         t_main_widths(fake_path);
+        t_request_layout(fake_path);
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
@@ -2089,6 +2460,7 @@ int main(int argc, char **argv)
         fake_plugin_checks(fake_path);
         t_layout_description(fake_path);
         t_main_widths(fake_path);
+        t_request_layout(fake_path);
         t_bounce_at_limits(fake_path);
     }
     if (synth_path)

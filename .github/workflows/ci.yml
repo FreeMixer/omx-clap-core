@@ -139,6 +139,10 @@ jobs:
       - name: Test the published transport under ThreadSanitizer
         run: make test-transport-tsan
 
+      # the cycle gate's sabotage: a gate that never closes must race the deactivate under ThreadSanitizer
+      - name: Sabotage the cycle gate under ThreadSanitizer
+        run: make test-cycle-gate-sabotage
+
       # The LV2 adapter: lv2/core against the fixture bundles through lilv, the CLAP face and libomx-clap-core's body
       # around it, and a program linked through the installed pkg-config file alone
       - name: Test the LV2 adapter
