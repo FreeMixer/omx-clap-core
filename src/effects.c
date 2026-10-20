@@ -2373,6 +2373,7 @@ int effects_audio_ports(int effect_id, char **reply)
     size_t size = 0;
     FILE *out;
     uint32_t p;
+    int dry;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
@@ -2382,9 +2383,14 @@ int effects_audio_ports(int effect_id, char **reply)
     if (!out)
         return ERR_MEMORY_ALLOCATION;
     // the ports registered at add, inputs first and each side's main port first; dry while the instance is not run
-    // an active instance whose auxiliary blocks are shorter than the JACK cycle passes every cycle dry too (process)
-    fputs(effect->clap->active && !((effect->aux_in_count || effect->aux_out_count)
-                                    && effect->aux_frames < jack_get_buffer_size(effect->jack_client)) ? "resp 0" : "resp 0 dry", out);
+    // an active instance whose auxiliary blocks are shorter than the JACK cycle passes every cycle dry too (process);
+    // both are written under g_reactivate by the buffer-size callback and the relayout, and read under it here. The
+    // registered ports never move after add.
+    pthread_mutex_lock(&g_reactivate);
+    dry = !effect->clap->active || ((effect->aux_in_count || effect->aux_out_count)
+                                    && effect->aux_frames < jack_get_buffer_size(effect->jack_client));
+    pthread_mutex_unlock(&g_reactivate);
+    fputs(dry ? "resp 0 dry" : "resp 0", out);
     if (effect->in_ports)
         audio_port_record(out, effect, true, LAYOUT_PORT_MAIN, effect->in_ports);
     for (p = 0; p < effect->aux_in_n; p++)
