@@ -307,20 +307,19 @@ static const char *normalization_name(uint32_t normalization)
 }
 
 /*
- * What a surround or an ambisonic port's channels are, as the description reads them: a surround port's map from
- * clap.surround (the ids as the plugin names them, as many as it stores), in index order without it; an ambisonic
- * port's ordering and normalisation from clap.ambisonic, ACN and SN3D without it. Nothing for any other port, nor for
- * a surround port of more than CLAP_HOST_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is printed
- * as long as the plugin says it is, up to CLAP_HOST_PORT_CHANNELS ids.
+ * What a surround or an ambisonic port's channels are, as the description reads them, into `t` (its kind too, and
+ * `map` for a surround port): a surround port's map from clap.surround (the ids as the plugin names them, as many as it
+ * stores), in index order without it; an ambisonic port's ordering and normalisation from clap.ambisonic, ACN and SN3D
+ * without it, which is then the host's assumption. Nothing for any other port, nor for a surround port of more than
+ * CLAP_HOST_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is as long as the plugin says it is, up
+ * to CLAP_HOST_PORT_CHANNELS ids.
  */
-static void put_layout(FILE *out, const struct omx_clap_instance *instance, const clap_audio_port_info_t *info, bool is_input,
-                       uint32_t index)
+static void port_layout(const struct omx_clap_instance *instance, const clap_audio_port_info_t *info, bool is_input, uint32_t index,
+                        uint8_t map[CLAP_HOST_PORT_CHANNELS], struct layout_port_text *t)
 {
-    const char *kind = kind_name(info->port_type);
-
-    if (!strcmp(kind, CLAP_PORT_SURROUND) && info->channel_count <= CLAP_HOST_PORT_CHANNELS)
+    t->kind = kind_name(info->port_type);
+    if (!strcmp(t->kind, CLAP_PORT_SURROUND) && info->channel_count <= CLAP_HOST_PORT_CHANNELS)
     {
-        uint8_t map[CLAP_HOST_PORT_CHANNELS];
         uint32_t n = info->channel_count, c;
 
         if (instance->surround && instance->surround->get_channel_map)
@@ -328,48 +327,57 @@ static void put_layout(FILE *out, const struct omx_clap_instance *instance, cons
         else
             for (c = 0; c < n; c++)
                 map[c] = (uint8_t)c;
-        if (n > CLAP_HOST_PORT_CHANNELS)
-            n = CLAP_HOST_PORT_CHANNELS;
-        fputs(g_json ? ",\"map\":[" : " map", out);
-        for (c = 0; c < n; c++)
-            fprintf(out, "%s%u", g_json ? (c ? "," : "") : " ", map[c]);
-        if (g_json)
-            fputc(']', out);
+        t->map = map;
+        t->map_n = n > CLAP_HOST_PORT_CHANNELS ? CLAP_HOST_PORT_CHANNELS : n;
     }
-    else if (!strcmp(kind, CLAP_PORT_AMBISONIC))
+    else if (!strcmp(t->kind, CLAP_PORT_AMBISONIC))
     {
         clap_ambisonic_config_t config = { CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
 
-        if (instance->ambisonic && instance->ambisonic->get_config && !instance->ambisonic->get_config(instance->plugin, is_input, index, &config))
+        t->assumed = !instance->ambisonic || !instance->ambisonic->get_config
+                     || !instance->ambisonic->get_config(instance->plugin, is_input, index, &config);
+        if (t->assumed)
             config = (clap_ambisonic_config_t){ CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
-        fprintf(out, g_json ? ",\"ordering\":\"%s\",\"normalization\":\"%s\"" : " %s %s", ordering_name(config.ordering),
-                normalization_name(config.normalization));
+        t->ordering = ordering_name(config.ordering);
+        t->normalization = normalization_name(config.normalization);
     }
 }
 
-/* the JACK ports omx-clap-host registers for a port: one per channel named by layout_port_name, `aux` LAYOUT_PORT_MAIN for
- * the main port; nothing for a port it registers none for (no channels, more than CLAP_HOST_PORT_CHANNELS, an
- * auxiliary port past CLAP_HOST_AUX_INPUTS or CLAP_HOST_AUX_OUTPUTS) */
-static void put_jack(FILE *out, bool is_input, uint32_t aux, uint32_t channels)
+/* one port in the JSON: its fields, its layout, and the JACK ports omx-clap-host registers for it when it admits the
+ * plugin (`t->jack`) */
+static void put_port_json(FILE *out, const clap_audio_port_info_t *info, const struct layout_port_text *t)
 {
     char name[LAYOUT_PORT_NAME_SIZE];
     uint32_t k;
 
-    if (channels == 0 || channels > CLAP_HOST_PORT_CHANNELS
-        || (aux != LAYOUT_PORT_MAIN && aux >= (is_input ? CLAP_HOST_AUX_INPUTS : CLAP_HOST_AUX_OUTPUTS)))
-        return;
-    if (g_json)
-        fputs(",\"jack\":[", out);
-    for (k = 0; k < channels; k++)
+    fprintf(out, "{\"id\":%u,\"name\":", info->id);
+    put_string(out, info->name);
+    fprintf(out, ",\"role\":\"%s\",\"channels\":%u,\"kind\":\"%s\"", t->aux == LAYOUT_PORT_MAIN ? "main" : "aux", info->channel_count, t->kind);
+    if (t->map)
     {
-        layout_port_name(name, is_input, aux, k);
-        fprintf(out, g_json ? "%s\"%s\"" : "%s%s", g_json ? (k ? "," : "") : " ", name);
-    }
-    if (g_json)
+        fputs(",\"map\":[", out);
+        for (k = 0; k < t->map_n; k++)
+            fprintf(out, "%s%u", k ? "," : "", t->map[k]);
         fputc(']', out);
+    }
+    else if (t->ordering)
+        fprintf(out, ",\"ordering\":\"%s\",\"normalization\":\"%s\"%s", t->ordering, t->normalization, t->assumed ? ",\"assumed\":true" : "");
+    if (t->jack)
+    {
+        fputs(",\"jack\":[", out);
+        for (k = 0; k < info->channel_count; k++)
+        {
+            layout_port_name(name, t->is_input, t->aux, k);
+            fprintf(out, "%s\"%s\"", k ? "," : "", name);
+        }
+        fputc(']', out);
+    }
+    fputc('}', out);
 }
 
-static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
+/* every audio port of each side, the JSON's or a line each in the text (layout_port_text); the JACK names only when the
+ * core admits the plugin (`accepted`), the main port named apart and the others in their order */
+static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance, bool accepted)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
     clap_audio_port_info_t info;
@@ -381,42 +389,38 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
     for (dir = 0; dir < 2; dir++)
     {
         const bool is_input = dir == 0;
-        int first = 1, mains = 0, named;
-        uint32_t aux = 0, as;
+        int first = 1;
+        uint32_t aux = 0;
 
         count = ports ? ports->count(instance->plugin, is_input) : 0;
         if (g_json)
             fprintf(out, "%s\"%s\":[", dir ? "," : "", is_input ? "inputs" : "outputs");
         for (i = 0; i < count; i++)
         {
+            uint8_t map[CLAP_HOST_PORT_CHANNELS];
+            struct layout_port_text t;
+
             memset(&info, 0, sizeof(info));
             if (!ports->get(instance->plugin, i, is_input, &info))
                 continue;
             info.name[sizeof(info.name) - 1] = '\0';
-            // the main port is named apart, a second one not at all (the core refuses it); the others in order
-            named = !(info.flags & CLAP_AUDIO_PORT_IS_MAIN) || mains++ == 0;
-            as = (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? LAYOUT_PORT_MAIN : aux++;
+            memset(&t, 0, sizeof(t));
+            t.is_input = is_input;
+            t.aux = (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? LAYOUT_PORT_MAIN : aux++;
+            t.channels = info.channel_count;
+            t.name = info.name;
+            t.jack = accepted;
+            port_layout(instance, &info, is_input, i, map, &t);
             if (g_json)
             {
-                fprintf(out, "%s{\"id\":%u,\"name\":", first ? "" : ",", info.id);
-                put_string(out, info.name);
-                fprintf(out, ",\"role\":\"%s\",\"channels\":%u,\"kind\":\"%s\"", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
-                        info.channel_count, kind_name(info.port_type));
-                put_layout(out, instance, &info, is_input, i);
-                if (named)
-                    put_jack(out, is_input, as, info.channel_count);
-                fputc('}', out);
+                if (!first)
+                    fputc(',', out);
+                put_port_json(out, &info, &t);
             }
             else
             {
-                fprintf(out, "    %s %s %u channels %s", is_input ? "in " : "out", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
-                        info.channel_count, kind_name(info.port_type));
-                put_layout(out, instance, &info, is_input, i);
-                fputs(" \"", out);
-                put_string(out, info.name);
-                fputc('"', out);
-                if (named)
-                    put_jack(out, is_input, as, info.channel_count);
+                fputs("    ", out);
+                layout_port_text(out, &t, 0);
                 fputc('\n', out);
             }
             first = 0;
@@ -548,12 +552,17 @@ static void put_descriptor(FILE *out, const clap_plugin_descriptor_t *desc)
     }
 }
 
-static void put_plugin(FILE *out, struct omx_clap_binary *binary, const clap_plugin_descriptor_t *desc)
+/* a plugin's entry: from an instance the core opened, whose layout it admits, or, when it refuses the plugin, from one
+ * only created, whose ports are listed with no JACK name, since omx-clap-host would register none */
+static void put_plugin(FILE *out, const char *path, struct omx_clap_binary *binary, const clap_plugin_descriptor_t *desc)
 {
     struct omx_clap_instance *instance;
+    char why[OMX_CLAP_WHY_MAX];
+    bool accepted;
 
     put_descriptor(out, desc);
-    if (omx_clap_host_create(binary, desc, &instance) != 0)
+    accepted = omx_clap_host_open(path, desc->id, &instance, why) == 0 && instance;
+    if (!accepted && omx_clap_host_create(binary, desc, &instance) != 0)
     {
         if (g_json)
             fputs(",\"error\":\"plugin failed to create or init\"}", out);
@@ -567,7 +576,7 @@ static void put_plugin(FILE *out, struct omx_clap_binary *binary, const clap_plu
     put_params(out, instance);
     if (g_json)
         fputc(',', out);
-    put_audio_ports(out, instance);
+    put_audio_ports(out, instance, accepted);
     if (g_json)
         fputc(',', out);
     put_note_ports(out, instance);
@@ -673,6 +682,7 @@ static void put_presets(FILE *out, struct omx_clap_binary *binary)
 static void put_file(FILE *out, const char *path)
 {
     char reason[REASON_SIZE], local[PATH_MAX];
+    const char *opened = path;
     struct omx_clap_binary *binary;
     uint32_t count, i;
     int first = 1;
@@ -691,9 +701,8 @@ static void put_file(FILE *out, const char *path)
 
     /* dlopen searches the library path for a name with no slash, and the file is here */
     if (!strchr(path, '/') && snprintf(local, sizeof(local), "./%s", path) < (int)sizeof(local))
-        binary = omx_clap_host_binary_open(local, reason, sizeof(reason));
-    else
-        binary = omx_clap_host_binary_open(path, reason, sizeof(reason));
+        opened = local;
+    binary = omx_clap_host_binary_open(opened, reason, sizeof(reason));
     if (!binary)
     {
         if (g_json)
@@ -721,7 +730,7 @@ static void put_file(FILE *out, const char *path)
             continue;
         if (g_json)
             fputs(first ? "\n" : ",\n", out);
-        put_plugin(out, binary, desc);
+        put_plugin(out, opened, binary, desc);
         first = 0;
     }
     if (g_json)
@@ -969,6 +978,21 @@ int main(int argc, char **argv)
         }
         else
             list_add(&roots, strdup(argv[a]));
+    }
+
+    // the core judges a plugin as omx-clap-host does: an instrument's note input admitted, a main port of any width
+    // carried, so the JACK names are printed for what that host would register
+    {
+        struct omx_clap_host_config config;
+
+        omx_clap_host_config_default(&config);
+        config.note_inputs = 1;
+        config.lane_channels = 0;
+        if (omx_clap_host_configure(&config) != 0)
+        {
+            fprintf(stderr, "can't configure the clap core\n");
+            return 2;
+        }
     }
 
     explicit_paths = roots.count > 0;

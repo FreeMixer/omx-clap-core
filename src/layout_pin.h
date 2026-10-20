@@ -73,6 +73,75 @@ static inline void layout_port_name(char buf[LAYOUT_PORT_NAME_SIZE], bool is_inp
         snprintf(buf, LAYOUT_PORT_NAME_SIZE, "%s_%u_%u", is_input ? "aux_in" : "aux_out", aux + 1, k + 1);
 }
 
+/* a port as the scan's text and the audio_ports verb print it, field by field */
+struct layout_port_text
+{
+    bool is_input;
+    uint32_t aux;               /* its place among the side's auxiliary ports, 0-based; LAYOUT_PORT_MAIN for the main port */
+    uint32_t channels;
+    const char *kind;           /* "mono", "stereo", "surround", "ambisonic" or "unknown" */
+    const uint8_t *map;         /* a surround port's CLAP surround ids, map_n of them; NULL for none */
+    uint32_t map_n;
+    const char *ordering;       /* an ambisonic port's ordering and normalisation; NULL for none */
+    const char *normalization;
+    bool assumed;               /* the ambisonic configuration is the host's assumption (ACN, SN3D), not the plugin's */
+    const char *name;
+    bool jack;                  /* its JACK ports printed after it: the host registers them */
+};
+
+/* a name in double quotes, a '"' or a backslash escaped with a backslash and a byte below 0x20 or 0x7f printed as a space */
+static inline void layout_port_quoted(FILE *out, const char *name)
+{
+    const unsigned char *p = (const unsigned char *)(name ? name : "");
+
+    fputc('"', out);
+    for (; *p; p++)
+    {
+        if (*p == '"' || *p == '\\')
+            fputc('\\', out);
+        fputc(*p < 0x20 || *p == 0x7f ? ' ' : *p, out);
+    }
+    fputc('"', out);
+}
+
+/*
+ * One port's description. `record` 0: the scan's text, `in  main 2 channels stereo "in 0" in_1 in_2`, a surround
+ * port's ` map <ids>` or an ambisonic port's ` <ordering> <normalization>[ assumed]` after the kind. `record` 1: the
+ * audio_ports field, no space in it but inside the name, `side:role:index:channels:kind[:layout][:assumed]:"name":jacks`,
+ * the layout a surround port's ids or an ambisonic port's ordering and normalisation joined by '+', the JACK names
+ * joined by ',' (empty when none are registered).
+ */
+static inline void layout_port_text(FILE *out, const struct layout_port_text *t, int record)
+{
+    const bool main = t->aux == LAYOUT_PORT_MAIN;
+    char jack[LAYOUT_PORT_NAME_SIZE];
+    uint32_t k;
+
+    if (record)
+        fprintf(out, "%s:%s:%u:%u:%s", t->is_input ? "in" : "out", main ? "main" : "aux", main ? 1 : t->aux + 1, t->channels, t->kind);
+    else
+        fprintf(out, "%s %s %u channels %s", t->is_input ? "in " : "out", main ? "main" : "aux", t->channels, t->kind);
+    if (t->map)
+    {
+        fputs(record ? ":" : " map", out);
+        for (k = 0; k < t->map_n; k++)
+            fprintf(out, record ? (k ? "+%u" : "%u") : " %u", t->map[k]);
+    }
+    else if (t->ordering)
+        fprintf(out, record ? ":%s+%s" : " %s %s", t->ordering, t->normalization);
+    if (t->ordering && t->assumed)
+        fputs(record ? ":assumed" : " assumed", out);
+    fputc(record ? ':' : ' ', out);
+    layout_port_quoted(out, t->name);
+    if (record)
+        fputc(':', out);
+    for (k = 0; t->jack && k < t->channels; k++)
+    {
+        layout_port_name(jack, t->is_input, t->aux, k);
+        fprintf(out, record ? (k ? ",%s" : "%s") : " %s", jack);
+    }
+}
+
 typedef void (*layout_pin_sink_t)(void *ctx, const char *data, size_t size);
 
 /* the layout of the plugin into sink as omx-layout/1 bytes, or into its digest with sink NULL; 0, or -1 when a
