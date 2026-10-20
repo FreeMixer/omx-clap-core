@@ -25,6 +25,10 @@
  *                                     makePath for (takes/level.txt), and stores the path mapPath abstracts from it as
  *                                     an atom:Path; its restore reads that file and makes what it holds the gain. So
  *                                     the gain after a load is the level saved, read back through the file.
+ *   ...#mappath                       requires state:mapPath at instantiate and uses that one, not save's: its save
+ *                                     writes the level into the file OMX_PATH_FIXTURE_FILE names, stores the path the
+ *                                     instance's mapPath abstracts from it, and hands the abstracted path back through
+ *                                     the instance's freePath; its restore reads the file mapPath makes absolute again.
  *   ...#escape                        asks makePath for "../outside.txt" and for an absolute path at instantiate, and
  *                                     writes a file wherever it is answered a path; and for never/saved.txt, which it
  *                                     writes and never saves.
@@ -51,6 +55,9 @@ struct pf
     float *out;
     float gain;
     LV2_State_Make_Path *make_path;
+    const LV2_State_Map_Path *map_path;     // #mappath: the instance's own, from instantiate
+    const LV2_State_Free_Path *free_path;
+    int own_paths;                          // #mappath
     LV2_URID file, path_t;
 };
 
@@ -88,6 +95,19 @@ static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *
     p->path_t = map->map(map->handle, LV2_ATOM__Path);
     p->gain = 1.0f;
     lv2_path_probe.had_make_path = p->make_path != NULL;
+    if (strcmp(d->URI, LV2_PATH_FIXTURE_URI "#mappath") == 0)
+    {
+        p->own_paths = 1;
+        p->map_path = feature(features, LV2_STATE__mapPath);
+        p->free_path = feature(features, LV2_STATE__freePath);
+        lv2_path_probe.had_map_path = p->map_path != NULL;
+        lv2_path_probe.had_free_path = p->free_path != NULL;
+        if (!p->map_path)
+        {
+            free(p);
+            return NULL;
+        }
+    }
     if (strcmp(d->URI, LV2_PATH_FIXTURE_URI "#escape") == 0 && p->make_path)
     {
         char *out = p->make_path->path(p->make_path->handle, "../outside.txt");
@@ -140,10 +160,39 @@ static void cleanup(LV2_Handle h)
     free(h);
 }
 
+/* #mappath: the level into OMX_PATH_FIXTURE_FILE, its path through the instance's own mapPath and freePath */
+static LV2_State_Status save_own(struct pf *p, LV2_State_Store_Function store, LV2_State_Handle sh)
+{
+    const char *file = getenv("OMX_PATH_FIXTURE_FILE");
+    char text[32], *stored;
+    LV2_State_Status st;
+
+    lv2_path_probe.made[0] = lv2_path_probe.stored[0] = '\0';
+    if (!file)
+        return LV2_STATE_ERR_UNKNOWN;
+    snprintf(text, sizeof(text), "%.9g\n", (double)*p->level);
+    if (write_file(file, text) != 0 || !(stored = p->map_path->abstract_path(p->map_path->handle, file)))
+        return LV2_STATE_ERR_UNKNOWN;
+    snprintf(lv2_path_probe.made, sizeof(lv2_path_probe.made), "%s", file);
+    snprintf(lv2_path_probe.stored, sizeof(lv2_path_probe.stored), "%s", stored);
+    st = store(sh, p->file, stored, strlen(stored) + 1u, p->path_t, LV2_STATE_IS_POD);
+    if (p->free_path)
+    {
+        p->free_path->free_path(p->free_path->handle, stored);
+        lv2_path_probe.freed_by_host++;
+    }
+    else
+        free(stored);
+    return st;
+}
+
 static LV2_State_Status save(LV2_Handle h, LV2_State_Store_Function store, LV2_State_Handle sh, uint32_t flags,
                              const LV2_Feature *const *features)
 {
     struct pf *p = h;
+
+    if (p->own_paths)
+        return save_own(p, store, sh);
     const LV2_State_Map_Path *map_path = feature(features, LV2_STATE__mapPath);
     char text[32], *made, *stored;
     LV2_State_Status st;
@@ -176,7 +225,7 @@ static LV2_State_Status restore(LV2_Handle h, LV2_State_Retrieve_Function retrie
                                 const LV2_Feature *const *features)
 {
     struct pf *p = h;
-    const LV2_State_Map_Path *map_path = feature(features, LV2_STATE__mapPath);
+    const LV2_State_Map_Path *map_path = p->own_paths ? p->map_path : feature(features, LV2_STATE__mapPath);
     size_t size = 0;
     uint32_t type = 0, vflags = 0;
     const char *value = retrieve(sh, p->file, &size, &type, &vflags);
@@ -215,12 +264,13 @@ static const void *extension_data(const char *uri)
     return strcmp(uri, LV2_STATE__interface) == 0 ? &state : NULL;
 }
 
-static const LV2_Descriptor g_descriptors[2] = {
+static const LV2_Descriptor g_descriptors[3] = {
     { LV2_PATH_FIXTURE_URI, instantiate, connect_port, NULL, run, NULL, cleanup, extension_data },
     { LV2_PATH_FIXTURE_URI "#escape", instantiate, connect_port, NULL, run, NULL, cleanup, extension_data },
+    { LV2_PATH_FIXTURE_URI "#mappath", instantiate, connect_port, NULL, run, NULL, cleanup, extension_data },
 };
 
 LV2_SYMBOL_EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index < 2u ? &g_descriptors[index] : NULL;
+    return index < 3u ? &g_descriptors[index] : NULL;
 }

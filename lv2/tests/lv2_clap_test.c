@@ -386,6 +386,17 @@ static const char *fake_trace(void)
     return fn ? fn() : "";
 }
 
+/* the worker fake's gate: held, its work() waits before it traces, so a block's trace holds the RT's events alone (the
+ * worker is woken at once by schedule_work, and would otherwise trace beside the block's end_run) */
+static void fake_worker_hold(int on)
+{
+    lv2_fakes_worker_hold_fn fn;
+
+    *(void **)&fn = loaded_symbol(g_fakes_so, "lv2_fakes_worker_hold");
+    if (fn)
+        fn(on);
+}
+
 static void fake_trace_clear(void)
 {
     lv2_fakes_trace_clear_fn fn;
@@ -450,7 +461,7 @@ static void t_entry(void)
     CHECK(fa && has_plugin(fa, FIXTURE_URI, &name) && name && strcmp(name, "openmixer host fixture") == 0,
           "descriptor id = the LV2 URI, name = doap:name (%s), features: audio-effect only", name ? name : "");
     CHECK(a && a->get_factory("clap.no-such-factory") == NULL, "no factory but the plugin factory");
-    CHECK(w && w != a && fw && fw != fa && fw->get_plugin_count(fw) == 1 && has_plugin(fw, LV2_WORKER_GAIN_URI, NULL) && !has_plugin(fa, LV2_WORKER_GAIN_URI, NULL),
+    CHECK(w && w != a && fw && fw != fa && fw->get_plugin_count(fw) == 2 && has_plugin(fw, LV2_WORKER_GAIN_URI, NULL) && !has_plugin(fa, LV2_WORKER_GAIN_URI, NULL),
           "a second bundle: an entry and a factory of its own, each listing its own bundle's plugins");
     CHECK(omx_clap_lv2_entry("/nonexistent/omx.lv2", why) == NULL && strcmp(why, "hosting.no-realisation") == 0, "a bundle that cannot be read: no entry (%s)", why);
     CHECK(omx_clap_lv2_entry("relative.lv2", why) == NULL, "a bundle path that is not absolute: no entry");
@@ -475,7 +486,6 @@ static void t_refusals(void)
         { FIXTURE_URI "#three-in", "hosting.topology.extra-inputs-fed-silence" },
         { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
-        { FIXTURE_URI "#mappath", "hosting.features.missing" },
         { "urn:openmixer:test:not-in-this-bundle", "hosting.no-realisation" },
     };
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
@@ -935,6 +945,83 @@ static void t_preset_list(double rate)
     }
 }
 
+/* ---- the live twin of the worker gain: options:interface and state:threadSafeRestore ---- */
+
+/*
+ * A shorter block that fits the buffers is told through the plugin's options:interface and the plugin lives on; a longer
+ * one, or a plugin with no such interface, is instantiated again. A state loaded while the plugin runs reaches it at
+ * once when it declares state:threadSafeRestore: restore() gets the worker's schedule, the trim lands through the
+ * worker, and no restart is asked for.
+ */
+static double max_abs_ratio(const float *y, const float *x);
+
+static void t_live(double rate)
+{
+    static float x[BLOCK], y[BLOCK];
+    struct lv2_worker_gain_probe *pr;
+    struct mem_out saved;
+    struct mem_in given;
+    struct rig g, w;
+    unsigned made;
+    int b, callbacks;
+
+    if (rig_up(&g, g_wg, LV2_WORKER_GAIN_LIVE_URI, rate, 512) != 0 || !(pr = loaded_symbol(g_wg_so, "lv2_worker_gain_probe")))
+        return;
+    made = atomic_load(&pr->instantiate_calls);
+    g.plugin->stop_processing(g.plugin);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, 256) && atomic_load(&pr->instantiate_calls) == made && atomic_load(&pr->options_set) == 1
+              && pr->max_block_set == 256,
+          "live %.0f: a shorter block is told through options:interface, the plugin kept (%u set, max %d)", rate,
+          atomic_load(&pr->options_set), pr->max_block_set);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, 256) && atomic_load(&pr->options_set) == 1, "live %.0f: the same block again tells nothing", rate);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, 512) && atomic_load(&pr->instantiate_calls) == made && atomic_load(&pr->options_set) == 2
+              && pr->max_block_set == 512,
+          "live %.0f: back to the length the buffers hold, told again (%d)", rate, pr->max_block_set);
+    g.plugin->deactivate(g.plugin);
+    CHECK(g.plugin->activate(g.plugin, rate, 1, 1024) && atomic_load(&pr->instantiate_calls) == made + 1,
+          "live %.0f: a longer block than the buffers hold is a new instantiation", rate);
+    CHECK(g.plugin->start_processing(g.plugin), "live %.0f: processing", rate);
+
+    // the plain worker gain has no options:interface: a shorter block instantiates it again
+    if (rig_up(&w, g_wg, LV2_WORKER_GAIN_URI, rate, 512) == 0)
+    {
+        made = atomic_load(&pr->instantiate_calls);
+        w.plugin->stop_processing(w.plugin);
+        w.plugin->deactivate(w.plugin);
+        CHECK(w.plugin->activate(w.plugin, rate, 1, 256) && atomic_load(&pr->instantiate_calls) == made + 1,
+              "live %.0f: a plugin with no options:interface is instantiated again for a shorter block", rate);
+        rig_down(&w);
+    }
+
+    // state:threadSafeRestore: a state with a trim of -6 dB loaded while it runs
+    tone(x, BLOCK, 0.5f, 0);
+    for (b = 0; b < 3; b++)
+    {
+        process(&g, x, NULL, y, NULL, BLOCK, NULL);
+        omx_clap_lv2_worker_quiesce(g.plugin);
+    }
+    pr->save_trim_db = -6.0f;
+    mo_init(&saved);
+    CHECK(state_of(&g)->save(g.plugin, &saved.stream) && saved.n > 0, "live %.0f: the state saves", rate);
+    process(&g, x, NULL, y, NULL, BLOCK, NULL);
+    CHECK(fabs(20.0 * log10(max_abs_ratio(y, x))) < 0.01, "live %.0f: no trim before the load", rate);
+    mi_init(&given, saved.buf, saved.n);
+    callbacks = g.host.callbacks;
+    CHECK(state_of(&g)->load(g.plugin, &given.stream) && g.host.restarts == 0 && atomic_load(&pr->restores) >= 1 && pr->restore_had_schedule,
+          "live %.0f: loaded while running, restore() is called at once with the worker's schedule, and no restart is asked for (%d)",
+          rate, g.host.restarts);
+    omx_clap_lv2_worker_quiesce(g.plugin);
+    process(&g, x, NULL, y, NULL, BLOCK, NULL);
+    CHECK(fabs(20.0 * log10(max_abs_ratio(y, x)) - -6.0) < 0.01, "live %.0f: the next block plays the trim the worker applied (%.3f dB)", rate,
+          20.0 * log10(max_abs_ratio(y, x)));
+    CHECK(g.host.callbacks == callbacks, "live %.0f: restore()'s schedule is the restore's, not a stray call counted off the audio role (%d)",
+          rate, g.host.callbacks - callbacks);
+    rig_down(&g);
+}
+
 /* ---- the numeric patch parameters through the face: ids above the ports, a write before the block, the echo after ---- */
 
 /* the parameter named `name`, its info filled: 1 when the plugin lists one */
@@ -1317,7 +1404,75 @@ static void t_props(void)
     CHECK(info_of(&g, 8, &i) && i.flags == A && i.min_value == 20.0 && i.max_value == 20000.0, "props: pprops:logarithmic changes no CLAP flag (CLAP has none)");
     CHECK(info_of(&g, 9, &i) && i.flags == (A | S), "props: pprops:trigger is IS_STEPPED");
     CHECK(info_of(&g, 10, &i) && i.default_value == -3.0, "props: no lv2:default: the default is the minimum");
+
+    /* the contract the TTL states: units, the log scale, the steps */
+    {
+        const omx_clap_plugin_param_contract_ext_t *pc = g.plugin->get_extension(g.plugin, OMX_CLAP_EXT_PARAM_CONTRACT);
+        omx_clap_param_contract_entry_t e;
+
+        CHECK(pc && pc->version(g.plugin) == 1 && strlen(pc->fingerprint(g.plugin)) == 64 && pc->migration_count(g.plugin) == 0,
+              "props: the face offers org.openmixer.param-contract/1, version 1, a fingerprint, no migration");
+        CHECK(pc && pc->get(g.plugin, 8, &e) && !strcmp(e.symbol, "freq") && e.unit == 16 && e.scale == 1 && e.step == 0.0,
+              "props: freq is units:hz (16) on a log scale, continuous (%s %u %u %g)", pc ? e.symbol : "", pc ? e.unit : 0, pc ? e.scale : 0,
+              pc ? e.step : -1.0);
+        CHECK(pc && pc->get(g.plugin, 10, &e) && e.unit == 13 && e.scale == 0 && e.step == 1.0,
+              "props: nodef is units:db (13), linear, its 7 rangeSteps over -3..3 a step of 1 (%u %u %g)", pc ? e.unit : 0,
+              pc ? e.scale : 0, pc ? e.step : -1.0);
+        CHECK(pc && pc->get(g.plugin, 3, &e) && !strcmp(e.symbol, "steps") && e.unit == 0 && e.scale == 2 && e.step == 1.0,
+              "props: an integer port is stepped, step 1, no unit");
+        CHECK(pc && !pc->get(g.plugin, 2, &e), "props: the latency port is no parameter and has no entry");
+    }
+
+    /* pprops:trigger: set for one block, back at its default after it, and the host told so */
+    {
+        static float in[BLOCK], out[BLOCK];
+        struct evlist ev;
+
+        CHECK(g.plugin->activate(g.plugin, 48000.0, 1, MAXB) && g.plugin->start_processing(g.plugin), "props: activates");
+        ev_init(&ev);
+        ev_param(&ev, 9, 1.0);
+        g_out_n = 0;
+        process(&g, in, NULL, out, NULL, BLOCK, &ev);
+        CHECK(g.params->get_value(g.plugin, 9, &v) && v == 0.0, "props: a trigger set for a block is back at its default after it (%g)", v);
+        CHECK(g_out_n == 1 && g_out_id[0] == 9 && g_out_value[0] == 0.0, "props: and the host is told through one parameter event (%u)",
+              g_out_n);
+        g_out_n = 0;
+        process(&g, in, NULL, out, NULL, BLOCK, NULL);
+        CHECK(g_out_n == 0, "props: a trigger at rest tells nothing (%u)", g_out_n);
+        g.plugin->stop_processing(g.plugin);
+        g.plugin->deactivate(g.plugin);
+    }
     rig_down(&g);
+
+    /* a control whose symbol is longer than a contract symbol holds: the face offers no contract at all */
+    if (rig_up(&g, g_fakes, FAKE_LONGSYM, 0.0, MAXB) == 0)
+    {
+        CHECK(g.params->count(g.plugin) == 1 && g.plugin->get_extension(g.plugin, OMX_CLAP_EXT_PARAM_CONTRACT) == NULL,
+              "props: a symbol past 63 bytes leaves the face with no contract, rather than one the host refuses");
+        rig_down(&g);
+    }
+
+    /* through the core: the contract holds R1 to R5, and a parameter's meaning carries the unit and the scale */
+    {
+        char why[OMX_CLAP_LV2_WHY_MAX], cwhy[OMX_CLAP_WHY_MAX];
+        const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_fakes, why);
+        struct omx_clap_instance *in = NULL;
+        struct omx_clap_param_meaning m;
+        const char *rule = NULL;
+        uint32_t version = 0;
+
+        CHECK(entry && omx_clap_host_open_entry(entry, FAKE_PROPS, &in, cwhy) == 0, "props: the core opens the props fake (%s)", cwhy);
+        if (in)
+        {
+            CHECK(omx_clap_host_param_contract(in, &version, &rule) == 1 && version == 1,
+                  "props: the core trusts the face's contract, version 1 (%s)", rule ? rule : "");
+            CHECK(omx_clap_host_param_meaning(in, 8, &m) == 0 && m.unit == 16 && m.scale == 1 && !strcmp(omx_clap_param_unit_name(m.unit), "hz"),
+                  "props: the meaning of freq through the core: hz, log");
+            omx_clap_host_close(in);
+        }
+        if (entry)
+            omx_clap_lv2_entry_release(entry);
+    }
 }
 
 /* ---- the latency hold, on the pad ---- */
@@ -1773,9 +1928,13 @@ static void t_time(double rate)
           (double)pr->speed, (double)pr->bpm, (long long)pr->bar, (double)pr->bar_beat);
     CHECK(pr->beat_unit == 8 && pr->beats_per_bar == 7.0f, "time %.0f: the meter 7/8 (%d/%g)", rate, pr->beat_unit, (double)pr->beats_per_bar);
 
-    /* the same transport again forges nothing: the sequence is empty */
+    /* while it plays, every block carries one object, at the block's own frame */
     time_run(in, l, r);
-    CHECK(pr->objects == objects + 1 && pr->events == 0, "time %.0f: an unchanged transport forges no object (%u events)", rate, pr->events);
+    CHECK(pr->objects == objects + 2 && pr->events == 1 && pr->frame > frame,
+          "time %.0f: playing, the next block carries one object again, at its own frame (%u events, %lld then %lld)", rate, pr->events,
+          (long long)frame, (long long)pr->frame);
+    frame = pr->frame;
+    objects++;
     /* stopped and one beat on: a new object, speed 0 */
     rec.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
     rec.song_pos_beats += CLAP_BEATTIME_FACTOR;
@@ -1784,6 +1943,10 @@ static void t_time(double rate)
     CHECK(pr->objects == objects + 2 && pr->speed == 0.0f && pr->bar_beat == 2.5f, "time %.0f: stopped at beat 2.5 of the bar forges one object (speed %g, barBeat %g)", rate,
           (double)pr->speed, (double)pr->bar_beat);
     CHECK(pr->frame > frame, "time %.0f: the frame is the block's own (%lld, then %lld)", rate, (long long)frame, (long long)pr->frame);
+    /* stopped and unchanged: nothing, the sequence is empty */
+    time_run(in, l, r);
+    CHECK(pr->objects == objects + 2 && pr->events == 0, "time %.0f: stopped, an unchanged transport forges no object (%u events)", rate,
+          pr->events);
 
     /* only a tempo: the keys say so, and the bar and meter are absent */
     memset(&rec, 0, sizeof rec);
@@ -1847,10 +2010,14 @@ static void t_worker(double rate)
         float l[32] = { 0 };
 
         fake_trace_clear();
+        fake_worker_hold(1);
         process(&g, l, NULL, l, NULL, 32, NULL);
+        fake_worker_hold(0);
         omx_clap_lv2_worker_quiesce(g.plugin);
+        fake_worker_hold(1);
         process(&g, l, NULL, l, NULL, 32, NULL);
         CHECK(!strcmp(fake_trace(), "run0,end0,work0,resp0,run1,end1"), "worker %.0f: the drain order through process(): %s", rate, fake_trace());
+        fake_worker_hold(0);
         omx_clap_lv2_worker_quiesce(g.plugin);
         CHECK(f && f->respond && f->respond(f->respond_handle, 4, "abcd") == LV2_WORKER_ERR_UNKNOWN, "worker %.0f: a respond outside work() is refused", rate);
         process(&g, l, NULL, l, NULL, 32, NULL);
@@ -1868,8 +2035,11 @@ static void t_worker(double rate)
             CHECK(f && f->deactivations == deacts + 1 && f->activations == acts + 1, "worker %.0f: reset is one LV2 deactivate and one activate", rate);
             fake_trace_clear();
             seq = f ? f->seq : 0;
+            fake_worker_hold(1);
             process(&g, l, NULL, l, NULL, 32, NULL);
+            fake_worker_hold(0);
             omx_clap_lv2_worker_quiesce(g.plugin);
+            fake_worker_hold(1);
             process(&g, l, NULL, l, NULL, 32, NULL);
             {
                 char want[64];
@@ -1877,6 +2047,8 @@ static void t_worker(double rate)
                 snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
                 CHECK(!strcmp(fake_trace(), want), "worker %.0f: after the reset the worker answers again: %s", rate, fake_trace());
             }
+            fake_worker_hold(0);
+            omx_clap_lv2_worker_quiesce(g.plugin);
         }
         rig_down(&g);
     }
@@ -1914,11 +2086,16 @@ static void t_reset_no_worker(double rate)
     CHECK(g.plugin->activate(g.plugin, rate, 1, MAXB) && g.plugin->start_processing(g.plugin), "reset %.0f: the next activate succeeds", rate);
     fake_trace_clear();
     seq = f ? f->seq : 0;
+    fake_worker_hold(1);
     CHECK(process(&g, l, NULL, l, NULL, 32, NULL) == CLAP_PROCESS_CONTINUE, "reset %.0f: and process() runs again", rate);
+    fake_worker_hold(0);
     omx_clap_lv2_worker_quiesce(g.plugin);
+    fake_worker_hold(1);
     process(&g, l, NULL, l, NULL, 32, NULL);
     snprintf(want, sizeof(want), "run%u,end%u,work%u,resp%u,run%u,end%u", seq, seq, seq, seq, seq + 1, seq + 1);
     CHECK(!strcmp(fake_trace(), want), "reset %.0f: with the worker answering again: %s", rate, fake_trace());
+    fake_worker_hold(0);
+    omx_clap_lv2_worker_quiesce(g.plugin);
     rig_down(&g);
 }
 
@@ -2165,6 +2342,77 @@ static int mp_refused(struct rig *g, const LV2_State_Make_Path *mp, const char *
 }
 
 /* a path outside the instance's directory, and an absolute one, are answered NULL and counted; nothing is written */
+/*
+ * state:mapPath handed at instantiate (the #mappath twin requires it, and uses the instance's own rather than save's): a
+ * file under the state root is stored relative to the root and read back from the same file by a second instance; a file
+ * outside it is stored whole. The abstracted paths come back through the instance's freePath.
+ */
+static void map_path_round(double rate, const char *file, int inside)
+{
+    static float in[BLOCK], out[BLOCK];
+    struct lv2_path_probe *pr;
+    struct mem_out saved;
+    struct mem_in given;
+    struct evlist ev;
+    struct rig a, b;
+    uint32_t i;
+    int same;
+
+    for (i = 0; i < BLOCK; i++)
+        in[i] = 0.5f * sinf(0.0613f * (float)i);
+    setenv("OMX_PATH_FIXTURE_FILE", file, 1);
+    if (rig_up(&a, g_path, LV2_PATH_FIXTURE_URI "#mappath", rate, BLOCK) != 0)
+    {
+        CHECK(0, "map-path %.0f: the twin requiring state:mapPath is admitted", rate);
+        return;
+    }
+    pr = loaded_symbol(g_path_so, "lv2_path_probe");
+    if (!pr)
+    {
+        rig_down(&a);
+        return;
+    }
+    memset(pr, 0, sizeof(*pr));
+    CHECK(1, "map-path %.0f: the twin requiring state:mapPath is admitted", rate);
+    ev_init(&ev);
+    ev_param(&ev, 2, 3.0);
+    process(&a, in, NULL, out, NULL, BLOCK, &ev);
+    mo_init(&saved);
+    CHECK(state_of(&a)->save(a.plugin, &saved.stream) && saved.n > 0, "map-path %.0f: the state saves (%zu bytes)", rate, saved.n);
+    if (inside)
+        CHECK(!strcmp(pr->stored, file + strlen(g_root) + 1) && pr->stored[0] != '/',
+              "map-path %.0f: a file under the state root is stored relative to it (%s)", rate, pr->stored);
+    else
+        CHECK(!strcmp(pr->stored, file), "map-path %.0f: a file outside the root is stored whole (%s)", rate, pr->stored);
+    CHECK(pr->freed_by_host == 1, "map-path %.0f: the abstracted path is handed back through the instance's freePath", rate);
+    rig_down(&a);
+    if (rig_up(&b, g_path, LV2_PATH_FIXTURE_URI "#mappath", 0.0, BLOCK) != 0)
+        return;
+    mi_init(&given, saved.buf, saved.n);
+    CHECK(state_of(&b)->load(b.plugin, &given.stream) && b.plugin->activate(b.plugin, rate, 1, BLOCK) && b.plugin->start_processing(b.plugin),
+          "map-path %.0f: a second instance loads the state and activates", rate);
+    process(&b, in, NULL, out, NULL, BLOCK, NULL);
+    for (same = 1, i = 0; i < BLOCK; i++)
+        same = same && out[i] == in[i] * 3.0f;
+    CHECK(pr->restored == 3.0f && !strcmp(pr->restored_from, file) && same,
+          "map-path %.0f: the path made absolute again is the file, its level read back: out = in x 3 (%g, %s)", rate,
+          (double)pr->restored, pr->restored_from);
+    rig_down(&b);
+    unsetenv("OMX_PATH_FIXTURE_FILE");
+}
+
+static void t_map_path(double rate)
+{
+    char inside[sizeof(g_root) + 64], outside[sizeof(g_root) + 64];
+
+    snprintf(inside, sizeof(inside), "%s/map-path-level.txt", g_root);
+    snprintf(outside, sizeof(outside), "%s.map-path-level.txt", g_root);
+    map_path_round(rate, inside, 1);
+    map_path_round(rate, outside, 0);
+    unlink(inside);
+    unlink(outside);
+}
+
 static void t_make_path_escape(double rate)
 {
     static const char ABS[] = "/tmp/omx-path-fixture-absolute.txt";
@@ -2528,10 +2776,12 @@ static void t_atom_midi_time(double rate)
           rate, pr->n_midi);
     objects = pr->objects;
 
-    // block 2: the same transport forges nothing
+    // block 2: still playing, one object again, at this block's frame
     midi_in_init(&mi);
     mt_process(&g, in, out, &tr, &mi.list);
-    CHECK(pr->events == 0 && pr->objects == objects, "midi-time %.0f: an unchanged transport forges no object (%u events)", rate, pr->events);
+    CHECK(pr->events == 1 && pr->time_first && pr->objects == objects + 1,
+          "midi-time %.0f: playing, the next block carries one object again (%u events)", rate, pr->events);
+    objects = pr->objects;
 
     // block 3: stopped: one object, speed 0, before the MIDI
     tr.flags &= ~(uint32_t)CLAP_TRANSPORT_IS_PLAYING;
@@ -2598,8 +2848,8 @@ static void t_atom_ui(double rate)
         }
         CHECK(pr->ui_blocks == 4 && pr->ui_valid == 4, "atom ui %s %.0f: the input is a valid sequence at every process() (%u of %u)",
               frags[s], rate, pr->ui_valid, pr->ui_blocks);
-        CHECK(pr->ui_time == (strcmp(frags[s], "#ui-none") != 0 ? 1u : 0u) && pr->ui_other == 0,
-              "atom ui %s %.0f: the transport's object read there once when the port takes time:Position, nothing else (%u, %u)",
+        CHECK(pr->ui_time == (strcmp(frags[s], "#ui-none") != 0 ? 4u : 0u) && pr->ui_other == 0,
+              "atom ui %s %.0f: a playing transport's object read there at every block when the port takes time:Position, nothing else (%u, %u)",
               frags[s], rate, pr->ui_time, pr->ui_other);
         CHECK(same, "atom ui %s %.0f: out = in x 0.5 on every frame of four blocks", frags[s], rate);
         rig_down(&g);
@@ -3182,6 +3432,7 @@ int main(int argc, char **argv)
         t_state(RATES[r]);
         t_preset(RATES[r]);
         t_preset_list(RATES[r]);
+        t_live(RATES[r]);
         t_patch(RATES[r]);
         t_latency_hold(RATES[r]);
         t_fixed_block(RATES[r]);
@@ -3203,6 +3454,7 @@ int main(int argc, char **argv)
         t_sidechain_core(RATES[r]);
         t_make_path(RATES[r]);
         t_make_path_escape(RATES[r]);
+        t_map_path(RATES[r]);
         t_cv(RATES[r]);
         t_cv_core(RATES[r]);
         t_core(RATES[r]);
