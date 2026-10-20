@@ -41,8 +41,8 @@
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
  *     block stays the plugin's output.
- *  7. THE ABI: configure accepts a consumer of the first header of libomx-clap-core.so.1 (ABI 11) and refuses 0, the
- *     last header of libomx-clap-core.so.0 (ABI 10) and a newer one.
+ *  7. THE ABI: configure accepts a consumer of the first header of libomx-clap-core.so.1 (ABI 12) and refuses 0, the
+ *     last header of libomx-clap-core.so.0 (ABI 11) and a newer one.
  *  8. THE SIDE CHAIN: a plugin with a stereo auxiliary input is admitted, reads silence until the caller binds a pair,
  *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
  *     binding while it runs, a bad port or a stereo port with one channel is refused; one auxiliary input beyond the
@@ -119,7 +119,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 11u && OMX_CLAP_CORE_ABI_OLDEST == 11u, "this header is ABI 11, the oldest accepted 11 (%u)", config.abi);
+  CHECK(config.abi == 12u && OMX_CLAP_CORE_ABI_OLDEST == 12u, "this header is ABI 12, the oldest accepted 12 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
@@ -142,15 +142,21 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, note_ports_stale) > offsetof(struct omx_clap_instance, note_ports_rescanned) &&
             offsetof(struct omx_clap_instance, note_names_changed) > offsetof(struct omx_clap_instance, note_ports_stale) &&
             offsetof(struct omx_clap_instance, voice_info_changed) > offsetof(struct omx_clap_instance, note_names_changed),
-        "the host's note details are the instance's last fields (%zu)", offsetof(struct omx_clap_instance, voice_info_changed));
+        "the host's note details follow the MPE zones (%zu)", offsetof(struct omx_clap_instance, voice_info_changed));
+  /* ABI 11 appends the full host's timers, descriptors, pool, tail and sleep after them */
+  CHECK(offsetof(struct omx_clap_instance, timer_support) > offsetof(struct omx_clap_instance, voice_info_changed) &&
+            offsetof(struct omx_clap_instance, timers) > offsetof(struct omx_clap_instance, tail) &&
+            offsetof(struct omx_clap_instance, fds) > offsetof(struct omx_clap_instance, timer_next_id) &&
+            offsetof(struct omx_clap_instance, sleep) > offsetof(struct omx_clap_instance, tail_changed),
+        "the full host's fields are the instance's last (%zu)", offsetof(struct omx_clap_instance, sleep));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
-  config.abi = 10;
-  CHECK(omx_clap_host_configure(&config) == -1, "a consumer of libomx-clap-core.so.0's last header (ABI 10) is refused");
+  config.abi = 11;
+  CHECK(omx_clap_host_configure(&config) == -1, "a consumer of libomx-clap-core.so.0's last header (ABI 11) is refused");
   config.abi = OMX_CLAP_CORE_ABI + 1u;
   CHECK(omx_clap_host_configure(&config) == -1, "a consumer of a newer header is refused");
-  config.abi = 11;
-  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of the first header of libomx-clap-core.so.1 (ABI 11) is accepted");
+  config.abi = 12;
+  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of the first header of libomx-clap-core.so.1 (ABI 12) is accepted");
 }
 
 static void t_witness(void) {
