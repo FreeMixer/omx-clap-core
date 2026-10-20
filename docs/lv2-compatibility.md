@@ -118,7 +118,7 @@ Port properties
 | Units (`units:unit`) | supported for LV2's 24 units: the contract's unit, the console's code of the same name (`units:hz` is `hz`) (`lv2_clap_test` props). A unit the plugin defines in its own TTL reads as none | unsupported |
 | No audio output: a MIDI tool (a MIDI output, no audio port) or an analyser (audio inputs, no output) | supported, the host's placement: the strip's audio passes through the stage bit for bit with no latency, named `passthrough: host` on the main ports and on clap.log; the tool's MIDI goes through the note path and the analyser's control outputs read as before (`lv2_clap_test` passthrough, `jack_lv2_e2e` the tool). A plugin with neither an audio output, a MIDI output nor an audio input is refused `hosting.topology.no-audio-output` | unsupported |
 | More than one MIDI input or output port | supported: the first of each, in port index order, is the note path's; a later MIDI input is fed an empty sequence every block and a later MIDI output is offered a buffer and drained, up to 16 of each (carla midijoin, midisplit; `lv2_clap_test` two-in and two-out) | unsupported |
-| `lv2:inPlaceBroken` | supported: every port is the adapter's own memory, so a host that processes in place is safe (`lv2_run_test` and `lv2_clap_test` pad) | unsupported |
+| `lv2:inPlaceBroken` | supported: every port is the adapter's own memory, so a host that processes in place is safe (`lv2_run_test` and `lv2_clap_test` pad). A plugin that lists it as a required feature is admitted, whatever the feature options (`lv2_run_test` rack: the in-place fake requires it; `lv2_clap_test` inplace; `lv2_features_test`) | unsupported |
 
 Features and extensions
 -----------------------
