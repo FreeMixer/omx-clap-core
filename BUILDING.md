@@ -163,7 +163,7 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number the core reads, rendered from
   `data/hosting.json` and committed here; never edited by hand. The refusal codes
-  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.18.0 or later):
+  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.19.0 or later):
   `clap_host.h` names the core's as `CLAP_HOST_CODE_*`.
 - `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
   worker's two included, for a host that reads those names; rendered from the same
