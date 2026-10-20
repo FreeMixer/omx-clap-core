@@ -148,9 +148,7 @@ typedef struct EFFECT_T {
     uint32_t aux_frames;                    // the frames of each block: 0 is none made
     /* a relayout whose activation waits for the buffer-size callback: its blocks were shorter than the new block, and
      * the callback makes them and activates with the audio role the relayout saved */
-    int activate_pending;
-    pthread_t pending_thread;
-    int pending_held;
+    struct omx_cycle_gate_pending pending;
     int relayout_pending;                   // a reported ports rescan not yet answered (ports_relayout)
     uint32_t relayout_tick;                 // the idle tick of the last relayout
     uint32_t relayouts_unchanged;           // relayouts on consecutive ticks that found the main layout unchanged
@@ -649,52 +647,48 @@ static int aux_carried(const effect_t *effect)
  * effects re-activating together crashed in sord's node table (jack_lv2_e2e, the shrink). One lock serialises them. */
 static pthread_mutex_t g_reactivate = PTHREAD_MUTEX_INITIALIZER;
 
+/* omx_cycle_gate_resize's view of the auxiliary blocks: stale when an instance with auxiliary ports has them at another
+ * length, made again by aux_blocks */
+static int aux_stale(void *ctx, uint32_t nframes)
+{
+    const effect_t *effect = ctx;
+
+    return (effect->aux_in_count || effect->aux_out_count) && nframes != effect->aux_frames;
+}
+
+static int aux_reblock(void *ctx, uint32_t nframes)
+{
+    return aux_blocks(ctx, nframes);
+}
+
 /* jack stops this client's process cycle while this runs, so this thread can take the audio thread's place: the
  * auxiliary blocks are made again at the new size and bound, and an active instance re-activated at it */
 static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
-    int active, reactivate, reblock;
+    const struct omx_cycle_gate_blocks blocks = { aux_stale, aux_reblock, effect };
+    char why[OMX_CLAP_WHY_MAX] = "";
 
     if (!effect || !effect->clap)
         return 0;
     // any change, a shrink too: the adapter promised the plugin the activation's length (bufsz:fixedBlockLength) and
-    // refuses a cycle of another one, so an instance left at the old size would run no block at all. Under the lock
-    // every restart and relayout holds, with the cycles shut out by the gate: the auxiliary blocks, which a cycle copies,
-    // made again at the new size; an active instance at another block, or one whose relayout waits for these blocks
-    // (activate_pending), activated at it. An instance a relayout left inactive otherwise is the relayout's to activate.
-    pthread_mutex_lock(&g_reactivate);
-    active = effect->clap->active;
-    reactivate = active && nframes != effect->clap->max_block;
-    reblock = (effect->aux_in_count || effect->aux_out_count) && nframes != effect->aux_frames;
-    if (reactivate || reblock || effect->activate_pending)
+    // refuses a cycle of another one, so an instance left at the old size would run no block at all. The gate's resize,
+    // under the lock every restart and relayout holds, with the cycles shut out: the auxiliary blocks, which a cycle
+    // copies, made again at the new size; an active instance at another block, or one whose relayout waits for these
+    // blocks (pending), activated at it. An instance a relayout left inactive otherwise is the relayout's to activate.
+    switch (omx_cycle_gate_resize(&effect->gate, effect->clap, &g_reactivate, jack_get_sample_rate(effect->jack_client), nframes,
+                                  CLAP_HOST_ROLE_POLL_US, &blocks, &effect->pending, why))
     {
-        // stop takes the audio role for this thread and releases it: the cycle's is given back after; a pending
-        // relayout's is the one the relayout saved
-        const pthread_t thread = active ? effect->clap->audio_thread : effect->pending_thread;
-        const int held = active ? effect->clap->audio_role_held : effect->pending_held;
-        const int activate = active || effect->activate_pending;
-
-        effect->activate_pending = 0;
-        omx_cycle_gate_close(&effect->gate, CLAP_HOST_ROLE_POLL_US);
-        if (active)
-        {
-            omx_clap_host_stop(effect->clap);
-            omx_clap_host_deactivate(effect->clap);
-        }
-        // a block that cannot be made leaves the ports unbound and every longer cycle dry (process_gated)
-        if (reblock && aux_blocks(effect, nframes) != 0)
-            fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; its auxiliary ports are unbound "
-                    "and it passes dry\n", effect->instance, nframes);
-        if (activate && omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), nframes, NULL) == 0)
-        {
-            if (held)
-                omx_clap_host_set_audio_thread(effect->clap, thread);
-            omx_clap_host_arm(effect->clap);
-        }
-        omx_cycle_gate_open(&effect->gate);
+    case OMX_CYCLE_GATE_REBLOCK_FAILED:
+        fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; it passes dry until the next change of "
+                "the buffer size\n", effect->instance, nframes);
+        break;
+    case OMX_CYCLE_GATE_REFUSED:
+        fprintf(stderr, "%s: it does not activate again at %u frames: %s; it passes dry\n", effect->clap->desc->id, nframes, why);
+        break;
+    default:
+        break;
     }
-    pthread_mutex_unlock(&g_reactivate);
     return 0;
 }
 
@@ -1076,12 +1070,12 @@ static void ports_relayout(effect_t *effect)
     effect->relayout_pending = 0;
     // a relayout still waiting on its blocks keeps the audio role it saved; every outcome below decides again, and only
     // the short-block one waits again
-    if (effect->activate_pending)
+    if (effect->pending.set)
     {
-        thread = effect->pending_thread;
-        held = effect->pending_held;
+        thread = effect->pending.thread;
+        held = effect->pending.held;
     }
-    effect->activate_pending = 0;
+    effect->pending.set = 0;
     if (lane_request(clap, effect->in_ports != 0, why) < 0)
         fprintf(stderr, "%s: its layout after the ports rescan is refused: %s; it passes dry\n", clap->desc->id, why);
     else if (clap->in_channels != effect->in_ports || clap->channels != effect->out_ports)
@@ -1097,9 +1091,9 @@ static void ports_relayout(effect_t *effect)
     {
         // the buffer size grew and its callback has not made the blocks yet: an activation now is refused for them, the
         // callback activates once it has
-        effect->activate_pending = 1;
-        effect->pending_thread = thread;
-        effect->pending_held = held;
+        effect->pending.set = 1;
+        effect->pending.thread = thread;
+        effect->pending.held = held;
     }
     else if (omx_clap_host_activate(clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
         fprintf(stderr, "%s: it does not activate again after the ports rescan: %s; it passes dry\n", clap->desc->id, why);
