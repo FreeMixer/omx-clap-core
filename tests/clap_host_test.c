@@ -316,7 +316,21 @@ static void t_surround_ambisonic(const char *path)
         CHECK(in->main_out.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_out.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D
                   && in->main_in.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_in.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D,
               "%s: ACN and SN3D (%u, %u)", FAKE_AMBISONIC, in->main_out.ambisonic_ordering, in->main_out.ambisonic_normalization);
+        CHECK(in->main_in.ambisonic_assumed == 0 && in->main_out.ambisonic_assumed == 0, "%s: ACN and SN3D as get_config stated them, not assumed",
+              FAKE_AMBISONIC);
         rescan_checks(in, FAKE_AMBISONIC, "ambisonic.changed");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    setenv("FAKE_AMBISONIC_SILENT", "1", 1);
+    CHECK(open_ok(path, FAKE_AMBISONIC, &in), "open %s, its get_config silent", FAKE_AMBISONIC);
+    unsetenv("FAKE_AMBISONIC_SILENT");
+    if (in)
+    {
+        CHECK(in->main_out.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_out.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D
+                  && in->main_in.ambisonic_assumed == 1 && in->main_out.ambisonic_assumed == 1,
+              "%s, get_config answering false: ACN and SN3D, assumed (%u, %u, %u)", FAKE_AMBISONIC, in->main_out.ambisonic_ordering,
+              in->main_out.ambisonic_normalization, in->main_out.ambisonic_assumed);
         omx_clap_host_close(in);
         in = NULL;
     }

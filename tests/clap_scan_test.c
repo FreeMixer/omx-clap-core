@@ -111,6 +111,7 @@ static void fake_checks(const char *scan, const char *fake, char *out)
     CHECK(has(out, "\"kind\":\"surround\",\"map\":[0,1,2,3,9,25]}"), "surround-bad's map, its id 25 as the plugin names it");
     CHECK(has(out, "{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4,\"kind\":\"ambisonic\",\"ordering\":\"acn\","
                    "\"normalization\":\"sn3d\"}"), "the ambisonic plugin's ordering and normalisation by clap.ambisonic");
+    CHECK(!has(out, "\"assumed\""), "a configuration every plugin states is not marked assumed");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
     CHECK(!has(out, "\"presets\""), "fake.clap has no preset-discovery factory: no presets key");
     CHECK(count(out, "\"latency\":64") == 20, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
@@ -216,6 +217,15 @@ static void text_checks(const char *scan, const char *fake, char *out)
 
     CHECK(status == 0 && has(out, "plugin org.omx-clap-host.test.wide") && has(out, "param 0 latency"),
           "without --json a listing for a person");
+    CHECK(has(out, "in  0 in 0 main 4 channels ambisonic acn sn3d\n") && !has(out, " assumed"),
+          "without --json the ambisonic port's ordering and normalisation, stated, not assumed");
+    status = run(out, "FAKE_AMBISONIC_SILENT=1 %s %s", scan, fake);
+    CHECK(status == 0 && has(out, "in  0 in 0 main 4 channels ambisonic acn sn3d assumed\n"),
+          "without --json an ambisonic port whose get_config answers false reads acn sn3d assumed (%i)", status);
+    status = run(out, "FAKE_AMBISONIC_SILENT=1 %s --json %s", scan, fake);
+    CHECK(status == 0 && has(out, "{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4,\"kind\":\"ambisonic\",\"ordering\":\"acn\","
+                                  "\"normalization\":\"sn3d\",\"assumed\":true}"),
+          "an ambisonic port whose get_config answers false: ACN and SN3D, \"assumed\":true (%i)", status);
 }
 
 /* the synths: an instrument feature, no audio input, one note input with the dialects the port declares, and a note
