@@ -119,7 +119,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 12u && OMX_CLAP_CORE_ABI_OLDEST == 12u, "this header is ABI 12, the oldest accepted 12 (%u)", config.abi);
+  CHECK(config.abi == 13u && OMX_CLAP_CORE_ABI_OLDEST == 12u, "this header is ABI 13, the oldest accepted 12 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
