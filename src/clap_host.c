@@ -901,6 +901,17 @@ static const char *reread_note_input(struct omx_clap_instance *in)
     return code;
 }
 
+/* the host's placement for a pass-through tool: a stereo port of no id, named for what it is */
+static void placement_of(struct omx_clap_port *port, bool is_input)
+{
+    memset(port, 0, sizeof(*port));
+    port->id = CLAP_INVALID_ID;
+    snprintf(port->name, sizeof(port->name), "%s (passthrough: host)", is_input ? "in" : "out");
+    port->channels = 2;
+    port->kind = OMX_CLAP_PORT_STEREO;
+    port->in_place_pair = CLAP_INVALID_ID;
+}
+
 /* a port as the plugin declares it, into the description */
 static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *info)
 {
@@ -984,9 +995,12 @@ static const char *aux_of(struct omx_clap_port *ports, uint32_t *base, uint32_t 
  * (port-too-wide), a second main port on a side or one auxiliary port past the limit refuses it (too-many-ports), and a
  * surround or an ambisonic port is read through its extension (read_layout) and refused as that says. Then
  * the whole: no main output is nothing to carry (no-audio-output), the main pair may differ in width, no main input
- * at all is a source (an instrument with a note input, a generator without one, #184), its output its own. Where the
- * configuration admits note inputs, one note input; otherwise none. Returns the hosting code that refuses, or NULL. How
- * wide a main port the caller's lane carries is activation's to judge.
+ * at all is a source (an instrument with a note input, a generator without one, #184), its output its own. No audio
+ * port at all (a note tool, a controller) is a pass-through tool, the host's placement (#270): a stereo pair named
+ * for it on both sides, the strip's audio through the stage untouched, the plugin run for its notes and parameters
+ * alone, as the LV2 adapter hosts a control-only tool. Where the configuration admits note inputs, one note input;
+ * otherwise none. Returns the hosting code that refuses, or NULL. How wide a main port the caller's lane carries is
+ * activation's to judge.
  */
 static const char *describe_ports(struct omx_clap_instance *in)
 {
@@ -1041,7 +1055,16 @@ static const char *describe_ports(struct omx_clap_instance *in)
         }
     }
     if (in->main_out.channels == 0)
-        return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
+    {
+        // no main output. An analyser (audio inputs), or a plugin whose every output is auxiliary, has nothing the
+        // host can carry. A plugin with no audio port at all is a pass-through tool: the strip's stereo pair passes
+        // through it untouched, the host's placement, and it runs for its notes and parameters alone (#270)
+        if (in->main_in.channels || in->aux_inputs || in->aux_outputs)
+            return CLAP_HOST_CODE_NO_AUDIO_OUTPUT;
+        in->passthrough = 1;
+        placement_of(&in->main_in, true);
+        placement_of(&in->main_out, false);
+    }
     if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->channels = in->main_out.channels;
@@ -1063,6 +1086,7 @@ static void ports_forget(struct omx_clap_instance *in)
     in->aux_outputs = 0;
     in->in_channels = 0;
     in->channels = 0;
+    in->passthrough = 0;
 }
 
 /* whether a side's auxiliary ports are still `count` of the widths in `widths`, in that order */
@@ -1731,6 +1755,7 @@ static void drop_bounce(struct omx_clap_instance *in)
 /* the ports, then the note ids over the stage's sink: every id free, held OMX_CLAP_NOTE_ID_HOLD_MS at the rate */
 static int bind_stage(struct omx_clap_instance *in)
 {
+    in->stage.passthrough = in->passthrough;
     if (omx_clap_bind_ports_aux(&in->stage, in->plugin, in->in_channels, in->channels, &in->aux_list) != 0)
         return -1;
     omx_clap_note_ids_bind(&in->note_ids, &in->stage, (uint32_t)lround(in->rate * OMX_CLAP_NOTE_ID_HOLD_MS / 1000.0));
@@ -1739,7 +1764,8 @@ static int bind_stage(struct omx_clap_instance *in)
 
 static void publish_latency(struct omx_clap_instance *in)
 {
-    omx_clap_publish_latency(&in->stage, in->latency ? in->latency->get(in->plugin) : 0u);
+    // a pass-through tool's latency applies to its notes alone: the audio it does not touch has none
+    omx_clap_publish_latency(&in->stage, in->latency && !in->passthrough ? in->latency->get(in->plugin) : 0u);
 }
 
 /* no cycle came to stop the stage: the control thread stops it in the cycle's place */
@@ -2855,6 +2881,14 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     in->sleep.quiet_out_frames = 0;
     in->sleep.quiet_min_frames = (uint32_t)(rate * OMX_CLAP_SLEEP_QUIET_MS / 1000.0);
     publish_latency(in);
+    if (in->passthrough)
+    {
+        char line[256];
+
+        snprintf(line, sizeof(line), "%s: passthrough: host (no audio port: the strip's audio passes through untouched; the plugin's %u frames of latency apply to its notes alone)",
+                 in->desc->id, in->latency ? in->latency->get(in->plugin) : 0u);
+        log_to_ring(in, line);
+    }
     if (why)
         why[0] = '\0';
     return 0;
