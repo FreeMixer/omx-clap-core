@@ -250,6 +250,11 @@ jobs:
       - name: Test the LV2 parity rules
         run: make test-parity-self
 
+      # The CLAP coverage probe: scan parsing, the host loop against a fake host, classify, each rule broken once and
+      # seen red (tests/clap_coverage.py); the desk run, make clap-coverage, is not CI's
+      - name: Test the CLAP coverage probe's rules
+        run: make test-clap-coverage-self
+
       # The parity runner end to end on the fixture bundles, mod-host against the adapter, in a PipeWire of its own
       - name: Test LV2 parity on the fixtures
         run: |
