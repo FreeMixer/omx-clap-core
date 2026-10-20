@@ -161,8 +161,10 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   runs it without a call through the library. The layout of `struct omx_hosted_stage`,
   `struct omx_clap_stage` and `struct omx_clap_instance` is therefore part of the ABI.
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
-- `clap_host_limits.h`: every number and string the core reads, rendered from
-  `data/hosting.json` and committed here; never edited by hand.
+- `clap_host_limits.h`: every number the core reads, rendered from
+  `data/hosting.json` and committed here; never edited by hand. The refusal codes
+  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.19.0 or later):
+  `clap_host.h` names the core's as `CLAP_HOST_CODE_*`.
 - `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
   worker's two included, for a host that reads those names; rendered from the same
   file and committed here, never edited by hand.
@@ -261,8 +263,13 @@ one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
 `FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
 changes a symbol (`follow`, refused under R3).
 
-The hosting limits and refusal codes are declared in `data/hosting.json`, in
-omx-contract's schema. `make install` puts them into omx-contract's contract
+The hosting limits are declared in `data/hosting.json`, in omx-contract's
+schema; every hosting code the sources write is omx-contract's own, an
+`OMX_HOSTING_*` macro of its `omxcontract/omx_vocabulary.h`, and
+`make test-codes` (in `make test` and `make test-fake`, `tests/hosting-codes-check.sh`)
+fails on a `"hosting.` literal in `src/` or `lv2/` and on an `OMX_HOSTING_*`
+name that header lacks; its `--self-test` breaks the sources each way and
+requires each to fail. `make install` puts them into omx-contract's contract
 directory, `$(pkg-config --variable=contractdir omx-contract)/2/omx-clap-core/`,
 with a `MANIFEST.json` naming this version, using the install script
 omx-contract-devel 2.15.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
@@ -279,7 +286,7 @@ omx-contract's reader and renders the package's own files with
 fields, the level rule): `src/clap_host_limits.h`, `src/hosted_stage_limits.h`
 and the TypeScript module `ts/omx-clap-core-hosting.js` with its
 `omx-clap-core-hosting.d.ts` must be that render, byte for byte. Beside that, `tests/hosting-values-check.mjs` takes the
-values of `HOSTED_STAGE_LIMITS` and `HOSTING_CODES` as the reader parsed them (`render --target json`) and holds every
+values of `HOSTED_STAGE_LIMITS` as the reader parsed them (`render --target json`) and holds every
 define of the two headers to its value, and its `--self-test` changes, drops and adds a define for every value and
 requires each to fail. It needs node and the checkout's `npm ci`.
 
