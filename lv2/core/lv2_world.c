@@ -1233,8 +1233,10 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         if (L.lilv_port_is_a(pl, port, g.node[N_LL_MIDI]))
         {
             // an llext:MidiPort (ll-plugins' MIDI port, the event extension's predecessor: zynadd's MIDI input) is a
-            // MIDI port as the atom one is, over an LV2_MIDI buffer (lv2_ll_midi.h): one input and one output at most,
-            // a second either way is one more than the adapter feeds (#284)
+            // MIDI port as the atom one is, over an LV2_MIDI buffer (lv2_ll_midi.h), and the only MIDI port in its
+            // direction: beside any other MIDI port, in either index order (a second llext:MidiPort, or an atom or
+            // ev:EventPort MIDI port, which the arms below refuse when the first was an ll port), the plugin is one more
+            // MIDI port than the adapter feeds (#284)
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
                 return LV2_CODE_MIDI_IN;
             if (input)
@@ -1273,6 +1275,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
                 }
                 continue;
             }
+            if (input ? p->midi_in_ll : p->midi_out_ll)       // an llext:MidiPort is the only MIDI port its way
+                return LV2_CODE_MIDI_IN;
             if (*count >= (input ? LV2_CORE_ATOM_IN_PORTS : LV2_CORE_NOTIFY_PORTS))
                 return LV2_CODE_MIDI_IN;
             (input ? p->event_in : p->event_out)[(*count)++] = i;
@@ -1289,7 +1293,11 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             // is the first port's in index order
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
             {
-                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+                LilvNodes *rsz;
+
+                if (input ? p->midi_in_ll : p->midi_out_ll)   // an llext:MidiPort is the only MIDI port its way
+                    return LV2_CODE_MIDI_IN;
+                rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
 
                 if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
                 {

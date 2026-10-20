@@ -12,3 +12,28 @@
     a lv2:Plugin ;
     lv2:binary <omx-ll-midi-fixture.so> ;
     rdfs:seeAlso <omx-ll-midi-fixture.ttl> .
+
+<urn:openmixer:test:ll-midi-fixture#two-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-ll-midi-fixture.so> ;
+    rdfs:seeAlso <omx-ll-midi-fixture.ttl> .
+
+<urn:openmixer:test:ll-midi-fixture#atom-then-ll>
+    a lv2:Plugin ;
+    lv2:binary <omx-ll-midi-fixture.so> ;
+    rdfs:seeAlso <omx-ll-midi-fixture.ttl> .
+
+<urn:openmixer:test:ll-midi-fixture#ll-then-atom>
+    a lv2:Plugin ;
+    lv2:binary <omx-ll-midi-fixture.so> ;
+    rdfs:seeAlso <omx-ll-midi-fixture.ttl> .
+
+<urn:openmixer:test:ll-midi-fixture#ev-then-ll>
+    a lv2:Plugin ;
+    lv2:binary <omx-ll-midi-fixture.so> ;
+    rdfs:seeAlso <omx-ll-midi-fixture.ttl> .
+
+<urn:openmixer:test:ll-midi-fixture#ll-then-ev>
+    a lv2:Plugin ;
+    lv2:binary <omx-ll-midi-fixture.so> ;
+    rdfs:seeAlso <omx-ll-midi-fixture.ttl> .
