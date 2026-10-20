@@ -37,6 +37,19 @@
  *                                      and -in[0] to out[1]
  *   org.omx-clap-host.test.stereo-mono a stereo main input and a mono main output; process() writes in[0] + in[1]
  *                                      to out[0]
+ *   org.omx-clap-host.test.surround    a 5.1 main pair, port type surround, and clap.surround: the map FL FR FC LFE SL
+ *                                      SR (0 1 2 3 9 10, not index order) on both, its own mask supported; deactivate
+ *                                      calls the host's surround.changed
+ *                                      (with FAKE_CHANGED_ON_ACTIVATE set, activate calls it too)
+ *   org.omx-clap-host.test.surround-bad the same, the map's last id 25, past CLAP_SURROUND_TSR
+ *   org.omx-clap-host.test.surround-short the same, the map five ids long for six channels
+ *   org.omx-clap-host.test.surround-plain a 6-channel main pair of port type surround and no clap.surround
+ *                                      (with FAKE_SURROUND_PLAIN_CHANNELS set, the pair is that many channels wide)
+ *   org.omx-clap-host.test.ambisonic   a first-order main pair, 4 channels of port type ambisonic, and clap.ambisonic:
+ *                                      ACN, SN3D, that configuration supported; deactivate calls the host's
+ *                                      ambisonic.changed (with FAKE_AMBISONIC_SILENT set, get_config answers false:
+ *                                      the plugin states no configuration)
+ *   org.omx-clap-host.test.ambisonic-bad the same of 5 channels, no (order+1)²
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
@@ -78,6 +91,12 @@
 #define ID_AUX_MAX      "org.omx-clap-host.test.aux-max"
 #define ID_MONO_STEREO  "org.omx-clap-host.test.mono-stereo"
 #define ID_STEREO_MONO  "org.omx-clap-host.test.stereo-mono"
+#define ID_SURROUND     "org.omx-clap-host.test.surround"
+#define ID_SURROUND_BAD "org.omx-clap-host.test.surround-bad"
+#define ID_SURROUND_PLAIN "org.omx-clap-host.test.surround-plain"
+#define ID_SURROUND_SHORT "org.omx-clap-host.test.surround-short"
+#define ID_AMBISONIC    "org.omx-clap-host.test.ambisonic"
+#define ID_AMBISONIC_BAD "org.omx-clap-host.test.ambisonic-bad"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -94,6 +113,7 @@ typedef struct FAKE_T {
     uint32_t aux_wide;          // process() copies auxiliary input 1's channel 4 onto main output channel 1
     uint32_t copies_nothing;    // process() leaves every buffer as it is
     uint32_t mix;               // what process() writes of the main pair: one FAKE_MIX_*
+    uint32_t type;              // the main pair's port type and the layout extension it offers: one FAKE_TYPE_*
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
@@ -124,6 +144,12 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("aux-max", ID_AUX_MAX),
     DESCRIPTOR("mono-stereo", ID_MONO_STEREO),
     DESCRIPTOR("stereo-mono", ID_STEREO_MONO),
+    DESCRIPTOR("surround", ID_SURROUND),
+    DESCRIPTOR("surround-bad", ID_SURROUND_BAD),
+    DESCRIPTOR("surround-plain", ID_SURROUND_PLAIN),
+    DESCRIPTOR("surround-short", ID_SURROUND_SHORT),
+    DESCRIPTOR("ambisonic", ID_AMBISONIC),
+    DESCRIPTOR("ambisonic-bad", ID_AMBISONIC_BAD),
 };
 
 /* what process() writes of the main pair: each output channel a copy of its input (the last one past them), the mono
@@ -131,25 +157,37 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
  * reversed (the last input to the first output) */
 enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM, FAKE_MIX_REVERSE };
 
+/* the main pair's port type: mono or stereo by its width (none past two); surround with clap.surround, its map the
+ * 5.1 one, one naming id 25 or one id short; surround with no extension; ambisonic with clap.ambisonic */
+enum { FAKE_TYPE_BY_WIDTH, FAKE_TYPE_SURROUND, FAKE_TYPE_SURROUND_BAD, FAKE_TYPE_SURROUND_SHORT, FAKE_TYPE_SURROUND_PLAIN,
+       FAKE_TYPE_AMBISONIC };
+
 /* each descriptor's ports, in the descriptors' order: the main input and output widths, the auxiliary inputs and
- * outputs and their widths, a second main output, what process() does beyond the main pair and how it writes that pair */
+ * outputs and their widths, a second main output, what process() does beyond the main pair, how it writes that pair
+ * and the pair's port type */
 static const struct FAKE_LAYOUT_T {
-    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix;
+    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing, mix, type;
 } g_layouts[] = {
-    { 6, 6, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_REVERSE },  // wide
-    { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0 },      // sidechain
-    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
-    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
-    { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0 },      // widen
-    { 2, 2, 0, 0, 1, 2, 0, 0, 0, 0 },      // auxout
-    { 2, 2, 1, 0, 0, 0, 0, 0, 0, 0 },      // zero-port
-    { 2, 2, 0, 0, 1, 65, 0, 0, 0, 0 },     // too-wide
-    { 2, 2, 0, 0, 1, 2, 1, 0, 0, 0 },      // two-mains
-    { 2, 2, 65, 1, 0, 0, 0, 0, 0, 0 },     // many-aux
-    { 2, 2, 1, 4, 0, 0, 0, 1, 0, 0 },      // aux-wide
-    { 2, 2, 64, 64, 64, 64, 0, 0, 1, 0 },  // aux-max
-    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_NEGATE_RIGHT },  // mono-stereo
-    { 2, 1, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_SUM },           // stereo-mono
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_REVERSE, 0 },  // wide
+    { 2, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0 },      // sidechain
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // notes
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // widen
+    { 2, 2, 0, 0, 1, 2, 0, 0, 0, 0, 0 },      // auxout
+    { 2, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0 },      // zero-port
+    { 2, 2, 0, 0, 1, 65, 0, 0, 0, 0, 0 },     // too-wide
+    { 2, 2, 0, 0, 1, 2, 1, 0, 0, 0, 0 },      // two-mains
+    { 2, 2, 65, 1, 0, 0, 0, 0, 0, 0, 0 },     // many-aux
+    { 2, 2, 1, 4, 0, 0, 0, 1, 0, 0, 0 },      // aux-wide
+    { 2, 2, 64, 64, 64, 64, 0, 0, 1, 0, 0 },  // aux-max
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_NEGATE_RIGHT, 0 },  // mono-stereo
+    { 2, 1, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_SUM, 0 },           // stereo-mono
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND },        // surround
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_BAD },    // surround-bad
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_PLAIN },  // surround-plain
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_SHORT },  // surround-short
+    { 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC },       // ambisonic
+    { 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC },       // ambisonic-bad
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
@@ -173,6 +211,8 @@ static double layout_default(void)
     return value && *value ? atof(value) : LATENCY_DEFAULT;
 }
 
+static void main_thread_only(const clap_plugin_t *plugin, const char *what);
+
 static uint32_t audio_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const fake_t *fake = plugin->plugin_data;
@@ -191,11 +231,64 @@ static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is
     info->flags = index == 0 || (index == 1 && !is_input && fake->two_mains) ? CLAP_AUDIO_PORT_IS_MAIN : 0;
     info->channel_count = index == 0 ? (is_input ? fake->main_channels : fake->out_channels) : (is_input ? fake->aux_in_channels : fake->aux_out_channels);
     info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : (info->channel_count == 1 ? CLAP_PORT_MONO : NULL);
+    if (index == 0 && fake->type != FAKE_TYPE_BY_WIDTH)
+        info->port_type = fake->type == FAKE_TYPE_AMBISONIC ? CLAP_PORT_AMBISONIC : CLAP_PORT_SURROUND;
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
 }
 
 static const clap_plugin_audio_ports_t g_audio_ports = { audio_ports_count, audio_ports_get };
+
+/* the 5.1 map of both main ports, its surrounds at the sides so it is not index order; surround-bad names id 25 for its
+ * last channel */
+static const uint8_t g_five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL,
+                                       CLAP_SURROUND_SR };
+#define FIVE_ONE_MASK ((1u << CLAP_SURROUND_FL) | (1u << CLAP_SURROUND_FR) | (1u << CLAP_SURROUND_FC) | (1u << CLAP_SURROUND_LFE) \
+                       | (1u << CLAP_SURROUND_SL) | (1u << CLAP_SURROUND_SR))
+
+static bool surround_is_channel_mask_supported(const clap_plugin_t *plugin, uint64_t channel_mask)
+{
+    (void)plugin;
+    return channel_mask == FIVE_ONE_MASK;
+}
+
+static uint32_t surround_get_channel_map(const clap_plugin_t *plugin, bool is_input, uint32_t port_index, uint8_t *channel_map,
+                                         uint32_t channel_map_capacity)
+{
+    const fake_t *fake = plugin->plugin_data;
+    uint32_t c;
+
+    (void)is_input;
+    main_thread_only(plugin, "surround.get_channel_map");
+    if (port_index != 0)
+        return 0;
+    for (c = 0; c < 6 && c < channel_map_capacity; c++)
+        channel_map[c] = g_five_one[c];
+    if (fake->type == FAKE_TYPE_SURROUND_BAD && c == 6)
+        channel_map[5] = 25;
+    return fake->type == FAKE_TYPE_SURROUND_SHORT && c == 6 ? 5 : c;
+}
+
+static const clap_plugin_surround_t g_surround = { surround_is_channel_mask_supported, surround_get_channel_map };
+
+static bool ambisonic_is_config_supported(const clap_plugin_t *plugin, const clap_ambisonic_config_t *config)
+{
+    (void)plugin;
+    return config->ordering == CLAP_AMBISONIC_ORDERING_ACN && config->normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D;
+}
+
+static bool ambisonic_get_config(const clap_plugin_t *plugin, bool is_input, uint32_t port_index, clap_ambisonic_config_t *config)
+{
+    (void)is_input;
+    main_thread_only(plugin, "ambisonic.get_config");
+    if (port_index != 0 || getenv("FAKE_AMBISONIC_SILENT"))
+        return false;
+    config->ordering = CLAP_AMBISONIC_ORDERING_ACN;
+    config->normalization = CLAP_AMBISONIC_NORMALIZATION_SN3D;
+    return true;
+}
+
+static const clap_plugin_ambisonic_t g_ambisonic = { ambisonic_is_config_supported, ambisonic_get_config };
 
 static uint32_t note_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
@@ -465,12 +558,35 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
     (void)sample_rate; (void)min_frames; (void)max_frames;
     fake->activations++;
     fake_log(plugin, "activate");
+    if (fake->type == FAKE_TYPE_SURROUND && getenv("FAKE_CHANGED_ON_ACTIVATE"))
+    {
+        const clap_host_surround_t *host_surround = fake->host->get_extension(fake->host, CLAP_EXT_SURROUND);
+
+        if (host_surround)
+            host_surround->changed(fake->host);
+    }
     return true;
 }
 
+/* deactivated, a plugin with a layout extension says its layout changed, as the extensions allow only now */
 static void plugin_deactivate(const clap_plugin_t *plugin)
 {
-    (void)plugin;
+    const fake_t *fake = plugin->plugin_data;
+
+    if (fake->type == FAKE_TYPE_SURROUND || fake->type == FAKE_TYPE_SURROUND_BAD || fake->type == FAKE_TYPE_SURROUND_SHORT)
+    {
+        const clap_host_surround_t *host_surround = fake->host->get_extension(fake->host, CLAP_EXT_SURROUND);
+
+        if (host_surround)
+            host_surround->changed(fake->host);
+    }
+    else if (fake->type == FAKE_TYPE_AMBISONIC)
+    {
+        const clap_host_ambisonic_t *host_ambisonic = fake->host->get_extension(fake->host, CLAP_EXT_AMBISONIC);
+
+        if (host_ambisonic)
+            host_ambisonic->changed(fake->host);
+    }
 }
 
 static bool plugin_start_processing(const clap_plugin_t *plugin)
@@ -553,6 +669,11 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_latency;
     if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT) && *contract_arm())
         return &g_contract;
+    if (!strcmp(id, CLAP_EXT_SURROUND)
+        && (fake->type == FAKE_TYPE_SURROUND || fake->type == FAKE_TYPE_SURROUND_BAD || fake->type == FAKE_TYPE_SURROUND_SHORT))
+        return &g_surround;
+    if (!strcmp(id, CLAP_EXT_AMBISONIC) && fake->type == FAKE_TYPE_AMBISONIC)
+        return &g_ambisonic;
     if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_TRACK_INFO))
         return &g_track_info;
     if (!strcmp(plugin->desc->id, ID_PASSTHROUGH) && !strcmp(id, CLAP_EXT_REMOTE_CONTROLS))
@@ -613,6 +734,9 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->aux_wide = g_layouts[i].aux_wide;
     fake->copies_nothing = g_layouts[i].copies_nothing;
     fake->mix = g_layouts[i].mix;
+    fake->type = g_layouts[i].type;
+    if (fake->type == FAKE_TYPE_SURROUND_PLAIN && getenv("FAKE_SURROUND_PLAIN_CHANNELS"))
+        fake->main_channels = fake->out_channels = (uint32_t)atoi(getenv("FAKE_SURROUND_PLAIN_CHANNELS"));
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
     fake->latency_param = LATENCY_DEFAULT;

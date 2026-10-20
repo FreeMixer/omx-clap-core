@@ -76,14 +76,16 @@
  * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12; 12:
  * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
- * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports).
+ * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
+ * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, and the ports rescan the
+ * tick reports).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               13u
-#define OMX_CLAP_CORE_ABI_OLDEST        13u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               14u
+#define OMX_CLAP_CORE_ABI_OLDEST        14u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -109,6 +111,8 @@
 #define CLAP_HOST_CODE_TOO_MANY_PORTS       OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS  ///< more than the limit of auxiliary ports on one side, or more than one main port on a side
 #define CLAP_HOST_CODE_PORT_TOO_WIDE        OMX_HOSTING_TOPOLOGY_PORT_TOO_WIDE  ///< a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²
 #define CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS OMX_HOSTING_TOPOLOGY_PORT_WITHOUT_CHANNELS  ///< a port of zero channels
+#define CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN  OMX_HOSTING_TOPOLOGY_CHANNEL_MAP_UNKNOWN  ///< a surround port names a channel id the host does not know, or refuses the carrier's channel mask
+#define CLAP_HOST_CODE_AMBISONIC_CONFIG     OMX_HOSTING_TOPOLOGY_AMBISONIC_CONFIG  ///< an ambisonic port refuses the carrier's ordering or normalisation; raised by a layout request only
 #define CLAP_HOST_CODE_CRASHED_LIVE         OMX_HOSTING_STABILITY_CRASHED_LIVE_ON_THIS_RIG  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE    OMX_HOSTING_OUTPUT_NON_FINITE  ///< the plugin produced non-finite output
 
@@ -491,6 +495,13 @@ struct omx_clap_instance
     _Atomic uint32_t tail_frames;  ///< the plugin's tail, read at activate and after it says it changed; UINT32_MAX infinite
     _Atomic uint32_t tail_changed;  ///< the plugin said its tail changed: the tick reads it again
     struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
+
+    // the layout extensions (ABI 14): read at open, asked by describe at open for a surround or an ambisonic port; the
+    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, which the tick reports and never
+    // turns into a restart
+    const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
+    const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
+    _Atomic uint32_t ports_rescanned;  ///< 1 once the tick saw a ports rescan, until omx_clap_host_ports_rescanned
 };
 
 
@@ -786,6 +797,13 @@ OMX_CLAP_EXPORT int omx_clap_host_note_names_changed(struct omx_clap_instance *i
  * refuses with hosting.clap.note-input when the new ports are ones open would have refused. Control thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in);
 
+/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
+ * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
+ * plugin's. Nothing is restarted or read again for it. A rescan made in the deactivate just before one of
+ * omx_clap_host_activate's activate() calls (the warm-up's cycle, a restart) is answered by that call and not reported;
+ * one made inside activate() is. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
+
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
  * waits for the next take. Control thread. */
@@ -841,8 +859,10 @@ OMX_CLAP_EXPORT const char *omx_clap_param_scale_name(uint32_t scale);
 OMX_CLAP_EXPORT int omx_clap_param_number(double value, char *out, size_t size);
 
 /** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency, take
- * the plugin's parameter and note-port rescans and ask its voice info again when it said it changed. Returns nonzero
- * when the plugin asked for a restart (the caller performs it). */
+ * the plugin's parameter, note-port and audio-port rescans and ask its voice info again when it said it changed. A ports
+ * rescan (clap.audio-ports rescan, or clap.surround's or clap.ambisonic's changed) is reported through
+ * omx_clap_host_ports_rescanned and asks for no restart. Returns nonzero when the plugin asked for a restart (the
+ * caller performs it). */
 OMX_CLAP_EXPORT int omx_clap_host_tick(struct omx_clap_instance *in);
 
 /** The last log message the tick drained, once: NULL when it was taken already. */

@@ -209,6 +209,157 @@ static void t_run_ports(const char *path)
     omx_clap_host_close(in);
 }
 
+/*
+ * A plugin whose deactivate says its layout changed (`what`, the host's surround or ambisonic changed): activated, a
+ * restart around a deactivate and the first tick after it read no restart and no rescan (activate answers what its own
+ * deactivate raised); a plain deactivate's changed is reported once by the tick, then cleared, and asks for no restart;
+ * the host's clap.audio-ports rescan, by names while active and of the list while inactive, is reported the same way.
+ */
+static void rescan_checks(struct omx_clap_instance *in, const char *id, const char *what)
+{
+    const clap_host_audio_ports_t *ports = in->host.get_extension(&in->host, CLAP_EXT_AUDIO_PORTS);
+    char why[OMX_CLAP_WHY_MAX];
+
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", id, why);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: the first tick after activate: no restart, no rescan", id);
+    CHECK(omx_clap_host_restart(in) == 0, "%s restarts: its deactivate calls %s", id, what);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0,
+          "%s: the first tick after the restart: no restart, no rescan (activate answered its deactivate's %s)", id, what);
+    CHECK(omx_clap_host_tick(in) == 0, "%s: and none on the next tick either: no restart loop", id);
+    CHECK(ports != NULL, "the host offers clap.audio-ports");
+    if (ports)
+    {
+        ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
+        CHECK(omx_clap_host_tick(in) == 0 && in->active, "%s: audio-ports.rescan(NAMES) while active asks for no restart", id);
+        CHECK(omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0, "%s: and is reported once, then cleared", id);
+    }
+    omx_clap_host_deactivate(in);
+    CHECK(omx_clap_host_tick(in) == 0, "%s: %s after a plain deactivate asks for no restart", id, what);
+    CHECK(omx_clap_host_ports_rescanned(in) == 1, "%s: the tick reports %s as a ports rescan", id, what);
+    CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: reported once, then cleared", id);
+    if (ports)
+    {
+        ports->rescan(&in->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+              "%s: audio-ports.rescan(LIST) while inactive is reported once, no restart", id);
+    }
+}
+
+/*
+ * Surround and ambisonic ports, described through their extensions: the 5.1 pair's map read by clap.surround, a map
+ * naming an id past CLAP_SURROUND_TSR or one id short refused, a surround port with no clap.surround mapped in index
+ * order; the first-order pair's ordering and normalisation read by clap.ambisonic, five ambisonic channels (no (order+1)²)
+ * refused. Deactivated, each says its layout changed through the host's surround or ambisonic changed, and the tick
+ * reports it as a ports rescan, once, with no restart (rescan_checks).
+ */
+static void t_surround_ambisonic(const char *path)
+{
+    static const uint8_t five_one[6] = { CLAP_SURROUND_FL, CLAP_SURROUND_FR, CLAP_SURROUND_FC, CLAP_SURROUND_LFE, CLAP_SURROUND_SL,
+                                         CLAP_SURROUND_SR };
+    struct omx_clap_instance *in = NULL;
+    uint32_t c;
+    int same;
+
+    CHECK(open_ok(path, FAKE_SURROUND, &in), "open %s", FAKE_SURROUND);
+    if (in)
+    {
+        CHECK(in->main_out.kind == OMX_CLAP_PORT_SURROUND && in->main_in.kind == OMX_CLAP_PORT_SURROUND && in->main_out.channels == 6,
+              "%s: a surround main pair of six channels (%u, %u)", FAKE_SURROUND, in->main_in.kind, in->main_out.kind);
+        CHECK(in->main_out.map[3] == CLAP_SURROUND_LFE && in->main_out.map[4] == CLAP_SURROUND_SL && in->main_out.map[5] == CLAP_SURROUND_SR,
+              "%s: the output's fourth channel is the LFE, its fifth and sixth SL and SR, as clap.surround names them (%u %u %u)",
+              FAKE_SURROUND, in->main_out.map[3], in->main_out.map[4], in->main_out.map[5]);
+        for (same = 1, c = 0; c < 6; c++)
+            same = same && in->main_in.map[c] == five_one[c] && in->main_out.map[c] == five_one[c];
+        CHECK(same, "%s: both maps are FL FR FC LFE SL SR", FAKE_SURROUND);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: no rescan before the plugin says its layout changed",
+              FAKE_SURROUND);
+        CHECK(in->host.get_extension(&in->host, CLAP_EXT_SURROUND) != NULL
+                  && in->host.get_extension(&in->host, CLAP_EXT_SURROUND_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_SURROUND)
+                  && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC) != NULL
+                  && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC),
+              "the host answers clap.surround/4 and clap.ambisonic/3 under their draft ids too");
+        rescan_checks(in, FAKE_SURROUND, "surround.changed");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    // a rescan the plugin raises inside its own activate() is its own: the first tick reports it, once
+    setenv("FAKE_CHANGED_ON_ACTIVATE", "1", 1);
+    CHECK(open_ok(path, FAKE_SURROUND, &in) && omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, NULL) == 0,
+          "%s opens and activates, calling surround.changed from its activate", FAKE_SURROUND);
+    if (in)
+    {
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+              "%s: the first tick reports the rescan made inside activate once, no restart", FAKE_SURROUND);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    unsetenv("FAKE_CHANGED_ON_ACTIVATE");
+    check_refused(path, FAKE_SURROUND_BAD, "hosting.topology.channel-map-unknown");
+    check_refused(path, FAKE_SURROUND_SHORT, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN);
+
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s", FAKE_SURROUND_PLAIN);
+    if (in)
+    {
+        for (same = 1, c = 0; c < 6; c++)
+            same = same && in->main_out.map[c] == c;
+        CHECK(in->main_out.kind == OMX_CLAP_PORT_SURROUND && same, "%s: no clap.surround, the surround port mapped in index order",
+              FAKE_SURROUND_PLAIN);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    // with no clap.surround the index-order map names ids 0 to channels - 1: past CLAP_SURROUND_TSR it names none
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "21", 1);   // ids 0 to 20, one past TSR (19)
+    check_refused(path, FAKE_SURROUND_PLAIN, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN);
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "20", 1);
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s, twenty channels: ids 0 to TSR", FAKE_SURROUND_PLAIN);
+    if (in)
+    {
+        CHECK(in->main_out.channels == 20 && in->main_out.map[19] == CLAP_SURROUND_TSR, "%s: the twentieth channel is TSR (%u)",
+              FAKE_SURROUND_PLAIN, in->main_out.map[19]);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    setenv("FAKE_SURROUND_PLAIN_CHANNELS", "6", 1);
+    CHECK(open_ok(path, FAKE_SURROUND_PLAIN, &in), "open %s, six channels set by the knob", FAKE_SURROUND_PLAIN);
+    unsetenv("FAKE_SURROUND_PLAIN_CHANNELS");
+    if (in)
+    {
+        for (same = 1, c = 0; c < 6; c++)
+            same = same && in->main_in.map[c] == c && in->main_out.map[c] == c;
+        CHECK(in->main_out.channels == 6 && same, "%s: six channels, admitted, both maps in index order", FAKE_SURROUND_PLAIN);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    CHECK(open_ok(path, FAKE_AMBISONIC, &in), "open %s", FAKE_AMBISONIC);
+    if (in)
+    {
+        CHECK(in->main_in.kind == OMX_CLAP_PORT_AMBISONIC && in->main_out.kind == OMX_CLAP_PORT_AMBISONIC && in->main_out.channels == 4,
+              "%s: an ambisonic main pair of four channels", FAKE_AMBISONIC);
+        CHECK(in->main_out.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_out.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D
+                  && in->main_in.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_in.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D,
+              "%s: ACN and SN3D (%u, %u)", FAKE_AMBISONIC, in->main_out.ambisonic_ordering, in->main_out.ambisonic_normalization);
+        CHECK(in->main_in.ambisonic_assumed == 0 && in->main_out.ambisonic_assumed == 0, "%s: ACN and SN3D as get_config stated them, not assumed",
+              FAKE_AMBISONIC);
+        rescan_checks(in, FAKE_AMBISONIC, "ambisonic.changed");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    setenv("FAKE_AMBISONIC_SILENT", "1", 1);
+    CHECK(open_ok(path, FAKE_AMBISONIC, &in), "open %s, its get_config silent", FAKE_AMBISONIC);
+    unsetenv("FAKE_AMBISONIC_SILENT");
+    if (in)
+    {
+        CHECK(in->main_out.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN && in->main_out.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D
+                  && in->main_in.ambisonic_assumed == 1 && in->main_out.ambisonic_assumed == 1,
+              "%s, get_config answering false: ACN and SN3D, assumed (%u, %u, %u)", FAKE_AMBISONIC, in->main_out.ambisonic_ordering,
+              in->main_out.ambisonic_normalization, in->main_out.ambisonic_assumed);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    check_refused(path, FAKE_AMBISONIC_BAD, "hosting.topology.port-too-wide");
+}
+
 /* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
  * two legs, its other channels the wide bounce's (silent: nothing fills them on that path), and run_ports carries any
  * width; the exit status is the failures */
@@ -241,6 +392,7 @@ static int lane_any_checks(const char *path)
           "and runs a block on the legs: the reversing fake's first two outputs are its silent sixth and fifth inputs");
     omx_clap_host_close(in);
     t_run_ports(path);
+    t_surround_ambisonic(path);
     return g_failures;
 }
 

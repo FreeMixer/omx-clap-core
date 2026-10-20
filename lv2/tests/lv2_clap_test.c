@@ -2395,6 +2395,65 @@ static void t_layouts(double rate)
     }
 }
 
+/*
+ * The typed groups through the core: five-one opens as a surround main pair whose maps the shim's clap.surround gives in
+ * the group's designation order (FL FC FR BL BR LFE: 0 2 1 4 5 3, not the index order the core falls back to), and
+ * ambi-first as an ambisonic main pair whose clap.ambisonic states no configuration (LV2 declares no normalisation), so
+ * the core reads ACN and SN3D and marks both ports assumed. A layout of no surround or ambisonic
+ * port is offered neither extension.
+ */
+static void t_layouts_kinds(void)
+{
+    static const uint8_t five_one[6] = { 0, 2, 1, 4, 5, 3 };
+    char why[OMX_CLAP_LV2_WHY_MAX] = "", cwhy[OMX_CLAP_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_layout, why);
+    struct omx_clap_instance *in = NULL;
+    uint32_t c;
+    int same;
+
+    CHECK(entry && omx_clap_host_open_entry(entry, LAYOUT_URI "#five-one", &in, cwhy) == 0, "kinds: five-one opens through the core (%s)", cwhy);
+    if (in)
+    {
+        CHECK(in->surround != NULL && in->main_in.kind == OMX_CLAP_PORT_SURROUND && in->main_out.kind == OMX_CLAP_PORT_SURROUND
+                  && in->main_in.channels == 6,
+              "kinds: five-one offers clap.surround and is a surround main pair of six channels (%u, %u)", in->main_in.kind, in->main_out.kind);
+        for (same = 1, c = 0; c < 6; c++)
+            same = same && in->main_in.map[c] == five_one[c] && in->main_out.map[c] == five_one[c];
+        CHECK(same, "kinds: five-one's maps are 0 2 1 4 5 3 (%u %u %u %u %u %u)", in->main_in.map[0], in->main_in.map[1], in->main_in.map[2],
+              in->main_in.map[3], in->main_in.map[4], in->main_in.map[5]);
+        CHECK(in->surround && in->surround->is_channel_mask_supported(in->plugin, 0x3fu) && !in->surround->is_channel_mask_supported(in->plugin, 0x3u),
+              "kinds: five-one supports its own channel mask and no other");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    CHECK(entry && omx_clap_host_open_entry(entry, LAYOUT_URI "#ambi-first", &in, cwhy) == 0, "kinds: ambi-first opens through the core (%s)", cwhy);
+    if (in)
+    {
+        const clap_ambisonic_config_t acn_sn3d = { CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D },
+                                      fuma = { CLAP_AMBISONIC_ORDERING_FUMA, CLAP_AMBISONIC_NORMALIZATION_MAXN };
+
+        CHECK(in->ambisonic != NULL && in->main_in.kind == OMX_CLAP_PORT_AMBISONIC && in->main_in.channels == 4
+                  && in->main_in.ambisonic_ordering == CLAP_AMBISONIC_ORDERING_ACN
+                  && in->main_in.ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN3D,
+              "kinds: ambi-first offers clap.ambisonic and is an ambisonic main input of four channels, ACN and SN3D (%u, %u, %u)",
+              in->main_in.kind, in->main_in.ambisonic_ordering, in->main_in.ambisonic_normalization);
+        CHECK(in->main_in.ambisonic_assumed == 1 && in->main_out.ambisonic_assumed == 1,
+              "kinds: ambi-first's ACN and SN3D are assumed, not stated (%u, %u)", in->main_in.ambisonic_assumed, in->main_out.ambisonic_assumed);
+        CHECK(in->ambisonic && in->ambisonic->is_config_supported(in->plugin, &acn_sn3d) && !in->ambisonic->is_config_supported(in->plugin, &fuma),
+              "kinds: ambi-first supports ACN with SN3D and not FuMa with MaxN");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    CHECK(entry && omx_clap_host_open_entry(entry, LAYOUT_URI "#main-aux", &in, cwhy) == 0, "kinds: main-aux opens through the core (%s)", cwhy);
+    if (in)
+    {
+        CHECK(in->surround == NULL && in->ambisonic == NULL, "kinds: main-aux, of no surround or ambisonic port, is offered neither extension");
+        omx_clap_host_close(in);
+    }
+    if (entry)
+        omx_clap_lv2_entry_release(entry);
+}
+
 /* the side chains at the core's limit through the face: 65 are refused with too-many-ports, and a three-channel side
  * chain is one auxiliary input of three channels and no port type */
 static void t_sidechain_limits(void)
@@ -3759,6 +3818,8 @@ int main(int argc, char **argv)
             t_sidechain_limits();
         t_sidechain_core(RATES[r]);
         t_layouts(RATES[r]);
+        if (r == 0)
+            t_layouts_kinds();
         t_make_path(RATES[r]);
         t_make_path_escape(RATES[r]);
         t_map_path(RATES[r]);
