@@ -371,6 +371,7 @@ jobs:
             files "$rpm" > files.txt
             printf '%s\n' /usr/bin/omx-clap-host /usr/bin/omx-clap-scan \
               /usr/share/man/man1/omx-clap-host.1.gz /usr/share/man/man1/omx-clap-scan.1.gz \
+              /usr/lib/udev/rules.d/60-omx-clap-host.rules \
               /usr/share/doc/omx-clap-host/README.md /usr/share/licenses/omx-clap-host/COPYING | sort > expected.txt
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
