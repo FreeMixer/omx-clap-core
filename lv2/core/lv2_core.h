@@ -59,10 +59,10 @@
 #include <lv2/uri-map/uri-map.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
-#include <omxcontract/omx_vocabulary.h>
 
 #include "omx_lv2_features.h"
 #include "lv2_rtmempool.h"
+#include "omx_clap_core_vocabulary.h"
 
 /* The pool's URI as the specification spells it: the header's LV2_RTSAFE_MEMORY_POOL__Pool macro drops the '#'
  * ("…/rtmempoolPool"), and that is what a plugin compiled against it asks for, while a description written by hand
@@ -109,7 +109,7 @@
       LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_RTSAFE_MEMORY_POOL__Pool, LV2_RTMEMPOOL_POOL_SPELLED_URI, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, \
       LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
 
-/* the refusals, the verdict's spelling: each the code omx-contract declares, from its omx_vocabulary.h */
+/* the refusals, the verdict's spelling: each the code data/hosting/ declares, from its omx_clap_core_vocabulary.h */
 #define LV2_CODE_NO_REALISATION         OMX_HOSTING_NO_REALISATION
 #define LV2_CODE_MIDI_IN                OMX_HOSTING_FEATURES_MIDI_IN_FED_EMPTY
 #define LV2_CODE_ATOM_IN                OMX_HOSTING_FEATURES_ATOM_IN_UNFED  // a non-MIDI atom input no buffer here can feed

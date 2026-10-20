@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_FEATURES_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the features dimension: hosting.features.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "featuresAtomInUnfed": {
+        "code": "hosting.features.atom-in-unfed",
+        "doc": "a non-MIDI atom input no buffer here can feed"
+      },
+      "featuresDisqualifying": {
+        "code": "hosting.features.host-not-provided"
+      },
+      "featuresMidiIn": {
+        "code": "hosting.features.midi-in-fed-empty"
+      },
+      "featuresMissing": {
+        "code": "hosting.features.required-not-provided",
+        "doc": "retired (omx-contract#127): hosting.features.missing names the same fact; removed in the release after plugin-qualify stops naming it (omx-contract#132)"
+      },
+      "featuresMissingAtLoad": {
+        "code": "hosting.features.missing"
+      },
+      "featuresPortsUnreadable": {
+        "code": "hosting.features.ports-unreadable",
+        "doc": "the plugin declares ports its reader cannot read (a port node shared by several plugins of one bundle, a port with no symbol), so none reaches the host: the bundle's data is the fault, not the layout (omx-clap-core#255)"
+      },
+      "featuresProvided": {
+        "code": "hosting.features.all-provided"
+      },
+      "featuresUnscanned": {
+        "code": "hosting.features.scan-predates-field"
+      }
+    }
+  }
+}

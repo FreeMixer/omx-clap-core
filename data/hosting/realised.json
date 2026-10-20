@@ -1,0 +1,28 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_REALISED_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "What the console did with a plugin's verdict: hosting.realised.* and the outcomes with no dimension (hosting.disabled, hosting.unjudged, hosting.no-realisation, hosting.linked), read by code, never by prose.",
+    "codes": {
+      "disabled": {
+        "code": "hosting.disabled"
+      },
+      "linked": {
+        "code": "hosting.linked"
+      },
+      "noRealisation": {
+        "code": "hosting.no-realisation"
+      },
+      "realisedInProcess": {
+        "code": "hosting.realised.in-process"
+      },
+      "unjudged": {
+        "code": "hosting.unjudged"
+      }
+    }
+  }
+}
