@@ -57,6 +57,9 @@ typedef struct FAKE_EXT_STATS_T {
     uint32_t pool_request;      ///< the tasks process() asks the pool for (the test sets it)
     uint32_t pool_ok;           ///< request_exec's last answer inside process()
     uint32_t pool_done;         ///< the tasks done when request_exec returned
+    uint32_t pool_nested;       ///< 1: each task asks the pool again from inside exec (the test sets it)
+    uint32_t pool_nested_ok;    ///< how many of those nested requests the host ran (it must refuse them: 0)
+    uint32_t pool_nested_refused;   ///< how many it refused
     int32_t render_mode;        ///< the last render.set, -1 before any
     uint32_t hard_rt;           ///< what has_hard_realtime_requirement answers (the test sets it)
     uint32_t tail;              ///< what tail.get answers
@@ -179,6 +182,10 @@ static void pool_exec(const clap_plugin_t *plugin, uint32_t task)
     (void)plugin;
     if (task < 32)
         g_tasks |= 1u << task;
+    if (g_stats.pool_nested && g_host && ((const clap_host_thread_pool_t *)g_host->get_extension(g_host, CLAP_EXT_THREAD_POOL))->request_exec(g_host, 1))
+        g_stats.pool_nested_ok++;
+    else if (g_stats.pool_nested)
+        g_stats.pool_nested_refused++;
 }
 
 static void on_timer(const clap_plugin_t *plugin, clap_id id)
