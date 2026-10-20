@@ -7,11 +7,10 @@
 //   node hosting-values-check.mjs --self-test <whole-read json> <src dir>
 //
 // <whole-read json> is `omx-contract render --target json` of the contract directory that holds omx-clap-core's
-// package: HOSTED_STAGE_LIMITS and HOSTING_CODES as the reader parsed them, not as a render spelled them. Each field of
-// HOSTED_STAGE_LIMITS must stand in <src dir>/hosted_stage_limits.h as OMX_HOSTED_STAGE_<FIELD> with its value, each
-// field but the worker ones in clap_host_limits.h as CLAP_HOST_<FIELD>, and each code of HOSTING_CODES there as
-// CLAP_HOST_CODE_<NAME> with its string; a define the declaration lacks, or one it names that is missing or differs,
-// is a failure. The self test changes every value of both files in turn, drops it, and adds one the declaration does
+// package: HOSTED_STAGE_LIMITS as the reader parsed it, not as a render spelled it. Each field of HOSTED_STAGE_LIMITS
+// must stand in <src dir>/hosted_stage_limits.h as OMX_HOSTED_STAGE_<FIELD> with its value, and each field but the
+// worker ones in clap_host_limits.h as CLAP_HOST_<FIELD>; a define the declaration lacks, or one it names that is
+// missing or differs, is a failure. The refusal codes are omx-contract's (tests/hosting-codes-check.sh holds them). The self test changes every value of both files in turn, drops it, and adds one the declaration does
 // not name, and each of those must fail the check.
 // Exit 0 held; 1 a difference; 2 usage.
 import { readFileSync } from 'node:fs';
@@ -21,14 +20,12 @@ const snake = (s) => s.replace(/([A-Z])/g, '_$1').toUpperCase();
 function expected(read) {
   const items = JSON.parse(read).items;
   const limits = items.HOSTED_STAGE_LIMITS.value;
-  const codes = items.HOSTING_CODES.value;
   const host = new Map();
   const stage = new Map();
   for (const [k, v] of Object.entries(limits)) {
     stage.set(`OMX_HOSTED_STAGE_${snake(k)}`, v);
     if (!k.startsWith('worker')) host.set(`CLAP_HOST_${snake(k)}`, v);
   }
-  for (const [k, v] of Object.entries(codes)) host.set(`CLAP_HOST_CODE_${snake(k)}`, v.code);
   return { 'clap_host_limits.h': host, 'hosted_stage_limits.h': stage };
 }
 
