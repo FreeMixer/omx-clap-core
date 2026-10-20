@@ -95,6 +95,15 @@ LV2_DISABLE_DEPRECATION_WARNINGS
 // the longest event an event buffer carries: its header and padding still count in 16 bits (lv2_event_pad_size)
 #define EVENT_SIZE_MAX                  (UINT16_MAX - (uint32_t)sizeof(LV2_Event) - 7u)
 
+// an event buffer's header rounded up to 8 bytes, its data after it: each buffer of a run of them, and its data, start
+// 8-aligned on every ABI (the header is 24 bytes on LP64, 20 on ILP32)
+#define EVENT_HEADER_BYTES              ((((uint32_t)sizeof(LV2_Event_Buffer)) + 7u) & ~7u)
+_Static_assert(EVENT_HEADER_BYTES % 8u == 0 && EVENT_HEADER_BYTES >= sizeof(LV2_Event_Buffer),
+               "an event buffer's data starts 8-aligned after its header");
+
+/* the data of an event buffer of this host's: right after its rounded header */
+#define EVENT_DATA(buf)                 ((uint8_t *)(buf) + EVENT_HEADER_BYTES)
+
 // how often a quiesce looks at the request ring
 #define QUIESCE_POLL_US                 50u
 
@@ -358,12 +367,12 @@ static int sequence_append(LV2_Atom_Sequence *seq, uint32_t capacity, int64_t fr
     return 0;
 }
 
-/* an empty event buffer of `capacity` data bytes, its data right after its header, frames its stamps: what an input
+/* an empty event buffer of `capacity` data bytes, its data after its rounded header, frames its stamps: what an input
  * holds at every block and an output is offered */
 static void event_reset(LV2_Event_Buffer *buf, uint32_t capacity)
 {
     buf->capacity = capacity;
-    lv2_event_buffer_reset(buf, LV2_EVENT_AUDIO_STAMP, (uint8_t *)(buf + 1));
+    lv2_event_buffer_reset(buf, LV2_EVENT_AUDIO_STAMP, EVENT_DATA(buf));
 }
 
 /* [audio] one event at the end of `buf`, of `capacity` data bytes: 0, or -1 with no room left */
@@ -1362,7 +1371,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         free(in->midi[k]);
         in->midi[k] = NULL;
         if (port >= 0 && event)
-            in->midi[k] = (uint8_t *)lv2_event_buffer_new(in->midi_bytes, LV2_EVENT_AUDIO_STAMP);
+            in->midi[k] = calloc(1, EVENT_HEADER_BYTES + (size_t)in->midi_bytes);
         else if (port >= 0)
             in->midi[k] = calloc(1, in->midi_bytes);
         if (port >= 0 && !in->midi[k])
@@ -1377,7 +1386,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
     free(in->event_bufs);
     in->event_bufs = NULL;
-    in->event_stride = (uint32_t)sizeof(LV2_Event_Buffer) + in->midi_bytes;
+    in->event_stride = EVENT_HEADER_BYTES + in->midi_bytes;      // both multiples of 8: every buffer 8-aligned
     if ((p->n_event_in || p->n_event_out) && !(in->event_bufs = calloc(p->n_event_in + p->n_event_out, in->event_stride)))
     {
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
@@ -2076,7 +2085,7 @@ static void event_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, vo
     LV2_Event_Iterator it;
     uint32_t k;
 
-    if (buf->data != (uint8_t *)(buf + 1) || buf->stamp_type != LV2_EVENT_AUDIO_STAMP || !lv2_event_begin(&it, buf))
+    if (buf->data != EVENT_DATA(buf) || buf->stamp_type != LV2_EVENT_AUDIO_STAMP || !lv2_event_begin(&it, buf))
         return;
     for (k = 0; k < buf->event_count && lv2_event_is_valid(&it) && it.offset + sizeof(LV2_Event) <= limit; k++)
     {
