@@ -76,8 +76,9 @@
  * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
  * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
- * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, and the ports rescan the
- * tick reports).
+ * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, the ports rescan the
+ * tick reports, and the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
+ * omx_clap_host_request_layout asks).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. A removal or a reorder is a new major of the library. Until the first release of
@@ -99,6 +100,8 @@
 
 /** How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
+
+#define OMX_CLAP_LAYOUT_DECLARED        1   ///< request_layout: the plugin cannot offer it; its declared layout stands
 
 /** The roster's refusal: an index below count() whose get_info does not answer. */
 #define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
@@ -486,6 +489,12 @@ struct omx_clap_instance
     const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
     const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
     _Atomic uint32_t ports_rescanned;  ///< 1 once the tick saw a ports rescan, until omx_clap_host_ports_rescanned
+
+    // the layout requests' extensions (ABI 14): read at open, asked only by omx_clap_host_request_layout, the plugin
+    // inactive
+    const clap_plugin_configurable_audio_ports_t *configurable_audio_ports;  ///< the plugin's clap.configurable-audio-ports/1
+                                                                             ///< (or its draft id), NULL for none
+    const clap_plugin_audio_ports_config_t *audio_ports_config;  ///< the plugin's clap.audio-ports-config, NULL for none
 };
 
 
@@ -787,6 +796,26 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_inst
  * omx_clap_host_activate's activate() calls (the warm-up's cycle, a restart) is answered by that call and not reported;
  * one made inside activate() is. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
+
+/**
+ * Ask the plugin, inactive, for the carrier's layout: `reqs`, `n` of them, each a port by side and index (the main port
+ * is index 0), its channels and its port type, port_details the carrier's channel map for a surround port and its
+ * clap_ambisonic_config_t for an ambisonic one. First a surround request's mask is asked of the plugin's clap.surround
+ * (is_channel_mask_supported) and an ambisonic request's configuration of its clap.ambisonic (is_config_supported):
+ * a refusal, or a map naming an id past CLAP_SURROUND_TSR, is -1 with CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN or
+ * CLAP_HOST_CODE_AMBISONIC_CONFIG and nothing applied. Then clap.configurable-audio-ports (can_apply_configuration,
+ * apply_configuration), then the clap.audio-ports-config list: a config matches when its input and output port counts
+ * are the sides' requests (one main each, none for a side not asked), its main channels and its main port types the
+ * requests' (requests past the main ports are configurable-audio-ports' only), and the first match is selected.
+ * Returns 0 once one applied; OMX_CLAP_LAYOUT_DECLARED when neither extension offers the layout, or apply_configuration
+ * or select answered false: the plugin keeps its layout and the carrier judges it. Either way the description is read
+ * again (as open reads it; a side's auxiliary bindings kept while its auxiliary ports keep their count and widths, all
+ * of that side's dropped otherwise), so a ports rescan the tick reported is answered by a request too, and a description open would refuse is -1 with that code, the instance
+ * left with no main output: omx_clap_host_activate refuses it (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes
+ * it. -1 with nothing asked and `why` untouched on an active instance. Control thread, never the RT.
+ */
+OMX_CLAP_EXPORT int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_port_configuration_request_t *reqs,
+                                                 uint32_t n, char why[OMX_CLAP_WHY_MAX]);
 
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
