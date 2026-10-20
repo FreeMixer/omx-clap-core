@@ -41,7 +41,7 @@
  *  6. THE RESET: a re-engage after a steady bypass resets the plugin once, on the control thread holding the audio
  *     role; the RT thread running the instance never calls reset(). An off that was already off holds nothing: every
  *     block stays the plugin's output.
- *  7. THE ABI: configure accepts a consumer of this header (ABI 14, the oldest until the first release of
+ *  7. THE ABI: configure accepts a consumer of this header (ABI 15, the oldest until the first release of
  *     libomx-clap-core.so.1) and refuses 0, ABI 13 (before the instance's surround and ambisonic extensions), ABI 12
  *     (before the stage's wide bounce), the last header of libomx-clap-core.so.0 (ABI 11) and a newer one.
  *  8. THE SIDE CHAIN: a plugin with a stereo auxiliary input is admitted, reads silence until the caller binds a pair,
@@ -122,7 +122,7 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 14u && OMX_CLAP_CORE_ABI_OLDEST == 14u, "this header is ABI 14, the oldest accepted 14 (%u)", config.abi);
+  CHECK(config.abi == 15u && OMX_CLAP_CORE_ABI_OLDEST == 15u, "this header is ABI 15, the oldest accepted 15 (%u)", config.abi);
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
@@ -174,8 +174,8 @@ static void t_abi(void) {
   CHECK(omx_clap_host_configure(&config) == -1, "a consumer of ABI 12, whose instance lacks the stage's wide bounce, is refused");
   config.abi = 13;
   CHECK(omx_clap_host_configure(&config) == -1, "a consumer of ABI 13, whose instance lacks the surround and ambisonic extensions, is refused");
-  config.abi = 14;
-  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of this header (ABI 14) is accepted");
+  config.abi = OMX_CLAP_CORE_ABI;
+  CHECK(omx_clap_host_configure(&config) == 0, "a consumer of this header (ABI 15) is accepted");
 }
 
 static void t_witness(void) {

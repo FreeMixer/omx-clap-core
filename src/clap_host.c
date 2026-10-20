@@ -901,7 +901,6 @@ static const char *reread_note_input(struct omx_clap_instance *in)
     return code;
 }
 
-/* a port as the plugin declares it, into the description */
 /* the host's placement for a pass-through tool: a stereo port of no id, named for what it is */
 static void placement_of(struct omx_clap_port *port, bool is_input)
 {
@@ -913,6 +912,7 @@ static void placement_of(struct omx_clap_port *port, bool is_input)
     port->in_place_pair = CLAP_INVALID_ID;
 }
 
+/* a port as the plugin declares it, into the description */
 static void port_of(struct omx_clap_port *port, const clap_audio_port_info_t *info)
 {
     memset(port, 0, sizeof(*port));
