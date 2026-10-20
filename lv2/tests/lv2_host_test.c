@@ -1261,6 +1261,15 @@ static void t_ll_midi_ports(void)
         }
     }
     CHECK(ll_seen() == NULL, "ll midi: from the TTL alone, before the binary is opened");
+    p = open_plugin(g_ll, LL_URI "#echo", why);
+    CHECK(p && p->n_controls == 2 && p->controls[0].port == 6 && p->controls[0].min == -1e9f && p->controls[0].max == 1e9f
+              && p->controls[0].def == 0.0f,
+          "ll midi: a control port that declares no range is -1e9..1e9, default 0 (%g..%g, %g)",
+          p ? (double)p->controls[0].min : 0.0, p ? (double)p->controls[0].max : 0.0, p ? (double)p->controls[0].def : 0.0);
+    CHECK(p && p->controls[1].port == 7 && p->controls[1].min == 0.0f && p->controls[1].max == 1e9f && p->controls[1].def == 0.0f,
+          "ll midi: a control port with a minimum only keeps it, its maximum 1e9, its default the minimum (%g..%g, %g)",
+          p ? (double)p->controls[1].min : 0.0, p ? (double)p->controls[1].max : 0.0, p ? (double)p->controls[1].def : 0.0);
+    lv2_plugin_close(p);
 }
 
 /* the echo through the instance over LV2_MIDI buffers: what goes in comes out at its frame, a note one key up */
@@ -1321,6 +1330,19 @@ static void t_ll_midi_run(void)
           "ll midi run: a block that does not fit keeps the first %u events and counts the 8 it dropped (%u, %u, %u)", LL_CAPACITY,
           seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
     CHECK(same_message(&g, LL_CAPACITY - 1u, LL_CAPACITY - 1u, on_up, 3), "ll midi run: the last one that fits is at its own frame");
+
+    // the range rule's value test (#254): a write to the unbounded port reaches the plugin and the audio, and reads back
+    lv2_instance_control_set(in, 0, 2.75f);
+    lv2_instance_control_set(in, 1, 1.5f);
+    lv2_instance_audio_in(in, 0)[0] = 0.25f;
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    CHECK(seen->trim_seen == 2.75f && seen->floor_seen == 1.5f && lv2_instance_control_get(in, 0) == 2.75f
+              && lv2_instance_audio_out(in, 0)[0] == 0.25f + 2.75f + 1.5f,
+          "ll midi run: 2.75 written to the unbounded control and 1.5 to the minimum-only one reach the plugin, the audio and read back (%g, %g, out %g)",
+          (double)seen->trim_seen, (double)seen->floor_seen, (double)lv2_instance_audio_out(in, 0)[0]);
+    lv2_instance_control_set(in, 0, 0.0f);
+    lv2_instance_control_set(in, 1, 0.0f);
+    lv2_instance_audio_in(in, 0)[0] = 0.0f;
 
     // a block filled to exactly the capacity: 52 notes (19 bytes each) and 2 program changes (18 each) are 1024 bytes;
     // zynadd's step then reads the stamp at data + capacity, the slack the host keeps past it

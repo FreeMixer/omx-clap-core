@@ -417,7 +417,9 @@ static float node_float(const LilvNode *node, int *ok)
     return *ok ? L.lilv_node_as_float(node) : 0.0f;
 }
 
-/* the range, and the default is lv2:default, else lv2:minimum, else 0 */
+/* the range and the default: lv2:minimum and lv2:maximum as declared, an absent side -1e9 or 1e9 (the bounds a patch
+ * parameter gets when it declares none: LV2 leaves such a port unbounded, CLAP needs a finite pair, and a pair of
+ * [0,0] loses every write, #254); the default is lv2:default, else lv2:minimum, else 0, held inside the range */
 static void port_range(const LilvPlugin *pl, const LilvPort *port, struct lv2_control *c)
 {
     LilvNode *def = NULL, *min = NULL, *max = NULL;
@@ -427,10 +429,18 @@ static void port_range(const LilvPlugin *pl, const LilvPort *port, struct lv2_co
     c->def = node_float(def, &has_def);
     c->min = node_float(min, &has_min);
     c->max = node_float(max, &has_max);
-    if (!has_def)
-        c->def = c->min;
+    if (!has_min)
+        c->min = -1e9f;
     if (!has_max)
-        c->max = c->min > c->def ? c->min : c->def;
+        c->max = 1e9f;
+    if (c->max < c->min)
+        c->max = c->min;
+    if (!has_def)
+        c->def = has_min ? c->min : 0.0f;
+    if (c->def < c->min)
+        c->def = c->min;
+    if (c->def > c->max)
+        c->def = c->max;
     L.lilv_node_free(def);
     L.lilv_node_free(min);
     L.lilv_node_free(max);

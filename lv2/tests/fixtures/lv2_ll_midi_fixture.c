@@ -33,7 +33,7 @@
 
 EXPORT struct lv2_ll_midi_fixture lv2_ll_midi_fixture;
 
-enum { E_IN_L, E_IN_R, E_OUT_L, E_OUT_R, E_MIDI_IN, E_MIDI_OUT };
+enum { E_IN_L, E_IN_R, E_OUT_L, E_OUT_R, E_MIDI_IN, E_MIDI_OUT, E_TRIM, E_FLOOR };
 enum { T_IN, T_OUT, T_MIDI_A, T_MIDI_B };
 
 /* zynadd's two helpers (lv2-midifunctions.h), as its run uses them: the next event at the position, and the step to
@@ -78,6 +78,7 @@ struct echo
     const float *in[2];
     float *out[2];
     LV2_MIDI *midi_in, *midi_out, *b;
+    const float *trim, *floor;
 };
 
 static LV2_Handle instantiate(const LV2_Descriptor *d, double rate, const char *path, const LV2_Feature *const *features)
@@ -102,6 +103,8 @@ static void echo_connect(LV2_Handle h, uint32_t port, void *data)
     case E_OUT_R: e->out[1] = data; break;
     case E_MIDI_IN: e->midi_in = data; break;
     case E_MIDI_OUT: e->midi_out = data; break;
+    case E_TRIM: e->trim = data; break;
+    case E_FLOOR: e->floor = data; break;
     default: break;
     }
 }
@@ -198,8 +201,15 @@ static void echo_run(LV2_Handle h, uint32_t n)
     lv2_ll_midi_fixture.n = 0;
     lv2_ll_midi_fixture.count_seen = e->midi_in->event_count;
     lv2_ll_midi_fixture.size_seen = e->midi_in->size;
+    lv2_ll_midi_fixture.trim_seen = e->trim ? *e->trim : 0.0f;
+    lv2_ll_midi_fixture.floor_seen = e->floor ? *e->floor : 0.0f;
     for (k = 0; k < 2; k++)
-        memcpy(e->out[k], e->in[k], n * sizeof(float));
+    {
+        uint32_t i;
+
+        for (i = 0; i < n; i++)
+            e->out[k][i] = e->in[k][i] + lv2_ll_midi_fixture.trim_seen + lv2_ll_midi_fixture.floor_seen;
+    }
     e->midi_out->event_count = 0;
     e->midi_out->size = 0;
     // read as zynadd's run does: get the event at the position, step to the next, until the position reaches the
