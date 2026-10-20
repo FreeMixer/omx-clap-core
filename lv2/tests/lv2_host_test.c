@@ -38,6 +38,11 @@
  *             the plugin's own objects): admitted, never a MIDI input, fed a valid sequence at every block, the
  *             transport's object when it takes time:Position, and the audio bit for bit; an atom input that is no
  *             sequence and a fifth control input refused hosting.features.atom-in-unfed.
+ *   event     the event fixture: an ev:EventPort supporting midi:MidiEvent is the MIDI input (or output) as an atom MIDI
+ *             port is, a second one each way fed empty or never read, one supporting no MIDI refused
+ *             hosting.features.midi-in-fed-empty; through the instance, MIDI in comes back out at its frame, a note one
+ *             key up, nothing carries over, a block past the buffer keeps what fits and counts the rest; a list
+ *             without uri-map refuses it hosting.features.missing before its binary is opened.
  *   cv        the CV fixture's CV input and output read in index order with their names, nine CV inputs and nine
  *             CV outputs refused hosting.features.cv-ports; at every declared rate the CV input reaches run() and the CV output comes back,
  *             frame for frame, against the closed form computed here.
@@ -58,6 +63,7 @@
 #include <stdint.h>
 
 #include <lv2/buf-size/buf-size.h>
+#include <lv2/midi/midi.h>
 #include <lv2/options/options.h>
 #include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
@@ -65,6 +71,7 @@
 
 #include "lv2_core.h"
 #include "fixtures/lv2_atom_probe.h"
+#include "fixtures/lv2_event_fixture.h"
 #include "fixtures/lv2_feature_probe.h"
 #include "fixtures/lv2_worker_gain.h"
 #include "lv2_test_util.h"
@@ -74,6 +81,7 @@
 #define FIXTURE_URI "urn:openmixer:test:host-fixture"
 
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_wg_so[PATH_MAX + 32], g_build[PATH_MAX], g_midi[PATH_MAX], g_sc[PATH_MAX];
+static char g_ev[PATH_MAX], g_ev_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX];
 static char g_fp[PATH_MAX], g_fp_so[PATH_MAX + 32];
@@ -776,6 +784,138 @@ static void t_midi_run(void)
     lv2_plugin_close(p);
 }
 
+/* ---- MIDI through ev:EventPort ---- */
+
+#define EV_URI LV2_EVENT_FIXTURE_URI
+#define EV_CAPACITY 64u         // a 3-byte event takes 16 bytes (12 of header, padded to 8) of the 1024-byte buffer
+
+static struct lv2_event_fixture *ev_seen(void)
+{
+    return loaded_symbol(g_ev_so, "lv2_event_fixture");
+}
+
+/* the event fixture's ports as the reader reads them, from the TTL */
+static void t_event_ports(void)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_ev, EV_URI "#echo", why);
+
+    CHECK(p && p->midi_in_port == 4 && p->midi_in_event && p->midi_out_port == 5 && p->midi_out_event && p->legs == 2
+              && p->in_legs == 2 && p->n_event_in == 0 && p->n_event_out == 0 && p->n_atom_in == 0 && p->n_notify == 0,
+          "event: #echo is admitted, its ev:EventPorts its MIDI input (4) and output (5), its audio a stereo pair (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_ev, EV_URI "#two", why);
+    CHECK(p && p->midi_in_port == 2 && p->midi_out_port == 4 && p->n_event_in == 1 && p->event_in[0] == 3
+              && p->n_event_out == 1 && p->event_out[0] == 5,
+          "event: #two is admitted, the first event port each way the note path's, the second fed empty or never read (%s)", why);
+    lv2_plugin_close(p);
+    p = open_plugin(g_ev, EV_URI "#other-type", why);
+    CHECK(!p && strcmp(why, LV2_CODE_MIDI_IN) == 0,
+          "event: an ev:EventPort that supports no midi:MidiEvent is refused hosting.features.midi-in-fed-empty (%s)", why);
+    CHECK(ev_seen() == NULL, "event: from the TTL alone, before the binary is opened");
+    lv2_plugin_close(p);
+}
+
+static const char *const *list_without(const char *uri);
+
+/* a list without uri-map: the echo, which requires it, is refused before its binary is opened */
+static void without_uri_map(void)
+{
+    const struct lv2_core_config config = { list_without(LV2_URI_MAP_URI), 1000u, 4096u, 0u, NULL, NULL };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p;
+
+    CHECK(lv2_core_configure(&config, why) == 0, "without uri-map: configured");
+    p = open_plugin(g_ev, EV_URI "#echo", why);
+    CHECK(!p && strcmp(why, LV2_CODE_FEATURES_MISSING) == 0, "without uri-map: #echo refused hosting.features.missing (%s)", why);
+    CHECK(ev_seen() == NULL, "without uri-map: before its binary was opened");
+    lv2_plugin_close(p);
+}
+
+/* the echo through the instance: what goes in comes out at its frame, a note one key up, the rest as it came */
+static void t_event_run(void)
+{
+    static const uint8_t on[3] = { 0x90, 0x3c, 0x64 }, off[3] = { 0x80, 0x3c, 0x00 }, cc[3] = { 0xb1, 0x07, 0x7f };
+    static const uint8_t pc[2] = { 0xc3, 0x05 }, sysex[6] = { 0xf0, 0x7e, 0x00, 0x06, 0x01, 0xf7 };
+    static const uint8_t on_up[3] = { 0x90, 0x3d, 0x64 }, off_up[3] = { 0x80, 0x3d, 0x00 };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_ev, EV_URI "#echo", why);
+    struct lv2_instance *in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    struct lv2_event_fixture *seen = ev_seen();
+    struct lv2_counters before, after;
+    struct got g;
+    uint32_t i;
+
+    CHECK(in && seen && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "event run: #echo instantiates and activates (%s)", why);
+    if (!in || !seen)
+    {
+        lv2_instance_free(in);
+        lv2_plugin_close(p);
+        return;
+    }
+    CHECK(seen->midi_type != 0 && seen->midi_type == omx_lv2_urid_map(LV2_MIDI__MidiEvent),
+          "event run: uri-map handed the plugin midi:MidiEvent's id, urid:map's (%u)", seen->midi_type);
+    lv2_instance_midi_in_add(in, 0, on, 3);
+    lv2_instance_midi_in_add(in, 5, pc, 2);
+    lv2_instance_midi_in_add(in, 9, sysex, 6);
+    lv2_instance_midi_in_add(in, 17, cc, 3);
+    lv2_instance_midi_in_add(in, 63, off, 3);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == 5 && seen->other == 0 && seen->frame[0] == 0 && seen->size[1] == 2 && seen->frame[2] == 9 && seen->size[2] == 6
+              && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0,
+          "event run: the plugin read five MIDI events of the MIDI type at their frames and lengths (%u, other %u)", seen->n, seen->other);
+    CHECK(g.n == 5 && same_message(&g, 0, 0, on_up, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
+              && same_message(&g, 3, 17, cc, 3) && same_message(&g, 4, 63, off_up, 3),
+          "event run: five out at their frames, the note on and off one key up, the rest byte for byte (%u)", g.n);
+
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == 0 && g.n == 0, "event run: a block with no input reads and writes nothing: nothing carries over (%u, %u)", seen->n, g.n);
+
+    lv2_instance_counters(in, &before);
+    for (i = 0; i < EV_CAPACITY + 8u; i++)
+        lv2_instance_midi_in_add(in, i < BLOCK ? i : BLOCK - 1u, on, 3);
+    lv2_instance_counters(in, &after);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, collect, &g);
+    CHECK(seen->n == EV_CAPACITY && g.n == EV_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
+          "event run: a block that does not fit keeps the first %u events and counts the 8 it dropped (%u, %u, %u)", EV_CAPACITY,
+          seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
+    CHECK(same_message(&g, EV_CAPACITY - 1u, EV_CAPACITY - 1u, on_up, 3), "event run: the last one that fits is at its own frame");
+
+    lv2_instance_counters(in, &before);
+    CHECK(lv2_instance_midi_in_add(in, 0, on, 0x10000u) == -1, "event run: a message past an event's 16-bit size is refused, not copied");
+    lv2_instance_counters(in, &after);
+    CHECK(after.midi_in_dropped - before.midi_in_dropped == 1, "event run: and counted as dropped (%u)",
+          after.midi_in_dropped - before.midi_in_dropped);
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+
+    // #two: the first input reads the note and the second nothing; the plugin writes it to both outputs and the host
+    // reads the first alone
+    p = open_plugin(g_ev, EV_URI "#two", why);
+    in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    CHECK(in && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "event run: #two instantiates and activates (%s)", why);
+    if (in)
+    {
+        lv2_instance_midi_in_add(in, 3, on, 3);
+        memset(&g, 0, sizeof(g));
+        lv2_instance_run(in, BLOCK, NULL, NULL);
+        lv2_instance_midi_out_each(in, collect, &g);
+        CHECK(seen->n == 1 && seen->b == 0 && seen->frame[0] == 3, "event run: #two's first input read the note, its second nothing (%u, %u)",
+              seen->n, seen->b);
+        CHECK(g.n == 1 && same_message(&g, 0, 3, on, 3), "event run: written to both outputs, read once from the first (%u)", g.n);
+        lv2_instance_deactivate(in);
+    }
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 /* ---- the worker gain ---- */
 
 static struct lv2_worker_gain_probe *probe(void)
@@ -1176,6 +1316,10 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-atom-fixture.lv2", g_build);
     if (abs_dir(dir, g_atom) != 0)
         return 1;
+    snprintf(dir, sizeof(dir), "%somx-event-fixture.lv2", g_build);
+    if (abs_dir(dir, g_ev) != 0)
+        return 1;
+    snprintf(g_ev_so, sizeof(g_ev_so), "%somx-event-fixture.so", g_ev);
     snprintf(g_atom_so, sizeof(g_atom_so), "%somx-atom-fixture.so", g_atom);
     snprintf(dir, sizeof(dir), "%somx-cv-fixture.lv2", g_build);
     if (abs_dir(dir, g_cv) != 0)
@@ -1188,6 +1332,7 @@ int main(int argc, char **argv)
     in_child("without loadDefaultState", without_default_state);
     in_child("the configure", unknown_feature);
     in_child("options within the list", options_within_list);
+    in_child("without uri-map", without_uri_map);
     CHECK(!lilv_mapped(), "no lilv in this process before its first bundle");
     CHECK(lv2_core_configure(&config, why) == 0, "configure every provider (%s)", why);
     t_one_bundle();
@@ -1198,6 +1343,8 @@ int main(int argc, char **argv)
     t_atom_ports();
     t_atom_ui();
     t_midi_run();
+    t_event_ports();
+    t_event_run();
     t_sidechains();
     t_sidechain_names_oom();
     t_cv();

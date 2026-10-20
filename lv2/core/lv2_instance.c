@@ -69,6 +69,7 @@
 #include <lv2/atom/util.h>
 #include <lv2/atom/forge.h>
 #include <lv2/buf-size/buf-size.h>
+#include <lv2/event/event-helpers.h>
 #include <lv2/midi/midi.h>
 #include <lv2/options/options.h>
 #include <lv2/parameters/parameters.h>
@@ -90,6 +91,9 @@ LV2_DISABLE_DEPRECATION_WARNINGS
 *           LOCAL DEFINES
 ************************************************************************************************************************
 */
+
+// the longest event an event buffer carries: its header and padding still count in 16 bits (lv2_event_pad_size)
+#define EVENT_SIZE_MAX                  (UINT16_MAX - (uint32_t)sizeof(LV2_Event) - 7u)
 
 // how often a quiesce looks at the request ring
 #define QUIESCE_POLL_US                 50u
@@ -161,12 +165,17 @@ struct lv2_instance
     float latency_port;
     _Atomic uint32_t latency_frames;        // the latency port's last valid reading
 
-    // the MIDI ports' atom buffers, each midi_bytes long: [0] the input the host writes between runs, [1] the output the
-    // plugin writes; NULL where the plugin has no such port
+    // the MIDI ports' buffers, each midi_bytes long: [0] the input the host writes between runs, [1] the output the
+    // plugin writes; NULL where the plugin has no such port. An atom sequence, or for an ev:EventPort an LV2_Event_Buffer
+    // whose data, midi_bytes long, follows its header
     uint8_t *midi[2];
     uint32_t midi_bytes;
     LV2_URID urid_sequence, urid_midi;
     _Atomic uint32_t midi_in_dropped;
+    // the ev:EventPort MIDI ports after the first: one LV2_Event_Buffer each, of event_stride bytes, the inputs then the
+    // outputs, reset at every block
+    uint8_t *event_bufs;
+    uint32_t event_stride;
 
     // the features `instantiate` got, each the instance's own over the process's table, so a call names its instance
     LV2_URID_Map map;
@@ -347,6 +356,28 @@ static int sequence_append(LV2_Atom_Sequence *seq, uint32_t capacity, int64_t fr
     memset(at + sizeof(e) + size, 0, lv2_atom_pad_size(size) - size);
     seq->atom.size += total;
     return 0;
+}
+
+/* an empty event buffer of `capacity` data bytes, its data right after its header, frames its stamps: what an input
+ * holds at every block and an output is offered */
+static void event_reset(LV2_Event_Buffer *buf, uint32_t capacity)
+{
+    buf->capacity = capacity;
+    lv2_event_buffer_reset(buf, LV2_EVENT_AUDIO_STAMP, (uint8_t *)(buf + 1));
+}
+
+/* [audio] one event at the end of `buf`, of `capacity` data bytes: 0, or -1 with no room left */
+static int event_append(LV2_Event_Buffer *buf, uint32_t capacity, uint32_t frame, uint16_t type, const uint8_t *data,
+                        uint32_t size)
+{
+    LV2_Event_Iterator it;
+
+    // an event's size is 16 bits, and its padded length too: a longer message is never written
+    if (size > EVENT_SIZE_MAX || buf->size > capacity)
+        return -1;
+    it.buf = buf;
+    it.offset = buf->size;
+    return lv2_event_write(&it, frame, 0, type, (uint16_t)size, data) ? 0 : -1;
 }
 
 /* whether the calling thread holds the instance's audio role, by the host's predicate; -1 without one */
@@ -1311,20 +1342,43 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         in->midi_bytes = patch_cap(p);
     in->urid_sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
     in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
+    // an event's type is 16 bits: an ev:EventPort's MIDI id must fit one (it is among the first URIs the table maps)
+    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out) && in->urid_midi > UINT16_MAX)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
     for (k = 0; k < 2; k++)
     {
         const int32_t port = k ? p->midi_out_port : p->midi_in_port;
+        const int event = k ? p->midi_out_event : p->midi_in_event;
 
         free(in->midi[k]);
-        in->midi[k] = port >= 0 ? calloc(1, in->midi_bytes) : NULL;
+        in->midi[k] = NULL;
+        if (port >= 0 && event)
+            in->midi[k] = (uint8_t *)lv2_event_buffer_new(in->midi_bytes, LV2_EVENT_AUDIO_STAMP);
+        else if (port >= 0)
+            in->midi[k] = calloc(1, in->midi_bytes);
         if (port >= 0 && !in->midi[k])
         {
             lv2_why_set(why, LV2_CODE_NO_REALISATION);
             return -1;
         }
     }
-    if (in->midi[0])
+    if (in->midi[0] && p->midi_in_event)
+        event_reset((LV2_Event_Buffer *)in->midi[0], in->midi_bytes);
+    else if (in->midi[0])
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
+    free(in->event_bufs);
+    in->event_bufs = NULL;
+    in->event_stride = (uint32_t)sizeof(LV2_Event_Buffer) + in->midi_bytes;
+    if ((p->n_event_in || p->n_event_out) && !(in->event_bufs = calloc(p->n_event_in + p->n_event_out, in->event_stride)))
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    for (k = 0; k < p->n_event_in + p->n_event_out; k++)
+        event_reset((LV2_Event_Buffer *)(in->event_bufs + k * (size_t)in->event_stride), in->midi_bytes);
     free(in->notify);
     in->notify = NULL;
     in->notify_bytes = p->notify_min > in->midi_bytes ? (p->notify_min + 7u) & ~7u : in->midi_bytes;
@@ -1370,6 +1424,12 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         for (leg = 0; leg < p->n_atom_in && !at; leg++)
             if (p->atom_in[leg] == i)
                 at = in->atom_in_seq + leg * (size_t)in->atom_in_bytes;
+        for (leg = 0; leg < p->n_event_in && !at; leg++)
+            if (p->event_in[leg] == i)
+                at = in->event_bufs + leg * (size_t)in->event_stride;
+        for (leg = 0; leg < p->n_event_out && !at; leg++)
+            if (p->event_out[leg] == i)
+                at = in->event_bufs + (p->n_event_in + leg) * (size_t)in->event_stride;
         for (leg = 0; leg < p->n_side_legs && !at; leg++)
             if (p->side_in[leg] == i)
                 at = in->audio + (4u + leg) * (size_t)max_frames;
@@ -1683,6 +1743,7 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->patch_out_value);
     free(in->midi[0]);
     free(in->midi[1]);
+    free(in->event_bufs);
     free(in->time_buf);
     free(in->notify);
     free(in->atom_in_seq);
@@ -1930,9 +1991,15 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
         }
     }
     memset(in->patch_out_flag, 0, p->n_patches);
-    // the output is offered with its capacity: the plugin reads that, clears the sequence and appends to it
-    if (in->midi[1])
+    // the output is offered with its capacity: the plugin reads that, clears the sequence and appends to it; an event
+    // buffer is offered empty, its capacity in its header
+    if (in->midi[1] && p->midi_out_event)
+        event_reset((LV2_Event_Buffer *)in->midi[1], in->midi_bytes);
+    else if (in->midi[1])
         sequence_offer((LV2_Atom_Sequence *)in->midi[1], in->urid_sequence, in->midi_bytes - (uint32_t)sizeof(LV2_Atom));
+    // the event ports after the first, inputs and outputs: an empty buffer at every block, whatever the plugin left
+    for (k = 0; k < p->n_event_in + p->n_event_out; k++)
+        event_reset((LV2_Event_Buffer *)(in->event_bufs + k * (size_t)in->event_stride), in->midi_bytes);
     for (k = 0; k < p->n_notify; k++)
         sequence_offer((LV2_Atom_Sequence *)(in->notify + k * (size_t)in->notify_bytes), in->urid_sequence,
                        in->notify_bytes - (uint32_t)sizeof(LV2_Atom));
@@ -1957,7 +2024,9 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     patch_read_outputs(in);
     omx_denormals_off();
     // the input's messages were this run's: the next block starts empty
-    if (in->midi[0])
+    if (in->midi[0] && p->midi_in_event)
+        event_reset((LV2_Event_Buffer *)in->midi[0], in->midi_bytes);
+    else if (in->midi[0])
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
     if (p->latency_port >= 0)
     {
@@ -1973,14 +2042,45 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
 
 int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint8_t *data, uint32_t size)
 {
+    int rc;
+
     if (!in || !in->midi[0] || size == 0)
         return -1;
-    if (sequence_append((LV2_Atom_Sequence *)in->midi[0], in->midi_bytes - (uint32_t)sizeof(LV2_Atom), frame, in->urid_midi, data, size) != 0)
+    if (in->plugin->midi_in_event)
+        rc = event_append((LV2_Event_Buffer *)in->midi[0], in->midi_bytes, frame, (uint16_t)in->urid_midi, data, size);
+    else
+        rc = sequence_append((LV2_Atom_Sequence *)in->midi[0], in->midi_bytes - (uint32_t)sizeof(LV2_Atom), frame,
+                             in->urid_midi, data, size);
+    if (rc != 0)
     {
         omx_hosted_count(&in->midi_in_dropped, 1);
         return -1;
     }
     return 0;
+}
+
+/* [audio] each midi:MidiEvent of the event buffer the plugin wrote, to fn. The plugin's size and count are read and
+ * bounded by the buffer it was given: an event past it is not read, and a buffer whose data the plugin moved is not
+ * read at all */
+static void event_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx)
+{
+    LV2_Event_Buffer *buf = (LV2_Event_Buffer *)in->midi[1];
+    const uint32_t limit = buf->size < in->midi_bytes ? buf->size : in->midi_bytes;
+    LV2_Event_Iterator it;
+
+    if (buf->data != (uint8_t *)(buf + 1) || !lv2_event_begin(&it, buf))
+        return;
+    while (lv2_event_is_valid(&it) && it.offset + sizeof(LV2_Event) <= limit)
+    {
+        uint8_t *data;
+        const LV2_Event *e = lv2_event_get(&it, &data);
+
+        if (e->size > limit - it.offset - sizeof(LV2_Event) || e->size > EVENT_SIZE_MAX)
+            break;
+        if (e->type == in->urid_midi)
+            fn(ctx, (int64_t)e->frames, data, e->size);
+        lv2_event_increment(&it);
+    }
 }
 
 void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx)
@@ -1991,6 +2091,11 @@ void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn f
 
     if (!capacity)
         return;
+    if (in->plugin->midi_out_event)
+    {
+        event_out_each(in, fn, ctx);
+        return;
+    }
     seq = (const LV2_Atom_Sequence *)in->midi[1];
     // the plugin's own size is read, and bounded by the buffer it was given: an event past it is not read
     limit = seq->atom.size < capacity ? seq->atom.size : capacity;

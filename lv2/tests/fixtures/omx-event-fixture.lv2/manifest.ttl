@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The event-port fixture of lv2_event_fixture.c: the echo and the two-port twin, each with a binary, and a twin the host
+# must refuse from the TTL alone.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:event-fixture#echo>
+    a lv2:Plugin ;
+    lv2:binary <omx-event-fixture.so> ;
+    rdfs:seeAlso <omx-event-fixture.ttl> .
+
+<urn:openmixer:test:event-fixture#two>
+    a lv2:Plugin ;
+    lv2:binary <omx-event-fixture.so> ;
+    rdfs:seeAlso <omx-event-fixture.ttl> .
+
+<urn:openmixer:test:event-fixture#other-type>
+    a lv2:Plugin ;
+    lv2:binary <omx-event-fixture.so> ;
+    rdfs:seeAlso <omx-event-fixture.ttl> .
