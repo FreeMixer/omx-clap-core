@@ -2246,6 +2246,51 @@ static void t_layouts(double rate)
         rig_down(&g);
     }
 
+    // four-group-four: one main input of four, one main output group of four: out_c = in_c
+    if (rig_up(&g, g_layout, LAYOUT_URI "#four-group-four", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 1 && g.ports->count(g.plugin, false) == 1
+              && g.ports->get(g.plugin, 0, true, &port) && port.flags == CLAP_AUDIO_PORT_IS_MAIN && port.channel_count == 4
+              && g.ports->get(g.plugin, 0, false, &port) && port.channel_count == 4,
+              "layout four-group-four %.0f: a main input of four channels, a main output of four", rate);
+        fill(a[0], 0.125f), fill(a[1], 0.25f), fill(a[2], 0.5f), fill(a[3], -0.75f);
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 4, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 4, 0, 0 };
+        layout_process(&g, ib, 1, ob, 1, BLOCK);
+        CHECK(all(o[0], 0.125f) && all(o[1], 0.25f) && all(o[2], 0.5f) && all(o[3], -0.75f),
+              "layout four-group-four %.0f: out {%g, %g, %g, %g} is the input", rate, o[0][0], o[1][0], o[2][0], o[3][0]);
+        rig_down(&g);
+    }
+
+    // four-two-two and four-side: the main pair and two mono aux inputs; the main output pair out_c = in_c + in_(c+2) and
+    // two mono aux outputs, out C/D or Side A/B = in_(c+2)
+    for (k = 0; k < 2; k++)
+    {
+        const char *twin = k ? "#four-side" : "#four-two-two";
+        char uri[96];
+
+        snprintf(uri, sizeof(uri), "%s%s", LAYOUT_URI, twin);
+        if (rig_up(&g, g_layout, uri, rate, MAXB) != 0)
+            continue;
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 3 && g.ports->count(g.plugin, false) == 3
+              && g.ports->get(g.plugin, 0, true, &port) && port.channel_count == 2 && g.ports->get(g.plugin, 1, true, &port)
+              && port.channel_count == 1 && g.ports->get(g.plugin, 0, false, &port) && port.channel_count == 2
+              && g.ports->get(g.plugin, 2, false, &port) && port.channel_count == 1,
+              "layout %s %.0f: a main pair and two mono aux ports each side", twin + 1, rate);
+        fill(a[0], 0.1f), fill(a[1], 0.2f), fill(a[2], 0.3f), fill(a[3], 0.4f);
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 2, 0, 0 };
+        ib[1] = (clap_audio_buffer_t){ ch + 2, NULL, 1, 0, 0 };
+        ib[2] = (clap_audio_buffer_t){ ch + 3, NULL, 1, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 2, 0, 0 };
+        ob[1] = (clap_audio_buffer_t){ oc + 2, NULL, 1, 0, 0 };
+        ob[2] = (clap_audio_buffer_t){ oc + 3, NULL, 1, 0, 0 };
+        layout_process(&g, ib, 3, ob, 3, BLOCK);
+        CHECK(all(o[0], 0.1f + 0.3f) && all(o[1], 0.2f + 0.4f) && all(o[2], 0.3f) && all(o[3], 0.4f),
+              "layout %s %.0f: out {%g, %g} is {0.4, 0.6}, the aux outputs {%g, %g} {0.3, 0.4}", twin + 1, rate, o[0][0], o[1][0],
+              o[2][0], o[3][0]);
+        rig_down(&g);
+    }
+
     // main-aux: the second aux input handed 0.5 on both channels and the first handed nothing: out = main + 0.5
     if (rig_up(&g, g_layout, LAYOUT_URI "#main-aux", rate, MAXB) == 0)
     {
