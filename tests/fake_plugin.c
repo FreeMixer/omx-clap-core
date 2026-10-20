@@ -52,7 +52,9 @@
  *                                      1 that layout, config 2 a stereo main pair; select names the main ports "in 0
  *                                      config <id>", "out 0 config <id>"; process() writes each output half its input;
  *                                      a write of parameter 0 calls the host's audio-ports rescan (NAMES) instead of a
- *                                      restart (103: and once more in the next activate; 104: in every activate)
+ *                                      restart (103: and once more in the next activate; 104: in every activate), and
+ *                                      101 or 102 asks for a restart whose deactivate switches to config 2 (101) or
+ *                                      leaves the main input with no channels for good (102) and rescans the list
  *                                      (with FAKE_CONFIGURABLE_TOO set, it offers clap.configurable-audio-ports too,
  *                                      as configurable does; with FAKE_CONFIGS_UNTYPED its configs name no port type)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
@@ -138,6 +140,8 @@ typedef struct FAKE_T {
     uint32_t configs_untyped;   // the configs name no port type (FAKE_CONFIGS_UNTYPED)
     uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
+    uint32_t switch_on_deactivate;  // configs: the next deactivate switches to config 2 by itself and says so (101)
+    uint32_t input_lost;        // configs: 2 its main input declares no channels from the next deactivate on (102), 1 since
     uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
     const clap_host_thread_check_t *thread_check;  // the host's, read at init
     int logged_off_role;        // process() ran off the audio role once and said so
@@ -276,6 +280,8 @@ static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is
         snprintf(info->name, sizeof(info->name), "%s %u", is_input ? "in" : "out", index);
     info->flags = index == 0 || (index == 1 && !is_input && fake->two_mains) ? CLAP_AUDIO_PORT_IS_MAIN : 0;
     info->channel_count = index == 0 ? (is_input ? fake->main_channels : fake->out_channels) : (is_input ? fake->aux_in_channels : fake->aux_out_channels);
+    if (index == 0 && is_input && fake->input_lost == 1)
+        info->channel_count = 0;
     info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : (info->channel_count == 1 ? CLAP_PORT_MONO : NULL);
     if (index == 0 && fake->type != FAKE_TYPE_BY_WIDTH)
         info->port_type = fake->type == FAKE_TYPE_AMBISONIC ? CLAP_PORT_AMBISONIC : CLAP_PORT_SURROUND;
@@ -739,6 +745,21 @@ static void plugin_deactivate(const clap_plugin_t *plugin)
 {
     fake_t *fake = plugin->plugin_data;
 
+    if (fake->switch_on_deactivate || fake->input_lost == 2)
+    {
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (fake->switch_on_deactivate)
+        {
+            fake->main_channels = 2;
+            fake->named = 2;
+        }
+        fake->switch_on_deactivate = 0;
+        if (fake->input_lost)
+            fake->input_lost = 1;
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_LIST);
+    }
     if (fake->rescan_on_deactivate)
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
@@ -882,10 +903,20 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     fake->latency = latency;
     if (fake->offers & FAKE_OFFERS_CONFIGS)
     {
-        // configs: the write renames its ports while active, which only NAMES may say (103 once more in the next
-        // activate, 104 in every activate)
+        // configs: 101 and 102 change its layout, which CLAP has a plugin do as request_restart, then its ports in the
+        // deactivate; any other write renames its ports while active, which only NAMES may say (103 once more in the
+        // next activate, 104 in every activate)
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
 
+        if (latency == 101 || latency == 102)
+        {
+            if (latency == 101)
+                fake->switch_on_deactivate = 1;
+            else
+                fake->input_lost = 2;   // from the next deactivate on
+            fake->host->request_restart(fake->host);
+            return;
+        }
         fake->names_on_activate = latency == 103 ? 1 : latency == 104 ? 2 : 0;
         if (host_ports)
             host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
