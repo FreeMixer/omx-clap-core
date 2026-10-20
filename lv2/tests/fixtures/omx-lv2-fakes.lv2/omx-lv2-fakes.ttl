@@ -7,6 +7,7 @@
 @prefix work: <http://lv2plug.in/ns/ext/worker#> .
 @prefix pprops: <http://lv2plug.in/ns/ext/port-props#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix units: <http://lv2plug.in/ns/extensions/units#> .
 
 <urn:omx:test:pad:mono#0>
     a lv2:Plugin ;
@@ -41,6 +42,7 @@
 <urn:omx:test:broken:mono#1>
     a lv2:Plugin ;
     doap:name "omx fake in-place broken pad" ;
+    lv2:requiredFeature lv2:inPlaceBroken ;
     doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
     lv2:port [
         a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
@@ -147,13 +149,13 @@
         lv2:portProperty pprops:notOnGUI ; lv2:default 0 ; lv2:minimum 0 ; lv2:maximum 1
     ] , [
         a lv2:ControlPort , lv2:InputPort ; lv2:index 8 ; lv2:symbol "freq" ; lv2:name "Frequency" ;
-        lv2:portProperty pprops:logarithmic ; lv2:default 1000 ; lv2:minimum 20 ; lv2:maximum 20000
+        lv2:portProperty pprops:logarithmic ; units:unit units:hz ; lv2:default 1000 ; lv2:minimum 20 ; lv2:maximum 20000
     ] , [
         a lv2:ControlPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "tap" ; lv2:name "Tap" ;
         lv2:portProperty pprops:trigger ; lv2:default 0 ; lv2:minimum 0 ; lv2:maximum 1
     ] , [
         a lv2:ControlPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "nodef" ; lv2:name "No default" ;
-        lv2:minimum -3 ; lv2:maximum 3
+        pprops:rangeSteps 7 ; units:unit units:db ; lv2:minimum -3 ; lv2:maximum 3
     ] .
 
 <urn:omx:test:hold:mono#8>
@@ -167,4 +169,21 @@
     ] , [
         a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
         lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] .
+
+<urn:omx:test:longsym:mono#9>
+    a lv2:Plugin ;
+    doap:name "omx fake with a symbol longer than a contract holds" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a lv2:ControlPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "latency" ; lv2:name "Latency" ;
+        lv2:designation lv2:latency ; lv2:portProperty lv2:reportsLatency , lv2:integer
+    ] , [
+        a lv2:ControlPort , lv2:InputPort ; lv2:index 3 ;
+        lv2:symbol "a_control_whose_symbol_runs_past_the_sixty_three_bytes_a_contract_symbol_holds" ;
+        lv2:name "Long" ; lv2:default 0 ; lv2:minimum 0 ; lv2:maximum 1
     ] .

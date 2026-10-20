@@ -36,8 +36,9 @@
 * The worker. One non-RT thread per instance whose plugin has a worker interface, started at the end of activate and
 * joined at deactivate, before LV2 deactivate. Two rings (omx_msgring.h), requests and responses. schedule_work never waits:
 * a full request ring answers LV2_WORKER_ERR_NO_SPACE and is counted. respond is legal only inside work(), which a
-* thread-local marker says; a stray one is refused and struck. Nothing signals the worker from the RT: it polls its
-* request ring every worker_poll_us.
+* thread-local marker says; a stray one is refused and struck. schedule_work wakes the worker with a semaphore post, which
+* neither allocates nor waits, so a request is worked at once and its response lands on the next block; worker_poll_us
+* is only the longest the worker sleeps unwoken.
 *
 ************************************************************************************************************************
 */
@@ -57,6 +58,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -181,9 +183,14 @@ struct lv2_instance
     struct omx_lv2_feature_options fopts;
     LV2_Feature features[LV2_FEATURE_SLOTS];
     const LV2_Feature *feature_ptrs[LV2_FEATURE_SLOTS + 1];
+    // the same less state:mapPath and state:freePath, for the state calls: lilv hands save and restore its own, which
+    // copy a saved file and name it by the copy, and a plugin takes the first it finds
+    const LV2_Feature *state_ptrs[LV2_FEATURE_SLOTS + 1];
 
     // the worker
     uint8_t *ring_mem;                      // 2 x worker_ring_bytes; NULL: the list provides no worker
+    sem_t wake;                             // posted by schedule_work and at stop; made with the rings
+    int wake_made;
     struct omx_msgring requests, responses;
     pthread_t thread;
     int worker_running;
@@ -222,6 +229,12 @@ struct lv2_instance
     int dir_made;
     pthread_mutex_t dir_lock;
     LV2_State_Make_Path make_path;
+    // state:mapPath and state:freePath: a path under the state root is abstracted relative to it, any other kept whole
+    LV2_State_Map_Path map_path;
+    LV2_State_Free_Path free_path;
+    // options:interface: the plugin's own, through which a block length that shrinks is told rather than re-instantiated
+    const LV2_Options_Interface *options_iface;
+    _Atomic uint32_t options_told;          // block lengths told through it
     _Atomic uint32_t make_path_refused;
     _Atomic int make_path_why;              // enum make_path_why of the last refusal
     // the notify outputs: one buffer each of notify_bytes, offered at every block and never read
@@ -245,6 +258,10 @@ struct lv2_instance
 
 /* the instance whose work() runs on THIS thread: the only context in which respond is legal */
 static _Thread_local const struct lv2_instance *g_in_work;
+
+/* the instance whose restore() runs on THIS thread beside run() (state:threadSafeRestore): its schedule_work is the
+ * restore's, not a stray call off the audio role */
+static _Thread_local const struct lv2_instance *g_in_restore;
 
 /* the instances' directories made in this process so far: the n of lv2-<pid>-<n> */
 static _Atomic uint32_t g_dir_serial;
@@ -551,13 +568,15 @@ static LV2_Worker_Status schedule_work(LV2_Worker_Schedule_Handle h, uint32_t si
 
     if (!in || !in->ring_mem)
         return LV2_WORKER_ERR_UNKNOWN;
-    if (on_audio(in) == 0)
+    if (on_audio(in) == 0 && g_in_restore != in)
         omx_hosted_count(&in->schedule_off_audio, 1);
     if (omx_msgring_push(&in->requests, data, size) != 0)
     {
         omx_hosted_count(&in->schedule_refused, 1);
         return LV2_WORKER_ERR_NO_SPACE;
     }
+    if (in->wake_made)
+        sem_post(&in->wake);
     return LV2_WORKER_SUCCESS;
 }
 
@@ -597,16 +616,29 @@ static uint32_t worker_service(struct lv2_instance *in)
     return done;
 }
 
-/* the worker thread: services the request ring by polling; nothing signals it from the RT */
+/* the worker thread: services the request ring each time schedule_work wakes it, and at worst every worker_poll_us */
 static void *worker_main(void *arg)
 {
     struct lv2_instance *in = arg;
     const uint32_t us = lv2_core_config()->worker_poll_us;
-    const struct timespec poll = { (time_t)(us / 1000000u), (long)(us % 1000000u) * 1000L };
 
     while (!atomic_load_explicit(&in->worker_quit, memory_order_acquire))
-        if (worker_service(in) == 0)
-            nanosleep(&poll, NULL);
+    {
+        struct timespec until;
+
+        if (worker_service(in) != 0)
+            continue;
+        clock_gettime(CLOCK_REALTIME, &until);
+        until.tv_sec += (time_t)(us / 1000000u);
+        until.tv_nsec += (long)(us % 1000000u) * 1000L;
+        if (until.tv_nsec >= 1000000000L)
+        {
+            until.tv_sec++;
+            until.tv_nsec -= 1000000000L;
+        }
+        while (sem_timedwait(&in->wake, &until) != 0 && errno == EINTR)
+            ;
+    }
     return NULL;
 }
 
@@ -627,6 +659,8 @@ static void worker_stop(struct lv2_instance *in)
     if (!in->worker_running)
         return;
     atomic_store_explicit(&in->worker_quit, 1, memory_order_release);
+    if (in->wake_made)
+        sem_post(&in->wake);
     pthread_join(in->thread, NULL);
     in->worker_running = 0;
 }
@@ -1060,10 +1094,69 @@ static int options_build(struct lv2_instance *in, double rate, uint32_t min_fram
     return 0;
 }
 
+/* [main] the block lengths of a new activation told through the plugin's options:interface, the handle kept: 0 (also
+ * when they are the ones it holds already), or -1 when they do not fit or the plugin refuses them */
+static int options_tell(struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames)
+{
+    int32_t min, max, nominal;
+
+    if (lv2_block_lengths(&in->fopts, min_frames, max_frames, &min, &max, &nominal) != 0)
+        return -1;
+    if (min == in->options.min_block && max == in->options.max_block && nominal == in->options.nominal_block)
+        return 0;
+    if (options_build(in, rate, min_frames, max_frames) != 0)
+        return -1;
+    if (in->options_iface->set(in->handle, in->options.opts) != LV2_OPTIONS_SUCCESS)
+        return -1;
+    atomic_fetch_add_explicit(&in->options_told, 1u, memory_order_relaxed);
+    return 0;
+}
+
+/* state:mapPath: a path under the state root is abstracted relative to it, so a state names its files the same way from
+ * any instance of the root; any other path is kept whole, which the feature allows */
+static char *inst_abstract_path(LV2_State_Map_Path_Handle h, const char *absolute)
+{
+    const struct lv2_core_config *config = lv2_core_config();
+    const char *root = config ? config->state_root : NULL;
+    const size_t n = root ? strlen(root) : 0;
+
+    (void)h;
+    if (!absolute)
+        return NULL;
+    if (n && strncmp(absolute, root, n) == 0 && absolute[n] == '/' && absolute[n + 1] != '\0')
+        return strdup(absolute + n + 1);
+    return strdup(absolute);
+}
+
+/* state:mapPath back: a relative path is under the state root (as it is with no root), an absolute one is kept */
+static char *inst_absolute_path(LV2_State_Map_Path_Handle h, const char *abstract)
+{
+    const struct lv2_core_config *config = lv2_core_config();
+    const char *root = config ? config->state_root : NULL;
+    char *out;
+
+    (void)h;
+    if (!abstract)
+        return NULL;
+    if (abstract[0] == '/' || !root)
+        return strdup(abstract);
+    out = malloc(strlen(root) + strlen(abstract) + 2u);
+    if (out)
+        sprintf(out, "%s/%s", root, abstract);
+    return out;
+}
+
+/* state:freePath: a path the two above, or makePath, handed out */
+static void inst_free_path(LV2_State_Free_Path_Handle h, char *path)
+{
+    (void)h;
+    free(path);
+}
+
 /* the feature array, in the providers' order, exactly the configured kinds the instance's options offer */
 static void features_build(struct lv2_instance *in)
 {
-    void *data[LV2_FEATURE_KINDS + 1] = { NULL };
+    void *data[LV2_INSTANCE_KINDS] = { NULL };
 
     data[F_MAP] = &in->map;
     data[F_UNMAP] = &in->unmap;
@@ -1071,7 +1164,17 @@ static void features_build(struct lv2_instance *in)
     data[F_WORKER] = &in->schedule;
     data[F_LOG] = &in->log;
     data[F_MAKE_PATH] = in->dir ? &in->make_path : NULL;
+    data[F_MAP_PATH] = &in->map_path;
+    data[F_FREE_PATH] = &in->free_path;
     lv2_features_fill(in->features, in->feature_ptrs, &in->fopts, lv2_features_configured(), data);
+    {
+        uint32_t i, k = 0;
+
+        for (i = 0; in->feature_ptrs[i]; i++)
+            if (strcmp(in->feature_ptrs[i]->URI, LV2_STATE__mapPath) != 0 && strcmp(in->feature_ptrs[i]->URI, LV2_STATE__freePath) != 0)
+                in->state_ptrs[k++] = in->feature_ptrs[i];
+        in->state_ptrs[k] = NULL;
+    }
 }
 
 /* the forge's map, over the process's table: every URID here is mapped before the audio role runs */
@@ -1163,6 +1266,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         return -1;
     }
     in->worker = in->ring_mem && d->extension_data ? d->extension_data(LV2_WORKER__interface) : NULL;
+    in->options_iface = d->extension_data ? d->extension_data(LV2_OPTIONS__interface) : NULL;
+    if (in->options_iface && !in->options_iface->set)
+        in->options_iface = NULL;
     if (in->worker && !in->worker->work)
     {
         d->cleanup(in->handle);
@@ -1256,7 +1362,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         if (at)
             d->connect_port(in->handle, i, at);
     }
-    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->feature_ptrs) != 0)
+    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->state_ptrs) != 0)
     {
         d->cleanup(in->handle);
         in->handle = NULL;
@@ -1306,7 +1412,10 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->controls = calloc(n, sizeof(*in->controls));
     in->shown = calloc(n, sizeof(*in->shown));
     if (inst_on(in, F_WORKER))
+    {
         in->ring_mem = malloc(2u * (size_t)config->worker_ring_bytes);
+        in->wake_made = in->ring_mem && sem_init(&in->wake, 0, 0) == 0;
+    }
     in->patch_key = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_key));
     in->patch_pending = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_pending));
     in->patch_dirty = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_dirty));
@@ -1369,6 +1478,11 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->log.vprintf = inst_log_vprintf;
     in->make_path.handle = in;
     in->make_path.path = inst_make_path;
+    in->map_path.handle = in;
+    in->map_path.abstract_path = inst_abstract_path;
+    in->map_path.absolute_path = inst_absolute_path;
+    in->free_path.handle = in;
+    in->free_path.free_path = inst_free_path;
     if (lv2_feature_on(F_MAKE_PATH) && config->state_root)
     {
         const size_t n = strlen(config->state_root) + 64u;
@@ -1400,7 +1514,7 @@ static int state_apply(struct lv2_instance *in)
 {
     uint32_t k;
 
-    if (lv2_plugin_state_restore(in->plugin, in->handle, in->controls, in->state_text, in->feature_ptrs, &in->map) != 0)
+    if (lv2_plugin_state_restore(in->plugin, in->handle, in->controls, in->state_text, in->state_ptrs, &in->map) != 0)
         return -1;
     for (k = 0; k < in->plugin->n_controls; k++)
         atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
@@ -1420,7 +1534,14 @@ int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_fra
     }
     if (in->lv2_active)
         lv2_instance_deactivate(in);
-    if (in->handle && (rate != in->rate || max_frames != in->max_frames))
+    // a block length that fits the buffers is told through the plugin's options:interface, if it has one, rather than
+    // re-instantiating it; a new rate, a longer block, or a plugin that cannot be told is instantiated again
+    if (in->handle && rate == in->rate && max_frames <= in->max_frames && in->options_iface)
+    {
+        if (options_tell(in, rate, min_frames, max_frames) != 0)
+            instance_drop(in);
+    }
+    else if (in->handle && (rate != in->rate || max_frames != in->max_frames))
         instance_drop(in);
     // both ends of the rings are stopped: they start empty
     if (in->ring_mem
@@ -1509,6 +1630,8 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->audio);
     free(in->controls);
     free(in->shown);
+    if (in->wake_made)
+        sem_destroy(&in->wake);
     free(in->ring_mem);
     free(in->state_text);
     free(in->atom_in);
@@ -1555,8 +1678,45 @@ char *lv2_instance_state_save(struct lv2_instance *in)
 {
     if (!in || !in->handle)
         return NULL;
-    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->feature_ptrs, &in->map, &in->unmap,
+    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->state_ptrs, &in->map, &in->unmap,
                                  in->dir, in->saved_dir);
+}
+
+int lv2_instance_state_restore_live(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX])
+{
+    char *copy;
+    uint32_t k;
+    int rc;
+
+    if (!in || !text || !in->plugin->safe_restore || !in->lv2_active || !in->handle || !in->worker
+        || lv2_plugin_state_check(text, &in->map) != 0 || !(copy = strdup(text)))
+    {
+        lv2_why_set(why, LV2_CODE_STATE_UNREADABLE);
+        return -1;
+    }
+    // restore() beside run(), as the plugin declared it may be; it finishes through the worker its features carry
+    g_in_restore = in;
+    rc = lv2_plugin_state_restore(in->plugin, in->handle, in->controls, text, in->state_ptrs, &in->map);
+    g_in_restore = NULL;
+    if (rc != 0)
+    {
+        free(copy);
+        lv2_why_set(why, LV2_CODE_STATE_UNREADABLE);
+        return -1;
+    }
+    for (k = 0; k < in->plugin->n_controls; k++)
+        atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
+    // the state stays held, applied already: a later instantiation (a new rate) applies it again
+    free(in->state_text);
+    in->state_text = copy;
+    in->state_dirty = 0;
+    lv2_why_set(why, "");
+    return 0;
+}
+
+uint32_t lv2_instance_options_told(const struct lv2_instance *in)
+{
+    return in ? atomic_load_explicit(&in->options_told, memory_order_relaxed) : 0;
 }
 
 int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX])
@@ -1683,7 +1843,9 @@ void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t)
 {
     LV2_Atom_Forge *f = &in->time_forge;
     LV2_Atom_Forge_Frame seq;
-    const int forge = t && !(in->time_have && time_same(t, &in->time_last));
+    // an object at every block while the transport plays, so the plugin reads the frame and the beat of each block; while
+    // stopped only when something changed
+    const int forge = t && (!in->time_have || !time_same(t, &in->time_last) || t->playing);
 
     if (!in->time_buf)
         return;

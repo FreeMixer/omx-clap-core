@@ -54,6 +54,7 @@
 #include <lv2/resize-port/resize-port.h>
 #include <lv2/state/state.h>
 #include <lv2/time/time.h>
+#include <lv2/units/units.h>
 #include <lv2/urid/urid.h>
 
 #include "lv2_core_internal.h"
@@ -77,6 +78,7 @@
     X(lilv_plugins_get_by_uri) X(lilv_plugins_begin) X(lilv_plugins_next) X(lilv_plugins_is_end) X(lilv_plugins_get) \
     X(lilv_plugin_get_uri) X(lilv_plugin_get_name) X(lilv_plugin_get_bundle_uri) X(lilv_plugin_get_library_uri) \
     X(lilv_plugin_get_num_ports) X(lilv_plugin_get_port_by_index) X(lilv_plugin_get_required_features) \
+    X(lilv_plugin_get_optional_features) X(lilv_node_as_int) X(lilv_node_is_uri) \
     X(lilv_port_is_a) X(lilv_port_get_symbol) X(lilv_port_get_name) X(lilv_port_get_range) X(lilv_port_get_value) \
     X(lilv_port_has_property) X(lilv_port_get_scale_points) X(lilv_scale_points_begin) X(lilv_scale_points_next) \
     X(lilv_port_supports_event) \
@@ -109,7 +111,8 @@ enum
     N_SUPPORTS, N_BUFFER_TYPE, N_SEQUENCE, N_PATCH_MESSAGE, N_RSZ_MIN, N_PATCH_WRITABLE, N_PATCH_PARAMETER,
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
     N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
-    N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_COUNT
+    N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_UNIT,
+    N_RANGE_STEPS, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -161,6 +164,8 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_LABEL] = LV2_RDFS_LABEL,
     [N_PSET_PRESET] = "http://lv2plug.in/ns/ext/presets#Preset",
     [N_APPLIES_TO] = LV2_CORE__appliesTo,
+    [N_UNIT] = LV2_UNITS__unit,
+    [N_RANGE_STEPS] = LV2_PORT_PROPS__rangeSteps,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -441,6 +446,36 @@ static uint32_t port_props(const LilvPlugin *pl, const LilvPort *port)
         if (L.lilv_port_has_property(pl, port, g.node[map[i].node]))
             props |= map[i].prop;
     return props;
+}
+
+/* units:unit when it names one of LV2's own units: its local name ("hz"), duplicated; NULL for none, a unit of another
+ * vocabulary, or one the plugin defines itself (the CLAP face maps the name to the console's code) */
+static char *port_unit(const LilvPlugin *pl, const LilvPort *port)
+{
+    LilvNodes *v = L.lilv_port_get_value(pl, port, g.node[N_UNIT]);
+    LilvIter *it = v ? L.lilv_nodes_begin(v) : NULL;
+    const LilvNode *n = it && !L.lilv_nodes_is_end(v, it) ? L.lilv_nodes_get(v, it) : NULL;
+    const char *uri = n && L.lilv_node_is_uri(n) ? L.lilv_node_as_uri(n) : NULL;
+    char *name = NULL;
+
+    if (uri && strncmp(uri, LV2_UNITS_PREFIX, strlen(LV2_UNITS_PREFIX)) == 0 && uri[strlen(LV2_UNITS_PREFIX)])
+        name = strdup(uri + strlen(LV2_UNITS_PREFIX));
+    if (v)
+        L.lilv_nodes_free(v);
+    return name;
+}
+
+/* pprops:rangeSteps: the positions a control has from its minimum to its maximum, 2 or more; 0 for none */
+static uint32_t port_steps(const LilvPlugin *pl, const LilvPort *port)
+{
+    LilvNodes *v = L.lilv_port_get_value(pl, port, g.node[N_RANGE_STEPS]);
+    LilvIter *it = v ? L.lilv_nodes_begin(v) : NULL;
+    const LilvNode *n = it && !L.lilv_nodes_is_end(v, it) ? L.lilv_nodes_get(v, it) : NULL;
+    int steps = n && L.lilv_node_is_int(n) ? L.lilv_node_as_int(n) : 0;
+
+    if (v)
+        L.lilv_nodes_free(v);
+    return steps >= 2 ? (uint32_t)steps : 0u;
 }
 
 /* the scale points, in value order; a complete enumeration has one on every integer from min to max */
@@ -1120,6 +1155,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             return LV2_CODE_NO_REALISATION;
         port_range(pl, port, c);
         c->props = port_props(pl, port);
+        c->unit = port_unit(pl, port);
+        c->range_steps = port_steps(pl, port);
         if (!input)
         {
             c->kind = LV2_CONTROL_OUTPUT;
@@ -1189,9 +1226,23 @@ static const char *read_required(struct lv2_plugin *p, const LilvPlugin *pl)
     L.lilv_nodes_free(req);
     if (!p->required || k != n)
         return LV2_CODE_NO_REALISATION;
+    // state:threadSafeRestore, required or optional: the plugin's restore() may run beside run(), so a load while active
+    // needs no restart
+    for (k = 0; k < n; k++)
+        p->safe_restore |= strcmp(p->required[k], LV2_STATE__threadSafeRestore) == 0;
+    req = L.lilv_plugin_get_optional_features(pl);
+    for (it = req ? L.lilv_nodes_begin(req) : NULL; req && !L.lilv_nodes_is_end(req, it); it = L.lilv_nodes_next(req, it))
+        p->safe_restore |= strcmp(L.lilv_node_as_uri(L.lilv_nodes_get(req, it)), LV2_STATE__threadSafeRestore) == 0;
+    if (req)
+        L.lilv_nodes_free(req);
     for (k = 0; k < n && !refused && lv2_core_feature_options()->strict; k++)
+    {
+        // state:threadSafeRestore is the plugin's own declaration, not a feature to hand over
+        if (strcmp(p->required[k], LV2_STATE__threadSafeRestore) == 0)
+            continue;
         if (!lv2_feature_offered_within(lv2_core_feature_options(), lv2_features_configured(), p->required[k]))
             refused = LV2_CODE_FEATURES_MISSING;
+    }
     return refused;
 }
 
@@ -1222,6 +1273,7 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->controls[k].points);
         free(p->controls[k].symbol);
         free(p->controls[k].name);
+        free(p->controls[k].unit);
     }
     free(p->controls);
     for (k = 0; p->patches && k < p->n_patches; k++)

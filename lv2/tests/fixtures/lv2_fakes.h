@@ -49,6 +49,7 @@ enum fake_kind
 #define FAKE_PROPS          "urn:omx:test:props:mono#7"           // a pad with one control port per port property
 #define FAKE_NAN_ALWAYS     "urn:omx:test:nan-always:mono#6"     // non-finite from its first run: refuses the warm-up
 #define FAKE_HOLD           "urn:omx:test:hold:mono#8"           // a sample-and-hold whose phase runs on across run() calls
+#define FAKE_LONGSYM        "urn:omx:test:longsym:mono#9"        // a pad with a control whose symbol no contract holds
 
 #define HOLD_PERIOD         3u          // K_HOLD takes a new input sample every this many frames
 
