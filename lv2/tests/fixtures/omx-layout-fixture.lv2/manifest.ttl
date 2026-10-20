@@ -79,3 +79,8 @@
     a lv2:Plugin ;
     lv2:binary <omx-layout-fixture.so> ;
     rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#wide-sixty-five>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
