@@ -66,7 +66,6 @@
 ************************************************************************************************************************
 */
 
-#define LV2_EVENT_PORT                  "http://lv2plug.in/ns/ext/event#EventPort"
 #define LV2_CORE_IS_SIDECHAIN           "http://lv2plug.in/ns/lv2core#isSideChain"
 #define LV2_RDFS_LABEL                  "http://www.w3.org/2000/01/rdf-schema#label"
 
@@ -121,7 +120,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_CONTROL] = LV2_CORE__ControlPort,
     [N_CV] = LV2_CORE__CVPort,
     [N_ATOM] = LV2_ATOM__AtomPort,
-    [N_EVENT] = LV2_EVENT_PORT,
+    [N_EVENT] = LV2_EVENT__EventPort,
     [N_INPUT] = LV2_CORE__InputPort,
     [N_OUTPUT] = LV2_CORE__OutputPort,
     [N_DESIGNATION] = LV2_CORE__designation,
@@ -1230,7 +1229,34 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         const char *symbol;
 
         if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
-            return LV2_CODE_MIDI_IN;
+        {
+            // an ev:EventPort (the event extension, atom's predecessor: ll-plugins' rudolf556 and control2midi) that
+            // supports midi:MidiEvent is a MIDI port as the atom one is, over an LV2_Event_Buffer: the first each way
+            // is the note path's, one after it is fed an empty buffer every block or offered one and never read. One
+            // that supports no midi:MidiEvent carries events no buffer here writes or reads
+            uint32_t *count = input ? &p->n_event_in : &p->n_event_out;
+
+            if (!L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
+                return LV2_CODE_MIDI_IN;
+            if (input ? p->midi_in_port < 0 : p->midi_out_port < 0)
+            {
+                if (input)
+                {
+                    p->midi_in_port = (int32_t)i;
+                    p->midi_in_event = 1;
+                }
+                else
+                {
+                    p->midi_out_port = (int32_t)i;
+                    p->midi_out_event = 1;
+                }
+                continue;
+            }
+            if (*count >= (input ? LV2_CORE_ATOM_IN_PORTS : LV2_CORE_NOTIFY_PORTS))
+                return LV2_CODE_MIDI_IN;
+            (input ? p->event_in : p->event_out)[(*count)++] = i;
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_ATOM]) && L.lilv_port_supports_event(pl, port, g.node[N_MIDI_EVENT]))
         {
             // a MIDI port is an atom:Sequence that supports midi:MidiEvent, one input and one output at most. One that
