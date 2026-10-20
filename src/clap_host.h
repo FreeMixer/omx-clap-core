@@ -107,7 +107,6 @@
 /** The refusals the core returns, by the hosting code a verdict names them by: each the code omx-contract declares, from
  * its omxcontract/omx_vocabulary.h. A code is never reworded. */
 #define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
-#define CLAP_HOST_CODE_NOT_AUDIO_EFFECT     OMX_HOSTING_CLAP_NOT_AUDIO_EFFECT  ///< the plugin is not an audio effect
 #define CLAP_HOST_CODE_NOTE_INPUT           OMX_HOSTING_CLAP_NOTE_INPUT  ///< the plugin declares a note input the configuration refuses
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< nothing to carry and nothing to pass through
 #define CLAP_HOST_CODE_WIDER_THAN_STRIP     OMX_HOSTING_TOPOLOGY_WIDER_THAN_STRIP  ///< a main port is wider than the lane the caller runs the plugin on
