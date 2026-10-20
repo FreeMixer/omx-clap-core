@@ -62,6 +62,8 @@
 #define CLAP_HOST_CODE_TOO_MANY_PORTS "hosting.topology.too-many-ports"  ///< more than the limit of auxiliary ports on one side, or more than one main port on a side
 #define CLAP_HOST_CODE_PORT_TOO_WIDE "hosting.topology.port-too-wide"  ///< a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²
 #define CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS "hosting.topology.port-without-channels"  ///< a port of zero channels
+#define CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN "hosting.topology.channel-map-unknown"  ///< a surround port names a channel id the host does not know, or refuses the carrier's channel mask
+#define CLAP_HOST_CODE_AMBISONIC_CONFIG "hosting.topology.ambisonic-config"  ///< an ambisonic port refuses the carrier's ordering or normalisation; raised by a layout request only
 #define CLAP_HOST_CODE_CRASHED_LIVE "hosting.stability.crashed-live-on-this-rig"  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE "hosting.output.non-finite"  ///< the plugin produced non-finite output
 

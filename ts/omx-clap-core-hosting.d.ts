@@ -65,6 +65,14 @@ export declare const HOSTING_CODES: {
     readonly code: "hosting.topology.port-without-channels";
     readonly doc: "a port of zero channels";
   };
+  readonly channelMapUnknown: {
+    readonly code: "hosting.topology.channel-map-unknown";
+    readonly doc: "a surround port names a channel id the host does not know, or refuses the carrier's channel mask";
+  };
+  readonly ambisonicConfig: {
+    readonly code: "hosting.topology.ambisonic-config";
+    readonly doc: "an ambisonic port refuses the carrier's ordering or normalisation; raised by a layout request only";
+  };
   readonly crashedLive: {
     readonly code: "hosting.stability.crashed-live-on-this-rig";
     readonly doc: "the plugin crashed live on this rig";
