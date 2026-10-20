@@ -109,6 +109,7 @@ OMX_CLAP_CORE_0.12
     omx_clap_host_note_names_changed;
     omx_clap_host_note_ports_rescanned;
     omx_clap_host_ports_rescanned;
+    omx_clap_host_request_layout;
     omx_clap_host_entry_presets;
     omx_clap_host_preset_load_key;
     omx_clap_host_presets;
