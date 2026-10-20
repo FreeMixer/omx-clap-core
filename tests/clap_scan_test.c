@@ -355,9 +355,9 @@ int main(int argc, char **argv)
     char *out;
     char scan[PATH_MAX];
 
-    if (argc < 4)
+    if (argc < 6)
     {
-        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> [omx-delay.clap | -] [fake_synth.clap]\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> <omx-delay.clap | -> <fake_synth.clap>\n", argv[0]);
         return 2;
     }
     if (!realpath(argv[1], scan))
