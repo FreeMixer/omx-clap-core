@@ -439,6 +439,19 @@ static void host_layout_changed(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
 }
 
+/* the plugin's configuration list changed (clap.audio-ports-config's host half). The host holds no copy of the list:
+ * omx_clap_host_request_layout reads it live. While the plugin is inactive the change is reported as a ports rescan,
+ * since the list is what the next request_layout chooses from (a plugin left DECLARED whose list now has a match).
+ * While active it is dropped: the configuration in use stands, a report would only send the carrier through a
+ * relayout for no port change, and the list is read again when the host next deactivates and asks (#263) */
+static void host_configs_rescan(const clap_host_t *host)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (main_thread_call(host) && !in->active)
+        atomic_store_explicit(&in->ports_rescan_requested, 1u, memory_order_relaxed);
+}
+
 static void host_state_mark_dirty(const clap_host_t *host)
 {
     if (main_thread_call(host))
@@ -651,6 +664,7 @@ static const clap_host_thread_pool_t g_host_thread_pool = { host_request_exec };
 static const clap_host_tail_t g_host_tail = { host_tail_changed };
 static const clap_host_surround_t g_host_surround = { host_layout_changed };
 static const clap_host_ambisonic_t g_host_ambisonic = { host_layout_changed };
+static const clap_host_audio_ports_config_t g_host_audio_ports_config = { host_configs_rescan };
 static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
 static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
 static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
@@ -816,6 +830,8 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_surround;
     if (!strcmp(id, CLAP_EXT_AMBISONIC))
         return &g_host_ambisonic;
+    if (!strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG))
+        return &g_host_audio_ports_config;
     return NULL;
 }
 
@@ -3662,7 +3678,8 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     }
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
-    // a ports rescan (audio-ports, or the surround or ambisonic layout changed) is reported, once; no restart
+    // a ports rescan (audio-ports, the surround or ambisonic layout changed, or the configuration list changed while
+    // inactive) is reported, once; no restart
     if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
         atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
     return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;

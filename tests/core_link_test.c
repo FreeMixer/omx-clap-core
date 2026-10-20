@@ -54,6 +54,7 @@ static void check_refused(const char *path, const char *id, const char *code)
 
 int main(int argc, char **argv)
 {
+    int i;
     struct omx_clap_instance *instance = NULL;
     struct omx_clap_host_config config;
     float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
@@ -72,6 +73,19 @@ int main(int argc, char **argv)
     {
         fprintf(stderr, "usage: %s <fake.clap> <fake_synth.clap>\n", argv[0]);
         return 2;
+    }
+    // the fixtures by their absolute paths, however they were given: the bundle arm links to them from a directory under
+    // /tmp, where a relative target dangles (the clean-root consumer gives relative ones, #288)
+    for (i = 1; i < argc; i++)
+    {
+        char *abs = realpath(argv[i], NULL);
+
+        if (!abs)
+        {
+            fprintf(stderr, "%s: %s does not resolve\n", argv[0], argv[i]);
+            return 2;
+        }
+        argv[i] = abs;
     }
 
     CHECK(omx_clap_core_version() == OMX_EXPECT_VERSION_NUM, "the library says the version of the tree (%u, expected %u)", omx_clap_core_version(), (unsigned)OMX_EXPECT_VERSION_NUM);

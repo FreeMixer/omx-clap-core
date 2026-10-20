@@ -62,6 +62,12 @@
 #include <omxcontract/omx_vocabulary.h>
 
 #include "omx_lv2_features.h"
+#include "lv2_rtmempool.h"
+
+/* The pool's URI as the specification spells it: the header's LV2_RTSAFE_MEMORY_POOL__Pool macro drops the '#'
+ * ("…/rtmempoolPool"), and that is what a plugin compiled against it asks for, while a description written by hand
+ * says "…/rtmempool#Pool". The host serves both, and the deprecated URI, over the one pool. */
+#define LV2_RTMEMPOOL_POOL_SPELLED_URI  LV2_RTSAFE_MEMORY_POOL_PREFIX "Pool"
 
 
 /*
@@ -100,8 +106,8 @@
 /* every feature URI a provider here serves, NULL-terminated: what lv2_core_provided holds, for a list of the same */
 #define LV2_CORE_PROVIDED_INIT \
     { LV2_URID__map, LV2_URID__unmap, LV2_OPTIONS__options, LV2_BUF_SIZE__boundedBlockLength, LV2_WORKER__schedule, \
-      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, \
-      LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
+      LV2_STATE__loadDefaultState, LV2_LOG__log, LV2_RTSAFE_MEMORY_POOL__Pool, LV2_RTMEMPOOL_POOL_SPELLED_URI, LV2_RTSAFE_MEMORY_POOL_DEPRECATED_URI, \
+      LV2_STATE__makePath, LV2_STATE__mapPath, LV2_STATE__freePath, LV2_URI_MAP_URI, LV2_EVENT_URI, NULL }
 
 /* the refusals, the verdict's spelling: each the code omx-contract declares, from its omx_vocabulary.h */
 #define LV2_CODE_NO_REALISATION         OMX_HOSTING_NO_REALISATION
@@ -229,11 +235,14 @@ struct lv2_plugin
     int32_t latency_port;           // -1: none
     float latency_def;              // where its buffer starts: lv2:default, else lv2:minimum, else 0, as every control's
     int32_t midi_in_port;           // the one MIDI input port (an atom:Sequence or an ev:EventPort supporting
-                                    // midi:MidiEvent), -1: none
+                                    // midi:MidiEvent, or an llext:MidiPort), -1: none
     int midi_time;                  // the MIDI input also supports time:Position: the transport is forged into it
     int32_t midi_out_port;          // the one MIDI output port, -1: none
     int midi_in_event;              // the MIDI input is an ev:EventPort: an LV2_Event_Buffer, not an atom sequence
     int midi_out_event;             // the MIDI output is an ev:EventPort
+    int midi_in_ll;                 // the MIDI input is an llext:MidiPort (ll-plugins' MIDI port, zynadd's): an LV2_MIDI
+                                    // (lv2_ll_midi.h), each event a double timestamp, a size_t size and the bytes
+    int midi_out_ll;                // the MIDI output is an llext:MidiPort
     uint32_t n_event_in;            // the ev:EventPort MIDI inputs after the MIDI input: fed an empty buffer
     uint32_t event_in[LV2_CORE_ATOM_IN_PORTS];
     uint32_t n_event_out;           // the ev:EventPort MIDI outputs after the MIDI output: offered a buffer, never read

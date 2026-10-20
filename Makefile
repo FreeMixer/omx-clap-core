@@ -118,7 +118,7 @@ LV2_VERSION = $(VERSION)
 LV2_CORE_LIB = build/lv2/liblv2core.a
 LV2_HEADERS = lv2/clap/omx_clap_lv2.h lv2/core/omx_lv2_features.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
-LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c
+LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c lv2/core/lv2_rtmempool.c
 LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o)
 LV2_CLAP_SRC = lv2/clap/lv2_clap.c
 LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)
@@ -255,6 +255,28 @@ install_man:
 .PHONY: version-check print-version-num
 print-version-num:
 	@echo $(VERSION_NUM)
+
+# the fixtures core_link_test runs on, in order: test-core's and the clean-root consumer steps' (ci.yml) one list
+CORE_LINK_FIXTURES = tests/fake.clap tests/fake_synth.clap tests/fault-1.clap
+.PHONY: print-core-link-fixtures test-ci-consumer-args
+print-core-link-fixtures:
+	@echo $(CORE_LINK_FIXTURES)
+
+# the two consumer steps of ci.yml build tests/core_link_test.c by hand and run it on fixture copies: they must run it
+# on CORE_LINK_FIXTURES (the same names, in order, under any directory) and compile it as this Makefile does, with
+# OMX_EXPECT_VERSION_NUM from print-version-num (#275, #288: the same drift twice)
+test-ci-consumer-args:
+	@runs=$$(grep -E '^\s*/tmp/consumer ' .github/workflows/ci.yml | wc -l); [ "$$runs" -eq 2 ] \
+	    || { echo "FAIL ci consumer: $$runs '/tmp/consumer' runs in ci.yml, two expected (RPM and DEB)"; exit 1; }
+	@want="$(notdir $(CORE_LINK_FIXTURES))"; grep -E '^\s*/tmp/consumer ' .github/workflows/ci.yml | while read -r cmd args; do \
+	    got=""; for a in $$args; do case $$a in '|') break ;; esac; got="$$got $${a##*/}"; done; \
+	    [ "$${got# }" = "$$want" ] || { echo "FAIL ci consumer: runs on '$${got# }', test-core on '$$want'"; exit 1; }; \
+	done
+	@compiles=$$(grep -cE 'tests/core_link_test\.c .*\$$\(pkg-config --cflags --libs omx-clap-core\)' .github/workflows/ci.yml); [ "$$compiles" -eq 2 ] \
+	    || { echo "FAIL ci consumer: $$compiles compiles of tests/core_link_test.c against the installed package, two expected"; exit 1; }
+	@defines=$$(grep -cE 'DOMX_EXPECT_VERSION_NUM=\$$\(make -s print-version-num\)u -o /tmp/consumer tests/core_link_test\.c' .github/workflows/ci.yml); [ "$$defines" -eq 2 ] \
+	    || { echo "FAIL ci consumer: $$defines consumer compiles carry OMX_EXPECT_VERSION_NUM from print-version-num, two expected"; exit 1; }
+	@echo "ok   ci consumer: both clean-root steps build core_link_test as the Makefile does and run it on $(notdir $(CORE_LINK_FIXTURES))"
 
 version-check:
 	@spec=$$(sed -n 's/^Version:[[:space:]]*//p' packaging/omx-clap-host.spec | head -1); \
@@ -463,7 +485,7 @@ test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/faul
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
-	./tests/core_link_test $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fault-1.clap)
+	./tests/core_link_test $(abspath $(CORE_LINK_FIXTURES))
 
 tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	rm -rf build/stage
@@ -652,6 +674,7 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
               build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so \
               build/lv2/omx-event-fixture.lv2/omx-event-fixture.so \
+              build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so \
               build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
@@ -694,6 +717,11 @@ build/lv2/omx-event-fixture.lv2/omx-event-fixture.so: $(LV2_FIXTURE_DIR)/lv2_eve
 	cp $(LV2_FIXTURE_DIR)/omx-event-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
+build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so: $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.c $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h lv2/core/lv2_ll_midi.h $(wildcard $(LV2_FIXTURE_DIR)/omx-ll-midi-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-ll-midi-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
 build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so: $(LV2_FIXTURE_DIR)/lv2_layout_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl $(@D)/
@@ -725,7 +753,7 @@ LV2_WRAP = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 lv2/tests/lv2_run_test: lv2/tests/lv2_run_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) $(LV2_WRAP) -ldl -lpthread -lm
 
-lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h
+lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
 
 lv2/tests/lv2_patch_test: lv2/tests/lv2_patch_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h
@@ -765,7 +793,7 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
-lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h
+lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
