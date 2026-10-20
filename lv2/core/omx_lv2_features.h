@@ -77,9 +77,9 @@ enum omx_lv2_feature_kind
 #define OMX_LV2_BLOCK_POW2              (1u << 2)   /* bufsz:powerOf2BlockLength */
 #define OMX_LV2_BLOCK_ALL               (OMX_LV2_BLOCK_BOUNDED | OMX_LV2_BLOCK_FIXED | OMX_LV2_BLOCK_POW2)
 
-/* The features an array may hold: every kind, the two buf-size declarations beyond bounded, and the pool's deprecated
- * URI. */
-#define OMX_LV2_FEATURE_SLOTS           (OMX_LV2_FEATURE_KINDS + 3)
+/* The features an array may hold: every kind, the two buf-size declarations beyond bounded, and the pool's two other
+ * URIs (deprecated, and spelled with the '#'). */
+#define OMX_LV2_FEATURE_SLOTS           (OMX_LV2_FEATURE_KINDS + 4)
 
 /* What log:log does with a line. */
 enum omx_lv2_log_mode

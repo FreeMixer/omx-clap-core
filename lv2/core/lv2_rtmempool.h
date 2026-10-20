@@ -19,6 +19,9 @@
  *
  */
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #ifndef LV2_RTMEMPOOL_H
 #define LV2_RTMEMPOOL_H
 

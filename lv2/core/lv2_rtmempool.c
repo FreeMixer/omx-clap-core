@@ -12,6 +12,7 @@
  */
 
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,9 +60,12 @@ static struct chunk *chunk_of(void *data)
     return (struct chunk *)((char *)data - CHUNK_HEADER);
 }
 
+/* a chunk on a 16-byte boundary wherever the allocator's own is smaller: the header is 16 bytes, so the data is too */
 static struct chunk *chunk_new(const struct pool *p)
 {
-    return malloc(CHUNK_HEADER + p->data_size);
+    void *mem = NULL;
+
+    return posix_memalign(&mem, 16, CHUNK_HEADER + p->data_size) == 0 ? mem : NULL;
 }
 
 static void list_push(struct chunk **head, struct chunk *c)
@@ -94,6 +98,27 @@ static void list_free(struct chunk *head)
     }
 }
 
+/* sleepy: the free list down to the maximum, the chunks above it given back to the allocator */
+static void trim_to_max(struct pool *p)
+{
+    for (;;)
+    {
+        struct chunk *c;
+
+        pthread_mutex_lock(&p->lock);
+        c = p->n_free > p->max ? p->free_list : NULL;
+        if (c)
+        {
+            list_unlink(&p->free_list, c);
+            p->n_free--;
+        }
+        pthread_mutex_unlock(&p->lock);
+        if (!c)
+            return;
+        free(c);
+    }
+}
+
 static void pool_destroy(LV2_RtMemPool_Handle handle)
 {
     struct pool *p = handle;
@@ -111,7 +136,8 @@ static bool pool_create(LV2_RtMemPool_Handle *handle_ptr, const char *name, size
     pthread_mutexattr_t attr;
     struct pool *p;
 
-    if (!handle_ptr || data_size == 0 || max < min)
+    // a size the header cannot be added to is refused before any arithmetic on it
+    if (!handle_ptr || data_size == 0 || data_size > SIZE_MAX / 4 || max < min)
         return false;
     p = calloc(1, sizeof(*p));
     if (!p)
@@ -163,7 +189,8 @@ static void *pool_allocate_atomic(LV2_RtMemPool_Handle handle)
     return c ? chunk_data(c) : NULL;
 }
 
-/* may sleep: the chunk from the free list, else a new one; then the free list topped up to the minimum */
+/* may sleep: the chunk from the free list, else a new one; then the free list topped up to the minimum, and trimmed
+ * down to the maximum (chunks given back by deallocate above it are freed here, never on the audio thread) */
 static void *pool_allocate_sleepy(LV2_RtMemPool_Handle handle)
 {
     struct pool *p = handle;
@@ -202,6 +229,7 @@ static void *pool_allocate_sleepy(LV2_RtMemPool_Handle handle)
         p->n_free++;
         pthread_mutex_unlock(&p->lock);
     }
+    trim_to_max(p);
     return data;
 }
 
