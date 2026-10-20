@@ -33,7 +33,7 @@ while [ $# -gt 0 ]; do
     --self-test) self=1 ;;
     --page) page=$2; shift ;;
     --include) inc=$2; shift ;;
-    *) sed -n '17p' "$0" >&2; exit 2 ;;
+    *) echo 'usage: clap_doc_check.sh [--self-test] [--page <file>] [--include <dir holding clap/>]' >&2; exit 2 ;;
   esac
   shift
 done
