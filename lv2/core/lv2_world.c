@@ -112,7 +112,7 @@ enum
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
     N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
     N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_UNIT,
-    N_RANGE_STEPS, N_COUNT
+    N_RANGE_STEPS, N_STATE_STATE, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -166,6 +166,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_APPLIES_TO] = LV2_CORE__appliesTo,
     [N_UNIT] = LV2_UNITS__unit,
     [N_RANGE_STEPS] = LV2_PORT_PROPS__rangeSteps,
+    [N_STATE_STATE] = LV2_STATE__state,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -1404,7 +1405,9 @@ static LV2_URID table_map(LV2_URID_Map_Handle h, const char *uri)
 }
 
 /* state:loadDefaultState over lilv-state, through the plugin's own URID map, or the process's table, which is the same
- * mapping, when the feature options withheld it: 0, or -1 without a world */
+ * mapping, when the feature options withheld it: 0, or -1 without a world. The default state is the plugin's state:state;
+ * a plugin whose description has none is restored nothing, as under mod-host: lilv would make an empty state of it, and
+ * a plugin that resets what a restore does not name (calf Wavetable's modulation matrix) would lose its own defaults */
 int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features)
 {
     static LV2_URID_Map table = { NULL, table_map };
@@ -1418,6 +1421,8 @@ int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, cons
             map = features[i]->data;
     if (!g.world)
         return -1;
+    if (!L.lilv_world_ask(g.world, p->uri_node, g.node[N_STATE_STATE], NULL))
+        return 0;
     state = L.lilv_state_new_from_world(g.world, map, p->uri_node);
     if (!state)
         return 0;       // no default state: nothing to restore
