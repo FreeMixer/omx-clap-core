@@ -815,7 +815,8 @@ OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
  * clap_ambisonic_config_t for an ambisonic one. First a surround request's mask is asked of the plugin's clap.surround
  * (is_channel_mask_supported) and an ambisonic request's configuration of its clap.ambisonic (is_config_supported): a
  * refusal, or a map naming an id past CLAP_SURROUND_TSR, is -1 with CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN or
- * CLAP_HOST_CODE_AMBISONIC_CONFIG and nothing applied. Then clap.configurable-audio-ports (can_apply_configuration,
+ * CLAP_HOST_CODE_AMBISONIC_CONFIG, nothing applied and the description read again all the same (below; its own
+ * refusal's code wins when that re-read fails). Then clap.configurable-audio-ports (can_apply_configuration,
  * apply_configuration), and when it is not offered, cannot apply the requests or its apply answers false, the
  * clap.audio-ports-config list: a config matches when its main ports are the requests' mains, a main on each side
  * asked and none on a side not asked, of the requests' channels and port types (a config naming no type matches a mono

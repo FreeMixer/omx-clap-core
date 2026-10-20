@@ -1035,10 +1035,15 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
         return -1;
     for (i = 0; i < n; i++)
     {
-        code = request_supported(in, &reqs[i]);
-        if (code)
+        const char *refused = request_supported(in, &reqs[i]);
+
+        if (refused)
         {
-            why_set(why, code);
+            // nothing applied, but the description is read again all the same: a rescan the caller is answering here
+            // (omx_clap_host_ports_rescanned, a restart's RESCANNED) must not leave the old one to activate on. Its own
+            // refusal's code wins only when the re-read fails
+            code = ports_describe_again(in);
+            why_set(why, code ? code : refused);
             return -1;
         }
     }
