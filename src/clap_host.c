@@ -189,7 +189,8 @@ int omx_clap_host_bundle_object(const char *dir, char *object, size_t cap, char 
 
         if (!is_clap && !is_so)
             continue;
-        snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        if (snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name) >= (int)sizeof(path))
+            continue;
         if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
             continue;
         if (is_clap)
@@ -201,20 +202,19 @@ int omx_clap_host_bundle_object(const char *dir, char *object, size_t cap, char 
             snprintf(so_one, sizeof(so_one), "%s", path);
     }
     closedir(handle);
-    if (n_clap == 1)
+    if (n_clap == 1 || (n_clap == 0 && n_so == 1))
     {
-        snprintf(object, cap, "%s", clap_one);
+        if (snprintf(object, cap, "%s", n_clap ? clap_one : so_one) >= (int)cap)
+        {
+            snprintf(reason, reason_size, "the object's path does not fit %zu bytes", cap);
+            return 0;
+        }
         return 1;
     }
     if (n_clap > 1)
     {
         snprintf(reason, reason_size, "%u .clap files, one expected", n_clap);
         return (int)n_clap;
-    }
-    if (n_so == 1)
-    {
-        snprintf(object, cap, "%s", so_one);
-        return 1;
     }
     if (n_so > 1)
     {

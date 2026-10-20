@@ -884,7 +884,7 @@ static int has_suffix(const char *name, const char *suffix)
 }
 
 /* the .clap files under a directory, in name order; a directory that can't be read goes on the failures list */
-static void walk(const char *dir, list_t *files, list_t *failures)
+static int walk(const char *dir, list_t *files, list_t *failures)
 {
     list_t names = { NULL, 0 };
     struct dirent *entry;
@@ -898,7 +898,7 @@ static void walk(const char *dir, list_t *files, list_t *failures)
         char *failure;
         if (asprintf(&failure, "%s\tunreadable\t%s", dir, strerror(errno)) > 0)
             list_add(failures, failure);
-        return;
+        return 0;
     }
     while ((entry = readdir(handle)) != NULL)
         if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0)
@@ -940,6 +940,7 @@ static void walk(const char *dir, list_t *files, list_t *failures)
                 list_add(failures, failure);
         }
     }
+    return 1;
 }
 
 /* CLAP_PATH, then the per-user and system directories */
@@ -1049,6 +1050,10 @@ int main(int argc, char **argv)
 
     for (i = 0; i < roots.count; i++)
     {
+        // a trailing slash (shell completion's) would hide a bundle directory's .clap suffix
+        size_t n = strlen(roots.items[i]);
+        while (n > 1 && roots.items[i][n - 1] == '/')
+            roots.items[i][--n] = '\0';
         if (stat(roots.items[i], &st) != 0)
         {
             if (explicit_paths)
@@ -1061,9 +1066,8 @@ int main(int argc, char **argv)
         }
         if (S_ISDIR(st.st_mode))
         {
-            const size_t failed = failures.count;
-            walk(roots.items[i], &files, &failures);
-            if (failures.count == failed || files.count > 0)
+            // a directory that could be opened was read, whatever it held: a bundle failure alone is a reading
+            if (walk(roots.items[i], &files, &failures))
                 readable++;
         }
         else
@@ -1090,7 +1094,14 @@ int main(int argc, char **argv)
         char *code = strchr(failures.items[i], '\t'), *reason;
         *code++ = '\0';
         reason = strchr(code, '\t');
-        *reason++ = '\0';
+        if (reason)
+            *reason++ = '\0';
+        else
+        {
+            // a row of path and reason only: the reading failed
+            reason = code;
+            code = "unreadable";
+        }
         if (g_json)
             fputs(first ? "\n" : ",\n", stdout);
         put_failure(stdout, failures.items[i], code, reason);

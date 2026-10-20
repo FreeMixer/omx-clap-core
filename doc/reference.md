@@ -700,11 +700,13 @@ Scanning
 lists what CLAP plugin files hold. A `<path>` is a `.clap` file or a
 directory searched recursively for `.clap` files, in name order; a `.clap`
 directory with no `.clap` file directly inside it is a bundle listed by the
-one `.so` it holds, whatever that is named (`nebula-cluster.clap/libnebula_cluster.so`),
-and one holding several is a failure with the code `bundle`
-(`omx_clap_host_bundle_object` resolves both, and `omx_clap_host_open` given
-a directory resolves it the same way). With no path given the search path is
-`CLAP_PATH`, then `~/.clap`, `/usr/lib64/clap` and `/usr/lib/clap`. For each plugin of each factory it prints the descriptor
+one `.so` it holds, whatever that is named
+(`nebula-cluster.clap/libnebula_cluster.so`), and one holding several is a
+failure with the code `bundle`. `omx_clap_host_bundle_object` is the reader,
+and `omx_clap_host_open` given a directory opens through the same function:
+its one `.clap` file, else its one `.so`, and refuses a directory holding
+several of either. With no path given the search path is `CLAP_PATH`, then
+`~/.clap`, `/usr/lib64/clap` and `/usr/lib/clap`. For each plugin of each factory it prints the descriptor
 (id, name, vendor, version, description, url, features) and, from an
 instance that is initialised, read and destroyed without being activated:
 

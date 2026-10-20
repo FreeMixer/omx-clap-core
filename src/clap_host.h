@@ -544,9 +544,11 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_binaries_open(void);
 
 /**
  * The plugin object inside the bundle directory `dir`: the one regular `.clap` file directly inside it, else the one
- * `.so`, whose name is the packager's (nebula-cluster.clap/libnebula_cluster.so, #259). Returns how many candidates the
- * directory holds: exactly 1 and the object's path is in `object` (`cap` bytes); 0 or more than one and `reason` says
- * so. omx_clap_host_open given a directory resolves it the same way.
+ * `.so`, whose name is the packager's (nebula-cluster.clap/libnebula_cluster.so, #259). Returns the number of `.clap`
+ * files directly inside when there is any, else the number of `.so` files (each name counted, a symlink beside its
+ * target is two): exactly 1 and the object's path is in `object` (`cap` bytes); 0 (none, an unreadable directory, a
+ * path that does not fit `cap`) or more than one, and `reason` says which. omx_clap_host_open given a directory
+ * resolves it through this function.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bundle_object(const char *dir, char *object, size_t cap, char *reason, size_t reason_size);
 /** Create one instance of the plugin `desc` describes, with no layout judged, into `*out`: 0, or -1 on a refusal. */
