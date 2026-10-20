@@ -2462,6 +2462,8 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         }
         atomic_store_explicit(&in->restart_requested, 0u, memory_order_relaxed);
     }
+    // a ports rescan the plugin made in a deactivate this activate (or the restart around it) called is answered by it
+    atomic_store_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed);
     voice_info_ask(in);
     tail_read(in);
     in->sleep.asleep = 0;
@@ -3083,6 +3085,11 @@ int omx_clap_host_param_gesture(struct omx_clap_instance *in, clap_id id, int be
     return param_push_tagged(in, id, begin ? CLAP_EVENT_PARAM_GESTURE_BEGIN : CLAP_EVENT_PARAM_GESTURE_END, 0.0, 0u);
 }
 
+int omx_clap_host_ports_rescanned(struct omx_clap_instance *in)
+{
+    return in && atomic_exchange_explicit(&in->ports_rescanned, 0u, memory_order_relaxed) ? 1 : 0;
+}
+
 uint32_t omx_clap_host_params_rescanned(struct omx_clap_instance *in)
 {
     return atomic_exchange_explicit(&in->params_rescanned, 0u, memory_order_relaxed);
@@ -3215,10 +3222,9 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     }
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
-    // a ports rescan (audio-ports, or the surround or ambisonic layout changed) is a new judgment of the layout: a
-    // restart into it, never live; the next activate clears it
+    // a ports rescan (audio-ports, or the surround or ambisonic layout changed) is reported, once; no restart
     if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
-        atomic_store_explicit(&in->restart_requested, 1u, memory_order_relaxed);
+        atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
     return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;
 }
 

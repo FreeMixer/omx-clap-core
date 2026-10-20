@@ -528,6 +528,12 @@ draft ids too.
   -1 for every one; a name the plugin's `get` refuses is not answered.
   `note-name.changed` reads once through `omx_clap_host_note_names_changed`.
 - `voice-info.changed`: above, under Voices.
+- `audio-ports.rescan`, any flags, active or not, and `surround.changed` and
+  `ambisonic.changed`: a ports rescan. The tick takes it and reports it once
+  through `omx_clap_host_ports_rescanned`; nothing is restarted and the
+  description read at open is not read again. A rescan the plugin makes in
+  a deactivate that `omx_clap_host_activate` or a restart calls (the
+  warm-up's cycle) is answered by that activate and not reported.
 
 Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
 its own to share yet (#186).
@@ -756,10 +762,10 @@ this table does not; a row for a header an older CLAP lacks is kept.
 
 | Header | Status | What, or why not |
 |---|---|---|
-| `ext/ambisonic.h` | supported | `clap.ambisonic/3` (and its draft id): read at open, `get_config` gives an ambisonic port's ordering and normalisation (ACN and SN3D without the extension); the host's `changed` is a ports rescan, a restart at the next tick; `is_config_supported` is not asked at open |
+| `ext/ambisonic.h` | supported | `clap.ambisonic/3` (and its draft id): read at open, `get_config` gives an ambisonic port's ordering and normalisation (ACN and SN3D without the extension); the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_config_supported` is not asked at open |
 | `ext/audio-ports-activation.h` | supported | A full host above: auxiliary ports set inactive while unused |
 | `ext/audio-ports-config.h` | not supported | #92 |
-| `ext/audio-ports.h` | supported | the port layout, Port layout above |
+| `ext/audio-ports.h` | supported | the port layout, Port layout above; the host's `rescan`, any flags, is reported once by `omx_clap_host_ports_rescanned`, never a restart (`is_rescan_flag_supported` answers false) |
 | `ext/configurable-audio-ports.h` | not supported | #92 |
 | `ext/context-menu.h` | not planned | the console draws its own menus (ruled 2026-10-19, #95) |
 | `ext/event-registry.h` | supported | the host offers it; no event space beyond the core one |
@@ -776,7 +782,7 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/render.h` | supported | A full host above |
 | `ext/state-context.h` | supported | A full host above |
 | `ext/state.h` | supported | `state_save`, `state_load` |
-| `ext/surround.h` | supported | `clap.surround/4` (and its draft id): read at open, `get_channel_map` gives a surround port's map (index order without the extension), refused `channel-map-unknown` for an unknown id or a wrong count; the host's `changed` is a ports rescan, a restart at the next tick; `is_channel_mask_supported` is not asked at open |
+| `ext/surround.h` | supported | `clap.surround/4` (and its draft id): read at open, `get_channel_map` gives a surround port's map (index order without the extension), refused `channel-map-unknown` for an unknown id or a wrong count; the host's `changed` (under either id) is a ports rescan, reported once by `omx_clap_host_ports_rescanned`, never a restart; `is_channel_mask_supported` is not asked at open |
 | `ext/tail.h` | supported | A full host above, and the sleep after it |
 | `ext/thread-check.h` | supported | the host offers it |
 | `ext/thread-pool.h` | supported | A full host above: tasks run in turn on the audio thread |
