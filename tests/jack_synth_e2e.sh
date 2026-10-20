@@ -180,9 +180,11 @@ expect "add clap:$synth#org.omx-clap-host.test.synth-wide 2" "resp -102 hosting.
 grep -q "hosting.topology.wider-than-strip" "$runtime/host.log"; step $? "an instrument wider than stereo is refused with its reason"
 expect "add clap:$synth#org.omx-clap-host.test.synth-notes 2" "resp -102 hosting.clap.note-input"
 grep -q "hosting.clap.note-input" "$runtime/host.log"; step $? "two note inputs are refused with the reason"
-expect "add clap:$synth#org.omx-clap-host.test.silent 2" "resp -102 hosting.topology.no-audio-input"
-grep -q "hosting.topology.no-audio-input" "$runtime/host.log"; step $? "an effect with no input is refused with the reason"
-! graph_has effect_2:midi_in && ! graph_has effect_2:out_1; step $? "no effect_2 port after the refusals"
+# a generator (#184): no main input and no note input, admitted as a source with its outputs alone
+expect "add clap:$synth#org.omx-clap-host.test.silent 2" "resp 2"
+! graph_has effect_2:midi_in && ! graph_has effect_2:in_1 && graph_has effect_2:out_1 && graph_has effect_2:out_2; step $? "a generator has out_1 and out_2, no in_ and no midi_in"
+expect "remove 2" "resp 0"
+! graph_has effect_2:midi_in && ! graph_has effect_2:out_1; step $? "no effect_2 port after the refusals and the remove"
 
 # the notes the probe played fit their blocks: nothing dropped, no release lost, no sysex, nothing unmappable
 expect "note_drops 0" "resp 0 0 0 0 0"
