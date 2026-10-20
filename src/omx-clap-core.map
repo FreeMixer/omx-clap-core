@@ -124,4 +124,5 @@ OMX_CLAP_CORE_0.13
     omx_clap_host_bind_aux_output;
     omx_clap_host_ports_rescanned;
     omx_clap_host_request_layout;
+    omx_clap_host_bundle_object;
 } OMX_CLAP_CORE_0.12;
