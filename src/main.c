@@ -98,6 +98,7 @@ static const char g_help_msg[] =
     PHD_VERB_REMOTE_PAGES " <instance_number>\n"
     PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
+    "audio_ports <instance_number>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
@@ -273,6 +274,19 @@ static void param_info_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+/* the description of an instance's audio ports, a line per port with the JACK ports that carry it */
+static void audio_ports_cb(proto_t *proto)
+{
+    char *reply = NULL;
+    const int resp = effects_audio_ports(atoi(proto->list[1]), &reply);
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+    free(reply);
+}
+
 static void help_cb(proto_t *proto)
 {
     proto->response = 0;
@@ -335,6 +349,7 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
+    protocol_add_command("audio_ports %i", audio_ports_cb);
     protocol_add_command(EFFECT_SET_BPM, set_bpm_cb);
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
@@ -378,6 +393,7 @@ int main(int argc, char **argv)
         {"feedback-port", required_argument, 0, 'f'},
         {"state-root", required_argument, 0, 's'},
         {"follow-jack-transport", no_argument, 0, 't'},
+        {"channels", required_argument, 0, 'c'},
         {"version", no_argument, 0, 'V'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -388,7 +404,7 @@ int main(int argc, char **argv)
     int socket_port = SOCKET_DEFAULT_PORT, feedback_port = 0;
     struct sigaction sig;
 
-    while ((opt = getopt_long(argc, argv, "nvp:f:s:tVh", long_options, &opt_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "nvp:f:s:tc:Vh", long_options, &opt_index)) != -1)
     {
         switch (opt)
         {
@@ -417,6 +433,15 @@ int main(int argc, char **argv)
                 effects_follow_jack_transport(1);
                 break;
 
+            case 'c':
+                if (strcmp(optarg, "1") != 0 && strcmp(optarg, "2") != 0)
+                {
+                    fprintf(stderr, "-c %s: the lane is 1 or 2 channels\n", optarg);
+                    exit(EXIT_FAILURE);
+                }
+                effects_set_lane_channels((uint32_t)atoi(optarg));
+                break;
+
             case 'V':
                 printf("%s version: %s\n", argv[0], VERSION);
                 exit(EXIT_SUCCESS);
@@ -424,13 +449,15 @@ int main(int argc, char **argv)
 
             case 'h':
                 printf(
-                    "Usage: %s [-vht] [-p <port>] [-f <port>] [-s <dir>]\n"
+                    "Usage: %s [-vht] [-p <port>] [-f <port>] [-s <dir>] [-c <channels>]\n"
                     "  -v, --verbose                  verbose messages\n"
                     "  -p, --socket-port=<port>       socket port definition\n"
                     "  -f, --feedback-port=<port>     feedback port definition\n"
                     "  -s, --state-root=<dir>         where LV2 plugins make their state files\n"
                     "                                 (default $XDG_STATE_HOME/omx-clap-host)\n"
                     "  -t, --follow-jack-transport    hand every plugin the JACK transport\n"
+                    "  -c, --channels=<channels>      the lane's width, 1 or 2 (default 2): asked of a plugin\n"
+                    "                                 that offers layouts\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
                     "  -h, --help                     print this help and exit\n"

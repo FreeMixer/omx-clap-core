@@ -67,7 +67,6 @@ OMX_CLAP_CORE_0.3
 OMX_CLAP_CORE_0.7
 {
   global:
-    omx_clap_host_bind_aux_input;
     omx_clap_host_meter_count;
     omx_clap_host_meter_info;
     omx_clap_host_meter_values;
@@ -120,5 +119,9 @@ OMX_CLAP_CORE_0.12
 OMX_CLAP_CORE_0.13
 {
   global:
+    /* bind_aux_input: its .so.1 signature (per-channel buffers); the .so.0 shape stayed in 0.7 */
+    omx_clap_host_bind_aux_input;
     omx_clap_host_bind_aux_output;
+    omx_clap_host_ports_rescanned;
+    omx_clap_host_request_layout;
 } OMX_CLAP_CORE_0.12;

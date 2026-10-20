@@ -76,13 +76,18 @@
  * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12; 12:
  * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
  * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
- * lane_channels).
+ * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
+ * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, the ports rescan the
+ * tick reports, the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
+ * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
- * first libomx-clap-core.so.1 release, which freezes it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               12u
-#define OMX_CLAP_CORE_ABI_OLDEST        12u  ///< the oldest header ABI the library accepts: the first of libomx-clap-core.so.1
+ * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
+ * the instance, grows inside it. A removal or a reorder is a new major of the library. */
+#define OMX_CLAP_CORE_ABI               14u
+#define OMX_CLAP_CORE_ABI_OLDEST        14u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+                                             ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
 #define OMX_CLAP_METER_COUNT_MAX        16u
@@ -97,6 +102,8 @@
 /** How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
 
+#define OMX_CLAP_LAYOUT_DECLARED        1   ///< request_layout: the plugin cannot offer it; its declared layout stands
+
 /** The refusals the core returns, by the hosting code a verdict names them by: each the code omx-contract declares, from
  * its omxcontract/omx_vocabulary.h. A code is never reworded. */
 #define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
@@ -107,6 +114,8 @@
 #define CLAP_HOST_CODE_TOO_MANY_PORTS       OMX_HOSTING_TOPOLOGY_TOO_MANY_PORTS  ///< more than the limit of auxiliary ports on one side, or more than one main port on a side
 #define CLAP_HOST_CODE_PORT_TOO_WIDE        OMX_HOSTING_TOPOLOGY_PORT_TOO_WIDE  ///< a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²
 #define CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS OMX_HOSTING_TOPOLOGY_PORT_WITHOUT_CHANNELS  ///< a port of zero channels
+#define CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN  OMX_HOSTING_TOPOLOGY_CHANNEL_MAP_UNKNOWN  ///< a surround port names a channel id the host does not know, or refuses the carrier's channel mask
+#define CLAP_HOST_CODE_AMBISONIC_CONFIG     OMX_HOSTING_TOPOLOGY_AMBISONIC_CONFIG  ///< an ambisonic port refuses the carrier's ordering or normalisation; raised by a layout request only
 #define CLAP_HOST_CODE_CRASHED_LIVE         OMX_HOSTING_STABILITY_CRASHED_LIVE_ON_THIS_RIG  ///< the plugin crashed live on this rig
 #define CLAP_HOST_CODE_OUTPUT_NON_FINITE    OMX_HOSTING_OUTPUT_NON_FINITE  ///< the plugin produced non-finite output
 
@@ -489,6 +498,19 @@ struct omx_clap_instance
     _Atomic uint32_t tail_frames;  ///< the plugin's tail, read at activate and after it says it changed; UINT32_MAX infinite
     _Atomic uint32_t tail_changed;  ///< the plugin said its tail changed: the tick reads it again
     struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
+
+    // the layout extensions (ABI 14): read at open, asked by describe at open for a surround or an ambisonic port; the
+    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, which the tick reports and never
+    // turns into a restart
+    const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
+    const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
+    _Atomic uint32_t ports_rescanned;  ///< 1 once the tick saw a ports rescan, until omx_clap_host_ports_rescanned
+
+    // the layout requests' extensions (ABI 14): read at open, asked only by omx_clap_host_request_layout, the plugin
+    // inactive
+    const clap_plugin_configurable_audio_ports_t *configurable_audio_ports;  ///< the plugin's clap.configurable-audio-ports/1
+                                                                             ///< (or its draft id), NULL for none
+    const clap_plugin_audio_ports_config_t *audio_ports_config;  ///< the plugin's clap.audio-ports-config, NULL for none
 };
 
 
@@ -527,7 +549,7 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
  * Load the .clap at `path`, create the plugin `id` (NULL: the factory's first descriptor), init it and read its
  * extensions, each step judged: the descriptor must carry audio-effect (or, where the configuration admits note inputs,
  * instrument), init must succeed headless with only the declared host extensions offered, the audio ports must declare
- * one main output and at most one main input of the same width (none for a source), every port of 1 to
+ * one main output and at most one main input (none for a source), the two of any widths, every port of 1 to
  * CLAP_HOST_PORT_CHANNELS channels and at most CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS auxiliary ports, and no
  * note input unless the configuration admits one; every port is described in the instance (main_in, main_out, aux_in,
  * aux_out). An auxiliary output writes a scratch buffer until the caller binds its own with
@@ -554,7 +576,9 @@ OMX_CLAP_EXPORT int omx_clap_host_open_timed(const char *path, const char *id, u
  * role and restart the plugin after it; read latency.get() and publish it. The stage is left IDLE: publishing is
  * omx_clap_host_publish or omx_clap_host_arm. -1 with `why` (CLAP_HOST_CODE_WIDER_THAN_STRIP when a main port is wider
  * than the configuration's lane_channels, CLAP_HOST_CODE_HEADLESS_FAILED when activate refuses,
- * CLAP_HOST_CODE_OUTPUT_NON_FINITE when the warm-up did).
+ * CLAP_HOST_CODE_OUTPUT_NON_FINITE when the warm-up did). A carrier whose cycles keep running shuts them out of the
+ * instance across activate, deactivate and restart (omx-clap-host's cycle_gate.h): the active flag, the stage and the
+ * bounce change under them, and the flag is set before the stage is bound.
  */
 OMX_CLAP_EXPORT int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX]);
 
@@ -582,14 +606,29 @@ OMX_CLAP_EXPORT int omx_clap_host_unpublish(struct omx_clap_instance *in, unsign
  * released, the stage IDLE. */
 OMX_CLAP_EXPORT void omx_clap_host_stop(struct omx_clap_instance *in);
 
+#define OMX_CLAP_RESTART_RESCANNED      1   ///< restart, set_rate, an aux bind: stopped inactive on a ports rescan, not a failure
+
 /** While cycles keep running: stop the stage (taking the audio role when no cycle comes), deactivate, activate again at the
- * same rate and block, arm. The cycles pass the lane through until the plugin is back. -1 when it could not. */
+ * same rate and block, arm. The cycles pass the lane through until the plugin is back. CLAP's sequence for a layout
+ * change is request_restart, deactivate, the plugin's ports changed (audio-ports rescan, surround or ambisonic changed),
+ * the host reading the ports again, activate: when the plugin said its ports changed in that deactivate, the restart does
+ * not activate it and returns OMX_CLAP_RESTART_RESCANNED with the instance inactive, its audio role kept and the rescan
+ * reported (omx_clap_host_ports_rescanned); the caller reads the description again (omx_clap_host_request_layout, `n` 0
+ * allowed) before omx_clap_host_activate and omx_clap_host_arm. 0 once restarted; -1 when it could not (the instance
+ * not active, or the activate refused), a failure. The carrier shuts its cycles out of the instance across the call, as
+ * for omx_clap_host_activate. */
 OMX_CLAP_EXPORT int omx_clap_host_restart(struct omx_clap_instance *in);
 
-/** Deactivate a STOPPED (or never published) instance and release the bounce and the ring. */
+/** Deactivate a STOPPED (or never published) instance and release the bounce and the ring; the carrier's cycles are shut
+ * out of the instance across the call, as for omx_clap_host_activate. */
 OMX_CLAP_EXPORT void omx_clap_host_deactivate(struct omx_clap_instance *in);
 
-/** A rate change, off the RT: the instance must be unpublished; deactivate, activate at the new rate, re-read the latency. */
+/** A rate change, off the RT: the instance must be unpublished; deactivate, activate at the new rate, re-read the latency.
+ * 0, or -1 with `why`; OMX_CLAP_RESTART_RESCANNED when the plugin said its ports changed in that deactivate: inactive
+ * with the rescan reported, and the caller reads the description again (omx_clap_host_request_layout, `n` 0 allowed)
+ * before omx_clap_host_activate at the new rate, as after omx_clap_host_restart. A rescan already pending when the call
+ * is made (raised by an earlier activate, not yet reported by the tick) is answered the same way: the call reports it and
+ * does not activate. */
 OMX_CLAP_EXPORT int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX]);
 
 /** Destroy the instance (deactivating first if needed) and drop its binary reference. */
@@ -784,6 +823,38 @@ OMX_CLAP_EXPORT int omx_clap_host_note_names_changed(struct omx_clap_instance *i
  * refuses with hosting.clap.note-input when the new ports are ones open would have refused. Control thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in);
 
+/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
+ * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
+ * plugin's. Nothing is restarted or read again for it: omx_clap_host_request_layout reads it again and clears the
+ * report, an activate never does. The warm-up's own deactivate is not reported; a rescan made in a restart's deactivate
+ * is (the restart then leaves the instance inactive), and one made inside activate() is. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);
+
+/**
+ * Ask the plugin, inactive, for the carrier's layout: `reqs`, `n` of them, each a port by side and index (the main
+ * port is index 0), its channels and its port type, port_details the carrier's channel map for a surround port and its
+ * clap_ambisonic_config_t for an ambisonic one. First a surround request's mask is asked of the plugin's clap.surround
+ * (is_channel_mask_supported) and an ambisonic request's configuration of its clap.ambisonic (is_config_supported): a
+ * refusal, or a map naming an id past CLAP_SURROUND_TSR, is -1 with CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN or
+ * CLAP_HOST_CODE_AMBISONIC_CONFIG, nothing applied and the description read again all the same (below; its own
+ * refusal's code wins when that re-read fails). Then clap.configurable-audio-ports (can_apply_configuration,
+ * apply_configuration), and when it is not offered, cannot apply the requests or its apply answers false, the
+ * clap.audio-ports-config list: a config matches when its main ports are the requests' mains, a main on each side
+ * asked and none on a side not asked, of the requests' channels and port types (a config naming no type matches a mono
+ * request of one channel or a stereo one of two), whatever auxiliary ports it also declares (a side chain is described
+ * after); requests past the main ports are configurable-audio-ports' only. The first match select accepts is selected,
+ * a match it refuses passed over. Returns 0 once one applied; OMX_CLAP_LAYOUT_DECLARED when neither extension offers
+ * the layout, or select refused every match: the plugin keeps its layout and the carrier judges it. Either way the description is read again, as open reads it (a
+ * side's auxiliary bindings kept while its auxiliary ports keep their count and widths, all of that side's dropped
+ * otherwise), which answers every ports rescan the plugin made up to then: `n` 0 asks nothing and only reads it again,
+ * the answer to a reported rescan (omx_clap_host_ports_rescanned, omx_clap_host_restart). A description open would
+ * refuse is -1 with that code, the instance left with no main output: omx_clap_host_activate refuses it
+ * (CLAP_HOST_CODE_NO_AUDIO_OUTPUT) and the caller closes it. -1 with nothing asked and `why` empty (no hosting code
+ * names it) for no instance, an active one, or `n` above 0 with `reqs` NULL. Control thread, never the RT.
+ */
+OMX_CLAP_EXPORT int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_port_configuration_request_t *reqs,
+                                                 uint32_t n, char why[OMX_CLAP_WHY_MAX]);
+
 /** The events the plugin pushed about its parameters since the last take, in order, at most `capacity` of them into
  * `events`: a value it moved by itself, and the gestures that bracket the user's hold of one of its controls. The rest
  * waits for the next take. Control thread. */
@@ -839,8 +910,10 @@ OMX_CLAP_EXPORT const char *omx_clap_param_scale_name(uint32_t scale);
 OMX_CLAP_EXPORT int omx_clap_param_number(double value, char *out, size_t size);
 
 /** The control thread's tick: run on_main_thread if the plugin asked, drain the log, republish a changed latency, take
- * the plugin's parameter and note-port rescans and ask its voice info again when it said it changed. Returns nonzero
- * when the plugin asked for a restart (the caller performs it). */
+ * the plugin's parameter, note-port and audio-port rescans and ask its voice info again when it said it changed. A ports
+ * rescan (clap.audio-ports rescan, or clap.surround's or clap.ambisonic's changed) is reported through
+ * omx_clap_host_ports_rescanned and asks for no restart. Returns nonzero when the plugin asked for a restart (the
+ * caller performs it). */
 OMX_CLAP_EXPORT int omx_clap_host_tick(struct omx_clap_instance *in);
 
 /** The last log message the tick drained, once: NULL when it was taken already. */
@@ -877,7 +950,10 @@ OMX_CLAP_EXPORT void omx_clap_host_set_transport(struct omx_clap_instance *in, c
  * active instance's largest block, the instance is running, or the activation below refuses. On an active instance
  * whose plugin has clap.audio-ports-activation, a port that changes between bound and unbound is set active or inactive
  * at once: by set_active holding the audio role when the plugin can activate a port while processing, else by a
- * deactivate and an activate (the stage is then IDLE, to publish again; a refused activate leaves it inactive).
+ * deactivate and an activate (the stage is then IDLE, to publish again; a refused activate leaves it inactive, -1).
+ * When the plugin said its ports changed in that deactivate it is left inactive with the rescan reported and this
+ * returns OMX_CLAP_RESTART_RESCANNED: the caller reads the description again (omx_clap_host_request_layout, `n` 0
+ * allowed) and activates, as after omx_clap_host_restart.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs,
                                                  uint32_t channels, uint32_t frames);
@@ -888,7 +964,8 @@ OMX_CLAP_EXPORT int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, u
  * are bound, and its scratch otherwise. `bufs` NULL unbinds it; a NULL `bufs[c]` leaves that channel on its scratch.
  * The same rules as omx_clap_host_bind_aux_input, the activation of a port included: the caller reads them on the
  * audio role after each block that runs the instance. Returns 0, or -1 when `port` is not an auxiliary output, `channels` is not the port's, `frames` is
- * shorter than the active instance's largest block, or the instance is running.
+ * shorter than the active instance's largest block, or the instance is running; OMX_CLAP_RESTART_RESCANNED as there,
+ * a rescan already pending at the call included.
  */
 OMX_CLAP_EXPORT int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs,
                                                   uint32_t channels, uint32_t frames);
@@ -949,6 +1026,29 @@ static inline int omx_clap_transport_changed(const struct omx_clap_transport *wa
     return 0;
 }
 
+/** The audio role: the transport record a block hands the plugin into `rec`, the host's published transport when one is
+ * set (read whole, a read that does not come whole keeping the last record read), else the tempo the instance was given,
+ * else no flags. */
+static inline void omx_clap_host_transport_rec(struct omx_clap_instance *in, struct omx_clap_transport *rec)
+{
+    if (in->transport_src)
+    {
+        omx_clap_transport_read(in->transport_src, &in->transport_rec);
+        *rec = in->transport_rec;
+    }
+    else
+    {
+        const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
+
+        memset(rec, 0, sizeof *rec);
+        if (bpm > 0.0)
+        {
+            rec->flags = CLAP_TRANSPORT_HAS_TEMPO;
+            rec->tempo = bpm;
+        }
+    }
+}
+
 /** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
  * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
  * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
@@ -962,22 +1062,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
     clap_process_status said;
     int silent, quiet_out, moved;
 
-    if (in->transport_src)
-    {
-        omx_clap_transport_read(in->transport_src, &in->transport_rec);
-        rec = in->transport_rec;
-    }
-    else
-    {
-        const double bpm = in->tempo ? omx_clap_tempo_read(in->tempo) : 0.0;
-
-        memset(&rec, 0, sizeof rec);
-        if (bpm > 0.0)
-        {
-            rec.flags = CLAP_TRANSPORT_HAS_TEMPO;
-            rec.tempo = bpm;
-        }
-    }
+    omx_clap_host_transport_rec(in, &rec);
     silent = l && omx_clap_block_silent(l, r, n);
     moved = z->have_last && omx_clap_transport_changed(&z->last, &rec, n, in->rate);
     z->last = rec;
@@ -993,6 +1078,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         {
             in->stage.steady_time += (int64_t)n;    // the plugin's clock moves on while it sleeps
             atomic_fetch_add_explicit(&z->skipped, 1u, memory_order_relaxed);
+            omx_clap_aux_out_silence(&in->stage, n);    // a sleeping plugin writes nothing: its auxiliary outputs are silent
             return;
         }
         z->asleep = 0;
@@ -1032,6 +1118,32 @@ static inline void omx_clap_host_run_io(struct omx_clap_instance *in, const floa
 {
     omx_clap_io_lane(&in->stage, inputs, outputs, n);
     omx_clap_host_run(in, outputs[0], in->stage.h.n_out == 2 ? outputs[1] : NULL, n);
+}
+
+/** The audio role, a cycle with one buffer per main channel (JACK): `ins` one per main input channel (not read for a
+ * source), `outs` one per main output channel, main_in.channels and main_out.channels of them. An instance whose main
+ * ports fit the two legs runs omx_clap_host_run_io, the two-leg path with its transport and its sleep, a stereo input
+ * to a mono output with its right leg from omx_clap_ports_right; a wider one runs the wide path
+ * (omx_clap_run_ports_transport), the host's transport or tempo handed to the plugin as there, and never sleeps. */
+static inline void omx_clap_host_run_ports(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n)
+{
+    struct omx_clap_transport rec;
+
+    if (!in->stage.wide)
+    {
+        float *r = in->stage.plugin && outs && n ? omx_clap_ports_right(&in->stage, ins, n) : NULL;
+
+        if (r)
+        {
+            omx_clap_io_lane(&in->stage, ins, outs, n);
+            omx_clap_host_run(in, outs[0], r, n);
+            return;
+        }
+        omx_clap_host_run_io(in, ins, outs, n);
+        return;
+    }
+    omx_clap_host_transport_rec(in, &rec);
+    omx_clap_run_ports_transport(&in->stage, ins, outs, n, &in->transport, &rec);
 }
 
 /** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
