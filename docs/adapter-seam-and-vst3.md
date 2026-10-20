@@ -17,7 +17,7 @@ report extends.
 - The adapter and its plumbing hold **5558 NLOC in 321 functions**. By class: **1425 NLOC (127 functions)
   format-neutral**, 1699 (73) mixed (neutral logic around a few format calls), and 2434 (121) LV2-specific.
 - The seam already exists for the plumbing. All six `src/` headers the adapter includes are neutral (725 NLOC), and
-  the CLAP host itself already uses four of them.
+  four of them are already used outside `lv2/`.
 - The seam still to cut is the shim, `lv2/clap/lv2_clap.c`: 1314 of its 1319 NLOC are neutral or mixed, and 1161 of
   them would serve a VST3 shim. `lv2/core` is 69% LV2-specific (2429 of 3514 NLOC). Its 353 neutral NLOC (the
   worker loop, path containment, atom byte helpers) have no VST3 consumer.
