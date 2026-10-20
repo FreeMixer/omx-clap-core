@@ -1029,15 +1029,23 @@ static inline void omx_clap_host_run_io(struct omx_clap_instance *in, const floa
 
 /** The audio role, a cycle with one buffer per main channel (JACK): `ins` one per main input channel (not read for a
  * source), `outs` one per main output channel, main_in.channels and main_out.channels of them. An instance whose main
- * ports fit the two legs runs omx_clap_host_run_io, the two-leg path with its transport and its sleep; a wider one runs
- * the wide path (omx_clap_run_ports_transport), the host's transport or tempo handed to the plugin as there, and never
- * sleeps. */
+ * ports fit the two legs runs omx_clap_host_run_io, the two-leg path with its transport and its sleep, a stereo input
+ * to a mono output with its right leg from omx_clap_ports_right; a wider one runs the wide path
+ * (omx_clap_run_ports_transport), the host's transport or tempo handed to the plugin as there, and never sleeps. */
 static inline void omx_clap_host_run_ports(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n)
 {
     struct omx_clap_transport rec;
 
     if (!in->stage.wide)
     {
+        float *r = in->stage.plugin && outs && n ? omx_clap_ports_right(&in->stage, ins, n) : NULL;
+
+        if (r)
+        {
+            omx_clap_io_lane(&in->stage, ins, outs, n);
+            omx_clap_host_run(in, outs[0], r, n);
+            return;
+        }
         omx_clap_host_run_io(in, ins, outs, n);
         return;
     }

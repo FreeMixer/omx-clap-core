@@ -172,8 +172,16 @@ echo >&"${both[1]}"; IFS= read -r -t 5 w <&"${both[0]}"
 near "${w%% *}" 0 0.0001; step $? "the sum is silent: out_2 is -0.5, the plugin's second output, not the dry input ($w)"
 exec {both[1]}>&-
 wait "$both_PID" 2>/dev/null
+expect "add clap:$fake#org.omx-clap-host.test.stereo-mono 4" "resp 4"
+graph_has effect_4:in_1 && graph_has effect_4:in_2 && graph_has effect_4:out_1 && ! graph_has effect_4:out_2
+step $? "the stereo-in, mono-out plugin has in_1, in_2 and out_1"
+run pw-link jack_meter_source:out_l effect_4:in_1 && run pw-link jack_meter_source:out_r effect_4:in_2
+step $? "the source's 0.5 into effect_4:in_1 and 0.25 into effect_4:in_2"
+sleep 0.3
+w=$(level effect_4:out_1); near "${w%% *}" 0.75 0.0001 && near "${w##* }" 0.75 0.0001; step $? "effect_4:out_1 is the sum of both inputs, 0.75 ($w)"
 kill "$source_pid" 2>/dev/null
 wait "$source_pid" 2>/dev/null
+expect "remove 4" "resp 0"
 expect "remove 3" "resp 0"
 expect "remove 2" "resp 0"
 ! graph_has effect_2:in_1 && ! graph_has effect_3:out_1; step $? "no effect_2 or effect_3 port after remove"
