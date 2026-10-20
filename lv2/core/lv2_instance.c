@@ -404,11 +404,15 @@ static const char *inst_unmap(LV2_URID_Unmap_Handle h, LV2_URID id)
     return lv2_urid_unlookup(id);
 }
 
-/* uri-map: the id urid:map answers, counted the same on the audio role; the map the plugin names does not change it */
+/* uri-map: the id urid:map answers, counted the same on the audio role, whatever map the plugin names; under the event
+ * map an id is an event type of 16 bits, and one past it is 0, uri-map's "no mapping" */
 static uint32_t inst_uri_to_id(LV2_URI_Map_Callback_Data data, const char *map, const char *uri)
 {
-    (void)map;
-    return inst_map(data, uri);
+    const uint32_t id = inst_map(data, uri);
+
+    if (map && strcmp(map, LV2_EVENT_URI) == 0 && id > UINT16_MAX)
+        return 0;
+    return id;
 }
 
 /* event: the events this host writes are plain MIDI, none of them reference-counted */
@@ -1314,6 +1318,14 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
+    // an event's type is 16 bits: an ev:EventPort's MIDI id must fit one (it is among the first URIs the table maps), or
+    // the plugin is refused before it is instantiated
+    in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
+    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out) && in->urid_midi > UINT16_MAX)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
     in->handle = d->instantiate(d, rate, p->bundle_path, in->feature_ptrs);
     if (!in->handle)
     {
@@ -1341,13 +1353,6 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     if ((p->patch_in_shared || p->patch_out_shared) && patch_cap(p) > in->midi_bytes)
         in->midi_bytes = patch_cap(p);
     in->urid_sequence = lv2_urid_lookup(LV2_ATOM__Sequence);
-    in->urid_midi = lv2_urid_lookup(LV2_MIDI__MidiEvent);
-    // an event's type is 16 bits: an ev:EventPort's MIDI id must fit one (it is among the first URIs the table maps)
-    if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out) && in->urid_midi > UINT16_MAX)
-    {
-        lv2_why_set(why, LV2_CODE_NO_REALISATION);
-        return -1;
-    }
     for (k = 0; k < 2; k++)
     {
         const int32_t port = k ? p->midi_out_port : p->midi_in_port;
@@ -2060,17 +2065,18 @@ int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint
 }
 
 /* [audio] each midi:MidiEvent of the event buffer the plugin wrote, to fn. The plugin's size and count are read and
- * bounded by the buffer it was given: an event past it is not read, and a buffer whose data the plugin moved is not
- * read at all */
+ * bounded by the buffer it was given: an event past it, or past the count, is not read, and a buffer whose data the
+ * plugin moved, or whose stamps are not frames, is not read at all */
 static void event_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx)
 {
     LV2_Event_Buffer *buf = (LV2_Event_Buffer *)in->midi[1];
     const uint32_t limit = buf->size < in->midi_bytes ? buf->size : in->midi_bytes;
     LV2_Event_Iterator it;
+    uint32_t k;
 
-    if (buf->data != (uint8_t *)(buf + 1) || !lv2_event_begin(&it, buf))
+    if (buf->data != (uint8_t *)(buf + 1) || buf->stamp_type != LV2_EVENT_AUDIO_STAMP || !lv2_event_begin(&it, buf))
         return;
-    while (lv2_event_is_valid(&it) && it.offset + sizeof(LV2_Event) <= limit)
+    for (k = 0; k < buf->event_count && lv2_event_is_valid(&it) && it.offset + sizeof(LV2_Event) <= limit; k++)
     {
         uint8_t *data;
         const LV2_Event *e = lv2_event_get(&it, &data);
