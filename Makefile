@@ -664,6 +664,8 @@ build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so: $(LV2_FIXTURE_DIR)/lv2_cv_fixtur
 build/lv2/omx-event-fixture.lv2/omx-event-fixture.so: $(LV2_FIXTURE_DIR)/lv2_event_fixture.c $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(wildcard $(LV2_FIXTURE_DIR)/omx-event-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-event-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
 build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so: $(LV2_FIXTURE_DIR)/lv2_layout_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl $(@D)/
