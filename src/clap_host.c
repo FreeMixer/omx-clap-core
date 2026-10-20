@@ -439,13 +439,17 @@ static void host_layout_changed(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
 }
 
-/* the plugin's configuration set changed (clap.audio-ports-config's host half): the list omx_clap_host_request_layout
- * chooses from is stale, which the host takes as the ports rescan it is: reported by the tick, read again by the next
- * request_layout (#263) */
+/* the plugin's configuration list changed (clap.audio-ports-config's host half). The host holds no copy of the list:
+ * omx_clap_host_request_layout reads it live. While the plugin is inactive the change is reported as a ports rescan,
+ * since the list is what the next request_layout chooses from (a plugin left DECLARED whose list now has a match).
+ * While active it is dropped: the configuration in use stands, a report would only send the carrier through a
+ * relayout for no port change, and the list is read again when the host next deactivates and asks (#263) */
 static void host_configs_rescan(const clap_host_t *host)
 {
-    if (main_thread_call(host))
-        atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (main_thread_call(host) && !in->active)
+        atomic_store_explicit(&in->ports_rescan_requested, 1u, memory_order_relaxed);
 }
 
 static void host_state_mark_dirty(const clap_host_t *host)
@@ -3674,7 +3678,8 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     }
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
-    // a ports rescan (audio-ports, or the surround or ambisonic layout changed) is reported, once; no restart
+    // a ports rescan (audio-ports, the surround or ambisonic layout changed, or the configuration list changed while
+    // inactive) is reported, once; no restart
     if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
         atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
     return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;

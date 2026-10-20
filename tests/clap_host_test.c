@@ -1051,6 +1051,17 @@ static int legs_are(const float *l, const float *r, float lv, float rv)
 }
 
 /* one request for a main port of `channels`, of `type` (a CLAP_PORT_* id, or NULL) with its `details` */
+/* clap.audio-ports-config's rescan called off the main thread */
+static void *rescan_from_thread(void *arg)
+{
+    struct omx_clap_instance *in = arg;
+    const clap_host_audio_ports_config_t *host_configs = in->host.get_extension(&in->host, CLAP_EXT_AUDIO_PORTS_CONFIG);
+
+    if (host_configs)
+        host_configs->rescan(&in->host);
+    return NULL;
+}
+
 static clap_audio_port_configuration_request_t main_request(bool is_input, uint32_t channels, const char *type, const void *details)
 {
     clap_audio_port_configuration_request_t r;
@@ -1134,35 +1145,64 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
-    // audio-ports-config's host half (#263): the plugin's rescan, its configuration set changed, is the ports rescan the
-    // tick reports, and the next request_layout chooses from the new list
-    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_RESCAN", &in), "%s opens, its deactivate changing its configuration set", FAKE_CONFIGS);
+    // audio-ports-config's host half (#263): the plugin's rescan (its configuration list changed) is reported as a ports
+    // rescan while the plugin is inactive, when the list is what the next request_layout chooses from, and dropped
+    // while it is active, where the configuration in use stands
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_RESCAN", &in), "%s opens, its deactivate changing its configuration list", FAKE_CONFIGS);
     if (in)
     {
         const clap_host_audio_ports_config_t *host_configs = in->host.get_extension(&in->host, CLAP_EXT_AUDIO_PORTS_CONFIG);
+        uint32_t violations;
+        pthread_t other;
 
         CHECK(host_configs != NULL && host_configs->rescan != NULL, "the host offers clap.audio-ports-config, its rescan");
         reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
         reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
-        CHECK(ret == 0 && strcmp(in->main_in.name, "in 0 config 2") == 0, "%s: config 2 selected before the set changes (%d, \"%s\")",
+        CHECK(ret == 0 && strcmp(in->main_in.name, "in 0 config 2") == 0, "%s: config 2 selected before the list changes (%d, \"%s\")",
               FAKE_CONFIGS, ret, in->main_in.name);
-        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on it (%s)", FAKE_CONFIGS, why);
-        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: no rescan before the plugin says so", FAKE_CONFIGS);
-        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && !in->active,
-              "%s: a restart whose deactivate calls audio-ports-config.rescan answers OMX_CLAP_RESTART_RESCANNED, inactive", FAKE_CONFIGS);
-        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
-              "%s: reported once as a ports rescan, no restart", FAKE_CONFIGS);
+        reqs[0] = main_request(true, 1, CLAP_PORT_MONO, NULL);
+        reqs[1] = main_request(false, 1, CLAP_PORT_MONO, NULL);
         ret = omx_clap_host_request_layout(in, reqs, 2, why);
-        CHECK(ret == 0 && in->in_channels == 2 && strcmp(in->main_in.name, "in 0 config 3") == 0,
-              "%s: the same stereo ask after the rescan chooses from the new list: config 3, config 2 gone (%d, \"%s\")", FAKE_CONFIGS,
-              ret, in->main_in.name);
-        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on the new configuration (%s)", FAKE_CONFIGS, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && strcmp(in->main_in.name, "in 0 config 2") == 0,
+              "%s: a mono pair is DECLARED, no config offers it yet (%d)", FAKE_CONFIGS, ret);
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on config 2 (%s)", FAKE_CONFIGS, why);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: no rescan before the plugin says so", FAKE_CONFIGS);
         if (host_configs)
         {
             host_configs->rescan(&in->host);
-            CHECK(omx_clap_host_tick(in) == 0 && in->active && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
-                  "%s: audio-ports-config.rescan while active asks for no restart and is reported once", FAKE_CONFIGS);
+            CHECK(omx_clap_host_tick(in) == 0 && in->active && omx_clap_host_ports_rescanned(in) == 0,
+                  "%s: audio-ports-config.rescan while active is dropped: no report, no restart, the configuration in use stands", FAKE_CONFIGS);
+        }
+        CHECK(omx_clap_host_restart(in) == 0 && in->active,
+              "%s: a restart whose deactivate calls audio-ports-config.rescan (the plugin still active in that call) restarts plainly", FAKE_CONFIGS);
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0, "%s: and nothing is reported", FAKE_CONFIGS);
+        omx_clap_host_deactivate(in);
+        if (host_configs)
+        {
+            host_configs->rescan(&in->host);
+            CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+                  "%s: audio-ports-config.rescan while inactive is reported once as a ports rescan, no restart", FAKE_CONFIGS);
+        }
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == 0 && in->in_channels == 1 && in->channels == 1 && strcmp(in->main_in.name, "in 0 config 3") == 0,
+              "%s: the mono pair asked again is chosen from the new list: config 3 (%d, \"%s\", %u in, %u out)", FAKE_CONFIGS, ret,
+              in->main_in.name, in->in_channels, in->channels);
+        reqs[0] = main_request(true, 2, CLAP_PORT_STEREO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && strcmp(in->main_in.name, "in 0 config 3") == 0,
+              "%s: the stereo pair is DECLARED now, config 2 left the list (%d, \"%s\")", FAKE_CONFIGS, ret, in->main_in.name);
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on config 3 (%s)", FAKE_CONFIGS, why);
+        omx_clap_host_deactivate(in);
+        // from another thread: dropped and counted, as every main-thread host call is
+        violations = atomic_load(&in->thread_violations);
+        if (host_configs && pthread_create(&other, NULL, rescan_from_thread, in) == 0)
+        {
+            pthread_join(other, NULL);
+            CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 0 && atomic_load(&in->thread_violations) == violations + 1,
+                  "%s: audio-ports-config.rescan from another thread is dropped and counted a thread violation (%u)", FAKE_CONFIGS,
+                  atomic_load(&in->thread_violations) - violations);
         }
         omx_clap_host_close(in);
         in = NULL;
