@@ -2218,14 +2218,40 @@ static bool aux_bound(const struct omx_clap_port *ports, const uint32_t *base, f
 /* audio-ports-activation, while the plugin is inactive: an auxiliary port is active only while the caller's buffers are
  * bound to it (omx_clap_host_bind_aux_input, omx_clap_host_bind_aux_output), so the plugin may skip the work of a port
  * nobody reads or writes; the main ports stay active. A plugin with no extension keeps every port active. */
-static void ports_activate(struct omx_clap_instance *in)
+/* the plugin's audio-ports-activation, NULL when it has none to call */
+static const clap_plugin_audio_ports_activation_t *ports_activation(struct omx_clap_instance *in)
 {
     const clap_plugin_audio_ports_activation_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION);
-    uint32_t aux = 0, aux_out = 0;
 
     if (!ext)
         ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
-    if (!ext || !ext->set_active || !in->audio_ports)
+    return ext && ext->set_active && in->audio_ports ? ext : NULL;
+}
+
+/* the clap.audio-ports index of auxiliary port `aux` of a side, UINT32_MAX when the plugin no longer lists it */
+static uint32_t aux_port_index(struct omx_clap_instance *in, bool is_input, uint32_t aux)
+{
+    const uint32_t count = in->audio_ports->count(in->plugin, is_input);
+
+    for (uint32_t i = 0, k = 0; i < count; i++)
+    {
+        clap_audio_port_info_t info;
+
+        memset(&info, 0, sizeof(info));
+        if (!in->audio_ports->get(in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
+            continue;
+        if (k++ == aux)
+            return i;
+    }
+    return UINT32_MAX;
+}
+
+static void ports_activate(struct omx_clap_instance *in)
+{
+    const clap_plugin_audio_ports_activation_t *ext = ports_activation(in);
+    uint32_t aux = 0, aux_out = 0;
+
+    if (!ext)
         return;
     for (int dir = 0; dir < 2; dir++)
     {
@@ -2533,38 +2559,72 @@ static int bind_aux(struct omx_clap_instance *in, const struct omx_clap_port *po
 {
     uint32_t c;
 
-    if (channels != port->channels)
+    if (bufs && channels != port->channels)
         return -1;
     if (in->active && !omx_clap_stopped(&in->stage))
         return -1;      // unpublish first
     if (bufs && in->active && frames < in->max_block)
         return -1;      // a block would run past the buffers
-    for (c = 0; c < channels; c++)
+    for (c = 0; c < port->channels; c++)
         bound[c] = bufs ? bufs[c] : NULL;
     *bound_frames = bufs ? frames : 0;
     return 0;
 }
 
+/* An active instance whose auxiliary port `aux` of a side changed between bound and unbound tells the plugin's
+ * audio-ports-activation, on the control thread while the stage is stopped: through set_active holding the audio role
+ * when the plugin says it can activate a port while processing, else by a deactivate and an activate, which set every
+ * port again. Returns 0, or -1 when the activate refuses (the instance is then inactive). */
+static int aux_activation_refresh(struct omx_clap_instance *in, bool is_input, uint32_t aux, bool was, bool now)
+{
+    const clap_plugin_audio_ports_activation_t *ext = in->active && was != now ? ports_activation(in) : NULL;
+    const double rate = in->rate;
+    const uint32_t max_block = in->max_block;
+    struct omx_clap_role role;
+    uint32_t index;
+    bool done;
+
+    if (!ext)
+        return 0;
+    index = aux_port_index(in, is_input, aux);
+    if (index != UINT32_MAX && ext->can_activate_while_processing && ext->can_activate_while_processing(in->plugin))
+    {
+        omx_clap_host_take_role(in, &role);
+        done = ext->set_active(in->plugin, is_input, index, now, 32);
+        omx_clap_host_release_role(in, &role, role.state);
+        if (done)
+            return 0;
+    }
+    omx_clap_host_deactivate(in);
+    return omx_clap_host_activate(in, rate, max_block, NULL);
+}
+
 int omx_clap_host_bind_aux_input(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
 {
+    bool was;
+
     if (!in || port >= in->aux_inputs)
         return -1;
+    was = aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, port);
     if (bind_aux(in, &in->aux_in[port], &in->aux_in_bound[in->aux_in_base[port]], &in->aux_in_frames[port], bufs, channels, frames) != 0)
         return -1;
     if (in->active)
-        omx_clap_set_aux_in(&in->aux_list, port, channels, &in->aux_in_bound[in->aux_in_base[port]]);
-    return 0;
+        omx_clap_set_aux_in(&in->aux_list, port, in->aux_in[port].channels, &in->aux_in_bound[in->aux_in_base[port]]);
+    return aux_activation_refresh(in, true, port, was, aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, port));
 }
 
 int omx_clap_host_bind_aux_output(struct omx_clap_instance *in, uint32_t port, float *const *bufs, uint32_t channels, uint32_t frames)
 {
+    bool was;
+
     if (!in || port >= in->aux_outputs)
         return -1;
+    was = aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, port);
     if (bind_aux(in, &in->aux_out[port], &in->aux_out_bound[in->aux_out_base[port]], &in->aux_out_frames[port], bufs, channels, frames) != 0)
         return -1;
     if (in->active)
-        omx_clap_set_aux_out(&in->stage, port, channels, &in->aux_out_bound[in->aux_out_base[port]]);
-    return 0;
+        omx_clap_set_aux_out(&in->stage, port, in->aux_out[port].channels, &in->aux_out_bound[in->aux_out_base[port]]);
+    return aux_activation_refresh(in, false, port, was, aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, port));
 }
 
 int omx_clap_host_bypassed(const struct omx_clap_instance *in)
