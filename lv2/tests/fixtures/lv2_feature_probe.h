@@ -33,6 +33,8 @@ enum
     LV2_FEATURE_PROBE_MAP_PATH = 1u << 10,   /* state:mapPath */
     LV2_FEATURE_PROBE_FREE_PATH = 1u << 11,  /* state:freePath */
     LV2_FEATURE_PROBE_MAKE_PATH = 1u << 12,  /* state:makePath */
+    LV2_FEATURE_PROBE_URI_MAP = 1u << 13,    /* uri-map */
+    LV2_FEATURE_PROBE_EVENT = 1u << 14,      /* event */
 };
 
 struct lv2_feature_probe
@@ -47,6 +49,10 @@ struct lv2_feature_probe
     int32_t min_block, max_block, nominal_block;
     int unmap_round_trip;           /* urid:unmap gave back what urid:map was handed */
     int log_answer;                 /* what log:log's printf answered, -1 without a log */
+    uint32_t map_midi;              /* urid:map's id of midi:MidiEvent, 0 without urid:map */
+    uint32_t uri_map_event;         /* uri-map's id of midi:MidiEvent under the event map, 0 without uri-map */
+    uint32_t uri_map_other;         /* uri-map's id of midi:MidiEvent under another map, 0 without uri-map */
+    int event_answers;              /* event's lv2_event_ref and lv2_event_unref each answered 0: 2, -1 without event */
 };
 extern struct lv2_feature_probe lv2_feature_probe;
 
