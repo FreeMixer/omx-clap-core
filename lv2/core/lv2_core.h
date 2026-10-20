@@ -57,6 +57,7 @@
 #include <lv2/state/state.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
+#include <omxcontract/omx_vocabulary.h>
 
 #include "omx_lv2_features.h"
 

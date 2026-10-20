@@ -16,7 +16,7 @@ env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.4.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
-  OMX_CONTRACT_REF: v2.16.0
+  OMX_CONTRACT_REF: v2.18.0
 
 jobs:
   version:
@@ -95,14 +95,15 @@ jobs:
             python3-numpy python3-lilv \
             dnf5-plugins
 
-      # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract under them, from the FreeMixer
-      # channel; and mod-host, the LV2 identity test's reference arm
-      - name: Install omx-dsp-devel and mod-host from the FreeMixer channel
+      # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, whose omx_vocabulary.h the
+      # sources write every hosting code from, from the FreeMixer channel; and mod-host, the LV2 identity test's reference arm
+      - name: Install omx-dsp-devel, omx-contract-devel and mod-host from the FreeMixer channel
         run: |
           set -euo pipefail
           dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel mod-host
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 2.18.0' mod-host
           pkg-config --modversion omxdsp
+          pkg-config --atleast-version=2.18.0 omx-contract
           command -v mod-host
 
       - uses: actions/checkout@v4
