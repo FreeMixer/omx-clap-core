@@ -4,8 +4,11 @@
 # inputs and one output, so rule 3 makes the first two inputs the main pair and every other input a mono auxiliary port.
 # sixty-four: 66 inputs, 64 auxiliary ports, the limit; sixty-five: 67 inputs, 65, refused. cv-sixty-four: 64 audio
 # inputs and 2 CV inputs, 62 auxiliary ports and 2 CV ports, the limit; cv-sixty-five: 3 CV inputs, one past it.
+# wide-sixty-five: 65 inputs in one group, by rule 2 a main port of 65 channels, one past a port's limit.
 @prefix doap: <http://usefulinc.com/ns/doap#> .
 @prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix pg:   <http://lv2plug.in/ns/ext/port-groups#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 <urn:openmixer:test:layout-fixture#sixty-four>
     a lv2:Plugin ;
@@ -566,3 +569,210 @@
     ] , [
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 67 ; lv2:symbol "out" ; lv2:name "Out"
     ] .
+
+<urn:openmixer:test:layout-fixture#wide-sixty-five>
+    a lv2:Plugin ;
+    doap:name "openmixer layout fixture (65 inputs in one group)" ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_1" ; lv2:name "In 1" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_2" ; lv2:name "In 2" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 2 ; lv2:symbol "in_3" ; lv2:name "In 3" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 3 ; lv2:symbol "in_4" ; lv2:name "In 4" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 4 ; lv2:symbol "in_5" ; lv2:name "In 5" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 5 ; lv2:symbol "in_6" ; lv2:name "In 6" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 6 ; lv2:symbol "in_7" ; lv2:name "In 7" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 7 ; lv2:symbol "in_8" ; lv2:name "In 8" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 8 ; lv2:symbol "in_9" ; lv2:name "In 9" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 9 ; lv2:symbol "in_10" ; lv2:name "In 10" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 10 ; lv2:symbol "in_11" ; lv2:name "In 11" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 11 ; lv2:symbol "in_12" ; lv2:name "In 12" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 12 ; lv2:symbol "in_13" ; lv2:name "In 13" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 13 ; lv2:symbol "in_14" ; lv2:name "In 14" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 14 ; lv2:symbol "in_15" ; lv2:name "In 15" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 15 ; lv2:symbol "in_16" ; lv2:name "In 16" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 16 ; lv2:symbol "in_17" ; lv2:name "In 17" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 17 ; lv2:symbol "in_18" ; lv2:name "In 18" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 18 ; lv2:symbol "in_19" ; lv2:name "In 19" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 19 ; lv2:symbol "in_20" ; lv2:name "In 20" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 20 ; lv2:symbol "in_21" ; lv2:name "In 21" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 21 ; lv2:symbol "in_22" ; lv2:name "In 22" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 22 ; lv2:symbol "in_23" ; lv2:name "In 23" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 23 ; lv2:symbol "in_24" ; lv2:name "In 24" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 24 ; lv2:symbol "in_25" ; lv2:name "In 25" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 25 ; lv2:symbol "in_26" ; lv2:name "In 26" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 26 ; lv2:symbol "in_27" ; lv2:name "In 27" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 27 ; lv2:symbol "in_28" ; lv2:name "In 28" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 28 ; lv2:symbol "in_29" ; lv2:name "In 29" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 29 ; lv2:symbol "in_30" ; lv2:name "In 30" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 30 ; lv2:symbol "in_31" ; lv2:name "In 31" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 31 ; lv2:symbol "in_32" ; lv2:name "In 32" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 32 ; lv2:symbol "in_33" ; lv2:name "In 33" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 33 ; lv2:symbol "in_34" ; lv2:name "In 34" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 34 ; lv2:symbol "in_35" ; lv2:name "In 35" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 35 ; lv2:symbol "in_36" ; lv2:name "In 36" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 36 ; lv2:symbol "in_37" ; lv2:name "In 37" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 37 ; lv2:symbol "in_38" ; lv2:name "In 38" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 38 ; lv2:symbol "in_39" ; lv2:name "In 39" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 39 ; lv2:symbol "in_40" ; lv2:name "In 40" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 40 ; lv2:symbol "in_41" ; lv2:name "In 41" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 41 ; lv2:symbol "in_42" ; lv2:name "In 42" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 42 ; lv2:symbol "in_43" ; lv2:name "In 43" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 43 ; lv2:symbol "in_44" ; lv2:name "In 44" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 44 ; lv2:symbol "in_45" ; lv2:name "In 45" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 45 ; lv2:symbol "in_46" ; lv2:name "In 46" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 46 ; lv2:symbol "in_47" ; lv2:name "In 47" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 47 ; lv2:symbol "in_48" ; lv2:name "In 48" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 48 ; lv2:symbol "in_49" ; lv2:name "In 49" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 49 ; lv2:symbol "in_50" ; lv2:name "In 50" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 50 ; lv2:symbol "in_51" ; lv2:name "In 51" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 51 ; lv2:symbol "in_52" ; lv2:name "In 52" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 52 ; lv2:symbol "in_53" ; lv2:name "In 53" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 53 ; lv2:symbol "in_54" ; lv2:name "In 54" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 54 ; lv2:symbol "in_55" ; lv2:name "In 55" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 55 ; lv2:symbol "in_56" ; lv2:name "In 56" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 56 ; lv2:symbol "in_57" ; lv2:name "In 57" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 57 ; lv2:symbol "in_58" ; lv2:name "In 58" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 58 ; lv2:symbol "in_59" ; lv2:name "In 59" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 59 ; lv2:symbol "in_60" ; lv2:name "In 60" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 60 ; lv2:symbol "in_61" ; lv2:name "In 61" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 61 ; lv2:symbol "in_62" ; lv2:name "In 62" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 62 ; lv2:symbol "in_63" ; lv2:name "In 63" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 63 ; lv2:symbol "in_64" ; lv2:name "In 64" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 64 ; lv2:symbol "in_65" ; lv2:name "In 65" ;
+        pg:group <urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 65 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .
+
+<urn:openmixer:test:layout-fixture#wide-sixty-five-in>
+    a pg:Group , pg:InputGroup ;
+    lv2:symbol "in" ;
+    rdfs:label "In" .

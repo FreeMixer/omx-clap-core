@@ -396,6 +396,7 @@ static void t_layouts(void)
     static const struct { const char *uri, *code; } refused[] = {
         { LAYOUT_URI "#sixty-five", "hosting.topology.too-many-ports" },
         { LAYOUT_URI "#cv-sixty-five", "hosting.topology.too-many-ports" },
+        { LAYOUT_URI "#wide-sixty-five", "hosting.topology.port-too-wide" },
     };
     char why[LV2_CORE_WHY_MAX] = "";
     struct lv2_plugin *p;
