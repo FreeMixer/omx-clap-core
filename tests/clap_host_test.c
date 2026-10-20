@@ -228,13 +228,14 @@ static void rescan_checks(struct omx_clap_instance *in, const char *id, const ch
         const pthread_t thread = in->audio_thread;
         const int held = in->audio_role_held;
 
-        CHECK(omx_clap_host_restart(in) == -1 && !in->active, "%s: a restart whose deactivate calls %s leaves it inactive", id, what);
+        CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && !in->active,
+              "%s: a restart whose deactivate calls %s answers OMX_CLAP_RESTART_RESCANNED, not a failure, and leaves it inactive", id, what);
         CHECK(pthread_equal(in->audio_thread, thread) && in->audio_role_held == held, "%s: with its audio role as it was", id);
     }
     CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
           "%s: the rescan its deactivate made is reported once, no restart", id);
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates again", id);
-    CHECK(omx_clap_host_restart(in) == -1 && !in->active, "%s: restarted again, inactive again", id);
+    CHECK(omx_clap_host_restart(in) == OMX_CLAP_RESTART_RESCANNED && !in->active, "%s: restarted again, rescanned and inactive again", id);
     CHECK(omx_clap_host_request_layout(in, NULL, 0, why) == OMX_CLAP_LAYOUT_DECLARED && omx_clap_host_ports_rescanned(in) == 0,
           "%s: request_layout, nothing asked, reads the description again and answers the reported rescan", id);
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s: and it activates (%s)", id, why);

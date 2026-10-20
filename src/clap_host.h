@@ -588,13 +588,16 @@ OMX_CLAP_EXPORT int omx_clap_host_unpublish(struct omx_clap_instance *in, unsign
  * released, the stage IDLE. */
 OMX_CLAP_EXPORT void omx_clap_host_stop(struct omx_clap_instance *in);
 
+#define OMX_CLAP_RESTART_RESCANNED      1   ///< omx_clap_host_restart: stopped inactive on a ports rescan, not a failure
+
 /** While cycles keep running: stop the stage (taking the audio role when no cycle comes), deactivate, activate again at the
- * same rate and block, arm. The cycles pass the lane through until the plugin is back. -1 when it could not. CLAP's
- * sequence for a layout change is request_restart, deactivate, the plugin's ports changed (audio-ports rescan, surround
- * or ambisonic changed), the host reading the ports again, activate: when the plugin said its ports changed in that
- * deactivate, the restart does not activate it; it returns -1 with the instance inactive, its audio role kept and the
- * rescan reported (omx_clap_host_ports_rescanned), and the caller reads the description again
- * (omx_clap_host_request_layout, `n` 0 allowed) before omx_clap_host_activate and omx_clap_host_arm. */
+ * same rate and block, arm. The cycles pass the lane through until the plugin is back. CLAP's sequence for a layout
+ * change is request_restart, deactivate, the plugin's ports changed (audio-ports rescan, surround or ambisonic changed),
+ * the host reading the ports again, activate: when the plugin said its ports changed in that deactivate, the restart does
+ * not activate it and returns OMX_CLAP_RESTART_RESCANNED with the instance inactive, its audio role kept and the rescan
+ * reported (omx_clap_host_ports_rescanned); the caller reads the description again (omx_clap_host_request_layout, `n` 0
+ * allowed) before omx_clap_host_activate and omx_clap_host_arm. 0 once restarted; -1 when it could not (an RT that did
+ * not stop, an activate refused), a failure. */
 OMX_CLAP_EXPORT int omx_clap_host_restart(struct omx_clap_instance *in);
 
 /** Deactivate a STOPPED (or never published) instance and release the bounce and the ring. */

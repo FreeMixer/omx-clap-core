@@ -2770,7 +2770,7 @@ int omx_clap_host_restart(struct omx_clap_instance *in)
         atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
         in->audio_thread = thread;
         in->audio_role_held = held;
-        return -1;
+        return OMX_CLAP_RESTART_RESCANNED;
     }
     if (omx_clap_host_activate(in, rate, max_block, NULL) != 0)
         return -1;

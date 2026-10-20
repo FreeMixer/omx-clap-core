@@ -894,16 +894,26 @@ static void ports_relayout(effect_t *effect)
     pthread_mutex_unlock(&g_reactivate);
 }
 
-/* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle took */
-static void clap_idle(struct omx_clap_instance *clap)
+/* the control thread's tick of one effect: what the plugin asked of the host, its log, a restart, the writes no cycle
+ * took. A restart stopped by a ports rescan is the relayout's to answer (ports_relayout, right after); a failed one is
+ * said on stderr */
+static void clap_idle(effect_t *effect)
 {
+    struct omx_clap_instance *clap = effect->clap;
     const int restart = omx_clap_host_tick(clap);
     const char *log = omx_clap_host_log_take(clap);
 
     if (log)
         fprintf(stderr, "%s: %s\n", clap->desc->id, log);
     if (restart && clap->active)
-        omx_clap_host_restart(clap);
+    {
+        const int restarted = omx_clap_host_restart(clap);
+
+        if (restarted == OMX_CLAP_RESTART_RESCANNED)
+            effect->relayout_pending = 1;
+        else if (restarted != 0)
+            fprintf(stderr, "%s: its restart failed\n", clap->desc->id);
+    }
     omx_clap_host_settle(clap, QUEUE_SETTLE_US);
 }
 
@@ -1946,7 +1956,7 @@ void effects_idle(void)
 
         if (!instance_exist(i))
             continue;
-        clap_idle(effect->clap);
+        clap_idle(effect);
         ports_relayout(effect);
         if (omx_clap_host_remote_controls_changed(effect->clap))
         {
