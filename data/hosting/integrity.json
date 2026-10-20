@@ -1,0 +1,22 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_INTEGRITY_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the integrity dimension: hosting.integrity.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "integrityBinaryMismatch": {
+        "code": "hosting.integrity.binary-mismatch"
+      },
+      "integrityLayoutMismatch": {
+        "code": "hosting.integrity.layout-mismatch"
+      },
+      "integrityUnpinned": {
+        "code": "hosting.integrity.unpinned"
+      }
+    }
+  }
+}

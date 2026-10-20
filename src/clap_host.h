@@ -50,7 +50,6 @@
 
 #include <clap/clap.h>
 #include <math.h>
-#include <omxcontract/omx_vocabulary.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -60,6 +59,7 @@
 #include "clap_host_extensions.h"
 #include "clap_stage.h"
 #include "omx_clap_ext.h"
+#include "omx_clap_core_vocabulary.h"
 
 
 /*
@@ -106,8 +106,8 @@
 
 #define OMX_CLAP_LAYOUT_DECLARED        1   ///< request_layout: the plugin cannot offer it; its declared layout stands
 
-/** The refusals the core returns, by the hosting code a verdict names them by: each the code omx-contract declares, from
- * its omxcontract/omx_vocabulary.h. A code is never reworded. */
+/** The refusals the core returns, by the hosting code a verdict names them by: each the code data/hosting/ declares, from
+ * omx_clap_core_vocabulary.h, its render. A code is never reworded. */
 #define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
 #define CLAP_HOST_CODE_NOTE_INPUT           OMX_HOSTING_CLAP_NOTE_INPUT  ///< the plugin declares a note input the configuration refuses
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< an audio input or an auxiliary port but no main output: nothing to carry (a plugin with no audio port at all passes the strip through instead, #270)
