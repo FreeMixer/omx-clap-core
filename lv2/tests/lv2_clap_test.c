@@ -48,6 +48,10 @@
  *             CLAP note on and a raw MIDI note through process() reach the plugin and come back one key up at their
  *             frames, a CC byte for byte, the stereo audio through; a block past the buffer keeps 64 and logs
  *             midi_in_dropped 8.
+ *   ll midi   an llext:MidiPort MIDI input and output (the ll-plugins MIDI port fixture's echo, zynadd's port class):
+ *             the note ports as an atom MIDI port's, a CLAP note on, a raw MIDI note and a CC through process() reach
+ *             the plugin over an LV2_MIDI buffer and come back at their frames, the notes one key up; a block past the
+ *             buffer keeps 53 and logs midi_in_dropped 8.
  *   cv        each CV port a mono CLAP audio port, not main, named by its lv2:name, the inputs after the side chains and
  *             the outputs after the main one; the audio and the CV output bit-identical with the fixture's binary run
  *             directly with the same buffers, over blocks of several lengths; an input handed no buffer reads silence;
@@ -94,6 +98,7 @@
 #include "fixtures/lv2_path_probe.h"
 #include "fixtures/lv2_atom_probe.h"
 #include "fixtures/lv2_event_fixture.h"
+#include "fixtures/lv2_ll_midi_fixture.h"
 #include "fixtures/lv2_host_fixture.h"
 #include "fixtures/lv2_patch_fixture.h"
 struct lv2_midi_echo_two { unsigned runs, a, b, in; };
@@ -138,6 +143,7 @@ static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
 static char g_ev[PATH_MAX], g_ev_so[PATH_MAX + 32];
+static char g_ll[PATH_MAX], g_ll_so[PATH_MAX + 32];
 
 /* ---- the test's host ---- */
 
@@ -1468,6 +1474,77 @@ static void t_event(double rate)
     g.plugin->on_main_thread(g.plugin);
     CHECK(mo.n == 64u && out_is(&mo, 63, CLAP_EVENT_MIDI, 63, up_note, 3) && strstr(g.host.log, "midi_in_dropped 8") != NULL,
           "event %.0f: 64 notes fit, the 8 past them are dropped and logged as midi_in_dropped 8 (%u)", rate, mo.n);
+    rig_down(&g);
+}
+
+/* the ll-plugins MIDI port fixture's echo: its llext:MidiPorts are the note ports, the same path over an LV2_MIDI buffer */
+static void t_ll_midi(double rate)
+{
+    static const uint8_t raw_on[3] = { 0x91, 64, 90 }, cc[3] = { 0xb0, 0x07, 0x40 }, note[3] = { 0x90, 60, 100 };
+    static const uint8_t up_clap[3] = { 0x90, 61, 100 }, up_raw[3] = { 0x91, 65, 90 }, up_note[3] = { 0x90, 61, 100 };
+    struct lv2_ll_midi_fixture *seen = NULL;
+    const clap_plugin_note_ports_t *np;
+    clap_note_port_info_t info;
+    clap_event_note_t *on;
+    struct midi_in mi;
+    struct midi_out mo;
+    struct rig g;
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        in_l[i] = (float)i / BLOCK - 0.5f, in_r[i] = 0.25f, out_l[i] = out_r[i] = 7.0f;
+    if (rig_up(&g, g_ll, LV2_LL_MIDI_FIXTURE_URI "#echo", rate, BLOCK) != 0)
+        return;
+    seen = loaded_symbol(g_ll_so, "lv2_ll_midi_fixture");
+    np = g.plugin->get_extension(g.plugin, CLAP_EXT_NOTE_PORTS);
+    CHECK(np && np->count(g.plugin, true) == 1 && np->count(g.plugin, false) == 1 && np->get(g.plugin, 0, true, &info)
+              && info.supported_dialects == (CLAP_NOTE_DIALECT_MIDI | CLAP_NOTE_DIALECT_CLAP) && info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI
+              && np->get(g.plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
+          "ll midi %.0f: one MIDI input, MIDI preferred and CLAP notes taken, and one MIDI output: the atom MIDI ports' note ports", rate);
+
+    // block 1: a CLAP note on at 7, a raw MIDI note on at 20, a CC at 33
+    midi_in_init(&mi);
+    on = &mi.ev[mi.n++].note;
+    memset(on, 0, sizeof(*on));
+    on->header.size = sizeof(*on);
+    on->header.time = 7;
+    on->header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+    on->header.type = CLAP_EVENT_NOTE_ON;
+    on->note_id = -1;
+    on->port_index = 0;
+    on->channel = 0;
+    on->key = 60;
+    on->velocity = 100.0 / 127.0;
+    mi_midi(&mi, 20, raw_on, 3);
+    mi_midi(&mi, 33, cc, 3);
+    midi_out_init(&mo);
+    CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
+              && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
+          "ll midi %.0f: runs, the stereo audio through bit for bit", rate);
+    CHECK(seen && seen->n == 3 && seen->frame[0] == 7 && memcmp(seen->data[0], note, 3) == 0 && seen->frame[1] == 20
+              && memcmp(seen->data[1], raw_on, 3) == 0 && seen->frame[2] == 33 && memcmp(seen->data[2], cc, 3) == 0,
+          "ll midi %.0f: the plugin read the CLAP note on as MIDI, the raw note and the CC, each at its frame, over an LV2_MIDI buffer (%u)",
+          rate, seen ? seen->n : 0);
+    CHECK(mo.n == 3 && out_is(&mo, 0, CLAP_EVENT_MIDI, 7, up_clap, 3) && out_is(&mo, 1, CLAP_EVENT_MIDI, 20, up_raw, 3)
+              && out_is(&mo, 2, CLAP_EVENT_MIDI, 33, cc, 3),
+          "ll midi %.0f: both notes came back one key up at their frames, the CC as it went (%u)", rate, mo.n);
+
+    // block 2: nothing carries over
+    midi_in_init(&mi);
+    midi_out_init(&mo);
+    process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list);
+    CHECK(mo.n == 0 && seen && seen->n == 0, "ll midi %.0f: a block with no input reads and writes nothing (%u out)", rate, mo.n);
+
+    // block 3: 61 notes into a buffer for 53 (19 bytes each of 1024): the first 53 are kept, the other 8 counted by the core
+    midi_in_init(&mi);
+    for (i = 0; i < 61u; i++)
+        mi_midi(&mi, i < BLOCK ? i : BLOCK - 1u, note, 3);
+    midi_out_init(&mo);
+    process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list);
+    g.plugin->on_main_thread(g.plugin);
+    CHECK(mo.n == 53u && out_is(&mo, 52, CLAP_EVENT_MIDI, 52, up_note, 3) && strstr(g.host.log, "midi_in_dropped 8") != NULL,
+          "ll midi %.0f: 53 notes fit, the 8 past them are dropped and logged as midi_in_dropped 8 (%u)", rate, mo.n);
     rig_down(&g);
 }
 
@@ -3925,6 +4002,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-event-fixture.lv2", build);
     abs_dir(dir, g_ev);
     snprintf(g_ev_so, sizeof(g_ev_so), "%somx-event-fixture.so", g_ev);
+    snprintf(dir, sizeof(dir), "%somx-ll-midi-fixture.lv2", build);
+    abs_dir(dir, g_ll);
+    snprintf(g_ll_so, sizeof(g_ll_so), "%somx-ll-midi-fixture.so", g_ll);
     snprintf(g_midi_so, sizeof(g_midi_so), "%somx-midi-echo.so", g_midi);
     in_rt = 1;
     probe = malloc(16);
@@ -3962,6 +4042,7 @@ int main(int argc, char **argv)
         t_reset_no_worker(RATES[r]);
         t_midi(RATES[r]);
         t_event(RATES[r]);
+        t_ll_midi(RATES[r]);
         t_instrument(RATES[r]);
         t_generator(RATES[r]);
         t_time(RATES[r]);
