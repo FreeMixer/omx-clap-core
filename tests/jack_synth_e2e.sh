@@ -176,8 +176,11 @@ wait "$listen_PID" 2>/dev/null
 
 expect "add clap:$synth#org.omx-clap-host.test.synth-aux 2" "resp 2"
 expect "remove 2" "resp 0"
-expect "add clap:$synth#org.omx-clap-host.test.synth-wide 2" "resp -102 hosting.topology.wider-than-strip"
-grep -q "hosting.topology.wider-than-strip" "$runtime/host.log"; step $? "an instrument wider than stereo is refused with its reason"
+# an instrument wider than stereo (#92): a JACK port per output channel
+expect "add clap:$synth#org.omx-clap-host.test.synth-wide 2" "resp 2"
+graph_has effect_2:midi_in && graph_has effect_2:out_1 && graph_has effect_2:out_4 && ! graph_has effect_2:out_5 && ! graph_has effect_2:in_1
+step $? "an instrument of four outputs has midi_in and out_1 to out_4"
+expect "remove 2" "resp 0"
 expect "add clap:$synth#org.omx-clap-host.test.synth-notes 2" "resp -102 hosting.clap.note-input"
 grep -q "hosting.clap.note-input" "$runtime/host.log"; step $? "two note inputs are refused with the reason"
 # a generator (#184): no main input and no note input, admitted as a source with its outputs alone

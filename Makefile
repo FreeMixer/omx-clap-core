@@ -478,7 +478,7 @@ test-socket: $(PROG)
 	./tests/socket_e2e.sh
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
-test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe
+test-jack: $(PROG) tests/fake.clap tests/jack_latency_probe tests/jack_meter_source tests/jack_synth_probe
 	CLAP_TEST_PLUGIN=$(CLAP_TEST_PLUGIN) ./tests/jack_e2e.sh
 
 tests/jack_latency_probe: tests/jack_latency_probe.c
