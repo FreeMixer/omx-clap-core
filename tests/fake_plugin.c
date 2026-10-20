@@ -50,10 +50,11 @@
  *   org.omx-clap-host.test.ambisonic-bad the same of 5 channels, no (order+1)²
  *   org.omx-clap-host.test.configs     a mono main input and a stereo main output, and clap.audio-ports-config: config
  *                                      1 that layout, config 2 a stereo main pair; select names the main ports "in 0
- *                                      config <id>", "out 0 config <id>"; a write of parameter 0 calls the host's
- *                                      audio-ports rescan (NAMES) instead of a restart (with FAKE_CONFIGURABLE_TOO set,
- *                                      it offers clap.configurable-audio-ports too, as configurable does; with
- *                                      FAKE_CONFIGS_UNTYPED its configs name no port type)
+ *                                      config <id>", "out 0 config <id>"; process() writes each output half its input;
+ *                                      a write of parameter 0 calls the host's audio-ports rescan (NAMES) instead of a
+ *                                      restart (103: and once more in the next activate; 104: in every activate)
+ *                                      (with FAKE_CONFIGURABLE_TOO set, it offers clap.configurable-audio-ports too,
+ *                                      as configurable does; with FAKE_CONFIGS_UNTYPED its configs name no port type)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
  *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
@@ -75,7 +76,8 @@
  * no entry for parameter 3), "duplicate" (R1, two entries named activations), "symbol" (R2, a symbol starting with a
  * digit), "step" (R2, a stepped parameter whose step is 2), "noop" (R5, a migration step that changes nothing).
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
- * "<id> destroy" to, which outlives an instance the host destroyed.
+ * "<id> destroy" to, which outlives an instance the host destroyed, and "<id> process off the audio role" once when
+ * the host's thread-check says process() runs off it.
  * passthrough also has clap.track-info, whose changed appends "<id> track_info <got> <flags> <a,r,g,b> <name>" with what
  * the host's get answered and, told it is on a bus, calls the host's remote_controls.changed; and clap.remote-controls
  * with two pages, a get past them appending "<id> remote_controls.get past the count". A call of either from any thread
@@ -136,6 +138,9 @@ typedef struct FAKE_T {
     uint32_t configs_untyped;   // the configs name no port type (FAKE_CONFIGS_UNTYPED)
     uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
+    uint32_t names_on_activate; // configs: the next activate renames its ports (103), or every activate does (104)
+    const clap_host_thread_check_t *thread_check;  // the host's, read at init
+    int logged_off_role;        // process() ran off the audio role once and said so
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
@@ -178,9 +183,9 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
 };
 
 /* what process() writes of the main pair: each output channel a copy of its input (the last one past them), the mono
- * input to the left and its negation to the right, the sum of the stereo input to the one output, or the channels
- * reversed (the last input to the first output) */
-enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM, FAKE_MIX_REVERSE };
+ * input to the left and its negation to the right, the sum of the stereo input to the one output, the channels
+ * reversed (the last input to the first output), or each output channel half its input (the first one past them) */
+enum { FAKE_MIX_COPY, FAKE_MIX_NEGATE_RIGHT, FAKE_MIX_SUM, FAKE_MIX_REVERSE, FAKE_MIX_HALF };
 
 /* the main pair's port type: mono or stereo by its width (none past two); surround with clap.surround, its map the
  * 5.1 one, one naming id 25 or one id short; surround with no extension; ambisonic with clap.ambisonic; surround with
@@ -221,7 +226,7 @@ static const struct FAKE_LAYOUT_T {
     { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_SHORT, 0 },  // surround-short
     { 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC, 0 },       // ambisonic
     { 5, 5, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_AMBISONIC, 0 },       // ambisonic-bad
-    { 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_OFFERS_CONFIGS },    // configs
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_HALF, 0, FAKE_OFFERS_CONFIGS },  // configs
     { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_OFFERS_CONFIGURABLE },  // configurable
     { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_REFUSES, 0 },  // surround-refuses
 };
@@ -613,6 +618,7 @@ static bool plugin_init(const clap_plugin_t *plugin)
     fake_t *fake = plugin->plugin_data;
 
     fake->init_thread = pthread_self();
+    fake->thread_check = fake->host->get_extension(fake->host, CLAP_EXT_THREAD_CHECK);
     fake_log(plugin, "init");
     return true;
 }
@@ -702,6 +708,15 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
     (void)sample_rate; (void)min_frames; (void)max_frames;
     fake->activations++;
     fake_log(plugin, "activate");
+    if (fake->names_on_activate)
+    {
+        const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
+
+        if (fake->names_on_activate == 1)
+            fake->names_on_activate = 0;
+        if (host_ports)
+            host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
+    }
     if (fake->rescan_on_activate)
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
@@ -722,7 +737,7 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
 /* deactivated, a plugin with a layout extension says its layout changed, as the extensions allow only now */
 static void plugin_deactivate(const clap_plugin_t *plugin)
 {
-    const fake_t *fake = plugin->plugin_data;
+    fake_t *fake = plugin->plugin_data;
 
     if (fake->rescan_on_deactivate)
     {
@@ -771,6 +786,11 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     uint32_t c, i;
 
     fake->process_calls++;
+    if (fake->thread_check && !fake->logged_off_role && !fake->thread_check->is_audio_thread(fake->host))
+    {
+        fake->logged_off_role = 1;
+        fake_log(plugin, "process off the audio role");
+    }
     if (!fake->logged_process)
     {
         fake->logged_process = 1;
@@ -793,6 +813,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     {
         for (i = 0; i < process->frames_count; i++)
             out->data32[0][i] = in->data32[0][i] + in->data32[1][i];
+    }
+    else if (fake->mix == FAKE_MIX_HALF)
+    {
+        for (c = 0; c < out->channel_count; c++)
+            for (i = 0; i < process->frames_count; i++)
+                out->data32[c][i] = 0.5f * in->data32[c < in->channel_count ? c : 0][i];
     }
     else if (fake->mix == FAKE_MIX_REVERSE)
     {
@@ -856,9 +882,11 @@ static void plugin_on_main_thread(const clap_plugin_t *plugin)
     fake->latency = latency;
     if (fake->offers & FAKE_OFFERS_CONFIGS)
     {
-        // configs: the write renames its ports, while active, which only NAMES may say
+        // configs: the write renames its ports while active, which only NAMES may say (103 once more in the next
+        // activate, 104 in every activate)
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
 
+        fake->names_on_activate = latency == 103 ? 1 : latency == 104 ? 2 : 0;
         if (host_ports)
             host_ports->rescan(fake->host, CLAP_AUDIO_PORTS_RESCAN_NAMES);
         return;
