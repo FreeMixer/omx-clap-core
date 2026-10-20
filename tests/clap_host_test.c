@@ -282,6 +282,18 @@ static void t_surround_ambisonic(const char *path)
         omx_clap_host_close(in);
         in = NULL;
     }
+    // a rescan the plugin raises inside its own activate() is its own: the first tick reports it, once
+    setenv("FAKE_CHANGED_ON_ACTIVATE", "1", 1);
+    CHECK(open_ok(path, FAKE_SURROUND, &in) && omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, NULL) == 0,
+          "%s opens and activates, calling surround.changed from its activate", FAKE_SURROUND);
+    if (in)
+    {
+        CHECK(omx_clap_host_tick(in) == 0 && omx_clap_host_ports_rescanned(in) == 1 && omx_clap_host_ports_rescanned(in) == 0,
+              "%s: the first tick reports the rescan made inside activate once, no restart", FAKE_SURROUND);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    unsetenv("FAKE_CHANGED_ON_ACTIVATE");
     check_refused(path, FAKE_SURROUND_BAD, "hosting.topology.channel-map-unknown");
     check_refused(path, FAKE_SURROUND_SHORT, CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN);
 

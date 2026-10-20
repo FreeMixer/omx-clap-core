@@ -532,8 +532,9 @@ draft ids too.
   `ambisonic.changed`: a ports rescan. The tick takes it and reports it once
   through `omx_clap_host_ports_rescanned`; nothing is restarted and the
   description read at open is not read again. A rescan the plugin makes in
-  a deactivate that `omx_clap_host_activate` or a restart calls (the
-  warm-up's cycle) is answered by that activate and not reported.
+  the deactivate just before an activate (the warm-up's cycle, a restart)
+  is answered by that activate and not reported; one it makes inside its
+  activate is reported.
 
 Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
 its own to share yet (#186).
