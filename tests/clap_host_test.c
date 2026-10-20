@@ -381,6 +381,32 @@ static void contract_refused(const char *path, const char *arm, const char *rule
     omx_clap_host_close(instance);
 }
 
+/* an extension the host does not offer, asked twice by the plugin's init: the log says it once, with its id, and an
+ * offered one asked for is never said */
+static void unoffered_checks(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    const char *said;
+    unsigned ticks, unoffered = 0, offered = 0;
+
+    setenv("FAKE_ASK_EXTENSION", "clap.omx-test-unoffered", 1);
+    CHECK(open_ok(path, FAKE_PASSTHROUGH, &instance), "open %s with FAKE_ASK_EXTENSION", FAKE_PASSTHROUGH);
+    unsetenv("FAKE_ASK_EXTENSION");
+    if (!instance)
+        return;
+    instance->host.get_extension(&instance->host, CLAP_EXT_LOG);
+    for (ticks = 0; ticks < 32; ticks++)
+    {
+        omx_clap_host_tick(instance);
+        said = omx_clap_host_log_take(instance);
+        unoffered += said && strcmp(said, "extension not offered: clap.omx-test-unoffered") == 0;
+        offered += said && strstr(said, "extension not offered: clap.log") != NULL;
+    }
+    CHECK(unoffered == 1, "an unoffered extension asked twice: said once in the log (%u times)", unoffered);
+    CHECK(offered == 0, "an offered extension: never said (%u times)", offered);
+    omx_clap_host_close(instance);
+}
+
 static void contract_checks(const char *path)
 {
     struct omx_clap_instance *instance;
@@ -1679,6 +1705,7 @@ int main(int argc, char **argv)
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
+        unoffered_checks(fake_path);
         if (synth_path)
         {
             synth_checks(synth_path);
