@@ -56,6 +56,8 @@ PLUGIN_COLS = ['file', 'id', 'name', 'vendor', 'features', 'audio_in', 'audio_ou
                'latency', 'instrument', 'scan']
 HOST_COLS = ['file', 'id', 'answer', 'code', 'reply', 'seconds', 'batch']
 UNSAID_COLS = ['batch', 'count']
+# a host whose socket closed is given this long to end before it is called a hang: an abort's handler can take a while
+CLOSED_GRACE_S = 3.0
 MISSING_COLS = ['file', 'id', 'extension']
 COVERAGE_COLS = ['id', 'file', 'answer', 'code', 'missing']
 
@@ -326,7 +328,7 @@ def host_loop(a, env):
         reply, err = h.send(f"add clap:{r['file']}#{r['id']} {n}")
         row['seconds'] = f'{time.time() - t0:.2f}'
         if err:
-            rc = h.dead(2.0 if err != 'timeout' else 0.0)
+            rc = h.dead(CLOSED_GRACE_S if err != 'timeout' else 0.0)
             hang = rc is None and SABOTAGE != 'hang-blind'
             row.update(answer='hang' if hang else 'crash', code=f"at add: {err if rc is None else status_of(rc)}")
             append_tsv(hostp, HOST_COLS, row)
@@ -345,7 +347,7 @@ def host_loop(a, env):
             for ext in unoffered_of(said, r['id']):
                 append_tsv(missp, MISSING_COLS, dict(file=r['file'], id=r['id'], extension=ext))
             _, err = h.send(f'remove {n}')
-            rc = h.dead(2.0 if err and err != 'timeout' else 0.05)
+            rc = h.dead(CLOSED_GRACE_S if err and err != 'timeout' else 0.05)
             if (err or rc is not None) and SABOTAGE != 'crash-blind':
                 row.update(answer='crash' if rc is not None else 'hang',
                            code=f"at remove: {status_of(rc) if rc is not None else err}")
@@ -564,7 +566,7 @@ while True:
             if 'hang' in pid:
                 time.sleep(60)
             if 'slowdeath' in pid:
-                c.close(); time.sleep(0.5); os.kill(os.getpid(), signal.SIGABRT)
+                c.close(); time.sleep(1.0); os.kill(os.getpid(), signal.SIGABRT)
             if 'refuse' in pid:
                 c.sendall(b'resp -102 hosting.clap.note-input\0')
                 continue
