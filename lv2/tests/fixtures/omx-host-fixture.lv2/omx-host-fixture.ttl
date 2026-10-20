@@ -149,8 +149,6 @@ fx:offset_db
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_a" ; lv2:name "out_a"
     ] , [
         a lv2:AudioPort , lv2:OutputPort ; lv2:index 4 ; lv2:symbol "out_b" ; lv2:name "out_b"
-    ] , [
-        a lv2:AudioPort , lv2:OutputPort ; lv2:index 5 ; lv2:symbol "out_c" ; lv2:name "out_c"
     ] .
 
 <urn:openmixer:test:host-fixture#fixed>

@@ -127,6 +127,7 @@ static char g_patch[PATH_MAX], g_patch_so[PATH_MAX + 32];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
+static char g_layout[PATH_MAX];
 static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX], g_fixture_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
@@ -483,8 +484,6 @@ static void t_refusals(void)
         { FIXTURE_URI "#atom", "hosting.features.atom-in-unfed" },
         { FIXTURE_URI "#ctl-only", "hosting.topology.no-audio-output" },
         { FIXTURE_URI "#ctl-alone", "hosting.topology.no-audio-output" },
-        { FIXTURE_URI "#three-in", "hosting.topology.wider-than-strip" },
-        { FIXTURE_URI "#wide", "hosting.topology.wider-than-strip" },
         { FIXTURE_URI "#fixed", "hosting.features.missing" },
         { "urn:openmixer:test:not-in-this-bundle", "hosting.no-realisation" },
     };
@@ -2130,6 +2129,148 @@ static clap_process_status sc_process(struct rig *g, float *in_l, float *in_r, f
     return st;
 }
 
+/* ---- the audio layouts: the port-group rules' description through the face, a value through each port ---- */
+
+#define LAYOUT_URI "urn:openmixer:test:layout-fixture"
+
+/* one process() call with every port's buffers as the caller lays them out */
+static clap_process_status layout_process(struct rig *g, clap_audio_buffer_t *ins, uint32_t n_ins, clap_audio_buffer_t *outs,
+                                          uint32_t n_outs, uint32_t n)
+{
+    struct evlist none;
+    clap_process_t p;
+    clap_process_status st;
+
+    ev_init(&none);
+    memset(&p, 0, sizeof(p));
+    p.steady_time = -1;
+    p.frames_count = n;
+    p.audio_inputs = ins;
+    p.audio_outputs = outs;
+    p.audio_inputs_count = n_ins;
+    p.audio_outputs_count = n_outs;
+    p.in_events = &none.list;
+    p.out_events = &OUT_EVENTS;
+    g_audio = 1;
+    in_rt = 1;
+    st = g->plugin->process(g->plugin, &p);
+    in_rt = 0;
+    g_audio = 0;
+    return st;
+}
+
+static void fill(float *b, float v)
+{
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        b[i] = v;
+}
+
+static int all(const float *b, float v)
+{
+    uint32_t i;
+
+    for (i = 0; i < BLOCK; i++)
+        if (b[i] != v)
+            return 0;
+    return 1;
+}
+
+static void t_layouts(double rate)
+{
+    static float a[8][BLOCK], o[8][BLOCK];
+    float *ch[8], *oc[8];
+    clap_audio_buffer_t ib[4], ob[4];
+    clap_audio_port_info_t port;
+    struct rig g;
+    uint32_t k;
+    int ok;
+
+    for (k = 0; k < 8; k++)
+        ch[k] = a[k], oc[k] = o[k];
+
+    // four-two: the main pair 0.1 and 0.2, the two mono aux inputs 0.3 and 0.4: out_c = in_c + in_(c+2)
+    if (rig_up(&g, g_layout, LAYOUT_URI "#four-two", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 3 && g.ports->count(g.plugin, false) == 1
+              && g.ports->get(g.plugin, 0, true, &port) && port.flags == CLAP_AUDIO_PORT_IS_MAIN && port.channel_count == 2
+              && g.ports->get(g.plugin, 1, true, &port) && port.flags == 0 && port.channel_count == 1 && strcmp(port.name, "In C") == 0
+              && g.ports->get(g.plugin, 2, true, &port) && port.channel_count == 1 && strcmp(port.name, "In D") == 0,
+              "layout four-two %.0f: the main pair, then In C and In D, one mono auxiliary input each", rate);
+        fill(a[0], 0.1f), fill(a[1], 0.2f), fill(a[2], 0.3f), fill(a[3], 0.4f);
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 2, 0, 0 };
+        ib[1] = (clap_audio_buffer_t){ ch + 2, NULL, 1, 0, 0 };
+        ib[2] = (clap_audio_buffer_t){ ch + 3, NULL, 1, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 2, 0, 0 };
+        layout_process(&g, ib, 3, ob, 1, BLOCK);
+        CHECK(all(o[0], 0.1f + 0.3f) && all(o[1], 0.2f + 0.4f), "layout four-two %.0f: out {%g, %g} is {0.4, 0.6}", rate, o[0][0], o[1][0]);
+        rig_down(&g);
+    }
+
+    // main-aux: the second aux input handed 0.5 on both channels and the first handed nothing: out = main + 0.5
+    if (rig_up(&g, g_layout, LAYOUT_URI "#main-aux", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->count(g.plugin, true) == 3 && g.ports->get(g.plugin, 1, true, &port) && port.channel_count == 2
+              && strcmp(port.name, "Aux One") == 0 && g.ports->get(g.plugin, 2, true, &port) && port.channel_count == 2
+              && strcmp(port.name, "Aux Two") == 0,
+              "layout main-aux %.0f: the main input, then Aux One and Aux Two of two channels each", rate);
+        fill(a[0], 0.25f), fill(a[1], -0.125f), fill(a[2], 0.5f), fill(a[3], 0.5f);
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 2, 0, 0 };
+        ib[1] = (clap_audio_buffer_t){ NULL, NULL, 0, 0, 0 };
+        ib[2] = (clap_audio_buffer_t){ ch + 2, NULL, 2, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 2, 0, 0 };
+        layout_process(&g, ib, 3, ob, 1, BLOCK);
+        CHECK(all(o[0], 0.25f + 0.5f) && all(o[1], -0.125f + 0.5f), "layout main-aux %.0f: out {%g, %g} is the main input plus 0.5",
+              rate, o[0][0], o[1][0]);
+        rig_down(&g);
+    }
+
+    // mono-stereo: one main input channel, two main output channels: out = {in, -in}
+    if (rig_up(&g, g_layout, LAYOUT_URI "#mono-stereo", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->get(g.plugin, 0, true, &port) && port.channel_count == 1 && g.ports->get(g.plugin, 0, false, &port)
+              && port.channel_count == 2, "layout mono-stereo %.0f: a main input of one channel, a main output of two", rate);
+        fill(a[0], 0.375f);
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 1, 0, 0 };
+        ob[0] = (clap_audio_buffer_t){ oc, NULL, 2, 0, 0 };
+        layout_process(&g, ib, 1, ob, 1, BLOCK);
+        CHECK(all(o[0], 0.375f) && all(o[1], -0.375f), "layout mono-stereo %.0f: out {%g, %g} is {in, -in}", rate, o[0][0], o[1][0]);
+        rig_down(&g);
+    }
+
+    // bands: the main output and three auxiliary outputs, band k = in * (k + 1) / 4
+    if (rig_up(&g, g_layout, LAYOUT_URI "#bands", rate, MAXB) == 0)
+    {
+        CHECK(g.ports && g.ports->count(g.plugin, false) == 4 && g.ports->get(g.plugin, 3, false, &port) && port.flags == 0
+              && port.channel_count == 2 && strcmp(port.name, "Band 3") == 0,
+              "layout bands %.0f: four outputs, the last Band 3 of two channels", rate);
+        fill(a[0], 0.5f), fill(a[1], -1.0f);
+        ib[0] = (clap_audio_buffer_t){ ch, NULL, 2, 0, 0 };
+        for (k = 0; k < 4; k++)
+            ob[k] = (clap_audio_buffer_t){ oc + 2 * k, NULL, 2, 0, 0 };
+        layout_process(&g, ib, 1, ob, 4, BLOCK);
+        ok = all(o[0], 0.5f) && all(o[1], -1.0f);
+        for (k = 0; ok && k < 3; k++)
+            ok = all(o[2 + 2 * k], 0.5f * (float)(k + 1) / 4.0f) && all(o[3 + 2 * k], -1.0f * (float)(k + 1) / 4.0f);
+        CHECK(ok, "layout bands %.0f: the main output is the input, each band output its share (%g %g %g)", rate, o[2][0], o[4][0], o[6][0]);
+        rig_down(&g);
+    }
+
+    if (rate == RATES[0])
+    {
+        char why[OMX_CLAP_LV2_WHY_MAX] = "";
+        const clap_plugin_entry_t *e = omx_clap_lv2_entry(g_layout, why);
+        const clap_plugin_factory_t *f = e ? e->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+        struct th t;
+
+        th_init(&t);
+        CHECK(f && f->create_plugin(f, &t.host, LAYOUT_URI "#sixty-five") == NULL && strcmp(t.log, "hosting.topology.too-many-ports\n") == 0,
+              "layout: 65 auxiliary inputs are refused, and clap.log carries hosting.topology.too-many-ports (got '%s')", t.log);
+        omx_clap_lv2_entry_release(e);
+    }
+}
+
 /* the side chains at the core's limit through the face: 65 are refused with too-many-ports, and a three-channel side
  * chain is one auxiliary input of three channels and no port type */
 static void t_sidechain_limits(void)
@@ -3424,6 +3565,8 @@ int main(int argc, char **argv)
     snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
     snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", build);
     abs_dir(dir, g_sc);
+    snprintf(dir, sizeof(dir), "%somx-layout-fixture.lv2", build);
+    abs_dir(dir, g_layout);
     snprintf(dir, sizeof(dir), "%somx-path-fixture.lv2", build);
     abs_dir(dir, g_path);
     snprintf(g_path_so, sizeof(g_path_so), "%somx-path-fixture.so", g_path);
@@ -3488,6 +3631,7 @@ int main(int argc, char **argv)
         if (r == 0)
             t_sidechain_limits();
         t_sidechain_core(RATES[r]);
+        t_layouts(RATES[r]);
         t_make_path(RATES[r]);
         t_make_path_escape(RATES[r]);
         t_map_path(RATES[r]);
