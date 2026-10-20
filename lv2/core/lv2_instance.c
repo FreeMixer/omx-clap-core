@@ -146,6 +146,8 @@ struct lv2_instance
     const LV2_Worker_Interface *worker;     // NULL: the plugin has no worker, or the list provides none
     int lv2_active;
     double rate;
+    uint32_t min_frames, told_max_frames;   // the block lengths of the last activate that succeeded: the plugin was told
+                                            // these, max_frames being the buffers', which a shorter block leaves as they are
     uint32_t max_frames;
 
     // the instance's own memory every port is connected to
@@ -1280,7 +1282,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     // every port in index order, to the instance's own memory: an LV2 plugin may dereference ANY port it declares, its
     // own bypass held at the value that keeps it processing, the rows at their values, every other output into memory
     // the host reads
-    in->latency_port = 0.0f;
+    in->latency_port = p->latency_def;
     in->midi_bytes = atom_bytes();
     // a shared port carries the patch messages too: the MIDI buffers are at least the patch capacity
     if ((p->patch_in_shared || p->patch_out_shared) && patch_cap(p) > in->midi_bytes)
@@ -1571,8 +1573,16 @@ int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_fra
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return -1;
     }
+    in->min_frames = min_frames;
+    in->told_max_frames = max_frames;
     lv2_why_set(why, "");
     return 0;
+}
+
+int lv2_instance_keep(const struct lv2_instance *in, double rate, uint32_t min_frames, uint32_t max_frames)
+{
+    return in && in->lv2_active && in->handle && rate == in->rate && min_frames == in->min_frames
+           && max_frames == in->told_max_frames && !in->state_dirty;
 }
 
 void lv2_instance_deactivate(struct lv2_instance *in)
