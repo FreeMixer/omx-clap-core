@@ -167,8 +167,12 @@ struct lv2_instance
     uint32_t max_frames;
 
     // the instance's own memory every port is connected to
-    float *audio;                           // in L, in R, out L, out R, one per side-chain leg, one per CV input, then
-                                            // one per CV output; max_frames each
+    float *audio;                           // one block per channel: the main input's, the main output's, each
+                                            // auxiliary input's, each auxiliary output's, one per CV input, then one per
+                                            // CV output; max_frames each
+    uint32_t blocks;                        // the blocks of audio
+    uint32_t at_out, at_cv_in, at_cv_out;   // the first block of the main output, the CV inputs, the CV outputs
+    uint32_t at_aux_in[LV2_CORE_AUX_PORTS], at_aux_out[LV2_CORE_AUX_PORTS];    // the first block of each auxiliary port
     float *controls;                        // one per plugin->controls
     _Atomic uint32_t *shown;                // the same as bits, for a reader on another thread
     float latency_port;
@@ -1301,7 +1305,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     float *audio;
     uint32_t leg, k, i, c;
 
-    audio = calloc((4u + p->n_side_legs + p->n_cv_in + p->n_cv_out) * (size_t)max_frames, sizeof(*audio));
+    audio = calloc((in->blocks ? in->blocks : 1u) * (size_t)max_frames, sizeof(*audio));
     if (!audio)
     {
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
@@ -1416,13 +1420,12 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     {
         void *at = NULL;
 
-        for (leg = 0; leg < p->legs && !at; leg++)
-        {
-            if (leg < p->in_legs && p->in_ports[leg] == i)
-                at = in->audio + leg * (size_t)max_frames;
-            else if (!p->passthrough && p->out_ports[leg] == i)
-                at = in->audio + (2u + leg) * (size_t)max_frames;
-        }
+        for (c = 0; c < p->main_in.n && !at; c++)
+            if (p->main_in.port[c] == i)
+                at = in->audio + c * (size_t)max_frames;
+        for (c = 0; c < p->main_out.n && !at; c++)
+            if (p->main_out.port[c] == i)
+                at = in->audio + (in->at_out + c) * (size_t)max_frames;
         if (!at && p->patch_in >= 0 && !p->patch_in_shared && (uint32_t)p->patch_in == i)
             at = in->atom_in;
         if (!at && p->patch_out >= 0 && !p->patch_out_shared && (uint32_t)p->patch_out == i)
@@ -1445,16 +1448,20 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
         for (leg = 0; leg < p->n_event_out && !at; leg++)
             if (p->event_out[leg] == i)
                 at = in->event_bufs + (p->n_event_in + leg) * (size_t)in->event_stride;
-        for (leg = 0; leg < p->n_side && !at; leg++)
-            for (c = 0; c < p->side_channels[leg] && !at; c++)
-                if (p->side_in[leg][c] == i)
-                    at = in->audio + (4u + p->side_base[leg] + c) * (size_t)max_frames;
+        for (leg = 0; leg < p->n_aux_in && !at; leg++)
+            for (c = 0; c < p->aux_in[leg].n && !at; c++)
+                if (p->aux_in[leg].port[c] == i)
+                    at = in->audio + (in->at_aux_in[leg] + c) * (size_t)max_frames;
+        for (leg = 0; leg < p->n_aux_out && !at; leg++)
+            for (c = 0; c < p->aux_out[leg].n && !at; c++)
+                if (p->aux_out[leg].port[c] == i)
+                    at = in->audio + (in->at_aux_out[leg] + c) * (size_t)max_frames;
         for (leg = 0; leg < p->n_cv_in && !at; leg++)
             if (p->cv_in[leg] == i)
-                at = in->audio + (4u + p->n_side_legs + leg) * (size_t)max_frames;
+                at = in->audio + (in->at_cv_in + leg) * (size_t)max_frames;
         for (leg = 0; leg < p->n_cv_out && !at; leg++)
             if (p->cv_out[leg] == i)
-                at = in->audio + (4u + p->n_side_legs + p->n_cv_in + leg) * (size_t)max_frames;
+                at = in->audio + (in->at_cv_out + leg) * (size_t)max_frames;
         if (!at && p->latency_port >= 0 && (uint32_t)p->latency_port == i)
             at = &in->latency_port;
         if (!at && k < p->n_controls && p->controls[k].port == i)
@@ -1507,6 +1514,22 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
         return NULL;
     pthread_mutex_init(&in->dir_lock, NULL);
     in->plugin = p;
+    // the audio blocks, one per channel in the order the buffer comment names
+    in->at_out = p->main_in.n;
+    in->blocks = p->main_in.n + p->main_out.n;
+    for (k = 0; k < p->n_aux_in; k++)
+    {
+        in->at_aux_in[k] = in->blocks;
+        in->blocks += p->aux_in[k].n;
+    }
+    for (k = 0; k < p->n_aux_out; k++)
+    {
+        in->at_aux_out[k] = in->blocks;
+        in->blocks += p->aux_out[k].n;
+    }
+    in->at_cv_in = in->blocks;
+    in->at_cv_out = in->at_cv_in + p->n_cv_in;
+    in->blocks = in->at_cv_out + p->n_cv_out;
     in->fopts = *lv2_core_feature_options();
     n = p->n_controls ? p->n_controls : 1u;
     in->controls = calloc(n, sizeof(*in->controls));
@@ -1857,29 +1880,34 @@ int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[
     return 0;
 }
 
-float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t leg)
+float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t c)
 {
-    return in->audio + leg * (size_t)in->max_frames;
+    return in->audio + c * (size_t)in->max_frames;
 }
 
-float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t leg)
+float *lv2_instance_audio_out(struct lv2_instance *in, uint32_t c)
 {
-    return in->audio + (2u + leg) * (size_t)in->max_frames;
+    return in->audio + (in->at_out + c) * (size_t)in->max_frames;
 }
 
-float *lv2_instance_side_in(struct lv2_instance *in, uint32_t leg)
+float *lv2_instance_aux_in(struct lv2_instance *in, uint32_t port, uint32_t c)
 {
-    return in->audio + (4u + leg) * (size_t)in->max_frames;
+    return in->audio + (in->at_aux_in[port] + c) * (size_t)in->max_frames;
+}
+
+float *lv2_instance_aux_out(struct lv2_instance *in, uint32_t port, uint32_t c)
+{
+    return in->audio + (in->at_aux_out[port] + c) * (size_t)in->max_frames;
 }
 
 float *lv2_instance_cv_in(struct lv2_instance *in, uint32_t k)
 {
-    return in->audio + (4u + in->plugin->n_side_legs + k) * (size_t)in->max_frames;
+    return in->audio + (in->at_cv_in + k) * (size_t)in->max_frames;
 }
 
 float *lv2_instance_cv_out(struct lv2_instance *in, uint32_t k)
 {
-    return in->audio + (4u + in->plugin->n_side_legs + in->plugin->n_cv_in + k) * (size_t)in->max_frames;
+    return in->audio + (in->at_cv_out + k) * (size_t)in->max_frames;
 }
 
 void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value)
