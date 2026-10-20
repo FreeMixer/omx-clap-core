@@ -2277,6 +2277,73 @@ int effects_param_info(int effect_id, const char *symbol, char *reply, size_t si
     return used > 0 && (size_t)used < size ? SUCCESS : ERR_INVALID_OPERATION;
 }
 
+/* one port of the description as audio_ports prints it, its line appended to the stream */
+static void audio_port_line(FILE *out, const struct omx_clap_port *port, bool is_input, uint32_t aux)
+{
+    static const char *const kinds[] = { "unknown", "mono", "stereo", "surround", "ambisonic" };
+    char name[2 * PHD_STRING_MAX + 3], jack[LAYOUT_PORT_NAME_SIZE];
+    uint32_t k;
+
+    fprintf(out, "\n%s %s %u channels %s", is_input ? "in" : "out", aux == LAYOUT_PORT_MAIN ? "main" : "aux", port->channels,
+            port->kind < sizeof(kinds) / sizeof(kinds[0]) ? kinds[port->kind] : kinds[0]);
+    if (port->kind == OMX_CLAP_PORT_SURROUND)
+    {
+        fputs(" map", out);
+        for (k = 0; k < port->channels; k++)
+            fprintf(out, " %u", port->map[k]);
+    }
+    else if (port->kind == OMX_CLAP_PORT_AMBISONIC)
+        fprintf(out, " %s %s", port->ambisonic_ordering == CLAP_AMBISONIC_ORDERING_FUMA ? "fuma" : "acn",
+                port->ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_MAXN ? "maxn"
+                : port->ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_N3D ? "n3d"
+                : port->ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_SN2D ? "sn2d"
+                : port->ambisonic_normalization == CLAP_AMBISONIC_NORMALIZATION_N2D ? "n2d" : "sn3d");
+    quoted(name, sizeof(name), port->name);
+    fprintf(out, " %s", name);
+    for (k = 0; k < port->channels; k++)
+    {
+        layout_port_name(jack, is_input, aux, k);
+        fprintf(out, " %s", jack);
+    }
+}
+
+int effects_audio_ports(int effect_id, char **reply)
+{
+    const struct omx_clap_instance *clap;
+    size_t size = 0;
+    FILE *out;
+    uint32_t p;
+    int dir;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    clap = g_effects[effect_id].clap;
+    *reply = NULL;
+    out = open_memstream(reply, &size);
+    if (!out)
+        return ERR_MEMORY_ALLOCATION;
+    fputs("resp 0", out);
+    for (dir = 0; dir < 2; dir++)
+    {
+        const bool is_input = dir == 0;
+        const struct omx_clap_port *main = is_input ? &clap->main_in : &clap->main_out;
+        const struct omx_clap_port *aux = is_input ? clap->aux_in : clap->aux_out;
+        const uint32_t n = is_input ? clap->aux_inputs : clap->aux_outputs;
+
+        if (main->channels)
+            audio_port_line(out, main, is_input, LAYOUT_PORT_MAIN);
+        for (p = 0; p < n; p++)
+            audio_port_line(out, &aux[p], is_input, p);
+    }
+    if (fclose(out) != 0 || !*reply)
+    {
+        free(*reply);
+        *reply = NULL;
+        return ERR_MEMORY_ALLOCATION;
+    }
+    return SUCCESS;
+}
+
 /* monitor_output: 0 once `symbol` is monitored, its first value going out with the next idle call */
 int effects_monitor_output(int effect_id, const char *symbol)
 {
