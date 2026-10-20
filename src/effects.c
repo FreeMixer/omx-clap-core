@@ -36,7 +36,6 @@
 #include <float.h>
 #include <limits.h>
 #include <math.h>
-#include <omxcontract/omx_vocabulary.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -57,6 +56,7 @@
 #include "hosted_stage_limits.h"
 #include "host_transport.h"
 #include "layout_pin.h"
+#include "omx_clap_core_vocabulary.h"
 #include "lv2_locate.h"
 #include "omx_msgring.h"
 #include "omx_clap_lv2.h"

@@ -1,0 +1,25 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_LATENCY_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the latency dimension: hosting.latency.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "latencyNonconforming": {
+        "code": "hosting.latency.nonconforming"
+      },
+      "latencyParameterDependent": {
+        "code": "hosting.latency.parameter-dependent"
+      },
+      "latencyResolved": {
+        "code": "hosting.latency.resolved"
+      },
+      "latencyUnmeasured": {
+        "code": "hosting.latency.unmeasured"
+      }
+    }
+  }
+}
