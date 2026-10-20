@@ -53,6 +53,10 @@ enum twin
     FOUR_GROUP_FOUR,// in 0-3, out 4-7 one group: out_c = in_c
     FOUR_TWO_TWO,   // in 0-3, out 4-5 a group, 6-7 ungrouped: out_(4+c) = in_c + in_(c+2), out_(6+c) = in_(c+2)
     FOUR_SIDE,      // in 0-3, out 4-5, 6-7 side chains: as four-two-two
+    CV_SIXTY_FOUR_OUT,  // in 0-1, audio out 2-65, CV out 66-67: every output = in_1 + in_2
+    CV_SIXTY_FIVE_OUT,  // in 0-1, audio out 2-65, CV out 66-68: refused before it runs
+    CV_SIXTY_FOUR_ONLY, // in 0-1, CV in 2-65, out 66: out = the sum of every input
+    CV_SIXTY_FIVE_ONLY, // in 0-1, CV in 2-66, out 67: refused before it runs
     N_TWINS
 };
 
@@ -77,6 +81,8 @@ static const LV2_Descriptor descriptors[N_TWINS] =
     [FIVE_ONE] = TWIN("#five-one"), [AMBI_FIRST] = TWIN("#ambi-first"), [AMBI_MIXED] = TWIN("#ambi-mixed"),
     [WIDE_SIXTY_FIVE] = TWIN("#wide-sixty-five"), [FOUR_GROUP_FOUR] = TWIN("#four-group-four"),
     [FOUR_TWO_TWO] = TWIN("#four-two-two"), [FOUR_SIDE] = TWIN("#four-side"),
+    [CV_SIXTY_FOUR_OUT] = TWIN("#cv-sixty-four-out"), [CV_SIXTY_FIVE_OUT] = TWIN("#cv-sixty-five-out"),
+    [CV_SIXTY_FOUR_ONLY] = TWIN("#cv-sixty-four-only"), [CV_SIXTY_FIVE_ONLY] = TWIN("#cv-sixty-five-only"),
 };
 
 /* five-one: the output port of each designation, then the input port of the same one (L C R BL BR LFE) */
@@ -177,7 +183,12 @@ static void run(LV2_Handle handle, uint32_t n)
         break;
     case SIXTY_FOUR:
     case CV_SIXTY_FOUR:
+    case CV_SIXTY_FOUR_ONLY:
         sum(l, p[66], 0, 65, n);
+        break;
+    case CV_SIXTY_FOUR_OUT:
+        for (k = 2; k < 68; k++)
+            sum(l, p[k], 0, 1, n);
         break;
     case EMPTY_MAIN:
         for (c = 0; c < 2; c++)
