@@ -45,8 +45,8 @@
  *     last header of libomx-clap-core.so.0 (ABI 10) and a newer one.
  *  8. THE SIDE CHAIN: a plugin with a stereo auxiliary input is admitted, reads silence until the caller binds a pair,
  *     reads the pair while it runs, reads silence again once unbound, keeps the binding over a deactivate and activate;
- *     binding while it runs, a bad port or a stereo port with one channel is refused; two auxiliary inputs beyond the
- *     core's count, or one of three channels, are refused.
+ *     binding while it runs, a bad port or a stereo port with one channel is refused; one auxiliary input beyond the
+ *     core's count, one of 65 channels or one of none is refused; one of three channels is admitted.
  *  9. THE NOTE OUTPUT: an effect with a note output that pushes 300 note ons, a note expression and a NOTE_END on every
  *     block: its note output port is read at open, the warm-up's 64 blocks put nothing in the ring, and each live block
  *     of omx_clap_host_run keeps 256 for omx_clap_host_notes_out at the block's frames, counts 44 dropped and the
@@ -584,6 +584,7 @@ static void t_side_chain(void) {
   struct omx_clap_instance *in = NULL;
   float side_l[64], side_r[64];
   float dummy_l[64], dummy_r[64];
+  float *side[2] = {side_l, side_r}, *dummy[2] = {dummy_l, dummy_r};
 
   g_sc_side = 1;
   g_sc_width = 2;
@@ -597,13 +598,13 @@ static void t_side_chain(void) {
   CHECK(g_sc_seen_inputs == 2 && g_sc_side_read, "the plugin is handed two inputs, the second with its channels (%u, %d)", g_sc_seen_inputs, g_sc_side_read);
   sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound: the side chain is silence");
 
-  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r, 64) == -1, "binding while the instance runs is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy, 2, 64) == -1, "binding while the instance runs is refused");
   sc_stop(in);
-  CHECK(omx_clap_host_bind_aux_input(in, 1, dummy_l, dummy_r, 64) == -1, "a port past the auxiliary inputs is refused");
-  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, NULL, 64) == -1, "a stereo port bound without its second channel is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 1, dummy, 2, 64) == -1, "a port past the auxiliary inputs is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy, 1, 64) == -1, "a stereo port bound with one channel is refused");
   for (uint32_t i = 0; i < 64; i++) side_l[i] = 0.25f, side_r[i] = 0.125f;
-  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy_l, dummy_r, 32) == -1, "a pair shorter than the active block is refused");
-  CHECK(omx_clap_host_bind_aux_input(in, 0, side_l, side_r, 64) == 0, "bind a stereo pair to the side chain");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, dummy, 2, 32) == -1, "a pair shorter than the active block is refused");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side, 2, 64) == 0, "bind a stereo pair to the side chain");
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, -0.25f);
   sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "bound: the plugin reads the caller's pair");
@@ -617,7 +618,7 @@ static void t_side_chain(void) {
   sc_expect(in, 0.5f, -0.25f, 0.75f, -0.125f, "the binding outlives a deactivate and activate");
   sc_stop(in);
 
-  CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, NULL, 0) == 0, "unbind the side chain");
+  CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, 2, 0) == 0, "unbind the side chain");
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, -0.25f);
   sc_expect(in, 0.5f, -0.25f, 0.5f, -0.25f, "unbound again: silence");
@@ -628,15 +629,16 @@ static void t_side_chain(void) {
 static void t_side_chain_mono(void) {
   char why[OMX_CLAP_WHY_MAX];
   struct omx_clap_instance *in = NULL;
-  float side[64];
+  float side_m[64];
+  float *side[1] = {side_m};
 
   g_sc_side = 1;
   g_sc_width = 1;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in[0].channels == 1, "a mono side chain is admitted (%s)", why);
   if (!in) return;
   CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate the mono side chain (%s)", why);
-  for (uint32_t i = 0; i < 64; i++) side[i] = 0.25f;
-  CHECK(omx_clap_host_bind_aux_input(in, 0, side, NULL, 64) == 0, "a mono port binds its first channel alone");
+  for (uint32_t i = 0; i < 64; i++) side_m[i] = 0.25f;
+  CHECK(omx_clap_host_bind_aux_input(in, 0, side, 1, 64) == 0, "a mono port binds its one channel");
   omx_clap_host_publish(in, pthread_self());
   sc_prime(in, 0.5f, 0.5f);
   sc_expect(in, 0.5f, 0.5f, 0.75f, 0.75f, "a mono side chain feeds both channels of the stereo effect");
@@ -655,8 +657,15 @@ static void t_side_chain_refused(void) {
   CHECK(strcmp(why, "hosting.topology.too-many-ports") == 0, "and the code is hosting.topology.too-many-ports (%s)", why);
   g_sc_side = 1;
   g_sc_width = 3;
-  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of three channels is refused");
-  CHECK(strcmp(why, CLAP_HOST_CODE_WIDER_THAN_STRIP) == 0, "and the code is %s (%s)", CLAP_HOST_CODE_WIDER_THAN_STRIP, why);
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in[0].channels == 3, "a side chain of three channels is admitted (%s)", why);
+  if (in) omx_clap_host_close(in);
+  in = NULL;
+  g_sc_width = CLAP_HOST_PORT_CHANNELS + 1;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of 65 channels is refused");
+  CHECK(strcmp(why, "hosting.topology.port-too-wide") == 0, "and the code is hosting.topology.port-too-wide (%s)", why);
+  g_sc_width = 0;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of no channels is refused");
+  CHECK(strcmp(why, "hosting.topology.port-without-channels") == 0, "and the code is hosting.topology.port-without-channels (%s)", why);
   g_sc_width = 2;
   g_sc_side = CLAP_HOST_AUX_INPUTS;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_inputs == CLAP_HOST_AUX_INPUTS, "exactly the core's count is admitted (%s)", why);

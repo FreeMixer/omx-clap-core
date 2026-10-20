@@ -127,6 +127,37 @@ static int activate(struct omx_clap_instance *instance)
     return omx_clap_host_activate(instance, SAMPLE_RATE, BLOCK, why) == 0;
 }
 
+/* configured with lane_channels 0, as a carrier of any width: the 6-channel main pair activates and runs a block on the
+ * two legs, its other channels the bounce's; the exit status is the failures */
+static int lane_any_checks(const char *path)
+{
+    struct omx_clap_host_config config;
+    struct omx_clap_instance *in = NULL;
+    char why[OMX_CLAP_WHY_MAX];
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+
+    omx_clap_host_config_default(&config);
+    CHECK(config.lane_channels == 2, "the default lane is two channels wide (%u)", config.lane_channels);
+    config.warmup = 0;
+    config.lane_channels = 0;
+    CHECK(omx_clap_host_configure(&config) == 0, "configured for a lane of any width");
+    CHECK(open_ok(path, FAKE_WIDE, &in), "open %s on a lane of any width", FAKE_WIDE);
+    if (!in)
+        return 1;
+    CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "the 6-channel main pair activates (%s)", why);
+    CHECK(in->bounce_blocks == 4 + 1 + 4, "the bounce: the legs, the silence and the four main outputs past the legs (%u)", in->bounce_blocks);
+    omx_clap_host_publish(in, pthread_self());
+    fill_tone(in_l, BLOCK, 0, 0.5f);
+    memcpy(in_r, in_l, sizeof(in_l));
+    omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+    omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+    CHECK(atomic_load(&in->stage.process_errors) == 0 && memcmp(out_l, in_l, sizeof(in_l)) == 0, "and runs a block on the legs");
+    omx_clap_host_close(in);
+    return g_failures;
+}
+
 static void guard_checks(struct omx_clap_instance *instance)
 {
     CHECK(activate(instance), "activate for the guard pages");
@@ -395,6 +426,101 @@ static void contract_checks(const char *path)
           "no number for NaN, nor in a buffer too small");
 }
 
+/*
+ * Every port described, and the refusals of a description: a port of no channels, one past the limit, a second main
+ * output, one auxiliary input past the limit. The 6-channel main pair opens and is refused at activation by the lane of
+ * two this process is configured with (lane_any_checks activates it in a process configured for any width). An
+ * auxiliary input of four channels reads the caller's four buffers; an auxiliary output writes the caller's two.
+ */
+static void t_layout_description(const char *path)
+{
+    struct omx_clap_instance *in = NULL;
+    char why[OMX_CLAP_WHY_MAX];
+    static float side[4][BLOCK], aux[2][BLOCK];
+    float *bufs[4] = { side[0], side[1], side[2], side[3] }, *auxbufs[2] = { aux[0], aux[1] };
+    float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    uint32_t i;
+
+    check_refused(path, FAKE_ZERO_PORT, "hosting.topology.port-without-channels");
+    check_refused(path, FAKE_TOO_WIDE, "hosting.topology.port-too-wide");
+    check_refused(path, FAKE_TWO_MAINS, "hosting.topology.too-many-ports");
+    check_refused(path, FAKE_MANY_AUX, "hosting.topology.too-many-ports");
+    CHECK(omx_clap_host_binaries_open() == 0, "nothing stays loaded after the description's refusals");
+
+    CHECK(open_ok(path, FAKE_SIDECHAIN, &in), "open %s for its description", FAKE_SIDECHAIN);
+    if (in)
+    {
+        CHECK(in->main_in.channels == 2 && in->main_in.kind == OMX_CLAP_PORT_STEREO && in->main_in.id == 0 && !strcmp(in->main_in.name, "in 0")
+                  && in->main_in.in_place_pair == CLAP_INVALID_ID,
+              "the main input: id 0, \"in 0\", stereo, two channels, no in-place pair (%u, %u, %s)", in->main_in.channels, in->main_in.kind, in->main_in.name);
+        CHECK(in->main_out.channels == 2 && in->main_out.kind == OMX_CLAP_PORT_STEREO && !strcmp(in->main_out.name, "out 0"),
+              "the main output: \"out 0\", stereo, two channels");
+        CHECK(in->aux_inputs == 1 && in->aux_in[0].id == 1 && in->aux_in[0].channels == 1 && in->aux_in[0].kind == OMX_CLAP_PORT_MONO
+                  && !strcmp(in->aux_in[0].name, "in 1"),
+              "the side chain: id 1, \"in 1\", mono (%u, %u)", in->aux_in[0].channels, in->aux_in[0].kind);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    CHECK(open_ok(path, FAKE_WIDE, &in) && in->main_in.channels == 6 && in->main_out.channels == 6 && in->channels == 6 && in->in_channels == 6,
+          "%s opens: a main pair of six channels", FAKE_WIDE);
+    if (in)
+    {
+        CHECK(in->main_in.kind == OMX_CLAP_PORT_UNKNOWN && in->main_out.kind == OMX_CLAP_PORT_UNKNOWN, "of no port type: kind unknown");
+        CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == -1 && strcmp(why, "hosting.topology.wider-than-strip") == 0,
+              "a lane of two refuses it at activation (%s)", why);
+        CHECK(!in->active && in->bounce_map == NULL, "and leaves it inactive, holding no bounce");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    CHECK(open_ok(path, FAKE_AUX_WIDE, &in), "open %s", FAKE_AUX_WIDE);
+    if (in)
+    {
+        CHECK(in->aux_inputs == 1 && in->aux_in[0].channels == 4 && in->aux_in[0].kind == OMX_CLAP_PORT_UNKNOWN,
+              "one auxiliary input of four channels (%u, %u)", in->aux_inputs, in->aux_in[0].channels);
+        for (i = 0; i < BLOCK; i++)
+            side[0][i] = side[1][i] = side[2][i] = 0.0f, side[3][i] = 0.25f;
+        CHECK(omx_clap_host_bind_aux_input(in, 0, bufs, 4, BLOCK) == 0 && omx_clap_host_bind_aux_input(in, 0, bufs, 2, BLOCK) == -1,
+              "four buffers bind it; two do not");
+        CHECK(omx_clap_host_bind_aux_input(in, 1, bufs, 4, BLOCK) == -1, "a port past the auxiliary inputs is refused");
+        CHECK(activate(in), "activate with the wide side chain");
+        CHECK(in->bounce_blocks == 4 + 1, "the bounce: the four legs and the silence (%u)", in->bounce_blocks);
+        omx_clap_host_publish(in, pthread_self());
+        memset(in_l, 0, sizeof(in_l));
+        memset(in_r, 0, sizeof(in_r));
+        omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+        omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+        CHECK(out_l[0] == 0.25f && out_l[BLOCK - 1] == 0.25f && out_r[0] == 0.0f, "the plugin read the side chain's fourth channel (%g, %g)",
+              (double)out_l[0], (double)out_r[0]);
+        CHECK(omx_clap_host_bind_aux_input(in, 0, NULL, 4, 0) == -1, "a binding while it runs is refused");
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
+    CHECK(open_ok(path, FAKE_AUXOUT, &in), "open %s to bind its output", FAKE_AUXOUT);
+    if (in)
+    {
+        for (i = 0; i < BLOCK; i++)
+            aux[0][i] = aux[1][i] = 1.0f;
+        CHECK(omx_clap_host_bind_aux_output(in, 0, auxbufs, 1, BLOCK) == -1 && omx_clap_host_bind_aux_output(in, 1, auxbufs, 2, BLOCK) == -1,
+              "an output bound with the wrong width, or past the outputs, is refused");
+        CHECK(omx_clap_host_bind_aux_output(in, 0, auxbufs, 2, BLOCK) == 0, "two buffers bind the stereo auxiliary output");
+        CHECK(activate(in), "activate with the bound output");
+        CHECK(in->bounce_blocks == 4 + 1 + 2, "the bounce: the legs, the silence and the output's two scratch blocks (%u)", in->bounce_blocks);
+        omx_clap_host_publish(in, pthread_self());
+        fill_tone(in_l, BLOCK, 0, 0.5f);
+        memcpy(in_r, in_l, sizeof(in_l));
+        omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+        CHECK(aux[0][0] == 0.0f && aux[1][BLOCK - 1] == 0.0f, "the plugin wrote the caller's buffers (%g, %g)", (double)aux[0][0], (double)aux[1][BLOCK - 1]);
+        CHECK(omx_clap_host_bind_aux_output(in, 0, NULL, 2, 0) == -1, "an output binding while it runs is refused");
+        omx_clap_host_close(in);
+    }
+    CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the descriptions");
+}
+
 static void fake_plugin_checks(const char *path)
 {
     struct omx_clap_instance *instance = NULL;
@@ -404,7 +530,6 @@ static void fake_plugin_checks(const char *path)
     double value;
 
     CHECK(CLAP_HOST_PORT_CHANNELS == 64, "CLAP_HOST_PORT_CHANNELS is %u", CLAP_HOST_PORT_CHANNELS);
-    check_refused(path, FAKE_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     check_refused(path, FAKE_WIDEN, CLAP_HOST_CODE_WIDER_THAN_STRIP);
     CHECK(omx_clap_host_binaries_open() == 0, "the fake binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
 
@@ -845,7 +970,16 @@ static void synth_checks(const char *path)
     struct omx_clap_instance *synth;
     uint32_t i;
 
-    check_refused(path, SYNTH_WIDE, CLAP_HOST_CODE_WIDER_THAN_STRIP);
+    CHECK(open_ok(path, SYNTH_WIDE, &synth), "%s opens: four output channels are described", SYNTH_WIDE);
+    if (synth)
+    {
+        char why[OMX_CLAP_WHY_MAX];
+
+        CHECK(synth->main_out.channels == 4 && synth->main_in.channels == 0, "a source of four channels");
+        CHECK(omx_clap_host_activate(synth, SAMPLE_RATE, BLOCK, why) == -1 && strcmp(why, CLAP_HOST_CODE_WIDER_THAN_STRIP) == 0,
+              "and the lane of two refuses it at activation (%s)", why);
+        omx_clap_host_close(synth);
+    }
     check_refused(path, SYNTH_NOTES, CLAP_HOST_CODE_NOTE_INPUT);
     CHECK(omx_clap_host_binaries_open() == 0, "the synth binary is closed after the refusals (%u open)", omx_clap_host_binaries_open());
 
@@ -1229,6 +1363,24 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: %s <omx-delay.clap | -> [fake.clap [fake_synth.clap [fake_mover.clap]]]\n", argv[0]);
         return 2;
     }
+    if (fake_path)
+    {
+        // a process of its own, configured once, for a lane of any width
+        int status = 0;
+        pid_t pid;
+
+        fflush(stdout);
+        pid = fork();
+        if (pid == 0)
+        {
+            const int failures = lane_any_checks(fake_path);
+
+            fflush(stdout);
+            _exit(failures ? 1 : 0);
+        }
+        waitpid(pid, &status, 0);
+        CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0, "a process configured for a lane of any width activates the wide pair (status %d)", status);
+    }
     CHECK(configure() == 0, "the process is configured as the isolated host");
     if (strcmp(path, "-") == 0)
     {
@@ -1239,6 +1391,7 @@ int main(int argc, char **argv)
         }
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
+        t_layout_description(fake_path);
         test_cycle_while_deactivated(fake_path);
         contract_checks(fake_path);
         if (synth_path)
@@ -1364,6 +1517,7 @@ int main(int argc, char **argv)
     {
         configuration_checks(fake_path);
         fake_plugin_checks(fake_path);
+        t_layout_description(fake_path);
     }
     if (synth_path)
     {

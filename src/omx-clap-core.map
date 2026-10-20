@@ -103,6 +103,7 @@ OMX_CLAP_CORE_0.11
 OMX_CLAP_CORE_0.12
 {
   global:
+    omx_clap_host_bind_aux_output;
     omx_clap_host_note_name;
     omx_clap_host_note_name_count;
     omx_clap_host_note_names_changed;

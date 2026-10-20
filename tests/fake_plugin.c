@@ -19,11 +19,17 @@
  */
 
 /* A .clap holding the port layouts the host refuses and one it accepts:
- *   org.omx-clap-host.test.wide        one main pair, 4 channels each
+ *   org.omx-clap-host.test.wide        one main pair, 6 channels each, no port type
  *   org.omx-clap-host.test.sidechain   a stereo main pair and one more input
  *   org.omx-clap-host.test.notes       a stereo main pair and a note input
  *   org.omx-clap-host.test.widen       a mono main input and a stereo main output
  *   org.omx-clap-host.test.auxout      a stereo main pair and a stereo auxiliary output
+ *   org.omx-clap-host.test.zero-port   a stereo main pair and an auxiliary input of 0 channels
+ *   org.omx-clap-host.test.too-wide    a stereo main pair and an auxiliary output of 65 channels
+ *   org.omx-clap-host.test.two-mains   a stereo main pair and a second stereo output flagged main
+ *   org.omx-clap-host.test.many-aux    a stereo main pair and 65 mono auxiliary inputs
+ *   org.omx-clap-host.test.aux-wide    a stereo main pair and one auxiliary input of 4 channels; process() copies
+ *                                      that input's channel 4 onto the main output's channel 1
  *   org.omx-clap-host.test.passthrough stereo in to stereo out, parameter 0
  *                                      is the latency it reports; a write
  *                                      makes it ask for a restart and
@@ -57,6 +63,11 @@
 #define ID_PASSTHROUGH  "org.omx-clap-host.test.passthrough"
 #define ID_WIDEN        "org.omx-clap-host.test.widen"
 #define ID_AUXOUT       "org.omx-clap-host.test.auxout"
+#define ID_ZERO_PORT    "org.omx-clap-host.test.zero-port"
+#define ID_TOO_WIDE     "org.omx-clap-host.test.too-wide"
+#define ID_TWO_MAINS    "org.omx-clap-host.test.two-mains"
+#define ID_MANY_AUX     "org.omx-clap-host.test.many-aux"
+#define ID_AUX_WIDE     "org.omx-clap-host.test.aux-wide"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -67,6 +78,11 @@ typedef struct FAKE_T {
     uint32_t out_channels;
     uint32_t extra_inputs;
     uint32_t extra_outputs;
+    uint32_t aux_in_channels;   // the width of every auxiliary input
+    uint32_t aux_out_channels;  // the width of every auxiliary output
+    uint32_t two_mains;         // the first auxiliary output is flagged main too
+    uint32_t aux_wide;          // process() copies auxiliary input 1's channel 4 onto main output channel 1
+    uint32_t copies_nothing;    // process() leaves every buffer as it is
     uint32_t note_inputs;
     uint32_t latency;
     double latency_param;
@@ -89,9 +105,33 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("passthrough", ID_PASSTHROUGH),
     DESCRIPTOR("widen", ID_WIDEN),
     DESCRIPTOR("auxout", ID_AUXOUT),
+    DESCRIPTOR("zero-port", ID_ZERO_PORT),
+    DESCRIPTOR("too-wide", ID_TOO_WIDE),
+    DESCRIPTOR("two-mains", ID_TWO_MAINS),
+    DESCRIPTOR("many-aux", ID_MANY_AUX),
+    DESCRIPTOR("aux-wide", ID_AUX_WIDE),
+};
+
+/* each descriptor's ports, in the descriptors' order: the main input and output widths, the auxiliary inputs and
+ * outputs and their widths, a second main output, and what process() does beyond copying the main pair */
+static const struct FAKE_LAYOUT_T {
+    uint32_t main_in, main_out, aux_inputs, aux_in_channels, aux_outputs, aux_out_channels, two_mains, aux_wide, copies_nothing;
+} g_layouts[] = {
+    { 6, 6, 0, 0, 0, 0, 0, 0, 0 },      // wide
+    { 2, 2, 1, 1, 0, 0, 0, 0, 0 },      // sidechain
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0 },      // notes
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0 },      // passthrough
+    { 1, 2, 0, 0, 0, 0, 0, 0, 0 },      // widen
+    { 2, 2, 0, 0, 1, 2, 0, 0, 0 },      // auxout
+    { 2, 2, 1, 0, 0, 0, 0, 0, 0 },      // zero-port
+    { 2, 2, 0, 0, 1, 65, 0, 0, 0 },     // too-wide
+    { 2, 2, 0, 0, 1, 2, 1, 0, 0 },      // two-mains
+    { 2, 2, 65, 1, 0, 0, 0, 0, 0 },     // many-aux
+    { 2, 2, 1, 4, 0, 0, 0, 1, 0 },      // aux-wide
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
+_Static_assert(sizeof(g_layouts) / sizeof(g_layouts[0]) == DESCRIPTOR_COUNT, "a layout per descriptor");
 
 static void fake_log(const clap_plugin_t *plugin, const char *what)
 {
@@ -126,8 +166,8 @@ static bool audio_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is
     memset(info, 0, sizeof(*info));
     info->id = index;
     snprintf(info->name, sizeof(info->name), "%s %u", is_input ? "in" : "out", index);
-    info->flags = index == 0 ? CLAP_AUDIO_PORT_IS_MAIN : 0;
-    info->channel_count = index == 0 ? (is_input ? fake->main_channels : fake->out_channels) : (is_input ? 1 : 2);
+    info->flags = index == 0 || (index == 1 && !is_input && fake->two_mains) ? CLAP_AUDIO_PORT_IS_MAIN : 0;
+    info->channel_count = index == 0 ? (is_input ? fake->main_channels : fake->out_channels) : (is_input ? fake->aux_in_channels : fake->aux_out_channels);
     info->port_type = info->channel_count == 2 ? CLAP_PORT_STEREO : (info->channel_count == 1 ? CLAP_PORT_MONO : NULL);
     info->in_place_pair = CLAP_INVALID_ID;
     return true;
@@ -443,8 +483,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     take_events(fake, process->in_events);
     if (process->audio_outputs_count != 1 + fake->extra_outputs)
         return CLAP_PROCESS_ERROR;
+    if (fake->copies_nothing)
+        return CLAP_PROCESS_CONTINUE;
     for (c = 0; c < out->channel_count; c++)
         memcpy(out->data32[c], in->data32[c < in->channel_count ? c : 0], sizeof(float) * process->frames_count);
+    if (fake->aux_wide && process->audio_inputs_count == 2 && process->audio_inputs[1].channel_count == 4)
+        memcpy(out->data32[0], process->audio_inputs[1].data32[3], sizeof(float) * process->frames_count);
     // an auxiliary output is the host's to hand over: a buffer it cannot write is a crash here
     for (c = 1; c < process->audio_outputs_count; c++)
         for (i = 0; i < process->audio_outputs[c].channel_count; i++)
@@ -516,10 +560,15 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake = calloc(1, sizeof(fake_t));
     fake->host = host;
     fake->host_preset_load = host->get_extension(host, CLAP_EXT_PRESET_LOAD) != NULL;
-    fake->main_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : (!strcmp(plugin_id, ID_WIDEN) ? 1 : 2);
-    fake->out_channels = !strcmp(plugin_id, ID_WIDE) ? 4 : 2;
-    fake->extra_outputs = !strcmp(plugin_id, ID_AUXOUT) ? 1 : 0;
-    fake->extra_inputs = !strcmp(plugin_id, ID_SIDECHAIN) ? 1 : 0;
+    fake->main_channels = g_layouts[i].main_in;
+    fake->out_channels = g_layouts[i].main_out;
+    fake->extra_inputs = g_layouts[i].aux_inputs;
+    fake->aux_in_channels = g_layouts[i].aux_in_channels;
+    fake->extra_outputs = g_layouts[i].aux_outputs;
+    fake->aux_out_channels = g_layouts[i].aux_out_channels;
+    fake->two_mains = g_layouts[i].two_mains;
+    fake->aux_wide = g_layouts[i].aux_wide;
+    fake->copies_nothing = g_layouts[i].copies_nothing;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
     fake->latency = (uint32_t)LATENCY_DEFAULT;
     fake->latency_param = LATENCY_DEFAULT;

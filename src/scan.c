@@ -272,6 +272,18 @@ static void put_params(FILE *out, const struct omx_clap_instance *instance)
         fputs(first ? "]" : "\n]", out);
 }
 
+/* a port's kind as the description names it: its CLAP port type when the core knows it, else unknown */
+static const char *kind_name(const char *port_type)
+{
+    static const char *const known[] = { CLAP_PORT_MONO, CLAP_PORT_STEREO, CLAP_PORT_SURROUND, CLAP_PORT_AMBISONIC };
+    uint32_t i;
+
+    for (i = 0; port_type && i < sizeof(known) / sizeof(known[0]); i++)
+        if (!strcmp(port_type, known[i]))
+            return known[i];
+    return "unknown";
+}
+
 static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_audio_ports_t *ports = instance->audio_ports;
@@ -299,14 +311,15 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance)
             {
                 fprintf(out, "%s{\"id\":%u,\"name\":", first ? "" : ",", info.id);
                 put_string(out, info.name);
-                fprintf(out, ",\"role\":\"%s\",\"channels\":%u}", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
-                        info.channel_count);
+                fprintf(out, ",\"role\":\"%s\",\"channels\":%u,\"kind\":\"%s\"}", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux",
+                        info.channel_count, kind_name(info.port_type));
             }
             else
             {
                 fprintf(out, "    %s %u ", is_input ? "in " : "out", info.id);
                 put_string(out, info.name);
-                fprintf(out, " %s %u channels\n", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux", info.channel_count);
+                fprintf(out, " %s %u channels %s\n", (info.flags & CLAP_AUDIO_PORT_IS_MAIN) ? "main" : "aux", info.channel_count,
+                        kind_name(info.port_type));
             }
             first = 0;
         }

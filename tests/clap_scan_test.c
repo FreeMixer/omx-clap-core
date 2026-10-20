@@ -92,18 +92,18 @@ static void fake_checks(const char *scan, const char *fake, char *out)
 
     CHECK(status == 0, "scan of fake.clap exits 0 (%i)", status);
     CHECK(out[0] == '{' && has(out, "\"scanner\":\"omx-clap-scan\""), "one JSON document with the scanner named");
-    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 6, "the six plugins of the factory are listed (%i)",
+    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 11, "the eleven plugins of the factory are listed (%i)",
           count(out, "\"id\":\"org.omx-clap-host.test."));
     CHECK(has(out, "\"id\":\"org.omx-clap-host.test.passthrough\",\"name\":\"passthrough\",\"vendor\":\"omx-clap-host\","
                    "\"version\":\"0\""), "descriptor id, name, vendor, version");
     CHECK(has(out, "\"features\":[\"audio-effect\"]"), "features");
     CHECK(count(out, "{\"id\":0,\"name\":\"latency\",\"module\":\"\",\"min\":0,\"max\":4096,\"default\":64,"
-                     "\"flags\":[\"stepped\"]}") == 6, "each plugin's parameter: id, name, module, min, max, default, flags");
-    CHECK(has(out, "\"audio_ports\":{\"inputs\":[{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":4}]"),
-          "the wide plugin's 4-channel main input");
-    CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":1}"), "the sidechain plugin's aux input");
+                     "\"flags\":[\"stepped\"]}") == 11, "each plugin's parameter: id, name, module, min, max, default, flags");
+    CHECK(has(out, "\"audio_ports\":{\"inputs\":[{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"unknown\"}]"),
+          "the wide plugin's 6-channel main input, of no port type");
+    CHECK(has(out, "{\"id\":1,\"name\":\"in 1\",\"role\":\"aux\",\"channels\":1,\"kind\":\"mono\"}"), "the sidechain plugin's mono aux input");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
-    CHECK(count(out, "\"latency\":64") == 6, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
+    CHECK(count(out, "\"latency\":64") == 11, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
     CHECK(!has(out, "\"error\""), "no error on a clean file");
 }
 
@@ -219,7 +219,7 @@ static void synth_checks(const char *scan, const char *synth, char *out)
           count(out, "\"id\":\"org.omx-clap-host.test."));
     CHECK(has(out, "\"id\":\"org.omx-clap-host.test.synth\",\"name\":\"synth\"") && has(out, "\"features\":[\"instrument\",\"synthesizer\"]"),
           "the synth is an instrument");
-    CHECK(has(out, "\"audio_ports\":{\"inputs\":[],\"outputs\":[{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":2}]}"),
+    CHECK(has(out, "\"audio_ports\":{\"inputs\":[],\"outputs\":[{\"id\":0,\"name\":\"out 0\",\"role\":\"main\",\"channels\":2,\"kind\":\"stereo\"}]}"),
           "with no audio input and a stereo main output");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 8, "one note input on eight of them (%i)",
           count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}"));
