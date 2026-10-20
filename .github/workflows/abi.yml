@@ -20,12 +20,13 @@ jobs:
       - name: Install the build tools
         run: dnf install -y --setopt=install_weak_deps=False git gcc make diffutils pkgconf-pkg-config clap-devel libabigail dwarves dnf5-plugins
 
-      # omx-dsp's headers, which hosted_stage.h includes, and omx-contract under them, from the FreeMixer channel
-      - name: Install omx-dsp-devel from the FreeMixer channel
+      # omx-dsp's headers, which hosted_stage.h includes, and omx-contract's, whose omx_vocabulary.h clap_host.h
+      # includes, from the FreeMixer channel
+      - name: Install omx-dsp-devel and omx-contract-devel from the FreeMixer channel
         run: |
           set -euo pipefail
           dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 2.18.0'
 
       - uses: actions/checkout@v4
 
