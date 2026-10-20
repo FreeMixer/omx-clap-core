@@ -928,6 +928,37 @@ static void t_request_layout(const char *path)
         in = NULL;
     }
 
+    // a side not asked takes a config with no main there, and a side asked never takes one: a source's output-only
+    // request matches no config carrying a main input, and the source config, flagging no main input, matches no
+    // request with one, its stale input fields (one channel, mono) notwithstanding
+    CHECK(open_ok(path, FAKE_CONFIGS, &in), "open %s", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 1,
+              "%s: an output-only request matches no config with a main input: DECLARED (%d, %u in)", FAKE_CONFIGS, ret, in->in_channels);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+    CHECK(open_with(path, FAKE_CONFIGS, "FAKE_CONFIGS_NO_MAIN_IN", &in), "%s opens, its config 1 a source", FAKE_CONFIGS);
+    if (in)
+    {
+        reqs[0] = main_request(true, 1, CLAP_PORT_MONO, NULL);
+        reqs[1] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 2, why);
+        CHECK(ret == OMX_CLAP_LAYOUT_DECLARED && in->in_channels == 1 && strcmp(in->main_in.name, "in 0") == 0,
+              "%s: a mono input asked never takes the source config flagging no main input: DECLARED (%d, \"%s\")", FAKE_CONFIGS, ret,
+              in->main_in.name);
+        reqs[0] = main_request(false, 2, CLAP_PORT_STEREO, NULL);
+        ret = omx_clap_host_request_layout(in, reqs, 1, why);
+        CHECK(ret == 0 && in->in_channels == 0 && strcmp(in->main_out.name, "out 0 config 1") == 0,
+              "%s: the output-only request selects the source config (%d, %u in, \"%s\")", FAKE_CONFIGS, ret, in->in_channels,
+              in->main_out.name);
+        omx_clap_host_close(in);
+        in = NULL;
+    }
+
     // configurable-audio-ports: applied
     CHECK(open_ok(path, FAKE_CONFIGURABLE, &in) && in->in_channels == 2, "%s opens: a stereo pair", FAKE_CONFIGURABLE);
     if (in)
