@@ -58,7 +58,9 @@
  *                                      (with FAKE_CONFIGURABLE_TOO set, it offers clap.configurable-audio-ports too,
  *                                      as configurable does; with FAKE_CONFIGS_UNTYPED its configs name no port type;
  *                                      with FAKE_CONFIGS_SIDE each config carries a mono side-chain input beside its
- *                                      main, which select declares)
+ *                                      main, which select declares; with FAKE_CONFIGS_NO_MAIN_IN config 1 is a
+ *                                      source, no main input flagged (its stale mono input fields a host must
+ *                                      ignore) and none declared once selected)
  *   org.omx-clap-host.test.configurable a stereo main pair and clap.configurable-audio-ports: any main of 1 or 2
  *                                      channels each side, mono or stereo or no port type, applied; apply names the main
  *                                      ports "in 0 configured", "out 0 configured" (FAKE_APPLY_FAILS: apply answers
@@ -141,6 +143,8 @@ typedef struct FAKE_T {
     uint32_t configurable_any;  // any channel count and type can be applied (FAKE_CONFIGURABLE_ANY)
     uint32_t configs_untyped;   // the configs name no port type (FAKE_CONFIGS_UNTYPED)
     uint32_t configs_side;      // each config carries a mono side-chain input beside its main (FAKE_CONFIGS_SIDE)
+    uint32_t configs_no_main_in;    // config 1 flags no main input (FAKE_CONFIGS_NO_MAIN_IN)
+    uint32_t no_input;          // it declares no input port (config 1 selected under FAKE_CONFIGS_NO_MAIN_IN)
     uint32_t rescan_on_activate;    // activate calls the host's audio-ports rescan (FAKE_RESCAN_ON_ACTIVATE; 2, its first
                                     // activate only: FAKE_RESCAN_ON_FIRST_ACTIVATE)
     uint32_t rescan_on_deactivate;  // deactivate calls it (FAKE_RESCAN_ON_DEACTIVATE)
@@ -265,6 +269,8 @@ static void main_thread_only(const clap_plugin_t *plugin, const char *what);
 static uint32_t audio_ports_count(const clap_plugin_t *plugin, bool is_input)
 {
     const fake_t *fake = plugin->plugin_data;
+    if (is_input && fake->no_input)
+        return 0;
     return 1 + (is_input ? fake->extra_inputs : fake->extra_outputs);
 }
 
@@ -377,6 +383,12 @@ static bool configs_get(const clap_plugin_t *plugin, uint32_t index, clap_audio_
     config->has_main_output = true;
     config->main_output_channel_count = 2;
     config->main_output_port_type = CLAP_PORT_STEREO;
+    if (index == 0 && ((const fake_t *)plugin->plugin_data)->configs_no_main_in)
+    {
+        // a source: no main input, the input fields left as they were, which a host reads only under has_main_input
+        config->input_port_count = 0;
+        config->has_main_input = false;
+    }
     if (((const fake_t *)plugin->plugin_data)->configs_untyped)
     {
         config->main_input_port_type = NULL;
@@ -401,6 +413,7 @@ static bool configs_select(const clap_plugin_t *plugin, clap_id config_id)
         fake->aux_in_channels = 1;
     }
     fake->named = config_id;
+    fake->no_input = fake->configs_no_main_in && config_id == 1;
     snprintf(line, sizeof(line), "select %u", config_id);
     fake_log(plugin, line);
     return true;
@@ -985,6 +998,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->configurable_any = getenv("FAKE_CONFIGURABLE_ANY") != NULL;
     fake->configs_untyped = getenv("FAKE_CONFIGS_UNTYPED") != NULL;
     fake->configs_side = getenv("FAKE_CONFIGS_SIDE") != NULL;
+    fake->configs_no_main_in = getenv("FAKE_CONFIGS_NO_MAIN_IN") != NULL;
     fake->rescan_on_activate = getenv("FAKE_RESCAN_ON_ACTIVATE") ? 1 : getenv("FAKE_RESCAN_ON_FIRST_ACTIVATE") ? 2 : 0;
     fake->rescan_on_deactivate = getenv("FAKE_RESCAN_ON_DEACTIVATE") != NULL;
     fake->note_inputs = !strcmp(plugin_id, ID_NOTES) ? 1 : 0;
