@@ -277,6 +277,10 @@ jobs:
       - name: Test the CLAP compatibility page against the headers
         run: make test-clap-doc-check
 
+      # the two clean-root consumer steps below build core_link_test by hand: they must build and run what test-core does
+      - name: Test the consumer steps against test-core
+        run: make test-ci-consumer-args
+
       # The parity runner end to end on the fixture bundles, mod-host against the adapter, in a PipeWire of its own
       - name: Test LV2 parity on the fixtures
         run: |
