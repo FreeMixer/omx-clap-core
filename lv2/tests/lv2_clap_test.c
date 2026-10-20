@@ -1770,9 +1770,11 @@ static void t_passthrough(double rate)
             ev_param(&ev, amount, 0.25);
         for (i = 0; i < BLOCK; i++)
             out_l[i] = out_r[i] = 7.0f;
+        in_rt = 1;
         CHECK(process(&g, in_l, in_r, out_l, out_r, BLOCK, &ev) == CLAP_PROCESS_CONTINUE
                   && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
               "control only %.0f: the strip's stereo block passes through bit for bit, both legs", rate);
+        in_rt = 0;
         CHECK(twice != CLAP_INVALID_ID && param(&g, twice) == 0.5, "control only %.0f: `amount` set 0.25 by event, `twice` reads 0.5 after the block (%g)",
               rate, twice != CLAP_INVALID_ID ? param(&g, twice) : -1.0);
         rig_down(&g);
@@ -1799,9 +1801,11 @@ static void t_passthrough(double rate)
         midi_out_init(&mo);
         for (i = 0; i < BLOCK; i++)
             out_l[i] = out_r[i] = 7.0f;
+        in_rt = 1;
         CHECK(process_with(&g, in_l, in_r, out_l, out_r, BLOCK, &mi.list, &mo.list) == CLAP_PROCESS_CONTINUE
                   && memcmp(out_l, in_l, sizeof out_l) == 0 && memcmp(out_r, in_r, sizeof out_r) == 0,
               "midi sink %.0f: the strip's stereo block passes through bit for bit, both legs", rate);
+        in_rt = 0;
         CHECK(notes != CLAP_INVALID_ID && param(&g, notes) == 1.0, "midi sink %.0f: one CLAP note event in, `notes` reads 1 after the block (%g)",
               rate, notes != CLAP_INVALID_ID ? param(&g, notes) : -1.0);
         CHECK(mo.n == 0, "midi sink %.0f: nothing comes out on a note port (%u)", rate, mo.n);

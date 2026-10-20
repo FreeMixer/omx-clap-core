@@ -869,7 +869,8 @@ static void t_sources(void)
     lv2_plugin_close(p);
 }
 
-/* one block of a pass-through plugin under the allocation guard: nothing of its own to feed or read but the controls */
+/* one block of a pass-through plugin with the main thread named as the audio role: nothing of its own to feed or read but
+ * the controls (the allocation witness is lv2_clap_test's, where both fixtures run under it) */
 static void run_ctl(struct lv2_instance *in)
 {
     g_in_run = 1;
