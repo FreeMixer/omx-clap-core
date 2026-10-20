@@ -2265,13 +2265,13 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     if (!in || in->active || max_block == 0)
         return -1;
     for (bad = 0; bad < in->aux_inputs; bad++)
-        if (in->aux_in_frames[bad] && in->aux_in_frames[bad] < max_block)
+        if (aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, bad) && in->aux_in_frames[bad] < max_block)
         {
             why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);       // bound buffers shorter than the block: rebind them first
             return -1;
         }
     for (bad = 0; bad < in->aux_outputs; bad++)
-        if (in->aux_out_frames[bad] && in->aux_out_frames[bad] < max_block)
+        if (aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, bad) && in->aux_out_frames[bad] < max_block)
         {
             why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
             return -1;

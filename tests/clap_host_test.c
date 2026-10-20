@@ -498,6 +498,8 @@ static void t_layout_description(const char *path)
               "one auxiliary input of four channels (%u, %u)", in->aux_inputs, in->aux_in[0].channels);
         for (i = 0; i < BLOCK; i++)
             side[0][i] = side[1][i] = side[2][i] = 0.0f, side[3][i] = 0.25f;
+        CHECK(omx_clap_host_bind_aux_input(in, 0, bufs, 4, 0) == 0 && omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == -1,
+              "buffers bound while inactive with no frames refuse an activation at any block");
         CHECK(omx_clap_host_bind_aux_input(in, 0, bufs, 4, BLOCK) == 0 && omx_clap_host_bind_aux_input(in, 0, bufs, 2, BLOCK) == -1,
               "four buffers bind it; two do not");
         CHECK(omx_clap_host_bind_aux_input(in, 1, bufs, 4, BLOCK) == -1, "a port past the auxiliary inputs is refused");
