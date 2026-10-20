@@ -109,7 +109,8 @@ static void f_connect(LV2_Handle h, uint32_t port, void *data)
         case 0: f->in[0] = data; break;
         case 1: f->out[0] = data; break;
         case 2: f->latency = data; break;
-        default: break;     // the props fake's controls: connected, never read
+        case 11: f->readback = data; break;    // the props fake's output control, read by every run
+        default: break;     // the props fake's other controls: connected, never read
         }
         return;
     }
@@ -128,6 +129,8 @@ static void f_run(LV2_Handle h, uint32_t n)
     struct fake *f = h;
 
     f->runs++;
+    if (f->readback)
+        f->saw_readback = *f->readback;
     if (f->legs == 2)
         f->saw_in_r0 = f->in[1][0];
     for (uint32_t k = 0; k < f->legs; k++)
