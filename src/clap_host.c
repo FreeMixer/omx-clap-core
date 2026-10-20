@@ -610,6 +610,11 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_track_info;
     if (g_config.remote_controls && (!strcmp(id, CLAP_EXT_REMOTE_CONTROLS) || !strcmp(id, CLAP_EXT_REMOTE_CONTROLS_COMPAT)))
         return &g_host_remote_controls;
+    // the draft ids of the two layout extensions, answered as their own; the declared list names the final ids only
+    if (!strcmp(id, CLAP_EXT_SURROUND_COMPAT))
+        return &g_host_surround;
+    if (!strcmp(id, CLAP_EXT_AMBISONIC_COMPAT))
+        return &g_host_ambisonic;
     for (i = 0; g_extension_ids[i]; i++)
         declared |= strcmp(g_extension_ids[i], id) == 0;
     if (!declared)

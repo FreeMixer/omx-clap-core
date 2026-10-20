@@ -505,8 +505,10 @@ Instrument details
 
 The host object offers a plugin `clap.note-ports`, `clap.note-name` and
 `clap.voice-info` besides the six extensions every plugin gets, and
-`clap.event-registry` (below), and the four of a full host (A full host,
-below), fourteen in all (`src/clap_host_extensions.h`).
+`clap.event-registry` (below), the four of a full host (A full host,
+below), and `clap.surround` and `clap.ambisonic`, sixteen in all
+(`src/clap_host_extensions.h`); the two layout extensions answer their
+draft ids too.
 
 - `note-ports.supported_dialects` answers what a note input can be fed in:
   CLAP, MIDI, MIDI MPE and MIDI 2.0 (`OMX_CLAP_HOST_NOTE_DIALECTS`) when the

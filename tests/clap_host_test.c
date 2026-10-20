@@ -237,6 +237,11 @@ static void t_surround_ambisonic(const char *path)
             same = same && in->main_in.map[c] == five_one[c] && in->main_out.map[c] == five_one[c];
         CHECK(same, "%s: both maps are FL FR FC LFE SL SR", FAKE_SURROUND);
         CHECK(omx_clap_host_tick(in) == 0, "%s: no rescan before the plugin says its layout changed", FAKE_SURROUND);
+        CHECK(in->host.get_extension(&in->host, CLAP_EXT_SURROUND) != NULL
+                  && in->host.get_extension(&in->host, CLAP_EXT_SURROUND_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_SURROUND)
+                  && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC) != NULL
+                  && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC),
+              "the host answers clap.surround/4 and clap.ambisonic/3 under their draft ids too");
         CHECK(omx_clap_host_activate(in, SAMPLE_RATE, BLOCK, why) == 0, "%s activates on a lane of any width (%s)", FAKE_SURROUND, why);
         omx_clap_host_deactivate(in);
         CHECK(omx_clap_host_tick(in) != 0, "%s: surround.changed after the deactivate, and the tick reports a ports rescan", FAKE_SURROUND);
