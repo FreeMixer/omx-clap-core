@@ -165,7 +165,7 @@ for arm in chain series control; do
             if [ "$arm" = chain ]; then
                 expect chain "pin_expect $i $scheme:$zero" "resp 0"
                 expect chain "${adds[$k]} $i" "resp -510"
-                pin[$k]=$(sed -n "s/.*: layout \($scheme:[0-9a-f]*\), pinned $scheme:$zero$/\1/p" "$runtime/chain.log" | tail -1)
+                pin[$k]=$(sed -n "s|.*: layout \($scheme:[0-9a-f]*\), pinned $scheme:$zero$|\1|p" "$runtime/chain.log" | tail -1)
                 [ -n "${pin[$k]}" ]; step $? "chain: ${names[$k]} refused its wrong pin, its layout ${pin[$k]}"
             fi
             expect "$arm" "pin_expect $i ${pin[$k]}" "resp 0"
@@ -250,7 +250,12 @@ compare() {
     fi
     byte=$(echo "$out" | sed -n 's/.*byte \([0-9]*\).*/\1/p')
     index=$(((byte - 1) / 4))
-    verdict[$what]="first difference at sample $index ($(sample_at "$a" "$index") vs $(sample_at "$b" "$index"))"
+    # how far apart, beside where: the difference's RMS against the first recording's, in dB
+    rel=$(python3 -I -c 'import array, math, sys
+a, b = (array.array("f", open(f, "rb").read()) for f in sys.argv[1:3])
+d = math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)) / len(a)); r = math.sqrt(sum(x * x for x in a) / len(a))
+print("%.1f" % (20 * math.log10(d / r)) if d and r else "-inf")' "$a" "$b")
+    verdict[$what]="first difference at sample $index ($(sample_at "$a" "$index") vs $(sample_at "$b" "$index")), difference ${rel} dB"
     step 1 "$what: ${verdict[$what]} of $(($(stat -c %s "$a") / 4))"
     return 1
 }
