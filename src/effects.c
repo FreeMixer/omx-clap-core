@@ -93,6 +93,7 @@
 #define CHAIN_ENV               "OMX_CLAP_HOST_CHAIN"
 #define CHAIN_MAX               64
 #define CHAIN_FRAMES_MAX        8192u
+#define CHAIN_ALIGN             64u
 
 // the output the gain adjustment of clap.gain-adjustment-metering answers to
 #define GAIN_ADJUSTMENT_SYMBOL  "gain_adjustment_metering"
@@ -1656,14 +1657,19 @@ static int chain_position(int instance)
     return -1;
 }
 
-/* the block an instance's outputs go to when a member follows it: `channels` channels of CHAIN_FRAMES_MAX frames */
+/* the block an instance's outputs go to when a member follows it: `channels` channels of CHAIN_FRAMES_MAX frames, each
+ * aligned as a JACK buffer is (CHAIN_ALIGN), so a plugin whose SIMD path follows its buffers' alignment is handed the
+ * alignment a client's port would hand it */
 static int chain_block(effect_t *effect, uint32_t channels)
 {
+    const size_t bytes = (size_t)(channels ? channels : 1) * CHAIN_FRAMES_MAX * sizeof(float);
+    void *block;
     uint32_t c;
 
-    effect->chain_buf = calloc((size_t)(channels ? channels : 1) * CHAIN_FRAMES_MAX, sizeof(float));
-    if (!effect->chain_buf)
+    if (posix_memalign(&block, CHAIN_ALIGN, bytes) != 0)
         return -1;
+    memset(block, 0, bytes);
+    effect->chain_buf = block;
     for (c = 0; c < channels; c++)
         effect->chain_out[c] = effect->chain_buf + (size_t)c * CHAIN_FRAMES_MAX;
     return 0;
