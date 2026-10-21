@@ -1,0 +1,7 @@
+# the chain identity fixture (tests/chain_identity.sh, make test-chain-identity): the fake plugins of this tree alone.
+# passthrough reports 64 frames of latency, so the chain reports their sum; sidechain is a member with an auxiliary
+# input, which reads silence in the chain as an unconnected port of its own client does.
+# name	clap file	clap id	lv2 bundle	lv2 uri
+pass-a	tests/fake.clap	org.omx-clap-host.test.passthrough	-	-
+sidechain	tests/fake.clap	org.omx-clap-host.test.sidechain	-	-
+pass-b	tests/fake.clap	org.omx-clap-host.test.passthrough	-	-

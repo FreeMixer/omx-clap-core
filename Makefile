@@ -642,6 +642,11 @@ tests/jack_meter_source: tests/jack_meter_source.c
 test-identity: $(PROG) tests/jack_identity build/bench/inproc
 	./tests/clap_lv2_identity.sh
 
+# a chain of plugins in one JACK client against the same plugins one client each in series, bit for bit, and the latency
+# the chain reports their sum (#302): the fake plugins of this tree; PLUGINS=bench/plugins.tsv for the omx-plugins set
+test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap
+	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
+
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
 
