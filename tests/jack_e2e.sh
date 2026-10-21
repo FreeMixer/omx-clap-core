@@ -104,7 +104,7 @@ nodes() {
     run pw-dump 2>/dev/null | grep -c "\"node.name\": \"$1\""
 }
 
-expect "add clap:$plugin#org.freemixer.openmixer.delay 0" "resp 0"
+expect "add clap:$plugin#org.openmixer.delay 0" "resp 0"
 for p in effect_0:in_1 effect_0:in_2 effect_0:out_1 effect_0:out_2; do
     graph_has "$p"; step $? "port $p in the graph"
 done

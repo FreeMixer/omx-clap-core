@@ -35,7 +35,7 @@
 #include "../src/clap_host.h"
 #include "test_util.h"
 
-#define PLUGIN_ID       "org.freemixer.openmixer.delay"
+#define PLUGIN_ID       "org.openmixer.delay"
 #define BLOCKS          64
 #define PARAM_TIME_MS   0
 #define PARAM_MIX       2
