@@ -151,3 +151,36 @@ Series / chain, median of 3 repetitions of 30 s; change = (chain - series) / ser
   clients fewer, their threads and buffers.
 - The pad's latency is 0..0 in every chain run. Three series runs at 96000/64 read 0..64, one cycle late at least
   once (7 CLAP rep 1, 8 LV2 reps 1 and 2): the rows whose series overran thousands of times.
+
+N=4, omx-eq8 omx-comp omx-deesser omx-delay (CLAP), the same way ([bench-chain-2026-10-21/n4/](bench-chain-2026-10-21/n4/)):
+
+| rate | quantum | cycle end p50 us | change | cycle end p99 us | change | overruns | probe late | xruns probe/driver | sched p50 us | host CPU % | RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 96000 | 64 | 239.2 / 166.1 | -30.6% | 685.6 / 541.5 | -21.0% | 1175 / 98 | 438 / 87 | 0/0 / 0/0 | 9.2 / 10.2 | 11.8 / 7.9 | 15.8 / 12.1 |
+| 96000 | 128 | 272.9 / 173.4 | -36.5% | 852.7 / 599.8 | -29.7% | 17 / 9 | 15 / 11 | 0/0 / 0/0 | 9.8 / 8.1 | 7.4 / 4.5 | 15.6 / 12.2 |
+| 48000 | 64 | 262.9 / 184.0 | -30.0% | 860.0 / 605.0 | -29.6% | 11 / 12 | 15 / 10 | 0/0 / 0/0 | 8.8 / 9.0 | 7.4 / 3.8 | 15.6 / 12.1 |
+| 48000 | 128 | 444.2 / 273.4 | -38.5% | 1019.0 / 678.2 | -33.4% | 4 / 5 | 6 / 4 | 0/0 / 0/0 | 15.5 / 16.3 | 5.7 / 3.6 | 15.6 / 12.2 |
+
+- Cycle end p50 falls 30-39%, p99 21-33%; rep by rep the chain's worst is below the series' best in every row.
+- Overruns: two rows have the chain's median one above the series' (48000/64: 12 against 11, the repetitions 14 8 12
+  against 11 15 10; 48000/128: 5 against 4, the repetitions 5 5 2 against 4 7 3), out of about 22500 and 11250
+  cycles in the window. The repetitions overlap whole; at 96000 the chain overruns 9-12 times less.
+
+## Verdict against the bar
+
+- Bit identity: held. Every plugin of the table that is deterministic between two instances of itself (5 omx CLAP,
+  lsp compressor, 7 LV2 with their pins) is bit-identical through the chain, and the latency is the members' sum.
+  Dragonfly Room and caps PlateX2 differ between any two instances; the chain differs from the series by as much as
+  the series from itself.
+- Cycle end at hold 10 (asked; the pod has no device): p50 -30% to -56%, p99 -21% to -49%, in all twelve rows.
+- Nothing worse: p99 and xruns, in no row. Overruns, by the median, in two of the twelve rows, by one overrun each,
+  within the spread of the repetitions (N=4 at 48000, above); in the other ten the chain overruns less, at 96000/64
+  25-90 times less.
+- Not measured: the holds off and 0, and the hold itself (no `/dev/cpu_dma_latency` in the pod), and a realtime
+  graph (`ulimit -r` 0). #105's question, whether the saving is the idle-state exit, is open until the same bench runs
+  on the desk at off, 10 and 0.
+
+The question for the operator: do two N=4 rows whose median overruns are one higher (12 against 11, 5 against 4),
+within the spread of three repetitions, count as "worse" under the bar? If they do, the gate needs those two rows run
+again with more repetitions, or on the desk under FIFO, before S1. If they do not, the chain passes: bit-identical, a
+saving in every row, and nothing worse.
