@@ -109,3 +109,45 @@ members' bundles (one directory holding those bundles alone, as the test makes i
 The pins themselves need nothing new: `pin_expect` names an instance, and a member's add checks its own layout as any
 add does. With `CHAIN_PINS=1` every member of the 7- and 8-plugin LV2 chains refused a wrong pin (`resp -510`,
 `PHD_ERR_PIN_LAYOUT_MISMATCH`) and took its right one; the pinned chain was bit-identical with the pinned series.
+
+## The bench: the results
+
+The raw rows are in [bench-chain-2026-10-21/](bench-chain-2026-10-21/) (`runs.csv`, `plugins.csv`, `machine.txt`;
+`machine.txt`'s package lines query rpm, which knows nothing of the unpacked tree: omx-plugins 0.12.0).
+
+```
+PLUGIN_ROOT=<the unpacked tree> make bench BENCH_PATHS="clap-series chain-clap adapter-series chain-adapter" \
+    BENCH_RATES="96000 48000" BENCH_QUANTA="64 128" BENCH_REPS=3 BENCH_SECONDS=30 BENCH_CRASH=0 BENCH_IDLE_HOLD=10 \
+    BENCH_OUT=build/bench/results-chain
+PLUGIN_ROOT=... PLUGIN_NAMES="omx-eq8 omx-comp omx-deesser omx-delay" make bench BENCH_PATHS="clap-series chain-clap" ...
+python3 -I bench/summary.py build/bench/results-chain
+```
+
+The arms interleaved inside each repetition. The node's load average was 2.9 before and 3.1 after on 4 threads: the
+pod shares its machine, and the interleaving lands that load on both arms. Hold 10 asked, no device (above).
+
+Series / chain, median of 3 repetitions of 30 s; change = (chain - series) / series:
+
+| rate | quantum | plugins | cycle end p50 us | change | cycle end p99 us | change | overruns | probe late | xruns probe/driver | sched p50 us | host CPU % | RSS MiB |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 96000 | 64 | 7 CLAP | 336.8 / 187.6 | -44.3% | 776.0 / 570.5 | -26.5% | 7390 / 241 | 1509 / 162 | 0/0 / 0/0 | 7.2 / 7.6 | 20.8 / 12.4 | 42.4 / 34.7 |
+| 96000 | 128 | 7 CLAP | 461.3 / 261.1 | -43.4% | 1256.7 / 693.7 | -44.8% | 172 / 71 | 79 / 48 | 0/0 / 0/0 | 8.4 / 8.9 | 16.6 / 10.0 | 42.5 / 34.4 |
+| 48000 | 64 | 7 CLAP | 452.7 / 257.1 | -43.2% | 1181.8 / 679.2 | -42.5% | 113 / 86 | 65 / 47 | 0/0 / 0/0 | 10.0 / 11.6 | 14.6 / 8.6 | 41.9 / 33.9 |
+| 48000 | 128 | 7 CLAP | 687.4 / 345.5 | -49.7% | 1557.3 / 857.5 | -44.9% | 23 / 4 | 23 / 20 | 0/0 / 0/0 | 14.0 / 20.3 | 11.7 / 7.8 | 42.0 / 34.3 |
+| 96000 | 64 | 8 LV2 | 391.2 / 171.1 | -56.3% | 799.7 / 545.3 | -31.8% | 9222 / 98 | 1711 / 92 | 0/0 / 0/0 | 8.1 / 8.7 | 22.1 / 10.4 | 29.4 / 20.2 |
+| 96000 | 128 | 8 LV2 | 491.4 / 223.0 | -54.6% | 1204.4 / 649.1 | -46.1% | 102 / 18 | 55 / 11 | 0/0 / 0/0 | 9.6 / 10.0 | 16.4 / 9.6 | 29.4 / 20.2 |
+| 48000 | 64 | 8 LV2 | 457.7 / 217.6 | -52.5% | 1146.0 / 631.5 | -44.9% | 44 / 14 | 35 / 15 | 0/0 / 0/0 | 9.8 / 10.3 | 14.1 / 8.0 | 29.2 / 19.9 |
+| 48000 | 128 | 8 LV2 | 583.3 / 282.5 | -51.6% | 1402.0 / 721.6 | -48.5% | 8 / 3 | 6 / 4 | 0/0 / 0/0 | 10.3 / 17.6 | 8.1 / 5.3 | 29.3 / 20.1 |
+
+- Cycle end p50 falls 43-50% for the 7 CLAP plugins and 52-56% for the 8 LV2 ones, p99 27-49%. Rep by rep the
+  ranges do not overlap: the chain's worst repetition is below the series' best, p50 and p99, in all eight rows.
+- Overruns and late probe cycles fall in every row by the median; two rows overlap rep by rep (7 CLAP 96000/128: the
+  chain's worst 100 against the series' best 69; 8 LV2 48000/128: 7 against 4). No xrun in any run, either arm.
+- Cycle end max is the profiler's ceiling in both arms (933, 1867, 3733 us: 1.4 periods), the same.
+- sched p50 is a node's wake-up to its start, the median over the arm's nodes: the chain's one node waits as long as
+  the series' first or longer (14.0 against 20.3 us at 48000/128 CLAP) and then runs the whole series without another
+  wake-up; it is no cost the cycle end does not already count.
+- The host's CPU falls by a third or more (20.8 % to 12.4 % of a core at 96000/64 CLAP), its RSS by 8-9 MiB: N-1 JACK
+  clients fewer, their threads and buffers.
+- The pad's latency is 0 in every run of both arms, but one: an 8 LV2 series run at 96000/64 read 0..64 (one cycle
+  late once, an overrun's).
