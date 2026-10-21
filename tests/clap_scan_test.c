@@ -356,6 +356,66 @@ static void delay_checks(const char *scan, const char *delay, char *out)
     CHECK(has(out, "\"flags\":[") && has(out, "\"bypass\""), "the bypass parameter carries its flag");
 }
 
+/* the field dump: the records plugin-hostd's format tables read, from the fake plugins and the LV2 host fixture
+ * (`lv2_fixtures` is the fixture directory put on LV2_PATH, or "-" for none: no LV2 check then) */
+static void fields_checks(const char *scan, const char *fake, const char *crash, const char *synth, const char *lv2_fixtures, char *out)
+{
+    int status = run(out, "%s --fields clap:%s", scan, fake);
+
+    CHECK(status == 2 && out[0] == '\0', "a file named without a plugin id is a usage error, nothing dumped (%i)", status);
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.none 2>/dev/null", scan, fake);
+    CHECK(status == 1 && out[0] == '\0', "an id the file lacks is refused (%i)", status);
+    status = run(out, "%s --fields lv2 2>/dev/null", scan);
+    CHECK(status == 2, "a target of neither form is a usage error (%i)", status);
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.passthrough", scan, fake);
+    CHECK(status == 0 && strncmp(out, "# omx-clap-scan --fields 1\n", 27) == 0, "a CLAP dump opens with the format's version line (%i)", status);
+    CHECK(has(out, "\nplugin\tclap_entry\tfake.clap\n"), "its provenance is the file's name");
+    CHECK(has(out, "\nplugin\tclap_plugin_descriptor.id\torg.omx-clap-host.test.passthrough\n") && has(out, "\nplugin\tclap_plugin_descriptor.vendor\t"),
+          "the descriptor's fields as <struct>.<member>");
+    CHECK(has(out, "\nplugin\tclap_plugin_descriptor.features\tCLAP_PLUGIN_FEATURE_AUDIO_EFFECT\n"), "a feature by its macro name");
+    CHECK(has(out, "\nplugin\tclap_plugin.get_extension\tCLAP_EXT_PARAMS\n") && has(out, "\nplugin\tclap_plugin.get_extension\tCLAP_EXT_LATENCY\n")
+          && !has(out, "CLAP_EXT_VOICE_INFO"),
+          "the extensions it answers, by their macro names, and none it does not");
+    CHECK(has(out, "\nparam:0\tclap_param_info.name\tlatency\n") && has(out, "\nparam:0\tclap_param_info.min_value\t0\n"),
+          "a parameter's fields under param:<index>");
+    CHECK(count(out, "\tclap_param_info.flags\tCLAP_PARAM_IS_STEPPED\n") == 4 && count(out, "\tclap_param_info.flags\tCLAP_PARAM_IS_READONLY\n") == 3,
+          "one record per flag bit set (%i stepped, %i readonly)",
+          count(out, "\tclap_param_info.flags\tCLAP_PARAM_IS_STEPPED\n"), count(out, "\tclap_param_info.flags\tCLAP_PARAM_IS_READONLY\n"));
+    CHECK(has(out, "\naudio_in:0\tclap_audio_port_info.flags\tCLAP_AUDIO_PORT_IS_MAIN\n") && has(out, "\naudio_out:0\tclap_audio_port_info.port_type\tCLAP_PORT_STEREO\n")
+          && has(out, "\naudio_out:0\tclap_audio_port_info.channel_count\t2\n"),
+          "an audio port's flags and type by name, its count as a number");
+    CHECK(!has(out, "note_in:") && !has(out, "clap_voice_info"), "no note port and no voice info on an effect");
+    CHECK(has(out, "\nplugin\tclap_plugin_latency.get\t64\n"), "the latency it answers before activation");
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.synth-poly", scan, synth);
+    CHECK(status == 0 && has(out, "\nplugin\tclap_plugin_descriptor.features\tCLAP_PLUGIN_FEATURE_INSTRUMENT\n"), "the synth is an instrument (%i)", status);
+    CHECK(has(out, "\nnote_in:0\tclap_note_port_info.supported_dialects\tCLAP_NOTE_DIALECT_CLAP\n")
+          && has(out, "\nnote_in:0\tclap_note_port_info.preferred_dialect\tCLAP_NOTE_DIALECT_CLAP\n"),
+          "its note input's dialects by name");
+    CHECK(has(out, "\nplugin\tclap_voice_info.voice_count\t4\n") && has(out, "\nplugin\tclap_voice_info.voice_capacity\t8\n")
+          && has(out, "\nplugin\tclap_voice_info.flags\tCLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES\n"),
+          "synth-poly's voices, read in the dump's one activation");
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.synth-mpe", scan, synth);
+    CHECK(status == 0 && has(out, "\nnote_in:0\tclap_note_port_info.supported_dialects\tCLAP_NOTE_DIALECT_MIDI_MPE\n") && !has(out, "clap_voice_info"),
+          "synth-mpe reads MIDI with MPE and has no voice info (%i)", status);
+    status = run(out, "%s --fields clap:%s#x 2>/dev/null", scan, crash);
+    CHECK(status == 1 && out[0] == '\0', "a plugin that aborts in its entry takes the child, not the scanner, and leaves no dump (%i)", status);
+    if (strcmp(lv2_fixtures, "-") == 0)
+        return;
+    status = run(out, "LV2_PATH=%s %s --fields lv2:urn:openmixer:test:host-fixture", lv2_fixtures, scan);
+    CHECK(status == 0 && strncmp(out, "# omx-clap-scan --fields 1\n", 27) == 0, "an LV2 dump, from the fixture's data alone, opens with the version line (%i)", status);
+    CHECK(has(out, "\nplugin\trdfs:seeAlso\tomx-host-fixture.lv2/omx-host-fixture.ttl\n"), "its provenance is the bundle directory and the data file, not the manifest");
+    CHECK(has(out, "\nplugin\tdoap:name\topenmixer host fixture\n") && has(out, "\nplugin\trdf:type\tlv2:AmplifierPlugin\n"), "the plugin's name and classes");
+    CHECK(has(out, "\nplugin\tlv2:requiredFeature\turid:map\n") && has(out, "\nplugin\tlv2:extensionData\tstate:interface\n"), "features and extension data as CURIEs");
+    CHECK(count(out, "\tlv2:symbol\t") == 6 && has(out, "\nport:3\tlv2:symbol\tgain_db\n"), "one port scope per port by lv2:index (%i)", count(out, "\tlv2:symbol\t"));
+    CHECK(has(out, "\nport:3\tlv2:minimum\t-60\n") && has(out, "\nport:3\tlv2:default\t-20\n") && has(out, "\nport:2\tlv2:maximum\t1\n"), "a range as numbers");
+    CHECK(has(out, "\nport:2\tlv2:portProperty\tlv2:toggled\n") && has(out, "\nport:2\tlv2:designation\tlv2:enabled\n")
+          && has(out, "\nport:5\tlv2:portProperty\tlv2:reportsLatency\n") && has(out, "\nport:5\tlv2:designation\tlv2:latency\n"),
+          "properties and designations as CURIEs");
+    CHECK(has(out, "\nport:0\trdf:type\tlv2:AudioPort\n") && has(out, "\nport:0\trdf:type\tlv2:InputPort\n"), "a port's classes");
+    status = run(out, "LV2_PATH=%s %s --fields lv2:urn:openmixer:test:none 2>/dev/null", lv2_fixtures, scan);
+    CHECK(status == 1 && out[0] == '\0', "a URI no bundle holds is refused (%i)", status);
+}
+
 int main(int argc, char **argv)
 {
     char *out;
@@ -363,7 +423,7 @@ int main(int argc, char **argv)
 
     if (argc < 6)
     {
-        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> <omx-delay.clap | -> <fake_synth.clap>\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> <omx-delay.clap | -> <fake_synth.clap> [<lv2 fixtures dir> | -]\n", argv[0]);
         return 2;
     }
     if (!realpath(argv[1], scan))
@@ -388,6 +448,7 @@ int main(int argc, char **argv)
         delay_checks(scan, argv[4], out);
     if (argc > 5)
         synth_checks(scan, argv[5], out);
+    fields_checks(scan, argv[2], argv[3], argv[5], argc > 6 ? argv[6] : "-", out);
 
     printf("%s\n", g_failures == 0 ? "clap scan test ok" : "clap scan test FAILED");
     free(out);
