@@ -12,7 +12,7 @@ to mod-host and want CLAP plugins as well.
 - LV2 plugins too: `add lv2:<uri> <N>` (or the URI alone, as mod-host takes it) runs an LV2 plugin from `LV2_PATH` on the same ports, its controls addressed by their LV2 symbols.
 - Tempo-synced plugins get a transport: `set_bpm`, `set_bpb` and `transport` drive the host's own, or `-t` follows the JACK transport.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
-- `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
+- `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON; `--fields` dumps every field one CLAP or LV2 plugin states, the records plugin-hostd builds its descriptors from.
 
 LV2 plugins run through the same CLAP host by an LV2 to CLAP adapter, the library
 `libomx-clap-lv2`, which omx-clap-host links in (and any program can, from the package
