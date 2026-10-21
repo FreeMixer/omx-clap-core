@@ -206,6 +206,9 @@ def main(d):
             cells = []
             for path in PATHS:
                 g = pg.get((rate, 128, n, path))
+                # a chain member is no node of its own: no node time
+                if g and med([num(x["dur_p50_us"]) for x in g]) is None:
+                    g = None
                 if not g:
                     cells.append("-")
                     if path.startswith("inproc"):
