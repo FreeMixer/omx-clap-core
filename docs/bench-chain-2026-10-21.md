@@ -164,7 +164,8 @@ N=4, omx-eq8 omx-comp omx-deesser omx-delay (CLAP), the same way ([bench-chain-2
 - Cycle end p50 falls 30-39%, p99 21-33%; rep by rep the chain's worst is below the series' best in every row.
 - Overruns: two rows have the chain's median one above the series' (48000/64: 12 against 11, the repetitions 14 8 12
   against 11 15 10; 48000/128: 5 against 4, the repetitions 5 5 2 against 4 7 3), out of about 22500 and 11250
-  cycles in the window. The repetitions overlap whole; at 96000 the chain overruns 9-12 times less.
+  cycles in the window. The repetitions overlap whole; at 96000 the chain overruns less (98 against 1175 at quantum
+  64, 9 against 17 at 128).
 
 ## Verdict against the bar
 
@@ -175,7 +176,7 @@ N=4, omx-eq8 omx-comp omx-deesser omx-delay (CLAP), the same way ([bench-chain-2
 - Cycle end at hold 10 (asked; the pod has no device): p50 -30% to -56%, p99 -21% to -49%, in all twelve rows.
 - Nothing worse: p99 and xruns, in no row. Overruns, by the median, in two of the twelve rows, by one overrun each,
   within the spread of the repetitions (N=4 at 48000, above); in the other ten the chain overruns less, at 96000/64
-  25-90 times less.
+  12 to 94 times less.
 - Not measured: the holds off and 0, and the hold itself (no `/dev/cpu_dma_latency` in the pod), and a realtime
   graph (`ulimit -r` 0). #105's question, whether the saving is the idle-state exit, is open until the same bench runs
   on the desk at off, 10 and 0.
