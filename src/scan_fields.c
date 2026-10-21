@@ -34,9 +34,11 @@
 
 #include <limits.h>
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "clap_host.h"
@@ -53,6 +55,8 @@
 */
 
 #define FIELDS_VERSION      1
+/* the seconds a plugin gets to answer the dump, as a listing gives a file */
+#define FIELDS_TIMEOUT_S 30
 #define FIELDS_RATE         48000.0
 #define FIELDS_MAX_FRAMES   1024u
 #define FIELDS_ENUM_MAX     1024    ///< the most values of one enumerated parameter asked for a text
@@ -808,22 +812,13 @@ int scan_fields_list(void)
     return 0;
 }
 
-int scan_fields(const char *target)
+/* the dump itself, in the child: the plugin's code runs here and only here */
+static int fields_dump(const char *target)
 {
     char *dump = NULL;
     size_t size = 0;
     int out, rc;
 
-    if (strncmp(target, "clap:", 5) != 0 && strncmp(target, "lv2:", 4) != 0)
-    {
-        fprintf(stderr, "omx-clap-scan: --fields takes clap:<path>#<id> or lv2:<uri>, not %s\n", target);
-        return 2;
-    }
-    if (strncmp(target, "clap:", 5) == 0 && !strrchr(target, '#'))
-    {
-        fprintf(stderr, "omx-clap-scan: --fields clap:<path>#<id>: %s names no plugin id\n", target);
-        return 2;
-    }
     // what the plugin prints goes to stderr; the dump to stdout, once it is whole
     fflush(stdout);
     out = dup(STDOUT_FILENO);
@@ -856,4 +851,48 @@ int scan_fields(const char *target)
     }
     free(dump);
     return rc;
+}
+
+/* the dump is made in a child, as a listing's file is: a plugin that crashes or hangs in its entry, init or a call
+ * (tests/crash_plugin.c aborts in clap_entry.init) takes the child, never the scanner, and leaves no partial dump,
+ * only the reason on stderr */
+int scan_fields(const char *target)
+{
+    pid_t pid;
+    int status = 0;
+
+    if (strncmp(target, "clap:", 5) != 0 && strncmp(target, "lv2:", 4) != 0)
+    {
+        fprintf(stderr, "omx-clap-scan: --fields takes clap:<path>#<id> or lv2:<uri>, not %s\n", target);
+        return 2;
+    }
+    if (strncmp(target, "clap:", 5) == 0 && !strrchr(target, '#'))
+    {
+        fprintf(stderr, "omx-clap-scan: --fields clap:<path>#<id>: %s names no plugin id\n", target);
+        return 2;
+    }
+    fflush(stdout);
+    fflush(stderr);
+    pid = fork();
+    if (pid < 0)
+    {
+        fprintf(stderr, "omx-clap-scan: --fields: no process for the dump\n");
+        return 1;
+    }
+    if (pid == 0)
+    {
+        alarm(FIELDS_TIMEOUT_S);
+        _exit(fields_dump(target));
+    }
+    if (waitpid(pid, &status, 0) < 0)
+        return 1;
+    if (WIFSIGNALED(status))
+    {
+        if (WTERMSIG(status) == SIGALRM)
+            fprintf(stderr, "omx-clap-scan: --fields: %s: timed out after %d s\n", target, FIELDS_TIMEOUT_S);
+        else
+            fprintf(stderr, "omx-clap-scan: --fields: %s: crashed with signal %d (%s)\n", target, WTERMSIG(status), strsignal(WTERMSIG(status)));
+        return 1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
 }
