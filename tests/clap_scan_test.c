@@ -351,7 +351,7 @@ static void delay_checks(const char *scan, const char *delay, char *out)
     int status = run(out, "%s --json %s", scan, delay);
 
     CHECK(status == 0, "omx-delay.clap scans (%i)", status);
-    CHECK(has(out, "\"id\":\"org.freemixer.openmixer.delay\""), "its plugin id");
+    CHECK(has(out, "\"id\":\"org.openmixer.delay\""), "its plugin id");
     CHECK(count(out, "{\"id\":") >= 6, "its parameters and ports (%i ids)", count(out, "{\"id\":"));
     CHECK(has(out, "\"flags\":[") && has(out, "\"bypass\""), "the bypass parameter carries its flag");
 }
