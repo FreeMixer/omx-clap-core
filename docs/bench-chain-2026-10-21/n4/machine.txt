@@ -1,0 +1,19 @@
+date: 2026-10-21T20:31:35Z
+host: lane-cw-omx-clap-core-302-1792611778-hlldz 7.2.9-201.fc44.x86_64
+cpu: Intel(R) Core(TM) Ultra 9 285K, 4 threads
+governor: powersave
+load before: 3.06 2.47 2.57
+container: none
+pipewire: Linked with libpipewire 1.6.9
+mod-host: mod-host-0.10.6.f14a230-3.fc44.x86_64
+omx-clap-host: v0.12.0-321-g9bb7a9a (built from this tree)
+omx-plugins: package omx-plugins-clap is not installed package omx-plugins-lv2 is not installed 
+stock: lsp-plugins-clap-1.2.29-1.fc44.x86_64 lsp-plugins-lv2-1.2.29-1.fc44.x86_64 clap-dragonfly-reverb-3.2.10-3.fc44.x86_64 lv2-dragonfly-reverb-3.2.10-3.fc44.x86_64 lv2-x42-plugins-0.21.0-0.3.20250512.fc44.x86_64 
+rtprio limit: 0
+idle hold: 10
+cpu_dma_latency at rest: unreadable us
+cpuidle: intel_idle; states: POLL=0us C1_ACPI=1us C2_ACPI=127us C3_ACPI=1048us 
+plugin-hostd: package plugin-hostd is not installed
+unknown; jalv: package jalv is not installed
+unknown
+load after: 1.68 2.64 2.66
