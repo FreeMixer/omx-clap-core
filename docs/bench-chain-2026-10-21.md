@@ -149,5 +149,5 @@ Series / chain, median of 3 repetitions of 30 s; change = (chain - series) / ser
   wake-up; it is no cost the cycle end does not already count.
 - The host's CPU falls by a third or more (20.8 % to 12.4 % of a core at 96000/64 CLAP), its RSS by 8-9 MiB: N-1 JACK
   clients fewer, their threads and buffers.
-- The pad's latency is 0 in every run of both arms, but one: an 8 LV2 series run at 96000/64 read 0..64 (one cycle
-  late once, an overrun's).
+- The pad's latency is 0..0 in every chain run. Three series runs at 96000/64 read 0..64, one cycle late at least
+  once (7 CLAP rep 1, 8 LV2 reps 1 and 2): the rows whose series overran thousands of times.
