@@ -18,6 +18,20 @@ idle_hold=${BENCH_IDLE_HOLD:-default}
 jalv_ui=${BENCH_JALV_UI:-0}
 device=${OMX_CLAP_IDLE_HOLD_DEVICE:-/dev/cpu_dma_latency}
 plugins=${PLUGINS:-$here/plugins.tsv}
+# PLUGIN_NAMES: the table's rows by name, in that order (default every row the path takes); PLUGIN_ROOT: a prefix for
+# its absolute paths, a tree the packages were unpacked in
+plugin_names=${PLUGIN_NAMES:-}
+plugin_root=${PLUGIN_ROOT:-}
+# the host a path runs (clap-series and chain-clap are clap's, adapter-series and chain-adapter adapter's) and how its
+# plugins are linked: parallel, each fed the noise and recorded; series, each into the next, the last recorded; chain,
+# the same in one client, OMX_CLAP_HOST_CHAIN naming every plugin (#302)
+case $path in
+    clap-series) kind=clap topology=series ;;
+    chain-clap) kind=clap topology=chain ;;
+    adapter-series) kind=adapter topology=series ;;
+    chain-adapter) kind=adapter topology=chain ;;
+    *) kind=$path topology=parallel ;;
+esac
 probe=$root/build/bench/probe
 inproc=$root/build/bench/inproc
 bridge=$root/build/bench/omx-lv2-bridge.clap
@@ -32,7 +46,13 @@ export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH
 unset DBUS_SESSION_BUS_ADDRESS
 cleanup() {
     exec 3>&- 5>&- 6<&- 7>&- 8<&- 2>/dev/null
-    kill -TERM -- -1 2>/dev/null
+    # a run in a session of its own (no pid namespace: the container refuses its /proc) ends that session's processes
+    if [ -n "${BENCH_SESSION:-}" ]; then
+        trap '' TERM
+        kill -TERM -- -$$ 2>/dev/null
+    else
+        kill -TERM -- -1 2>/dev/null
+    fi
     wait 2>/dev/null
     rm -rf "${runtime:?}"
 }
@@ -45,7 +65,7 @@ field() { sed -n "s/.*[ ]$1=\([^ ]*\).*/\1/p"; }
 
 # the private graph at the run's rate and quantum, driven by PipeWire's dummy driver (no device in the namespace)
 graph_start() {
-    [ "$$" = 1 ] || die "not pid 1 of a private pid namespace"
+    [ "$$" = 1 ] || [ -n "${BENCH_SESSION:-}" ] || die "not pid 1 of a private pid namespace"
     ip link set lo up
     pipewire >"$raw/pipewire.log" 2>&1 &
     pw_pid=$!
@@ -87,12 +107,15 @@ probe_reset() {
 
 # every plugin of the table this path hosts: names[] and adds[] (the add line without its instance number), pad
 plugin_set() {
-    local name cfile cid bundle uri a
+    local name cfile cid bundle uri a want i
     names=() adds=()
     lv2_bundles=$fakes
     while IFS=$'\t' read -r name cfile cid bundle uri; do
         case $name in '#'* | '') continue ;; esac
-        case $path in
+        [ -z "$plugin_names" ] || case " $plugin_names " in *" $name "*) ;; *) continue ;; esac
+        [ "$cfile" != - ] && cfile=$plugin_root$cfile
+        [ "$bundle" != - ] && bundle=$plugin_root$bundle
+        case $kind in
             clap | inproc-clap) [ "$cfile" = - ] && continue ;;
             *) [ "$bundle" = - ] && continue ;;
         esac
@@ -101,7 +124,14 @@ plugin_set() {
         names+=("$name")
         adds+=("$a")
     done <"$plugins"
-    case $path in
+    if [ -n "$plugin_names" ]; then
+        local o_names=() o_adds=()
+        for want in $plugin_names; do
+            for i in "${!names[@]}"; do [ "${names[$i]}" = "$want" ] && o_names+=("$want") o_adds+=("${adds[$i]}"); done
+        done
+        names=("${o_names[@]}") adds=("${o_adds[@]}")
+    fi
+    case $kind in
         clap | inproc-clap) pad=$(add_line "$pad_clap" "$pad_clap_id" - -) ;;
         *) pad=$(add_line - - "$fakes" "$pad_lv2") ;;
     esac
@@ -109,7 +139,7 @@ plugin_set() {
 
 # the add line of one plugin for this path: <clap file> <clap id> <lv2 bundle> <lv2 uri>
 add_line() {
-    case $path in
+    case $kind in
         modhost | jalv) echo "add $4" ;;
         hostd) echo "add lv2:$4" ;;
         clap) echo "add clap:$1#$2" ;;
@@ -149,14 +179,17 @@ lv2_dirs() {
 host_start() {
     local line
     t_spawn=$(now_ns)
-    case $path in
+    case $kind in
         modhost)
             hold_external
             LV2_PATH=$(dirname "$fakes"):/usr/lib64/lv2:/usr/lib/lv2 "$mod_host" -n -p $port >"$raw/host.log" 2>&1 &
             host_pid=$! ;;
         clap | adapter)
+            # a chain: every plugin of the run, 0 .. n_fx-1, in effect_0's client; the pad, n_fx, a client of its own
+            local chain=
+            [ "$topology" = chain ] && chain=$(seq -s, 0 $((n_fx - 1)))
             # shellcheck disable=SC2046
-            OMX_BENCH_LV2_BUNDLES=$lv2_bundles "$clap_host" -n $(hold_opt) -p $port >"$raw/host.log" 2>&1 &
+            OMX_CLAP_HOST_CHAIN=$chain OMX_BENCH_LV2_BUNDLES=$lv2_bundles "$clap_host" -n $(hold_opt) -p $port >"$raw/host.log" 2>&1 &
             host_pid=$! ;;
         hostd)
             # the daemon, its LV2 worker omx-clap-host through the adapter (the lane's binary, with the hold as its
