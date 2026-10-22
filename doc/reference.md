@@ -491,7 +491,7 @@ What an LV2 `add` answers:
 | | reply |
 |---|---|
 | the plugin runs | `resp <N>` |
-| no bundle on the path holds the URI, or the word is no URI | `resp -101` |
+| no bundle on the path holds the URI as a plugin (a bundle of its presets only does not), or the word is no URI | `resp -101` |
 | the adapter or the host refuses the plugin | `resp -102 <hosting code>`, e.g. `resp -102 hosting.features.midi-in-fed-empty`; stderr says `<uri>: <hosting code>` |
 | lilv cannot be loaded, or the plugin's binary cannot | `resp -102 hosting.no-realisation` |
 
@@ -526,8 +526,11 @@ held at its processing value.
 State and presets. `state_save` writes the plugin's LV2 state, as Turtle, to
 `<dir>/effect_<N>.clapstate` and `state_load` reads it back, applied by a
 restart of the plugin. `preset_load <N> <preset uri>` loads an LV2 preset of
-the plugin's bundle by its URI, as mod-host does, also applied by a restart; a
-preset of another plugin, or one the bundle does not hold, answers `resp -104`.
+the plugin by its URI, as mod-host does, also applied by a restart; a preset
+of another plugin, or one no loaded bundle holds, answers `resp -104`. The add
+loads every bundle on the path whose manifest names the URI, so the presets a
+bundle of presets only carries for the plugin (DISTRHO-Ports' `TAL-NoiseMaker-Noise4U.lv2`,
+`Vitalium-unfa.lv2`) are the plugin's as its own bundle's are.
 
 `remove <N>` closes the client, so none of `effect_<N>`'s ports stays in the
 graph, then the plugin and the bundle's entry.
@@ -698,7 +701,10 @@ provider, `org.openmixer.lv2.pset`, whose one location is the bundle (a
 `PLUGIN` location of factory content), and each `pset:Preset` that
 `lv2:appliesTo` one of the bundle's plugins a preset named by its
 `rdfs:label`, its URI the load key, for the plugin whose id is its URI
-(`t_preset_list` in `lv2/tests/lv2_clap_test.c`).
+(`t_preset_list` in `lv2/tests/lv2_clap_test.c`). A bundle of presets only
+(no plugin) is an entry of no plugin, not a refusal: its presets join the
+world, and the entry of the plugin they apply to lists them beside its own
+bundle's (`t_companion`).
 
 Scanning
 --------
