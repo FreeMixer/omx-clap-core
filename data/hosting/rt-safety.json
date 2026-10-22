@@ -1,0 +1,34 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_RT_SAFETY_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the rt-safety dimension: hosting.rt-safety.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "rtSafetyClean": {
+        "code": "hosting.rt-safety.clean-under-sweep"
+      },
+      "rtSafetyNotReproducible": {
+        "code": "hosting.rt-safety.not-reproducible"
+      },
+      "rtSafetyNotesClean": {
+        "code": "hosting.rt-safety.clean-under-notes"
+      },
+      "rtSafetyNotesUnmeasured": {
+        "code": "hosting.rt-safety.notes-unmeasured"
+      },
+      "rtSafetyNotesViolations": {
+        "code": "hosting.rt-safety.violations-under-notes"
+      },
+      "rtSafetyUnmeasured": {
+        "code": "hosting.rt-safety.unmeasured"
+      },
+      "rtSafetyViolations": {
+        "code": "hosting.rt-safety.violations-in-run"
+      }
+    }
+  }
+}

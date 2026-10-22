@@ -179,7 +179,8 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number the core reads, rendered from
   `data/hosting.json` and committed here; never edited by hand. The refusal codes
-  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.19.0 or later):
+  are this tree's, declared in `data/hosting/<dimension>.json` and rendered as
+  `omx_clap_core_vocabulary.h` (committed, installed beside it, never edited by hand):
   `clap_host.h` names the core's as `CLAP_HOST_CODE_*`.
 - `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
   worker's two included, for a host that reads those names; rendered from the same
@@ -279,16 +280,18 @@ one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
 `FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
 changes a symbol (`follow`, refused under R3).
 
-The hosting limits are declared in `data/hosting.json`, in omx-contract's
-schema; every hosting code the sources write is omx-contract's own, an
-`OMX_HOSTING_*` macro of its `omxcontract/omx_vocabulary.h`, and
+The hosting limits are declared in `data/hosting.json` and the hosting codes in
+`data/hosting/<dimension>.json`, in omx-contract's schema; every hosting code the
+sources write is an `OMX_HOSTING_*` macro of `src/omx_clap_core_vocabulary.h`, their
+render (`render --package omx-clap-core`), and
 `make test-codes` (in `make test` and `make test-fake`, `tests/hosting-codes-check.sh`)
 fails on a `"hosting.` literal in `src/` or `lv2/` and on an `OMX_HOSTING_*`
 name that header lacks; its `--self-test` breaks the sources each way and
 requires each to fail. `make install` puts them into omx-contract's contract
-directory, `$(pkg-config --variable=contractdir omx-contract)/2/omx-clap-core/`,
+directory, `$(pkg-config --variable=contractdir omx-contract)/3/omx-clap-core/`
+(the codes under `hosting/`),
 with a `MANIFEST.json` naming this version, using the install script
-omx-contract-devel 2.15.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
+omx-contract-devel 3.0.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
 The two rendered headers install with the other core headers under
 `include/omx-clap-host/`, and the TypeScript module under
 `share/omx-clap-core/ts/`, which `pkg-config --variable=tsdir omx-clap-core`

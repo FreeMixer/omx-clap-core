@@ -15,8 +15,8 @@ BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
-# write every hosting code from its omx_vocabulary.h (2.19.0)
-BuildRequires: omx-contract-devel >= 2.19.0
+# the codes under contract.d/3 (3.0.0, the hosting codes moved here)
+BuildRequires: omx-contract-devel >= 3.0.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -68,9 +68,8 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits, in omx-contract's contract directory, which that package owns; clap_host.h names the refusal
-# codes by omx-contract's omx_vocabulary.h (2.19.0)
-Requires: omx-contract-devel >= 2.19.0
+# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0)
+Requires: omx-contract-devel >= 3.0.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
@@ -138,7 +137,7 @@ make test-lv2
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
 %{_datadir}/omx-clap-core/
-%{_datadir}/omx-contract/contract.d/2/omx-clap-core/
+%{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING
@@ -157,6 +156,15 @@ make test-lv2
   and an idle_hold command; its packages ship a udev rule giving the audio
   group the device. The calls are in the version node OMX_CLAP_CORE_0.14.
   The library ABI is 16.
+- The hosting codes are this tree's: omx-contract's 16 data/hosting files
+  moved here byte for byte, installed under contract.d/3/omx-clap-core/hosting/
+  and rendered as omx_clap_core_vocabulary.h and the omx-clap-core-vocabulary
+  TypeScript module, the OMX_HOSTING_ names unchanged. The six retired codes
+  are removed (72 codes are left) and featuresMissingAtLoad is featuresMissing.
+  omx-clap-scan --fields clap:<path>#<id> | lv2:<uri> writes one plugin's
+  field dump for plugin-hostd's format tables, an LV2 plugin read from the
+  adapter's lilv world with its binary never opened. omx-contract 3.0.0 or
+  newer.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
 - Every audio port a plugin declares is described, main and auxiliary, up to
   64 a side and 64 channels a port, with the refusal codes of omx-contract for

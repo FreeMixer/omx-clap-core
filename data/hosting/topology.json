@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_TOPOLOGY_CODES": {
+    "kind": "codes",
+    "since": "2.18.0",
+    "doc": "The hosting codes of the topology dimension: hosting.topology.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).",
+    "codes": {
+      "topologyAmbisonicConfig": {
+        "code": "hosting.topology.ambisonic-config",
+        "doc": "an ambisonic port refuses the carrier's ordering or normalisation"
+      },
+      "topologyChannelMapUnknown": {
+        "code": "hosting.topology.channel-map-unknown",
+        "doc": "a surround port names a channel id the host does not know, or refuses the carrier's channel mask"
+      },
+      "topologyInstrument": {
+        "code": "hosting.topology.instrument"
+      },
+      "topologyMatched": {
+        "code": "hosting.topology.matched"
+      },
+      "topologyNoAudioInput": {
+        "code": "hosting.topology.no-audio-input",
+        "doc": "the plugin has no audio input"
+      },
+      "topologyNoAudioOutput": {
+        "code": "hosting.topology.no-audio-output",
+        "doc": "the plugin has no audio output"
+      },
+      "topologyPortTooWide": {
+        "code": "hosting.topology.port-too-wide",
+        "doc": "a port of more channels than the limit, or an ambisonic port whose channels are not (order+1)²"
+      },
+      "topologyPortWithoutChannels": {
+        "code": "hosting.topology.port-without-channels",
+        "doc": "a port of zero channels"
+      },
+      "topologyTooManyPorts": {
+        "code": "hosting.topology.too-many-ports",
+        "doc": "more than the limit of auxiliary ports on one side, or more than one main port on a side"
+      },
+      "topologyWiderThanStrip": {
+        "code": "hosting.topology.wider-than-strip",
+        "doc": "a main port is wider than the lane the caller runs the plugin on"
+      }
+    }
+  }
+}
