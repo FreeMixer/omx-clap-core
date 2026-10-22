@@ -131,12 +131,14 @@ make test-lv2
 %license COPYING
 %{_libdir}/libomx-clap-core.so.1
 %{_libdir}/libomx-clap-core.so.%{version}
+%{_datadir}/omx-clap-core/ts/
 
 %files -n omx-clap-core-devel
 %{_libdir}/libomx-clap-core.so
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
-%{_datadir}/omx-clap-core/
+%{_datadir}/omx-clap-core/omx-clap-core.map
+%{_datadir}/omx-clap-core/libomx-clap-core.so.*.abi
 %{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
