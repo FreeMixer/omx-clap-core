@@ -1,3 +1,13 @@
+omx-clap-host (0.15.0) unstable; urgency=medium
+
+  * The hosting codes' TypeScript modules (omx-clap-core-hosting.js,
+    omx-clap-core-vocabulary.js and their .d.ts) move from libomx-clap-core-dev
+    to libomx-clap-core1, at the same path, so a program that only reads them
+    at run time, such as plugin-qualify, needs no development package.
+    pkg-config --variable=tsdir omx-clap-core still names that path.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 22 Oct 2026 00:00:00 +0200
+
 omx-clap-host (0.14.0) unstable; urgency=medium
 
   * libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is
