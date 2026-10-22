@@ -146,6 +146,10 @@ jobs:
       - name: The sabotage of the audio layouts
         run: make test-layouts-sabotage
 
+      # each guard of the chain broken in a copy of the sources, tests/clap_chain_test red on it (#311)
+      - name: The sabotage of the chain's guards
+        run: make test-chain-sabotage
+
       - name: Test what a plugin reports about its parameters under AddressSanitizer
         run: make test-untrusted-asan
 
