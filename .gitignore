@@ -51,4 +51,5 @@ lv2/tests/lv2_link_test
 tests/transport_seqlock_test
 tests/transport_seqlock_tsan
 tests/cycle_gate_tsan
+tests/preset_file_test
 tools/preset-census
