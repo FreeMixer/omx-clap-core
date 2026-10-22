@@ -53,6 +53,7 @@
 
 #include "clap_host.h"
 #include "clap_meters.h"
+#include "idle_hold.h"
 #include "param_contract.h"
 
 
@@ -114,7 +115,7 @@ static struct omx_clap_binary *g_binaries;
 /* the defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
 {
-    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, CLAP_HOST_IDLE_HOLD_US
 };
 static int g_configured;
 static int g_sealed;        // a binary was opened: the configuration can no longer change
@@ -439,6 +440,19 @@ static void host_layout_changed(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->ports_rescan_requested, 1u, memory_order_relaxed);
 }
 
+/* the plugin's configuration list changed (clap.audio-ports-config's host half). The host holds no copy of the list:
+ * omx_clap_host_request_layout reads it live. While the plugin is inactive the change is reported as a ports rescan,
+ * since the list is what the next request_layout chooses from (a plugin left DECLARED whose list now has a match).
+ * While active it is dropped: the configuration in use stands, a report would only send the carrier through a
+ * relayout for no port change, and the list is read again when the host next deactivates and asks (#263) */
+static void host_configs_rescan(const clap_host_t *host)
+{
+    struct omx_clap_instance *in = instance_of(host);
+
+    if (main_thread_call(host) && !in->active)
+        atomic_store_explicit(&in->ports_rescan_requested, 1u, memory_order_relaxed);
+}
+
 static void host_state_mark_dirty(const clap_host_t *host)
 {
     if (main_thread_call(host))
@@ -651,6 +665,7 @@ static const clap_host_thread_pool_t g_host_thread_pool = { host_request_exec };
 static const clap_host_tail_t g_host_tail = { host_tail_changed };
 static const clap_host_surround_t g_host_surround = { host_layout_changed };
 static const clap_host_ambisonic_t g_host_ambisonic = { host_layout_changed };
+static const clap_host_audio_ports_config_t g_host_audio_ports_config = { host_configs_rescan };
 static const clap_host_note_ports_t g_host_note_ports = { host_note_ports_supported_dialects, host_note_ports_rescan };
 static const clap_host_note_name_t g_host_note_name = { host_note_name_changed };
 static const clap_host_voice_info_t g_host_voice_info = { host_voice_info_changed };
@@ -816,6 +831,8 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_surround;
     if (!strcmp(id, CLAP_EXT_AMBISONIC))
         return &g_host_ambisonic;
+    if (!strcmp(id, CLAP_EXT_AUDIO_PORTS_CONFIG))
+        return &g_host_audio_ports_config;
     return NULL;
 }
 
@@ -1888,14 +1905,27 @@ static int64_t istream_read(const clap_istream_t *stream, void *data, uint64_t s
 ************************************************************************************************************************
 */
 
-void omx_clap_host_config_default(struct omx_clap_host_config *config)
+void omx_clap_host_config_default_sized(struct omx_clap_host_config *config, uint32_t caller_size)
 {
     static const struct omx_clap_host_config defaults =
     {
-        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2
+        OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, 0
     };
+    uint32_t n;
 
-    *config = defaults;
+    // too short to even carry a size that names a host: refused whole, as omx_clap_host_configure refuses it (#301)
+    if (caller_size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
+        return;
+    n = caller_size < sizeof(defaults) ? caller_size : sizeof(defaults);
+    memcpy(config, &defaults, n);
+    config->size = n;
+    if (n >= offsetof(struct omx_clap_host_config, idle_hold_us) + sizeof(config->idle_hold_us))
+        config->idle_hold_us = idle_hold_target_default();
+}
+
+void omx_clap_host_config_default(struct omx_clap_host_config *config)
+{
+    omx_clap_host_config_default_sized(config, sizeof(struct omx_clap_host_config));
 }
 
 int omx_clap_host_configure(const struct omx_clap_host_config *config)
@@ -1914,6 +1944,7 @@ int omx_clap_host_configure(const struct omx_clap_host_config *config)
         return -1;
     g_config = merged;
     g_configured = 1;
+    idle_hold_configure(merged.idle_hold_us);
     return 0;
 }
 
@@ -2889,6 +2920,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
                  in->desc->id, in->latency ? in->latency->get(in->plugin) : 0u);
         log_to_ring(in, line);
     }
+    // active for good: the process's idle hold counts it (#296)
+    in->idle_held = 1;
+    idle_hold_acquire();
     if (why)
         why[0] = '\0';
     return 0;
@@ -3017,6 +3051,11 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
         return;
     in->plugin->deactivate(in->plugin);
     in->active = 0;
+    if (in->idle_held)
+    {
+        in->idle_held = 0;
+        idle_hold_release();
+    }
     drop_bounce(in);
     memset(&in->stage, 0, sizeof(in->stage));
     for (i = 0; i < in->shadow_n; i++)
@@ -3662,7 +3701,8 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     }
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
-    // a ports rescan (audio-ports, or the surround or ambisonic layout changed) is reported, once; no restart
+    // a ports rescan (audio-ports, the surround or ambisonic layout changed, or the configuration list changed while
+    // inactive) is reported, once; no restart
     if (atomic_exchange_explicit(&in->ports_rescan_requested, 0u, memory_order_relaxed))
         atomic_store_explicit(&in->ports_rescanned, 1u, memory_order_relaxed);
     return atomic_load_explicit(&in->restart_requested, memory_order_relaxed) != 0;

@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.13.0
+Version:        0.16.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -15,8 +15,8 @@ BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
-# write every hosting code from its omx_vocabulary.h (2.19.0)
-BuildRequires: omx-contract-devel >= 2.19.0
+# the codes under contract.d/3 (3.0.0, the hosting codes moved here)
+BuildRequires: omx-contract-devel >= 3.0.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -24,6 +24,7 @@ BuildRequires: libasan
 # make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
 BuildRequires: perl-interpreter
 BuildRequires: pipewire-jack-audio-connection-kit-devel
+BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 # LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
@@ -67,9 +68,8 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits, in omx-contract's contract directory, which that package owns; clap_host.h names the refusal
-# codes by omx-contract's omx_vocabulary.h (2.19.0)
-Requires: omx-contract-devel >= 2.19.0
+# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0)
+Requires: omx-contract-devel >= 3.0.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
@@ -107,7 +107,7 @@ sed -i 's,LDFLAGS += -s,LDFLAGS +=,g' Makefile
 
 %install
 
-%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir}
+%make_install PREFIX=%{_prefix} LIBDIR=%{_libdir} UDEVDIR=%{_udevrulesdir}
 
 %check
 
@@ -121,6 +121,7 @@ make test-lv2
 %{_bindir}/omx-clap-scan
 %{_mandir}/man1/omx-clap-host.1*
 %{_mandir}/man1/omx-clap-scan.1*
+%{_udevrulesdir}/60-omx-clap-host.rules
 
 %files tests
 %license COPYING
@@ -130,13 +131,15 @@ make test-lv2
 %license COPYING
 %{_libdir}/libomx-clap-core.so.1
 %{_libdir}/libomx-clap-core.so.%{version}
+%{_datadir}/omx-clap-core/ts/
 
 %files -n omx-clap-core-devel
 %{_libdir}/libomx-clap-core.so
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
-%{_datadir}/omx-clap-core/
-%{_datadir}/omx-contract/contract.d/2/omx-clap-core/
+%{_datadir}/omx-clap-core/omx-clap-core.map
+%{_datadir}/omx-clap-core/libomx-clap-core.so.*.abi
+%{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING
@@ -145,6 +148,49 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.16.0-1
+- clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of
+  stages one audio cycle runs in order, each an instance the library hosts or a
+  stage of the caller's own, each with a bypass flag (a bypassed member is not
+  run, copied or counted), its latency and its channel layout; the chain reports
+  the sum of its non-bypassed members' latencies and tells every change of it.
+  omx_clap_chain_remove takes a member out and the next cycle equals a chain built
+  without it. The cycle allocates, locks and waits for nothing; a cycle longer
+  than OMX_CLAP_CHAIN_FRAMES_MAX (8192) passes dry and says so. Every structure a
+  consumer allocates carries its ABI and size first and a mismatch is refused,
+  OMX_CLAP_CHAIN_ERR_ABI. The functions are in the version node
+  OMX_CLAP_CORE_0.16 (docs/chain.md, #311).
+* Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.15.0-1
+- omx_clap_host_config_default_sized(config, caller_size) bounds the defaults' stamp to caller_size,
+  never to the library's own current sizeof: a consumer whose struct is smaller, because it was built
+  against an older header and not rebuilt since, is filled only that far and never overrun past its own
+  allocation. caller_size too short to carry even `version` is refused whole, not a byte moved.
+  omx_clap_host_config_default, unchanged, still stamps its own current size and cannot make this
+  promise; prefer the sized call. The call is in the version node OMX_CLAP_CORE_0.15 (#301).
+- The hosting codes' TypeScript modules (omx-clap-core-hosting.js,
+  omx-clap-core-vocabulary.js and their .d.ts) move from omx-clap-core-devel
+  to omx-clap-core, at the same path, so a program that only reads them at
+  run time, such as plugin-qualify, needs no development package.
+  pkg-config --variable=tsdir omx-clap-core still names that path.
+* Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
+- libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is active,
+  at 10 us by default (C1 only), 0 for no idle state, or off: one descriptor
+  per process, opened at the first activate and closed at the last, so a
+  crash restores the machine's default. A device that cannot be opened is
+  reported by code, hosting.idle.hold-refused, declared in this tree's
+  data/hosting.json, and the host runs on. omx-clap-host takes --idle-hold
+  and an idle_hold command; its packages ship a udev rule giving the audio
+  group the device. The calls are in the version node OMX_CLAP_CORE_0.14.
+  The library ABI is 16.
+- The hosting codes are this tree's: omx-contract's 16 data/hosting files
+  moved here byte for byte, installed under contract.d/3/omx-clap-core/hosting/
+  and rendered as omx_clap_core_vocabulary.h and the omx-clap-core-vocabulary
+  TypeScript module, the OMX_HOSTING_ names unchanged. The six retired codes
+  are removed (72 codes are left) and featuresMissingAtLoad is featuresMissing.
+  omx-clap-scan --fields clap:<path>#<id> | lv2:<uri> writes one plugin's
+  field dump for plugin-hostd's format tables, an LV2 plugin read from the
+  adapter's lilv world with its binary never opened. omx-contract 3.0.0 or
+  newer.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.13.0-1
 - Every audio port a plugin declares is described, main and auxiliary, up to
   64 a side and 64 channels a port, with the refusal codes of omx-contract for

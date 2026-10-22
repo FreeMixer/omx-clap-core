@@ -1,5 +1,6 @@
 usr/include/omx-clap-host
 usr/lib/*/libomx-clap-core.so
 usr/lib/*/pkgconfig/omx-clap-core.pc
-usr/share/omx-clap-core
-usr/share/omx-contract/contract.d/2/omx-clap-core
+usr/share/omx-clap-core/omx-clap-core.map
+usr/share/omx-clap-core/libomx-clap-core.so.*.abi
+usr/share/omx-contract/contract.d/3/omx-clap-core

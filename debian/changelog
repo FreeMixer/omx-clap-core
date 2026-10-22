@@ -1,3 +1,58 @@
+omx-clap-host (0.16.0) unstable; urgency=medium
+
+  * clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of
+    stages one audio cycle runs in order, each an instance the library hosts or a
+    stage of the caller's own, each with a bypass flag (a bypassed member is not
+    run, copied or counted), its latency and its channel layout; the chain reports
+    the sum of its non-bypassed members' latencies and tells every change of it.
+    omx_clap_chain_remove takes a member out and the next cycle equals a chain built
+    without it. The cycle allocates, locks and waits for nothing; a cycle longer
+    than OMX_CLAP_CHAIN_FRAMES_MAX (8192) passes dry and says so. Every structure a
+    consumer allocates carries its ABI and size first and a mismatch is refused,
+    OMX_CLAP_CHAIN_ERR_ABI. The functions are in the version node
+    OMX_CLAP_CORE_0.16 (docs/chain.md, #311).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 22 Oct 2026 12:00:00 +0200
+
+omx-clap-host (0.15.0) unstable; urgency=medium
+
+  * omx_clap_host_config_default_sized(config, caller_size) bounds the defaults' stamp to caller_size,
+    never to the library's own current sizeof: a consumer whose struct is smaller, because it was built
+    against an older header and not rebuilt since, is filled only that far and never overrun past its own
+    allocation. caller_size too short to carry even `version` is refused whole, not a byte moved.
+    omx_clap_host_config_default, unchanged, still stamps its own current size and cannot make this
+    promise; prefer the sized call. The call is in the version node OMX_CLAP_CORE_0.15 (#301).
+  * The hosting codes' TypeScript modules (omx-clap-core-hosting.js,
+    omx-clap-core-vocabulary.js and their .d.ts) move from libomx-clap-core-dev
+    to libomx-clap-core1, at the same path, so a program that only reads them
+    at run time, such as plugin-qualify, needs no development package.
+    pkg-config --variable=tsdir omx-clap-core still names that path.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 22 Oct 2026 09:00:00 +0200
+
+omx-clap-host (0.14.0) unstable; urgency=medium
+
+  * libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is
+    active, at 10 us by default (C1 only), 0 for no idle state, or off: one
+    descriptor per process, opened at the first activate and closed at the
+    last, so a crash restores the machine's default. A device that cannot be
+    opened is reported by code, hosting.idle.hold-refused, declared in this
+    tree's data/hosting.json, and the host runs on. omx-clap-host takes
+    --idle-hold and an idle_hold command; its packages ship a udev rule
+    giving the audio group the device. The calls are in the version node
+    OMX_CLAP_CORE_0.14. The library ABI is 16.
+  * The hosting codes are this tree's: omx-contract's 16 data/hosting files
+    moved here byte for byte, installed under contract.d/3/omx-clap-core/
+    hosting/ and rendered as omx_clap_core_vocabulary.h and the omx-clap-core-
+    vocabulary TypeScript module, the OMX_HOSTING_ names unchanged. The six
+    retired codes are removed (72 codes are left) and featuresMissingAtLoad is
+    featuresMissing. omx-clap-scan --fields clap:<path>#<id> | lv2:<uri>
+    writes one plugin's field dump for plugin-hostd's format tables, an LV2
+    plugin read from the adapter's lilv world with its binary never opened.
+    omx-contract 3.0.0 or newer.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 20 Oct 2026 20:30:00 +0200
+
 omx-clap-host (0.13.0) unstable; urgency=medium
 
   * Every audio port a plugin declares is described, main and auxiliary, up

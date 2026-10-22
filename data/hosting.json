@@ -10,12 +10,13 @@
         "guard": "CLAP_HOST_LIMITS_H",
         "project": "omx-clap-host",
         "banner": [
-          "Rendered from HOSTED_STAGE_LIMITS of data/hosting.json, where this library declares its stage limits.",
-          "The rendered file is kept in this repository so the library builds on its own; the numbers are changed",
-          "where they are declared and the file is re-rendered, never edited here. The refusal codes are",
-          "omx-contract's, from its omxcontract/omx_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*)."
+          "Rendered from HOSTED_STAGE_LIMITS and HOSTING_IDLE_CODES of data/hosting.json, where this library declares",
+          "its stage limits and the codes of the dimension it owns. The rendered file is kept in this repository so the",
+          "library builds on its own; the numbers and codes are changed where they are declared and the file is",
+          "re-rendered, never edited here. Every other refusal code is declared in data/hosting/ and rendered as",
+          "omx_clap_core_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*)."
         ],
-        "brief": "The limits of the hosting code.",
+        "brief": "The limits of the hosting code, and the codes of the idle dimension.",
         "includes": [
           "stddef.h"
         ],
@@ -26,6 +27,10 @@
             "worker*"
           ],
           "levels": "*Dbfs"
+        },
+        "codes": {
+          "comment": "the idle dimension: what the library answers about its hold of /dev/cpu_dma_latency (#296)",
+          "prefix": "CLAP_HOST_CODE_"
         }
       },
       {
@@ -67,7 +72,8 @@
         "src/clap_host.c#host_preset_on_error",
         "src/clap_host.c#wait_stopped",
         "src/effects.c#clap_state_save",
-        "src/effects.c#configure_lv2_with"
+        "src/effects.c#configure_lv2_with",
+        "src/idle_hold.c#idle_hold_target_default"
       ]
     },
     "doc": "The numbers a hosted plugin's stage limits itself to: the warm-up before it is published, the blocks of non-finite output that strike it, the level its output is clamped at, the parameter queue and the events one block delivers, the polls and timeouts of the hand-over between threads, the ports the core accepts and the caps on a plugin's state, log and parameter count. These are the stage's safety numbers, not an operator's travel.",
@@ -91,7 +97,8 @@
       "rolePollUs": 1000,
       "roleTimeoutUs": 200000,
       "paramCountMax": 2048,
-      "latencyHoldMs": 250
+      "latencyHoldMs": 250,
+      "idleHoldUs": 10
     },
     "docs": {
       "warmupLevelDbfs": "the level of the warm-up signal, in dBFS",
@@ -112,7 +119,24 @@
       "rolePollUs": "the poll interval while the audio role is taken, in microseconds",
       "roleTimeoutUs": "the longest the audio role is waited for, in microseconds",
       "paramCountMax": "the widest parameter count the core trusts",
-      "latencyHoldMs": "the hold before a hosted stage's new latency takes effect, in milliseconds"
+      "latencyHoldMs": "the hold before a hosted stage's new latency takes effect, in milliseconds",
+      "idleHoldUs": "the latency the library holds /dev/cpu_dma_latency at while an instance is active, in microseconds: 10 keeps the cores in C1"
+    }
+  },
+  "HOSTING_IDLE_CODES": {
+    "kind": "codes",
+    "since": "2.20.0",
+    "source": {
+      "impl": [
+        "src/idle_hold.c#idle_hold_open"
+      ]
+    },
+    "doc": "The hosting codes of the idle dimension, hosting.idle.*: what libomx-clap-core answers about its hold of the CPU idle states (/dev/cpu_dma_latency) while a plugin is active. The dimension is this library's: the hold lives in it, for every host that links it (#296).",
+    "codes": {
+      "idleHoldRefused": {
+        "code": "hosting.idle.hold-refused",
+        "doc": "the device could not be opened for writing (no permission, or no such device): the host runs with no hold"
+      }
     }
   }
 }

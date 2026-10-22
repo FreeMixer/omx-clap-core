@@ -81,6 +81,7 @@
 #include "hosted_stage.h"
 #include "omx_msgring.h"
 #include "lv2_core_internal.h"
+#include "lv2_ll_midi.h"
 
 // the event and uri-map extensions are deprecated upstream, and the plugins written to them (ll-plugins) are hosted as
 // they are: their types are used here without the deprecation warning
@@ -98,6 +99,12 @@ LV2_DISABLE_DEPRECATION_WARNINGS
 // an event buffer's header rounded up to 8 bytes, its data after it: each buffer of a run of them, and its data, start
 // 8-aligned on every ABI (the header is 24 bytes on LP64, 20 on ILP32)
 #define EVENT_HEADER_BYTES              ((((uint32_t)sizeof(LV2_Event_Buffer)) + 7u) & ~7u)
+// an llext:MidiPort's buffer: the LV2_MIDI header, padded to 8, its data after it; an event is a double timestamp, a
+// size_t size and the bytes, no padding (lv2_ll_midi.h)
+#define LL_HEADER_BYTES                 ((((uint32_t)sizeof(LV2_MIDI)) + 7u) & ~7u)
+#define LL_EVENT_HEAD                   ((uint32_t)(sizeof(double) + sizeof(size_t)))
+#define LL_DATA(buf)                    ((uint8_t *)(buf) + LL_HEADER_BYTES)
+#define LL_SLACK                        ((uint32_t)sizeof(double))   // past the capacity: the stamp zynadd reads after the last event
 _Static_assert(EVENT_HEADER_BYTES % 8u == 0 && EVENT_HEADER_BYTES >= sizeof(LV2_Event_Buffer),
                "an event buffer's data starts 8-aligned after its header");
 
@@ -180,7 +187,7 @@ struct lv2_instance
 
     // the MIDI ports' buffers, each midi_bytes long: [0] the input the host writes between runs, [1] the output the
     // plugin writes; NULL where the plugin has no such port. An atom sequence, or for an ev:EventPort an LV2_Event_Buffer
-    // whose data, midi_bytes long, follows its header
+    // whose data, midi_bytes long, follows its header, or for an llext:MidiPort an LV2_MIDI, the same way
     uint8_t *midi[2];
     uint32_t midi_bytes;
     LV2_URID urid_sequence, urid_midi;
@@ -377,6 +384,38 @@ static void event_reset(LV2_Event_Buffer *buf, uint32_t capacity)
 {
     buf->capacity = capacity;
     lv2_event_buffer_reset(buf, LV2_EVENT_AUDIO_STAMP, EVENT_DATA(buf));
+}
+
+/* [audio] an llext:MidiPort's buffer emptied, its capacity in its header, its data pointer the host's; the slack past
+ * the capacity holds +inf: zynadd's reader (lv2-midifunctions.h's lv2midi_step) reads the stamp after the last event
+ * before it checks the size, so on a block filled to the capacity it reads the slack, and +inf is a stamp no block
+ * reaches: no further event */
+static void ll_reset(LV2_MIDI *buf, uint32_t capacity)
+{
+    const double past = HUGE_VAL;
+
+    buf->event_count = 0;
+    buf->capacity = capacity;
+    buf->size = 0;
+    buf->data = LL_DATA(buf);
+    memcpy(LL_DATA(buf) + capacity, &past, sizeof(past));
+}
+
+/* [audio] one MIDI message appended to an llext:MidiPort's buffer: -1 when it does not fit */
+static int ll_append(LV2_MIDI *buf, uint32_t capacity, uint32_t frame, const uint8_t *data, uint32_t size)
+{
+    const double stamp = frame;
+    const size_t bytes = size;
+    uint8_t *at = LL_DATA(buf) + buf->size;
+
+    if (size > capacity || LL_EVENT_HEAD + size > capacity - buf->size)
+        return -1;
+    memcpy(at, &stamp, sizeof(stamp));
+    memcpy(at + sizeof(stamp), &bytes, sizeof(bytes));
+    memcpy(at + LL_EVENT_HEAD, data, size);
+    buf->size += LL_EVENT_HEAD + size;
+    buf->event_count++;
+    return 0;
 }
 
 /* [audio] one event at the end of `buf`, of `capacity` data bytes: 0, or -1 with no room left */
@@ -1233,6 +1272,7 @@ static void features_build(struct lv2_instance *in)
     data[F_OPTIONS] = in->options.opts;
     data[F_WORKER] = &in->schedule;
     data[F_LOG] = &in->log;
+    data[F_RTMEMPOOL] = (void *)lv2_rtmempool_feature();
     data[F_MAKE_PATH] = in->dir ? &in->make_path : NULL;
     data[F_MAP_PATH] = &in->map_path;
     data[F_FREE_PATH] = &in->free_path;
@@ -1374,7 +1414,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
 
         free(in->midi[k]);
         in->midi[k] = NULL;
-        if (port >= 0 && event)
+        if (port >= 0 && (k ? p->midi_out_ll : p->midi_in_ll))
+            in->midi[k] = calloc(1, LL_HEADER_BYTES + (size_t)in->midi_bytes + LL_SLACK);
+        else if (port >= 0 && event)
             in->midi[k] = calloc(1, EVENT_HEADER_BYTES + (size_t)in->midi_bytes);
         else if (port >= 0)
             in->midi[k] = calloc(1, in->midi_bytes);
@@ -1384,7 +1426,9 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
             return -1;
         }
     }
-    if (in->midi[0] && p->midi_in_event)
+    if (in->midi[0] && p->midi_in_ll)
+        ll_reset((LV2_MIDI *)in->midi[0], in->midi_bytes);
+    else if (in->midi[0] && p->midi_in_event)
         event_reset((LV2_Event_Buffer *)in->midi[0], in->midi_bytes);
     else if (in->midi[0])
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
@@ -2036,8 +2080,10 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     }
     memset(in->patch_out_flag, 0, p->n_patches);
     // the output is offered with its capacity: the plugin reads that, clears the sequence and appends to it; an event
-    // buffer is offered empty, its capacity in its header
-    if (in->midi[1] && p->midi_out_event)
+    // buffer, or an llext:MidiPort's, is offered empty, its capacity in its header
+    if (in->midi[1] && p->midi_out_ll)
+        ll_reset((LV2_MIDI *)in->midi[1], in->midi_bytes);
+    else if (in->midi[1] && p->midi_out_event)
         event_reset((LV2_Event_Buffer *)in->midi[1], in->midi_bytes);
     else if (in->midi[1])
         sequence_offer((LV2_Atom_Sequence *)in->midi[1], in->urid_sequence, in->midi_bytes - (uint32_t)sizeof(LV2_Atom));
@@ -2068,7 +2114,9 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
     patch_read_outputs(in);
     omx_denormals_off();
     // the input's messages were this run's: the next block starts empty
-    if (in->midi[0] && p->midi_in_event)
+    if (in->midi[0] && p->midi_in_ll)
+        ll_reset((LV2_MIDI *)in->midi[0], in->midi_bytes);
+    else if (in->midi[0] && p->midi_in_event)
         event_reset((LV2_Event_Buffer *)in->midi[0], in->midi_bytes);
     else if (in->midi[0])
         sequence_clear((LV2_Atom_Sequence *)in->midi[0], in->urid_sequence);
@@ -2090,7 +2138,9 @@ int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint
 
     if (!in || !in->midi[0] || size == 0)
         return -1;
-    if (in->plugin->midi_in_event)
+    if (in->plugin->midi_in_ll)
+        rc = ll_append((LV2_MIDI *)in->midi[0], in->midi_bytes, frame, data, size);
+    else if (in->plugin->midi_in_event)
         rc = event_append((LV2_Event_Buffer *)in->midi[0], in->midi_bytes, frame, (uint16_t)in->urid_midi, data, size);
     else
         rc = sequence_append((LV2_Atom_Sequence *)in->midi[0], in->midi_bytes - (uint32_t)sizeof(LV2_Atom), frame,
@@ -2128,6 +2178,32 @@ static void event_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, vo
     }
 }
 
+/* an llext:MidiPort output's messages: read only inside the buffer the plugin was given, from the data the host handed
+ * it, up to its event count and its size, each event's size inside what is left, each stamp a frame */
+static void ll_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx)
+{
+    const LV2_MIDI *buf = (const LV2_MIDI *)in->midi[1];
+    const uint32_t limit = buf->size < in->midi_bytes ? buf->size : in->midi_bytes;
+    uint32_t k, off = 0;
+
+    if (buf->data != LL_DATA(buf))
+        return;
+    for (k = 0; k < buf->event_count && off + LL_EVENT_HEAD <= limit; k++)
+    {
+        const uint8_t *at = LL_DATA(buf) + off;
+        double stamp;
+        size_t size;
+
+        memcpy(&stamp, at, sizeof(stamp));
+        memcpy(&size, at + sizeof(stamp), sizeof(size));
+        if (size == 0 || size > limit - off - LL_EVENT_HEAD)      // no message is empty: stale zeros end the walk
+            break;
+        if (isfinite(stamp) && stamp >= 0.0 && stamp < 16777216.0)       // 2^24: a frame, exact in a float
+            fn(ctx, (int64_t)stamp, at + LL_EVENT_HEAD, (uint32_t)size);
+        off += LL_EVENT_HEAD + (uint32_t)size;
+    }
+}
+
 void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx)
 {
     const LV2_Atom_Sequence *seq;
@@ -2136,6 +2212,11 @@ void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn f
 
     if (!capacity)
         return;
+    if (in->plugin->midi_out_ll)
+    {
+        ll_out_each(in, fn, ctx);
+        return;
+    }
     if (in->plugin->midi_out_event)
     {
         event_out_each(in, fn, ctx);

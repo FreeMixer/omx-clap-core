@@ -19,10 +19,10 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
-CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts
+CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
 
 PKG_CONFIG ?= pkg-config
 
@@ -103,11 +103,12 @@ LDFLAGS += -Wl,--no-undefined
 # source and object files
 SRC = src/main.c src/effects.c src/lv2_locate.c
 OBJ = $(SRC:.c=.o)
-CORE_SRC = src/clap_host.c
+CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
-# the scanner shares the plugin loading with the host through the core and needs neither jack nor the protocol library
-SCAN_SRC = src/scan.c
+# the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
+# and needs neither jack nor the protocol library
+SCAN_SRC = src/scan.c src/scan_fields.c src/lv2_locate.c
 SCAN_OBJ = $(SCAN_SRC:.c=.o)
 
 # the LV2 adapter, libomx-clap-lv2.a: lv2/core is the LV2 host with no CLAP in it, lv2/clap the shim that presents one LV2
@@ -118,7 +119,7 @@ LV2_VERSION = $(VERSION)
 LV2_CORE_LIB = build/lv2/liblv2core.a
 LV2_HEADERS = lv2/clap/omx_clap_lv2.h lv2/core/omx_lv2_features.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
-LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c
+LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c lv2/core/lv2_rtmempool.c
 LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o)
 LV2_CLAP_SRC = lv2/clap/lv2_clap.c
 LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)
@@ -147,12 +148,20 @@ $(PROTOCOL_LIB):
 	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
 endif
 
-$(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
-	$(CC) $(SCAN_OBJ) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
+$(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
+	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
+# the objects that embed the version: a move of VERSION rebuilds them, or the library keeps answering the old number
+# from an object made before the move (the staged consumer of test-core caught it once, 2026-10-20)
+src/clap_host.o src/main.o src/scan.o: VERSION
+
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the scanner's field dump reads an LV2 plugin through the adapter's world: lv2/core's header and the LV2 headers it names
+src/scan_fields.o: src/scan_fields.c
+	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
 
 # the host adds an LV2 plugin through the adapter: its header, and the LV2 headers that names
 src/effects.o: src/effects.c
@@ -185,6 +194,7 @@ INCLUDEDIR = $(PREFIX)/include
 DATADIR = $(PREFIX)/share
 MANDIR = $(DATADIR)/man/man1
 LIBEXECDIR = $(PREFIX)/libexec
+UDEVDIR = $(PREFIX)/lib/udev/rules.d
 # the test fixtures, in a directory of their own so no plugin scanner finds them
 TESTDIR = $(LIBEXECDIR)/$(PROG)/tests
 TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/jack_meter_source tests/socket_conformance.py
@@ -221,20 +231,28 @@ install-tests: $(TEST_FIXTURES)
 
 # the definitions this tree owns (data/: the hosting limits and refusal codes), installed as the package omx-clap-core
 # into omx-contract's contract directory, <contractdir>/<schema major>/omx-clap-core/, with a MANIFEST.json naming
-# this version and the tree they came from. contractdir and the install script are omx-contract-devel's (2.15.0 or
+# this version and the tree they came from. contractdir and the install script are omx-contract-devel's (3.0.0 or
 # later); a checkout of omx-contract (OMX_CONTRACT_DIR) stands in for the script when it is not installed.
-CONTRACT_SCHEMA_MAJOR = 2
+CONTRACT_SCHEMA_MAJOR = 3
 CONTRACTDIR = $(or $(shell $(PKG_CONFIG) --variable=contractdir omx-contract 2>/dev/null),$(DATADIR)/omx-contract/contract.d)
 INSTALL_CONTRACT_DIR = $(firstword $(wildcard $(shell $(PKG_CONFIG) --variable=datadir omx-contract 2>/dev/null)/install-contract-dir.sh) $(wildcard $(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh))
 .PHONY: install-contract test-contract
 install-contract:
-	@test -n "$(INSTALL_CONTRACT_DIR)" || { echo "install-contract: no install-contract-dir.sh: install omx-contract-devel 2.15.0 or later, or set OMX_CONTRACT_DIR to a checkout" >&2; exit 1; }
+	@test -n "$(INSTALL_CONTRACT_DIR)" || { echo "install-contract: no install-contract-dir.sh: install omx-contract-devel 3.0.0 or later, or set OMX_CONTRACT_DIR to a checkout" >&2; exit 1; }
 	sh $(INSTALL_CONTRACT_DIR) $(CORE) $(VERSION) $(CONTRACT_SCHEMA_MAJOR) data $(DESTDIR)$(CONTRACTDIR) data
 
 # data/ installed into a contract directory of its own, read back through omx-contract's reader beside omx-contract's
 # own package, and every file this tree commits as a render of it held to `render --package omx-clap-core`, byte for
 # byte (tests/contract-dir-check.sh), and every limit and refusal code of the two hosting headers held, value by value, to
 # what the reader reads (tests/hosting-values-check.mjs, with its sabotage arms); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+# omx-clap-scan --fields held to omx-contract's TERM files, and the dumps of the fake plugins and the LV2 fixture bundles
+# (their binaries absent: nothing is opened) read as records; PLUGIN_HOSTD_TABLES (plugin-hostd's data/formats) holds
+# every field a dump writes to a row of its table
+PLUGIN_HOSTD_TABLES ?=
+.PHONY: test-fields
+test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap
+	python3 tests/scan-fields-check.py ./$(SCAN_PROG) $(OMX_CONTRACT_DIR)/data/formats $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(LV2_FIXTURE_DIR) $(PLUGIN_HOSTD_TABLES)
+
 test-contract:
 	rm -rf build/contract
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh
@@ -244,8 +262,9 @@ test-contract:
 	node tests/hosting-values-check.mjs --self-test build/contract/json/omx-contract.json src
 
 install: install-lib install-lv2 install-tests install_man install-contract
-	install -d $(DESTDIR)$(BINDIR)
+	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(UDEVDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
+	install -m 644 packaging/udev/60-omx-clap-host.rules $(DESTDIR)$(UDEVDIR)/
 
 install_man:
 	install -d $(DESTDIR)$(MANDIR)
@@ -311,18 +330,19 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
+test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
+	./tests/idle_hold_test $(abspath tests/fake.clap)
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap) $(abspath tests/fault-17.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
-# every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of omx-contract's omx_vocabulary.h, the one the build
-# includes: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms)
+# every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of src/omx_clap_core_vocabulary.h, the render of
+# data/hosting/: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms)
 .PHONY: test-codes
 test-codes:
-	CC="$(CC)" CFLAGS="$(DSP_CFLAGS)" bash tests/hosting-codes-check.sh
-	CC="$(CC)" CFLAGS="$(DSP_CFLAGS)" bash tests/hosting-codes-check.sh --self-test
+	bash tests/hosting-codes-check.sh
+	bash tests/hosting-codes-check.sh --self-test
 
 # the stage against fake plugins at six rates, and the core over the fault fixtures and fakes: the witness, the guard
 # page, the audio role on a split, the whole roster and the tempo
@@ -367,6 +387,15 @@ tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CO
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
+# the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
+# control thread publishes, and build into the other
+tests/clap_chain_tsan: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+
+test-chain-tsan: tests/clap_chain_tsan tests/fake.clap tests/fake_compressor.clap
+	TSAN_OPTIONS=halt_on_error=1 ./tests/clap_chain_tsan $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
 tests/transport_seqlock_test: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DOMX_TEST_WITNESS $(WRAP_ALLOC) -pthread -o $@ $< -lm
 
@@ -397,6 +426,19 @@ test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hos
 # test that guards it built there and red on the check that names it; an arm that survives fails the target
 test-layouts-sabotage:
 	./tests/layout_sabotage.sh
+
+# the chain (docs/chain.md, #311): its values over the fake plugins and stages of the test's own; and its cycle, pass_dry and
+# omx_clap_chain_process, names nothing that allocates, waits, locks or prints
+test-chain: tests/clap_chain_test tests/fake.clap tests/fake_compressor.clap
+	mkdir -p build && sed -n '/^static void pass_dry/,/^}/p; /^int omx_clap_chain_process/,/^}/p' src/clap_chain.c > build/clap_chain_rt.c
+	grep -q 'omx_clap_host_run_ports' build/clap_chain_rt.c && grep -q 'memcpy' build/clap_chain_rt.c \
+	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_chain_rt.c \
+	    && echo "ok   the chain's cycle (pass_dry, omx_clap_chain_process) names no allocator, sleep, lock or printf"
+	./tests/clap_chain_test $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
+# each guard of the chain broken in a copy of the tree, the test seen red on the check that names it
+test-chain-sabotage:
+	./tests/chain_sabotage.sh
 
 # the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
 test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
@@ -454,6 +496,12 @@ tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADER
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
+tests/clap_chain_test: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
+tests/idle_hold_test: tests/idle_hold_test.c $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
 tests/clap_ext_test: tests/clap_ext_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -ldl -lpthread -lm
 
@@ -481,7 +529,7 @@ abi-check: abi-stage
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/fault-1.clap $(CORE_SO)
-	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
+	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h src/clap_chain.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
@@ -619,6 +667,11 @@ tests/jack_meter_source: tests/jack_meter_source.c
 test-identity: $(PROG) tests/jack_identity build/bench/inproc
 	./tests/clap_lv2_identity.sh
 
+# a chain of plugins in one JACK client against the same plugins one client each in series, bit for bit, and the latency
+# the chain reports their sum (#302): the fake plugins of this tree; PLUGINS=bench/plugins.tsv for the omx-plugins set
+test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap
+	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
+
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
 
@@ -674,6 +727,7 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
               build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so \
               build/lv2/omx-event-fixture.lv2/omx-event-fixture.so \
+              build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so \
               build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
@@ -716,6 +770,11 @@ build/lv2/omx-event-fixture.lv2/omx-event-fixture.so: $(LV2_FIXTURE_DIR)/lv2_eve
 	cp $(LV2_FIXTURE_DIR)/omx-event-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
+build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so: $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.c $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h lv2/core/lv2_ll_midi.h $(wildcard $(LV2_FIXTURE_DIR)/omx-ll-midi-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-ll-midi-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
 build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so: $(LV2_FIXTURE_DIR)/lv2_layout_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-layout-fixture.lv2/*.ttl $(@D)/
@@ -747,7 +806,7 @@ LV2_WRAP = -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 lv2/tests/lv2_run_test: lv2/tests/lv2_run_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) $(LV2_WRAP) -ldl -lpthread -lm
 
-lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h
+lv2/tests/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) -o $@ $< $(LV2_CORE_LIB) -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
 
 lv2/tests/lv2_patch_test: lv2/tests/lv2_patch_test.c $(LV2_CORE_LIB) lv2/tests/lv2_test_util.h
@@ -787,7 +846,7 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
-lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h
+lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
@@ -873,6 +932,8 @@ BENCH_QUANTA ?= 64 128 256 512
 BENCH_REPS ?= 3
 BENCH_SECONDS ?= 60
 BENCH_OUT ?= build/bench/results
+BENCH_IDLE_HOLD ?= default
+BENCH_CRASH ?= 1
 bench: bench-tools
 	BENCH_PATHS="$(BENCH_PATHS)" BENCH_RATES="$(BENCH_RATES)" BENCH_QUANTA="$(BENCH_QUANTA)" BENCH_REPS=$(BENCH_REPS) \
-	    BENCH_SECONDS=$(BENCH_SECONDS) ./bench/bench.sh $(BENCH_OUT)
+	    BENCH_SECONDS=$(BENCH_SECONDS) BENCH_IDLE_HOLD=$(BENCH_IDLE_HOLD) BENCH_CRASH=$(BENCH_CRASH) ./bench/bench.sh $(BENCH_OUT)

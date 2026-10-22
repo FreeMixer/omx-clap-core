@@ -50,7 +50,6 @@
 
 #include <clap/clap.h>
 #include <math.h>
-#include <omxcontract/omx_vocabulary.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -60,6 +59,7 @@
 #include "clap_host_extensions.h"
 #include "clap_stage.h"
 #include "omx_clap_ext.h"
+#include "omx_clap_core_vocabulary.h"
 
 
 /*
@@ -79,14 +79,16 @@
  * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
  * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, the ports rescan the
  * tick reports, the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
- * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels).
+ * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels; 15: the pass-through
+ * placement; 16: the CPU idle hold (#296): the configuration's idle_hold_us, the instance's idle_held,
+ * omx_clap_host_idle_hold_set and omx_clap_host_idle_hold).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               15u
-#define OMX_CLAP_CORE_ABI_OLDEST        15u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               16u
+#define OMX_CLAP_CORE_ABI_OLDEST        16u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -104,8 +106,8 @@
 
 #define OMX_CLAP_LAYOUT_DECLARED        1   ///< request_layout: the plugin cannot offer it; its declared layout stands
 
-/** The refusals the core returns, by the hosting code a verdict names them by: each the code omx-contract declares, from
- * its omxcontract/omx_vocabulary.h. A code is never reworded. */
+/** The refusals the core returns, by the hosting code a verdict names them by: each the code data/hosting/ declares, from
+ * omx_clap_core_vocabulary.h, its render. A code is never reworded. */
 #define CLAP_HOST_CODE_HEADLESS_FAILED      OMX_HOSTING_CLAP_HEADLESS_FAILED
 #define CLAP_HOST_CODE_NOTE_INPUT           OMX_HOSTING_CLAP_NOTE_INPUT  ///< the plugin declares a note input the configuration refuses
 #define CLAP_HOST_CODE_NO_AUDIO_OUTPUT      OMX_HOSTING_TOPOLOGY_NO_AUDIO_OUTPUT  ///< an audio input or an auxiliary port but no main output: nothing to carry (a plugin with no audio port at all passes the strip through instead, #270)
@@ -154,6 +156,29 @@ struct omx_clap_host_config
     int remote_controls;        ///< offer clap.remote-controls besides the declared list: see omx_clap_host_remote_controls_changed
     uint32_t lane_channels;     ///< the widest main port the caller's lane carries, 2 by default; 0 carries any width
                                 ///< (activation refuses a wider main port with CLAP_HOST_CODE_WIDER_THAN_STRIP)
+    int32_t idle_hold_us;       ///< ABI 16: what /dev/cpu_dma_latency is held at while an instance is active, in
+                                ///< microseconds: CLAP_HOST_IDLE_HOLD_US (10, C1 only) by default, 0 refuses every idle
+                                ///< state, OMX_CLAP_IDLE_HOLD_OFF holds nothing (omx_clap_host_idle_hold_set changes it later)
+};
+
+/** The CPU idle hold (ABI 16, #296). While any instance is active the library keeps one descriptor on
+ * /dev/cpu_dma_latency written with the target, so the cores wait in C1 between cycles instead of a deeper state;
+ * the kernel drops the request when the descriptor closes, at the last deactivate or at a crash. The device is held
+ * by the process, whichever host it is: omx-clap-host, an engine's in-process tier, a daemon's worker. A device that
+ * cannot be opened (its default mode is root's; a udev rule gives the audio group write access) refuses nothing: the
+ * instance runs on and the refusal is reported by code. OMX_CLAP_IDLE_HOLD_DEVICE in the environment names another
+ * device (a test's regular file). */
+#define OMX_CLAP_IDLE_HOLD_OFF          (-1)    ///< the target that holds nothing
+
+/** What omx_clap_host_idle_hold answers. */
+struct omx_clap_idle_hold
+{
+    int32_t target_us;          ///< the target: OMX_CLAP_IDLE_HOLD_OFF, 0 or a latency in microseconds
+    int32_t held_us;            ///< what the library holds now: the target while an instance is active and the device is open,
+                                ///< else OMX_CLAP_IDLE_HOLD_OFF
+    int32_t aggregate_us;       ///< the device's own answer, the kernel's limit across every requester; -1 when it cannot be read
+    uint32_t active;            ///< the instances active in this process
+    char code[OMX_CLAP_WHY_MAX];///< empty, or CLAP_HOST_CODE_IDLE_HOLD_REFUSED since the device could not be opened for writing
 };
 
 /** One parameter of a hosted plugin as a row: what a slot serves. A parameter that is not a row (hidden, read-only, the
@@ -499,8 +524,9 @@ struct omx_clap_instance
     struct omx_clap_sleep sleep;  ///< the RT's sleep of a plugin that said it needs no processing
 
     // the layout extensions (ABI 14): read at open, asked by describe at open for a surround or an ambisonic port; the
-    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, which the tick reports and never
-    // turns into a restart
+    // host's changed of either is a ports rescan, as clap.audio-ports rescan is, and as clap.audio-ports-config's rescan
+    // (the configuration list changed) is while the plugin is inactive; the tick reports it and never turns it into a
+    // restart
     const clap_plugin_surround_t *surround;  ///< the plugin's clap.surround/4 (or its draft id), NULL for none
     const clap_plugin_ambisonic_t *ambisonic;  ///< the plugin's clap.ambisonic/3 (or its draft id), NULL for none
     _Atomic uint32_t ports_rescanned;  ///< 1 once the tick saw a ports rescan, until omx_clap_host_ports_rescanned
@@ -516,6 +542,10 @@ struct omx_clap_instance
                                 ///< the host's placement, stereo and named `in (passthrough: host)` / `out (passthrough: host)`:
                                 ///< the strip's audio passes through the stage untouched, the plugin is handed no audio and
                                 ///< runs for its notes and parameters alone, and its latency reads 0
+
+    // ABI 16: the CPU idle hold (#296)
+    uint32_t idle_held;         ///< 1 while this instance counts in the process's idle hold: set by a completed activate, cleared
+                                ///< by deactivate, which releases its count
 };
 
 
@@ -527,12 +557,29 @@ struct omx_clap_instance
 
 /** The defaults: clamp, scan and warm-up on, note inputs refused, the declared extensions only, the host named for the
  * library. Fills
- * `abi` and `size` too: start from it. */
+ * `abi` and `size` too: start from it. Stamps the library's own current sizeof regardless of how large `config`
+ * actually is (#301): a caller whose own struct is smaller, because it was compiled against an older header and not
+ * rebuilt since, is overrun once that struct has grown past its size. omx_clap_host_config_default_sized is the call
+ * that cannot do that; prefer it. */
 OMX_CLAP_EXPORT void omx_clap_host_config_default(struct omx_clap_host_config *config);
+
+/** Like omx_clap_host_config_default, but never touches a byte past caller_size (0.15.0, #301): pass sizeof(*config)
+ * so the write is bounded to the struct as the CALLER compiled it, not to the library's own, possibly larger, current
+ * one. config is filled up to whichever of caller_size and the library's own sizeof is smaller, and `size` is set to
+ * that, not to the library's full size. caller_size too short to carry even `version` (the same floor
+ * omx_clap_host_configure holds a config to) is refused: config is left untouched, not partly overwritten. */
+OMX_CLAP_EXPORT void omx_clap_host_config_default_sized(struct omx_clap_host_config *config, uint32_t caller_size);
 
 /** Set the process's configuration, once, before the first binary is opened. -1: the ABI differs, a binary is open
  * already or a configuration was set. */
 OMX_CLAP_EXPORT int omx_clap_host_configure(const struct omx_clap_host_config *config);
+
+/** Change the idle hold's target (ABI 16): off, 0 or a latency in microseconds. Written to the open descriptor at once
+ * while held, applied at the next activate while not; off closes the descriptor. A target below off is refused, -1. */
+OMX_CLAP_EXPORT int omx_clap_host_idle_hold_set(int32_t target_us);
+
+/** The idle hold as it stands (ABI 16): the target, what is held, the device's aggregate, the active count, the code. */
+OMX_CLAP_EXPORT void omx_clap_host_idle_hold(struct omx_clap_idle_hold *out);
 
 /** The version of the library at run time, major * 10000 + minor * 100 + patch. */
 OMX_CLAP_EXPORT uint32_t omx_clap_core_version(void);
@@ -839,9 +886,10 @@ OMX_CLAP_EXPORT int omx_clap_host_note_names_changed(struct omx_clap_instance *i
  * refuses with hosting.clap.note-input when the new ports are ones open would have refused. Control thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_note_ports_rescanned(struct omx_clap_instance *in);
 
-/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, or clap.surround's or
- * clap.ambisonic's changed), then 0 until it makes another: the description held from open may no longer be the
- * plugin's. Nothing is restarted or read again for it: omx_clap_host_request_layout reads it again and clears the
+/** 1 once after the tick saw a ports rescan the plugin made (clap.audio-ports rescan, any flags, clap.surround's or
+ * clap.ambisonic's changed, or, while it was inactive, clap.audio-ports-config's rescan: its configuration list
+ * changed), then 0 until it makes another: the description held from open, or the configuration list request_layout
+ * chose from, may no longer be the plugin's. Nothing is restarted or read again for it: omx_clap_host_request_layout reads it again and clears the
  * report, an activate never does. The warm-up's own deactivate is not reported; a rescan made in a restart's deactivate
  * is (the restart then leaves the instance inactive), and one made inside activate() is. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_ports_rescanned(struct omx_clap_instance *in);

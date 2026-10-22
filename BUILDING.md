@@ -179,7 +179,8 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
 - `clap_host.h`: the control thread's side, the exported functions, `omx_clap_host_*`.
 - `clap_host_limits.h`: every number the core reads, rendered from
   `data/hosting.json` and committed here; never edited by hand. The refusal codes
-  are omx-contract's, from its `omxcontract/omx_vocabulary.h` (2.19.0 or later):
+  are this tree's, declared in `data/hosting/<dimension>.json` and rendered as
+  `omx_clap_core_vocabulary.h` (committed, installed beside it, never edited by hand):
   `clap_host.h` names the core's as `CLAP_HOST_CODE_*`.
 - `hosted_stage_limits.h`: the same numbers as `OMX_HOSTED_STAGE_<FIELD>`, the LV2
   worker's two included, for a host that reads those names; rendered from the same
@@ -200,6 +201,10 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   thread: `omx_clap_midi_size` is a message's length from its status byte, `omx_clap_note_midi`
   the MIDI message of a CLAP note on, note off or choke. The host's note output and the LV2
   adapter's MIDI input both convert with it.
+- `clap_chain.h`: the chain, `omx_clap_chain_*`, an ordered list of stages (hosted instances
+  or the caller's own) that one call runs in order on the audio thread, with bypass, the summed
+  latency and removal; every structure a consumer allocates carries its ABI and size first
+  ([docs/chain.md](docs/chain.md)).
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a
@@ -269,6 +274,13 @@ at a published loop wrap. `make test-fake` includes it. `make test-transport-tsa
 runs it under ThreadSanitizer (CI does). `make test-transport-sabotage` takes
 the sequence re-check out of the read and expects torn records.
 
+`make test-chain` runs `tests/clap_chain_test.c`, the chain by value over the fake plugins
+and stages of its own: its output equals its members in series bit for bit, the latency is
+their sum and re-reported, a bypassed or removed member equals a chain built without it, a
+cycle longer than 8192 frames passes dry, a structure of another ABI or size is refused.
+`make test-fake` includes it. `make test-chain-tsan` runs it under ThreadSanitizer and `make
+test-chain-sabotage` breaks each guard in a copy of the tree and expects it red (CI runs both).
+
 `make test-param-contract` checks the parameter contract's arithmetic against
 answers computed elsewhere: SHA-256 against FIPS 180-4's examples, the
 canonical fingerprint against the contract's worked vector and the fake
@@ -279,16 +291,18 @@ one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
 `FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
 changes a symbol (`follow`, refused under R3).
 
-The hosting limits are declared in `data/hosting.json`, in omx-contract's
-schema; every hosting code the sources write is omx-contract's own, an
-`OMX_HOSTING_*` macro of its `omxcontract/omx_vocabulary.h`, and
+The hosting limits are declared in `data/hosting.json` and the hosting codes in
+`data/hosting/<dimension>.json`, in omx-contract's schema; every hosting code the
+sources write is an `OMX_HOSTING_*` macro of `src/omx_clap_core_vocabulary.h`, their
+render (`render --package omx-clap-core`), and
 `make test-codes` (in `make test` and `make test-fake`, `tests/hosting-codes-check.sh`)
 fails on a `"hosting.` literal in `src/` or `lv2/` and on an `OMX_HOSTING_*`
 name that header lacks; its `--self-test` breaks the sources each way and
 requires each to fail. `make install` puts them into omx-contract's contract
-directory, `$(pkg-config --variable=contractdir omx-contract)/2/omx-clap-core/`,
+directory, `$(pkg-config --variable=contractdir omx-contract)/3/omx-clap-core/`
+(the codes under `hosting/`),
 with a `MANIFEST.json` naming this version, using the install script
-omx-contract-devel 2.15.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
+omx-contract-devel 3.0.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
 The two rendered headers install with the other core headers under
 `include/omx-clap-host/`, and the TypeScript module under
 `share/omx-clap-core/ts/`, which `pkg-config --variable=tsdir omx-clap-core`

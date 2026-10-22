@@ -58,6 +58,7 @@
 #include <lv2/urid/urid.h>
 
 #include "lv2_core_internal.h"
+#include "lv2_ll_midi.h"
 
 
 /*
@@ -83,7 +84,7 @@
     X(lilv_port_supports_event) \
     X(lilv_scale_points_is_end) X(lilv_scale_points_get) X(lilv_scale_points_free) X(lilv_scale_point_get_label) \
     X(lilv_scale_point_get_value) X(lilv_nodes_begin) X(lilv_nodes_next) X(lilv_nodes_is_end) X(lilv_nodes_get) \
-    X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) \
+    X(lilv_nodes_contains) X(lilv_nodes_free) X(lilv_file_uri_parse) X(lilv_free) X(lilv_node_is_blank) X(lilv_nodes_size) \
     X(lilv_plugin_get_value) X(lilv_world_find_nodes) X(lilv_world_ask) \
     X(lilv_state_new_from_world) X(lilv_state_restore) X(lilv_state_free) X(lilv_state_new_from_instance) \
     X(lilv_state_to_string) X(lilv_state_new_from_string) X(lilv_world_load_resource) X(lilv_world_unload_resource)
@@ -111,7 +112,7 @@ enum
     N_RDF_TYPE, N_RDFS_RANGE, N_RDFS_LABEL, N_SYMBOL, N_MINIMUM, N_MAXIMUM, N_DEFAULT,
     N_ATOM_FLOAT, N_ATOM_DOUBLE, N_ATOM_INT, N_ATOM_LONG, N_ATOM_BOOL, N_ATOM_STRING, N_ATOM_PATH, N_MIDI_EVENT, N_TIME_POSITION,
     N_IS_SIDECHAIN, N_PG_GROUP, N_PG_SIDECHAIN_OF, N_PG_MAIN_INPUT, N_PG_MAIN_OUTPUT, N_NAME, N_LABEL, N_PSET_PRESET, N_APPLIES_TO, N_UNIT,
-    N_RANGE_STEPS, N_STATE_STATE, N_COUNT
+    N_RANGE_STEPS, N_STATE_STATE, N_LL_MIDI, N_COUNT
 };
 
 static const char *const NODE_URIS[N_COUNT] =
@@ -168,6 +169,7 @@ static const char *const NODE_URIS[N_COUNT] =
     [N_UNIT] = LV2_UNITS__unit,
     [N_RANGE_STEPS] = LV2_PORT_PROPS__rangeSteps,
     [N_STATE_STATE] = LV2_STATE__state,
+    [N_LL_MIDI] = OMX_LV2_LL_MIDI_PORT_URI,
 };
 
 /* one loaded bundle, reference-counted across the entries and plugins that use it */
@@ -415,7 +417,9 @@ static float node_float(const LilvNode *node, int *ok)
     return *ok ? L.lilv_node_as_float(node) : 0.0f;
 }
 
-/* the range, and the default is lv2:default, else lv2:minimum, else 0 */
+/* the range and the default: lv2:minimum and lv2:maximum as declared, an absent side -1e9 or 1e9 (the bounds a patch
+ * parameter gets when it declares none: LV2 leaves such a port unbounded, CLAP needs a finite pair, and a pair of
+ * [0,0] loses every write, #254); the default is lv2:default, else lv2:minimum, else 0, held inside the range */
 static void port_range(const LilvPlugin *pl, const LilvPort *port, struct lv2_control *c)
 {
     LilvNode *def = NULL, *min = NULL, *max = NULL;
@@ -425,10 +429,18 @@ static void port_range(const LilvPlugin *pl, const LilvPort *port, struct lv2_co
     c->def = node_float(def, &has_def);
     c->min = node_float(min, &has_min);
     c->max = node_float(max, &has_max);
-    if (!has_def)
-        c->def = c->min;
+    if (!has_min)
+        c->min = -1e9f;
     if (!has_max)
-        c->max = c->min > c->def ? c->min : c->def;
+        c->max = 1e9f;
+    if (c->max < c->min)
+        c->max = c->min;
+    if (!has_def)
+        c->def = has_min ? c->min : 0.0f;
+    if (c->def < c->min)
+        c->def = c->min;
+    if (c->def > c->max)
+        c->def = c->max;
     L.lilv_node_free(def);
     L.lilv_node_free(min);
     L.lilv_node_free(max);
@@ -1228,6 +1240,27 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
         struct lv2_control *c;
         const char *symbol;
 
+        if (L.lilv_port_is_a(pl, port, g.node[N_LL_MIDI]))
+        {
+            // an llext:MidiPort (ll-plugins' MIDI port, the event extension's predecessor: zynadd's MIDI input) is a
+            // MIDI port as the atom one is, over an LV2_MIDI buffer (lv2_ll_midi.h), and the only MIDI port in its
+            // direction: beside any other MIDI port, in either index order (a second llext:MidiPort, or an atom or
+            // ev:EventPort MIDI port, which the arms below refuse when the first was an ll port), the plugin is one more
+            // MIDI port than the adapter feeds (#284)
+            if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
+                return LV2_CODE_MIDI_IN;
+            if (input)
+            {
+                p->midi_in_port = (int32_t)i;
+                p->midi_in_ll = 1;
+            }
+            else
+            {
+                p->midi_out_port = (int32_t)i;
+                p->midi_out_ll = 1;
+            }
+            continue;
+        }
         if (L.lilv_port_is_a(pl, port, g.node[N_EVENT]))
         {
             // an ev:EventPort (the event extension, atom's predecessor: ll-plugins' rudolf556 and control2midi) that
@@ -1252,6 +1285,8 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
                 }
                 continue;
             }
+            if (input ? p->midi_in_ll : p->midi_out_ll)       // an llext:MidiPort is the only MIDI port its way
+                return LV2_CODE_MIDI_IN;
             if (*count >= (input ? LV2_CORE_ATOM_IN_PORTS : LV2_CORE_NOTIFY_PORTS))
                 return LV2_CODE_MIDI_IN;
             (input ? p->event_in : p->event_out)[(*count)++] = i;
@@ -1268,7 +1303,11 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
             // is the first port's in index order
             if (input ? p->midi_in_port >= 0 : p->midi_out_port >= 0)
             {
-                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+                LilvNodes *rsz;
+
+                if (input ? p->midi_in_ll : p->midi_out_ll)   // an llext:MidiPort is the only MIDI port its way
+                    return LV2_CODE_MIDI_IN;
+                rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
 
                 if (input ? p->n_atom_in >= LV2_CORE_ATOM_IN_PORTS : p->n_notify >= LV2_CORE_NOTIFY_PORTS)
                 {
@@ -1875,4 +1914,152 @@ int lv2_bundle_presets(const struct lv2_bundle *b, lv2_preset_fn fn, void *ctx)
     for (i = 0; i < b->count && !stopped; i++)
         listed += plugin_presets(b, i, fn, ctx, &stopped);
     return listed;
+}
+
+
+/*
+************************************************************************************************************************
+*           GLOBAL FUNCTIONS: THE FIELD DUMP, FROM THE WORLD ALONE
+************************************************************************************************************************
+*/
+
+/* a resource's label: its lv2:name, rdfs:label or foaf:name, the first it states; NULL when it states none */
+static char *resource_label(const LilvNode *node)
+{
+    static const char *const by[] = { LV2_CORE__name, LV2_RDFS_LABEL, "http://xmlns.com/foaf/0.1/name" };
+    char *label = NULL;
+    uint32_t i;
+
+    for (i = 0; i < sizeof(by) / sizeof(by[0]) && !label; i++)
+    {
+        LilvNode *predicate = L.lilv_new_uri(g.world, by[i]);
+        LilvNodes *values = predicate ? L.lilv_world_find_nodes(g.world, node, predicate, NULL) : NULL;
+
+        if (values && L.lilv_nodes_size(values) > 0)
+            label = strdup(L.lilv_node_as_string(L.lilv_nodes_get(values, L.lilv_nodes_begin(values))));
+        L.lilv_nodes_free(values);
+        if (predicate)
+            L.lilv_node_free(predicate);
+    }
+    return label;
+}
+
+/* a number literal as the dump writes it, %.17g */
+static void number_text(const LilvNode *node, char *buf, size_t size)
+{
+    snprintf(buf, size, "%.17g", strtod(L.lilv_node_as_string(node), NULL));
+}
+
+/* one value of a field, by its kind; a resource that is no URI is passed by its label, and left out when it has none */
+static void field_value(const struct lv2_field_ask *ask, int32_t port, uint32_t k, const LilvNode *v, lv2_field_fn fn, void *ctx)
+{
+    char number[64];
+
+    if (L.lilv_node_is_uri(v) && !ask->by_label)
+        fn(ctx, port, k, LV2_FIELD_URI, L.lilv_node_as_uri(v));
+    else if (L.lilv_node_is_uri(v) || L.lilv_node_is_blank(v))
+    {
+        char *label = resource_label(v);
+
+        if (label)
+            fn(ctx, port, k, LV2_FIELD_TEXT, label);
+        free(label);
+    }
+    else if (L.lilv_node_is_float(v) || L.lilv_node_is_int(v))
+    {
+        number_text(v, number, sizeof(number));
+        fn(ctx, port, k, LV2_FIELD_NUMBER, number);
+    }
+    else
+        fn(ctx, port, k, LV2_FIELD_TEXT, L.lilv_node_as_string(v));
+}
+
+/* a port's scale points, each "<value> <label>" */
+static void scale_points(const LilvPlugin *pl, const LilvPort *port, int32_t index, uint32_t k, lv2_field_fn fn, void *ctx)
+{
+    LilvScalePoints *points = L.lilv_port_get_scale_points(pl, port);
+    LilvIter *it;
+
+    for (it = L.lilv_scale_points_begin(points); points && !L.lilv_scale_points_is_end(points, it);
+         it = L.lilv_scale_points_next(points, it))
+    {
+        const LilvScalePoint *sp = L.lilv_scale_points_get(points, it);
+        char number[64], *text;
+
+        number_text(L.lilv_scale_point_get_value(sp), number, sizeof(number));
+        if (asprintf(&text, "%s %s", number, L.lilv_node_as_string(L.lilv_scale_point_get_label(sp))) < 0)
+            continue;
+        fn(ctx, index, k, LV2_FIELD_TEXT, text);
+        free(text);
+    }
+    L.lilv_scale_points_free(points);
+}
+
+int lv2_bundle_fields(struct lv2_bundle *bundle, const char *uri, const struct lv2_field_ask *asks, uint32_t count,
+                      lv2_field_fn fn, void *ctx, char why[LV2_CORE_WHY_MAX])
+{
+    LilvNode *uri_node, **predicates;
+    const LilvPlugin *pl;
+    uint32_t k, i, ports;
+
+    if (!bundle || !uri || !g.world || !fn)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    uri_node = L.lilv_new_uri(g.world, uri);
+    pl = uri_node ? L.lilv_plugins_get_by_uri(L.lilv_world_get_all_plugins(g.world), uri_node) : NULL;
+    if (uri_node)
+        L.lilv_node_free(uri_node);
+    // the plugin must be THIS bundle's, as lv2_plugin_open has it
+    if (!pl || !L.lilv_node_equals(L.lilv_plugin_get_bundle_uri(pl), bundle->node))
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    predicates = calloc(count ? count : 1, sizeof(*predicates));
+    if (!predicates)
+    {
+        lv2_why_set(why, LV2_CODE_NO_REALISATION);
+        return -1;
+    }
+    for (k = 0; k < count; k++)
+        predicates[k] = L.lilv_new_uri(g.world, asks[k].uri);
+
+    for (k = 0; k < count; k++)
+    {
+        LilvNodes *values = predicates[k] ? L.lilv_plugin_get_value(pl, predicates[k]) : NULL;
+        LilvIter *it;
+
+        for (it = L.lilv_nodes_begin(values); values && !L.lilv_nodes_is_end(values, it); it = L.lilv_nodes_next(values, it))
+            field_value(&asks[k], -1, k, L.lilv_nodes_get(values, it), fn, ctx);
+        L.lilv_nodes_free(values);
+    }
+    ports = L.lilv_plugin_get_num_ports(pl);
+    for (i = 0; i < ports; i++)
+    {
+        const LilvPort *port = L.lilv_plugin_get_port_by_index(pl, i);
+
+        for (k = 0; port && k < count; k++)
+        {
+            LilvNodes *values;
+            LilvIter *it;
+
+            if (strcmp(asks[k].uri, LV2_CORE__scalePoint) == 0)
+            {
+                scale_points(pl, port, (int32_t)i, k, fn, ctx);
+                continue;
+            }
+            values = predicates[k] ? L.lilv_port_get_value(pl, port, predicates[k]) : NULL;
+            for (it = L.lilv_nodes_begin(values); values && !L.lilv_nodes_is_end(values, it); it = L.lilv_nodes_next(values, it))
+                field_value(&asks[k], (int32_t)i, k, L.lilv_nodes_get(values, it), fn, ctx);
+            L.lilv_nodes_free(values);
+        }
+    }
+    for (k = 0; k < count; k++)
+        if (predicates[k])
+            L.lilv_node_free(predicates[k]);
+    free(predicates);
+    lv2_why_set(why, "");
+    return 0;
 }
