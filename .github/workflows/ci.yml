@@ -146,6 +146,10 @@ jobs:
       - name: The sabotage of the audio layouts
         run: make test-layouts-sabotage
 
+      # the chain's cycles on a thread of their own while the control thread changes it, under ThreadSanitizer (#311)
+      - name: Test the chain under ThreadSanitizer
+        run: make test-chain-tsan
+
       # each guard of the chain broken in a copy of the sources, tests/clap_chain_test red on it (#311)
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
