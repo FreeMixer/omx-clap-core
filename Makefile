@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
 CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
@@ -103,7 +103,7 @@ LDFLAGS += -Wl,--no-undefined
 # source and object files
 SRC = src/main.c src/effects.c src/lv2_locate.c
 OBJ = $(SRC:.c=.o)
-CORE_SRC = src/clap_host.c src/idle_hold.c
+CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
@@ -330,7 +330,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
+test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
 	./tests/idle_hold_test $(abspath tests/fake.clap)
@@ -387,6 +387,15 @@ tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CO
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
+# the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
+# control thread publishes, and build into the other
+tests/clap_chain_tsan: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+
+test-chain-tsan: tests/clap_chain_tsan tests/fake.clap tests/fake_compressor.clap
+	TSAN_OPTIONS=halt_on_error=1 ./tests/clap_chain_tsan $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
 tests/transport_seqlock_test: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DOMX_TEST_WITNESS $(WRAP_ALLOC) -pthread -o $@ $< -lm
 
@@ -417,6 +426,19 @@ test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hos
 # test that guards it built there and red on the check that names it; an arm that survives fails the target
 test-layouts-sabotage:
 	./tests/layout_sabotage.sh
+
+# the chain (docs/chain.md, #311): its values over the fake plugins and stages of the test's own; and its cycle, pass_dry and
+# omx_clap_chain_process, names nothing that allocates, waits, locks or prints
+test-chain: tests/clap_chain_test tests/fake.clap tests/fake_compressor.clap
+	mkdir -p build && sed -n '/^static void pass_dry/,/^}/p; /^int omx_clap_chain_process/,/^}/p' src/clap_chain.c > build/clap_chain_rt.c
+	grep -q 'omx_clap_host_run_ports' build/clap_chain_rt.c && grep -q 'memcpy' build/clap_chain_rt.c \
+	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_chain_rt.c \
+	    && echo "ok   the chain's cycle (pass_dry, omx_clap_chain_process) names no allocator, sleep, lock or printf"
+	./tests/clap_chain_test $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
+# each guard of the chain broken in a copy of the tree, the test seen red on the check that names it
+test-chain-sabotage:
+	./tests/chain_sabotage.sh
 
 # the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
 test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
@@ -474,6 +496,9 @@ tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADER
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
+tests/clap_chain_test: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
 tests/idle_hold_test: tests/idle_hold_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
@@ -504,7 +529,7 @@ abi-check: abi-stage
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/fault-1.clap $(CORE_SO)
-	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
+	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h src/clap_chain.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
