@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.15.0
+Version:        0.16.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -146,6 +146,18 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.16.0-1
+- clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of
+  stages one audio cycle runs in order, each an instance the library hosts or a
+  stage of the caller's own, each with a bypass flag (a bypassed member is not
+  run, copied or counted), its latency and its channel layout; the chain reports
+  the sum of its non-bypassed members' latencies and tells every change of it.
+  omx_clap_chain_remove takes a member out and the next cycle equals a chain built
+  without it. The cycle allocates, locks and waits for nothing; a cycle longer
+  than OMX_CLAP_CHAIN_FRAMES_MAX (8192) passes dry and says so. Every structure a
+  consumer allocates carries its ABI and size first and a mismatch is refused,
+  OMX_CLAP_CHAIN_ERR_ABI. The functions are in the version node
+  OMX_CLAP_CORE_0.16 (docs/chain.md, #311).
 * Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.15.0-1
 - omx_clap_host_config_default_sized(config, caller_size) bounds the defaults' stamp to caller_size,
   never to the library's own current sizeof: a consumer whose struct is smaller, because it was built
