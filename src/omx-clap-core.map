@@ -135,3 +135,11 @@ OMX_CLAP_CORE_0.14
     omx_clap_host_idle_hold;
     omx_clap_host_idle_hold_set;
 } OMX_CLAP_CORE_0.13;
+
+/* added after 0.14.0 shipped: the 0.14 node is frozen */
+OMX_CLAP_CORE_0.15
+{
+  global:
+    /* bounded to the caller's own sizeof, never the library's (#301) */
+    omx_clap_host_config_default_sized;
+} OMX_CLAP_CORE_0.14;
