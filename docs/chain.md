@@ -104,5 +104,6 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
 or printf. `make test-chain-sabotage` (`tests/chain_sabotage.sh`, in CI) breaks each guard in a copy of the tree and
 sees the test red on the check that names it: a bypassed member left in the walk, a bypassed member's latency counted,
 the sum replaced by the last member's, a change never told, a removal that does not publish the walk again, the long
-cycle's bound one frame short, its dry copy dropped, one block for every member instead of two in turn, and the ABI
-refusal waved through.
+cycle's bound one frame short, its dry copy dropped, one block for every member instead of two in turn, the ABI
+refusal waved through, and a change that does not wait for the cycle reading the old plan, which `make
+test-chain-tsan` (the test under ThreadSanitizer, in CI) reports as a race in `publish`.
