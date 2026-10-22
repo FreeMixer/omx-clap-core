@@ -1470,6 +1470,7 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
 /* the first of a port's roles, in lv2_port_role's order: a control is the next of controls[*k], and takes it */
 static uint16_t port_role(const struct lv2_plugin *p, uint32_t i, uint32_t *k, uint32_t *leg, uint32_t *c)
 {
+    *leg = 0; /* the main legs and the patch/MIDI/time ports return early: their leg is 0, never unset */
     for (*c = 0; *c < p->main_in.n; (*c)++)
         if (p->main_in.port[*c] == i)
             return LV2_ROLE_MAIN_IN;
