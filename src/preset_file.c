@@ -391,6 +391,21 @@ int pj_set(struct pj *obj, const char *key, struct pj *val)
     return 0;
 }
 
+void pj_del(struct pj *obj, const char *key)
+{
+    struct pj *v = pj_get(obj, key);
+    size_t i;
+
+    if (!v)
+        return;
+    i = (size_t)(v - obj->kids);
+    pj_free(v);
+    free(obj->keys[i]);
+    memmove(&obj->kids[i], &obj->kids[i + 1], (obj->n - i - 1) * sizeof(*obj->kids));
+    memmove(&obj->keys[i], &obj->keys[i + 1], (obj->n - i - 1) * sizeof(*obj->keys));
+    obj->n--;
+}
+
 int pj_push(struct pj *arr, struct pj *val)
 {
     if (grow(arr) != 0)

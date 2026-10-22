@@ -649,6 +649,24 @@ test-jack-info: $(PROG) tests/fake.clap
 
 # a plugin that moves its own parameter over jack in the same kind of namespace: param_gesture and param_set on the
 # feedback port, in order, and the values read again when there were more than the ring holds
+# presets through the host (docs/presets.md): fake_mover and, where installed, Surge XT and ZamComp; and each guard broken
+# in a host of its own (drop the state body, ignore the fingerprint, widen a value to a float), the test red against each
+.PHONY: test-jack-presets test-jack-presets-sabotage
+test-jack-presets: $(PROG) tests/fake_mover.clap
+	./tests/jack_presets_e2e.sh
+
+PRESET_SABOTAGE_ARMS = DROP_STATE IGNORE_FINGERPRINT WIDEN_FLOAT
+test-jack-presets-sabotage: $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB) tests/fake_mover.clap
+	@mkdir -p build/sabotage
+	@for arm in $(PRESET_SABOTAGE_ARMS); do \
+	    $(CC) -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(CFLAGS) -DPRESET_SABOTAGE_$$arm -c -o build/sabotage/effects-$$arm.o src/effects.c || exit 1; \
+	    $(CC) $(filter-out src/effects.o,$(OBJ)) build/sabotage/effects-$$arm.o $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o build/sabotage/omx-clap-host-$$arm || exit 1; \
+	    if OMX_CLAP_HOST=$(CURDIR)/build/sabotage/omx-clap-host-$$arm ./tests/jack_presets_e2e.sh > build/sabotage/$$arm.log 2>&1; then \
+	        echo "FAIL sabotage $$arm: the presets test passed against it"; exit 1; \
+	    fi; \
+	    echo "ok   sabotage $$arm: red ($$(grep -c '^FAIL' build/sabotage/$$arm.log) checks: $$(grep -m1 '^FAIL' build/sabotage/$$arm.log | cut -c1-110))"; \
+	done
+
 test-jack-params: $(PROG) tests/fake_mover.clap
 	./tests/jack_params_e2e.sh
 

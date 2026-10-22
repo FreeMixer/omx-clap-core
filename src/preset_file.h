@@ -89,6 +89,8 @@ const char *pj_get_str(const struct pj *obj, const char *key);
 /* set an object's member, replacing one of that name in place or appending it; the value is moved in (left PJ_NULL)
  * and the old one freed. 0, or -1 when memory runs out (the value is freed) */
 int pj_set(struct pj *obj, const char *key, struct pj *val);
+/* remove an object's member by name, if it has one */
+void pj_del(struct pj *obj, const char *key);
 /* append a value to an array, moved in as pj_set does */
 int pj_push(struct pj *arr, struct pj *val);
 /* the values pj_set and pj_push take: a string copied, a number written as the shortest text that reads back to the same

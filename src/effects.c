@@ -42,6 +42,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
@@ -56,6 +57,7 @@
 #include "hosted_stage_limits.h"
 #include "host_transport.h"
 #include "layout_pin.h"
+#include "preset_file.h"
 #include "omx_clap_core_vocabulary.h"
 #include "lv2_locate.h"
 #include "omx_msgring.h"
@@ -189,6 +191,8 @@ typedef struct EFFECT_T {
     double rate;                            // the graph's rate when the instance was added
     struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
     struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
+    char layout_print[PHD_SHA256_HEX_LEN + 1];  // the parameter layout's digest after init, before activate: a preset
+                                            // file's fingerprint; empty when it could not be read
 } effect_t;
 
 
@@ -1954,6 +1958,9 @@ int effects_add(const char *uri, int instance, const char *client_name)
         error = PHD_ERR_PIN_LAYOUT_MISMATCH;
         goto error;
     }
+    // taken once, as the pin takes it: a plugin may rename a parameter as a preset loads, its layout is still its own
+    if (layout_pin_write(effect->clap->plugin, effect->clap->params, NULL, NULL, effect->layout_print) != 0)
+        effect->layout_print[0] = '\0';
     if (outputs_build(effect) != 0)
     {
         error = ERR_LV2_INSTANTIATION;
@@ -2222,20 +2229,603 @@ int effects_get_parameter(int effect_id, const char *control_symbol, float *valu
     return ret;
 }
 
-int effects_preset_load(int effect_id, const char *location)
+/* ---------------------------------------------------------------- presets (docs/presets.md) */
+
+/* PRESET_SABOTAGE_DROP_STATE, _IGNORE_FINGERPRINT and _WIDEN_FLOAT each break one guard below for
+ * make test-jack-presets-sabotage, which builds a host of each and watches tests/jack_presets_e2e.sh go red */
+
+/* a preset verb's refusal: mod-host's preset code, the word after it plugin-hostd#131's */
+#define PRESET_REFUSED ERR_LV2_INVALID_PRESET_URI
+
+/* the plugin's own presets, in the listing's order: the ones that name the instance's plugin */
+struct preset_walk
 {
-    struct omx_clap_instance *clap;
+    const effect_t *effect;
+    const char *plugin_id;
+    int want;                   // the index looked for, -1 to count; or -2 to look for `key`
+    const char *key;            // the load key looked for, decoded
+    int seen;
+    char load_key[PATH_MAX + 256];  // the load key of the one found, decoded
+    char name[256];
+    uint32_t kind;
+};
+
+static int preset_names_plugin(const struct omx_clap_preset *preset, const char *plugin_id)
+{
+    uint32_t i;
+
+    for (i = 0; i < preset->plugin_count; i++)
+        if (preset->plugin_ids[i] && strcmp(preset->plugin_ids[i], plugin_id) == 0)
+            return 1;
+    return 0;
+}
+
+/* the key preset_load takes for a listed preset: an LV2 preset's URI, plugin:<key> for a CLAP PLUGIN location, the
+ * file's path, with #<key> for one inside a container */
+static int preset_load_key_of(const effect_t *effect, const struct omx_clap_preset *preset, char *out, size_t size)
+{
+    int n;
+
+    if (preset->location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+        n = effect->lv2_entry ? snprintf(out, size, "%s", preset->load_key ? preset->load_key : "")
+                              : snprintf(out, size, "plugin:%s", preset->load_key ? preset->load_key : "");
+    else if (preset->load_key)
+        n = snprintf(out, size, "%s#%s", preset->location ? preset->location : "", preset->load_key);
+    else
+        n = snprintf(out, size, "%s", preset->location ? preset->location : "");
+    return n > 0 && (size_t)n < size ? 0 : -1;
+}
+
+static int preset_walk_one(void *ctx, const struct omx_clap_preset *preset)
+{
+    struct preset_walk *w = ctx;
+    char key[sizeof(w->load_key)];
+
+    if (!preset_names_plugin(preset, w->plugin_id) || preset_load_key_of(w->effect, preset, key, sizeof(key)) != 0)
+        return 0;
+    if (w->want == -1 || (w->want >= 0 && w->seen != w->want) || (w->want == -2 && strcmp(key, w->key) != 0))
+    {
+        w->seen++;
+        return 0;
+    }
+    snprintf(w->load_key, sizeof(w->load_key), "%s", key);
+    snprintf(w->name, sizeof(w->name), "%s", preset->name ? preset->name : "");
+    w->kind = preset->location_kind;
+    w->seen++;
+    return 1;
+}
+
+/* walk the plugin's presets: the CLAP file's preset-discovery factory, or the LV2 adapter's entry for the bundle's */
+static int preset_walk(const effect_t *effect, struct preset_walk *w)
+{
+    const struct omx_clap_instance *clap = effect->clap;
+    int n;
+
+    w->effect = effect;
+    w->plugin_id = clap->desc->id;
+    w->seen = 0;
+    w->load_key[0] = w->name[0] = '\0';
+    if (effect->lv2_entry)
+        n = omx_clap_host_entry_presets(effect->lv2_entry, preset_walk_one, w);
+    else
+        n = clap->bin ? omx_clap_host_presets(clap->bin, preset_walk_one, w) : -1;
+    return n < 0 ? -1 : 0;
+}
+
+int effects_preset_list(int effect_id, int *count)
+{
+    struct preset_walk w = { .want = -1 };
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    clap = g_effects[effect_id].clap;
-    if (!clap->preset_load)
+    *count = preset_walk(&g_effects[effect_id], &w) == 0 ? w.seen : 0;
+    return SUCCESS;
+}
+
+int effects_preset_get(int effect_id, int index, char *key, size_t key_size, char *name, size_t name_size)
+{
+    struct preset_walk w = { .want = index };
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (index < 0 || preset_walk(&g_effects[effect_id], &w) != 0 || !w.load_key[0]
+        || preset_key_encode(w.load_key, key, key_size) != 0)
         return ERR_INVALID_OPERATION;
+    snprintf(name, name_size, "%s", w.name);
+    return SUCCESS;
+}
+
+/* every row's value now, the snapshot a load is compared against; NULL for none */
+static double *param_values(effect_t *effect, uint32_t *count)
+{
+    struct omx_clap_param_row row;
+    double *values;
+    uint32_t i;
+
+    *count = omx_clap_host_param_count(effect->clap);
+    values = calloc(*count ? *count : 1, sizeof(*values));
+    for (i = 0; values && i < *count; i++)
+        if (omx_clap_host_param_row(effect->clap, i, &row) != 0 || omx_clap_host_param_read(effect->clap, row.id, &values[i]) != 0)
+            values[i] = NAN;
+    return values;
+}
+
+/* after a load: the plugin's own parameter events go out first (a flush where no cycle runs), then every row the load
+ * moved from `before` as param_set feedback, so a controller follows a preset the plugin applied itself */
+static void param_load_notify(effect_t *effect, const double *before, uint32_t count)
+{
+    struct omx_clap_param_row row;
+    const uint32_t state = atomic_load(&effect->clap->stage.state);
+    double value;
+    uint32_t i;
+
+    // a restart the load asked for (the LV2 adapter applies a preset by one) is taken now, not at the next tick
+    clap_idle(effect);
+    if (state == OMX_CLAP_IDLE || state == OMX_CLAP_ARMED)
+        omx_clap_host_param_deliver(effect->clap);
+    param_events_notify(effect);
+    if (!before || count != omx_clap_host_param_count(effect->clap))
+        return;
+    for (i = 0; i < count; i++)
+        if (omx_clap_host_param_row(effect->clap, i, &row) == 0 && omx_clap_host_param_read(effect->clap, row.id, &value) == 0
+            && !(value == before[i]))
+            param_set_feedback(effect, row.id, value);
+}
+
+/* the version and the parameter layout digest a preset file names the plugin by */
+static const char *plugin_version(const effect_t *effect)
+{
+    return effect->clap->desc->version ? effect->clap->desc->version : "";
+}
+
+static int plugin_fingerprint(const effect_t *effect, char *out, size_t size)
+{
+    if (!effect->layout_print[0])
+        return -1;
+    snprintf(out, size, "%s:%s", PHD_PIN_LAYOUT_SCHEME, effect->layout_print);
+    return 0;
+}
+
+static int set_str(struct pj *obj, const char *key, const char *s)
+{
+    struct pj v;
+
+    return pj_string(&v, s) == 0 ? pj_set(obj, key, &v) : -1;
+}
+
+static void utc_now(char out[32])
+{
+    const time_t now = time(NULL);
+    struct tm tm;
+
+    gmtime_r(&now, &tm);
+    strftime(out, 32, "%Y-%m-%dT%H:%M:%SZ", &tm);
+}
+
+/* a parsed preset file checked against the instance, nothing applied: 0, or the refusal with `*why` */
+struct preset_body
+{
+    uint8_t *state;             // the decoded state body, NULL for none
+    size_t state_len;
+    int state_lv2;              // its context is the adapter's LV2 state
+    const struct pj *params;    // the params array, NULL for none
+};
+
+static int preset_check(const effect_t *effect, const struct pj *doc, struct preset_body *body, const char **why)
+{
+    const char *format = pj_get_str(doc, "format"), *carries, *version, *fingerprint, *id;
+    const struct pj *plugin = pj_get(doc, "plugin"), *state, *params = pj_get(doc, "params");
+    char print[PHD_SHA256_HEX_LEN + 64];
+    int v2, with_state;
+    size_t i;
+
+    memset(body, 0, sizeof(*body));
+    *why = PRESET_CODE_INVALID;
+    if (doc->type != PJ_OBJECT || !format || strncmp(format, PRESET_FORMAT_PREFIX, strlen(PRESET_FORMAT_PREFIX)) != 0)
+        return PRESET_REFUSED;
+    // an unknown version is refused, never guessed
+    v2 = strcmp(format, PRESET_FORMAT_STATE) == 0;
+    if (!v2 && strcmp(format, PRESET_FORMAT_PARAMS) != 0)
+        return PRESET_REFUSED;
+    id = plugin && plugin->type == PJ_STRING ? plugin->str : pj_get_str(plugin, "id");
+    version = pj_get_str(plugin, "version");
+    fingerprint = pj_get_str(plugin, "fingerprint");
+    if (!id || (v2 && (!version || !fingerprint)))
+        return PRESET_REFUSED;
+    *why = PRESET_CODE_PLUGIN_CHANGED;
+    if (strcmp(id, effect->clap->desc->id) != 0 || (version && strcmp(version, plugin_version(effect)) != 0))
+        return PRESET_REFUSED;
+#ifndef PRESET_SABOTAGE_IGNORE_FINGERPRINT
+    if (fingerprint && (plugin_fingerprint(effect, print, sizeof(print)) != 0 || strcmp(fingerprint, print) != 0))
+        return PRESET_REFUSED;
+#endif
+
+    *why = PRESET_CODE_INVALID;
+    carries = v2 ? pj_get_str(doc, "carries") : PRESET_CARRIES_PARAMS;
+    if (!carries)
+        return PRESET_REFUSED;
+    with_state = strcmp(carries, PRESET_CARRIES_PARAMS_STATE) == 0 || strcmp(carries, PRESET_CARRIES_STATE) == 0;
+    if (!with_state && strcmp(carries, PRESET_CARRIES_PARAMS) != 0)
+        return PRESET_REFUSED;
+    if (strcmp(carries, PRESET_CARRIES_STATE) != 0)
+    {
+        if (!params || params->type != PJ_ARRAY)
+            return PRESET_REFUSED;
+        for (i = 0; i < params->n; i++)
+        {
+            const struct pj *value = pj_get(&params->kids[i], "value");
+
+            if (!pj_get_str(&params->kids[i], "symbol") || !value || value->type != PJ_NUMBER)
+                return PRESET_REFUSED;
+        }
+        body->params = params;
+    }
+    if (with_state)
+    {
+        const char *encoding, *context, *bytes;
+
+        state = pj_get(doc, "state");
+        encoding = pj_get_str(state, "encoding");
+        context = pj_get_str(state, "context");
+        bytes = pj_get_str(state, "bytes");
+        if (!encoding || strcmp(encoding, PRESET_ENCODING_BASE64) != 0 || !context || !bytes)
+            return PRESET_REFUSED;
+        body->state_lv2 = strcmp(context, PRESET_CONTEXT_LV2) == 0;
+        if (!body->state_lv2 && strcmp(context, PRESET_CONTEXT_PRESET) != 0 && strcmp(context, PRESET_CONTEXT_PROJECT) != 0)
+            return PRESET_REFUSED;
+        // an LV2 plugin's state is the adapter's, a CLAP plugin's is its own: the one is never loaded into the other
+        *why = PRESET_CODE_PLUGIN_CHANGED;
+        if (body->state_lv2 != (effect->lv2_entry != NULL))
+            return PRESET_REFUSED;
+        *why = PRESET_CODE_INVALID;
+        if (!(body->state = preset_base64_decode(bytes, &body->state_len)))
+            return PRESET_REFUSED;
+        *why = PRESET_CODE_NEEDS_STATE;
+        if (!effect->clap->state)
+            return PRESET_REFUSED;
+    }
+    *why = "";
+    return SUCCESS;
+}
+
+/* apply a checked body: the state first, then each parameter's exact value, so the values read at the save win */
+static int preset_apply(effect_t *effect, const struct pj *doc, const struct preset_body *body, const char **why)
+{
+    struct omx_clap_instance *clap = effect->clap;
+    const char *context = pj_get_str(pj_get(doc, "state"), "context");
+    size_t i;
+
+#ifdef PRESET_SABOTAGE_DROP_STATE
+    if (0)
+#else
+    if (body->state)
+#endif
+    {
+        const int rc = body->state_lv2 ? omx_clap_host_state_load(clap, body->state, body->state_len)
+            : omx_clap_host_state_load_context(clap, strcmp(context, PRESET_CONTEXT_PROJECT) == 0
+                                               ? CLAP_STATE_CONTEXT_FOR_PROJECT : CLAP_STATE_CONTEXT_FOR_PRESET,
+                                               body->state, body->state_len);
+        if (rc != 0)
+        {
+            *why = PRESET_CODE_LOAD_REFUSED;
+            return PRESET_REFUSED;
+        }
+        // the restart a state load asks for re-applies the state: it is taken before the values, which then win
+        clap_idle(effect);
+    }
+    for (i = 0; body->params && i < body->params->n; i++)
+    {
+        const struct pj *p = &body->params->kids[i];
+        const lv2_param_t *lv2;
+        clap_id id;
+
+        // a symbol the plugin does not have is passed over, as a state load passes it over
+        if (param_of(effect, pj_get_str(p, "symbol"), &id, &lv2) != 0 || lv2_bypass_param(lv2))
+            continue;
+#ifdef PRESET_SABOTAGE_WIDEN_FLOAT
+        clap_param_set(clap, id, (float)pj_get(p, "value")->num);
+#else
+        clap_param_set(clap, id, pj_get(p, "value")->num);
+#endif
+    }
+    return SUCCESS;
+}
+
+static int preset_load_file(effect_t *effect, const struct pj *doc, const char **why)
+{
+    struct preset_body body;
+    uint32_t count;
+    double *before;
+    int ret = preset_check(effect, doc, &body, why);
+
+    if (ret != SUCCESS)
+    {
+        free(body.state);
+        return ret;
+    }
+    before = param_values(effect, &count);
+    ret = preset_apply(effect, doc, &body, why);
+    param_load_notify(effect, before, count);
+    free(before);
+    free(body.state);
+    return ret;
+}
+
+/* a preset file at `path`: 1 with the tree in `doc`, 0 for a path that is no file of this format */
+static int preset_file_read(const char *path, struct pj *doc)
+{
+    struct stat st;
+    const char *format;
+
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || pj_read_file(path, doc) != 0)
+        return 0;
+    format = pj_get_str(doc, "format");
+    if (format && strncmp(format, PRESET_FORMAT_PREFIX, strlen(PRESET_FORMAT_PREFIX)) == 0)
+        return 1;
+    pj_free(doc);
+    return 0;
+}
+
+int effects_preset_load_why(int effect_id, const char *what, const char **why)
+{
+    effect_t *effect;
+    struct omx_clap_instance *clap;
+    char key[PATH_MAX + 256], *hash;
+    struct stat st;
+    struct pj doc;
+    uint32_t count;
+    double *before;
+    int ok, ret;
+
+    *why = "";
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    clap = effect->clap;
+    snprintf(key, sizeof(key), "%s", what);
+    preset_key_decode(key);
+    if (preset_file_read(key, &doc))
+    {
+        ret = preset_load_file(effect, &doc, why);
+        pj_free(&doc);
+        return ret;
+    }
+    *why = PRESET_CODE_NOT_OFFERED;
+    if (!clap->preset_load)
+        return PRESET_REFUSED;
+    before = param_values(effect, &count);
     // an LV2 preset is named by its URI, as mod-host takes it: a preset of the plugin's bundle, the URI its load key
-    if (g_effects[effect_id].lv2_entry)
-        return clap->preset_load->from_location(clap->plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, location)
-            ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
-    return omx_clap_host_preset_load(clap, location) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
+    if (effect->lv2_entry)
+        ok = clap->preset_load->from_location(clap->plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, key);
+    else if (strncmp(key, "plugin:", 7) == 0)
+        ok = omx_clap_host_preset_load_key(clap, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, key + 7) == 0;
+    else if (stat(key, &st) == 0)
+        ok = omx_clap_host_preset_load(clap, key) == 0;
+    else if ((hash = strrchr(key, '#')) != NULL && (*hash = '\0', stat(key, &st) == 0))
+        ok = omx_clap_host_preset_load_key(clap, CLAP_PRESET_DISCOVERY_LOCATION_FILE, key, hash + 1) == 0;
+    else
+    {
+        free(before);
+        return PRESET_REFUSED;
+    }
+    if (ok)
+        param_load_notify(effect, before, count);
+    free(before);
+    *why = ok ? "" : PRESET_CODE_LOAD_REFUSED;
+    return ok ? SUCCESS : PRESET_REFUSED;
+}
+
+int effects_preset_load(int effect_id, const char *location)
+{
+    const char *why;
+
+    return effects_preset_load_why(effect_id, location, &why);
+}
+
+/* the instance's parameters, each row's exact value by the symbol param_set takes */
+static int preset_params(effect_t *effect, struct pj *params)
+{
+    const uint32_t count = omx_clap_host_param_count(effect->clap);
+    struct omx_clap_param_row row;
+    char name[16];
+    struct pj p, v;
+    double value;
+    uint32_t i;
+
+    pj_array(params);
+    for (i = 0; i < count; i++)
+    {
+        const lv2_param_t *lv2;
+
+        if (omx_clap_host_param_row(effect->clap, i, &row) != 0)
+            continue;
+        lv2 = effect->lv2_entry ? lv2_param_by_id(effect, row.id) : NULL;
+        if (lv2_bypass_param(lv2) || omx_clap_host_param_read(effect->clap, row.id, &value) != 0)
+            continue;
+        pj_object(&p);
+        if (set_str(&p, "symbol", param_name(effect, row.id, name, sizeof(name))) != 0 || set_str(&p, "unit", "") != 0
+            || pj_number(&v, value) != 0 || pj_set(&p, "value", &v) != 0 || pj_push(params, &p) != 0)
+        {
+            pj_free(&p);
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* the instance's state for a preset: the CLAP preset context, or the adapter's LV2 state */
+static int preset_state(effect_t *effect, struct pj *state, const char **why)
+{
+    struct omx_clap_instance *clap = effect->clap;
+    uint8_t *buffer = malloc(CLAP_HOST_STATE_MAX_BYTES);
+    size_t length = 0;
+    char *text;
+    struct pj v;
+    int rc;
+
+    if (!buffer)
+        return -1;
+    rc = effect->lv2_entry ? omx_clap_host_state_save(clap, buffer, CLAP_HOST_STATE_MAX_BYTES, &length)
+        : omx_clap_host_state_save_context(clap, CLAP_STATE_CONTEXT_FOR_PRESET, buffer, CLAP_HOST_STATE_MAX_BYTES, &length);
+    text = rc == 0 ? preset_base64_encode(buffer, length) : NULL;
+    free(buffer);
+    if (!text)
+    {
+        *why = PRESET_CODE_LOAD_REFUSED;
+        return -1;
+    }
+    pj_object(state);
+    rc = set_str(state, "encoding", PRESET_ENCODING_BASE64) != 0
+        || set_str(state, "context", effect->lv2_entry ? PRESET_CONTEXT_LV2 : PRESET_CONTEXT_PRESET) != 0;
+    if (!rc)
+    {
+        memset(&v, 0, sizeof(v));
+        v.type = PJ_STRING;
+        v.str = text;
+        rc = pj_set(state, "bytes", &v) != 0;
+    }
+    else
+        free(text);
+    return rc ? -1 : 0;
+}
+
+int effects_preset_save(int effect_id, const char *path, const char *name, const char **why)
+{
+    effect_t *effect;
+    struct pj doc, plugin, params, state;
+    char now[32], print[PHD_SHA256_HEX_LEN + 64], tmp[PATH_MAX], *text;
+    const char *created;
+    uint32_t stage;
+    int with_state, ok;
+    FILE *file;
+
+    *why = PRESET_CODE_INVALID;
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    // a preset file at the path is rewritten, keeping what this host does not write; anything else there is refused
+    if (access(path, F_OK) == 0)
+    {
+        if (!preset_file_read(path, &doc))
+            return PRESET_REFUSED;
+        if (doc.type != PJ_OBJECT)
+        {
+            pj_free(&doc);
+            return PRESET_REFUSED;
+        }
+    }
+    else
+        pj_object(&doc);
+
+    omx_clap_host_settle(effect->clap, QUEUE_SETTLE_US);
+    stage = atomic_load(&effect->clap->stage.state);
+    if (stage == OMX_CLAP_IDLE || stage == OMX_CLAP_ARMED)
+        omx_clap_host_param_deliver(effect->clap);
+    with_state = effect->clap->state != NULL;
+    utc_now(now);
+    created = pj_get_str(&doc, "createdAt");
+    pj_object(&plugin);
+    ok = plugin_fingerprint(effect, print, sizeof(print)) == 0
+        && set_str(&plugin, "id", effect->clap->desc->id) == 0 && set_str(&plugin, "version", plugin_version(effect)) == 0
+        && set_str(&plugin, "fingerprint", print) == 0;
+    ok = ok && preset_params(effect, &params) == 0;
+    if (ok && with_state && preset_state(effect, &state, why) != 0)
+    {
+        pj_free(&params);
+        ok = 0;
+    }
+    if (!ok)
+    {
+        pj_free(&plugin);
+        pj_free(&doc);
+        return PRESET_REFUSED;
+    }
+    *why = PRESET_CODE_INVALID;
+    ok = set_str(&doc, "format", PRESET_FORMAT_STATE) == 0 && pj_set(&doc, "plugin", &plugin) == 0;
+    if (ok && !pj_get_str(&doc, "id"))
+    {
+        char id[512];
+
+        snprintf(id, sizeof(id), "%s@%s", effect->clap->desc->id, now);
+        ok = set_str(&doc, "id", id) == 0;
+    }
+    ok = ok && set_str(&doc, "name", name) == 0;
+    ok = ok && (created || set_str(&doc, "createdAt", now) == 0) && set_str(&doc, "modifiedAt", now) == 0;
+    ok = ok && set_str(&doc, "carries", with_state ? PRESET_CARRIES_PARAMS_STATE : PRESET_CARRIES_PARAMS) == 0;
+    ok = ok && pj_set(&doc, "params", &params) == 0;
+    if (with_state)
+        ok = ok && pj_set(&doc, "state", &state) == 0;
+    else
+        pj_del(&doc, "state");
+    text = ok ? pj_write(&doc, 1) : NULL;
+    pj_free(&doc);
+    if (!text)
+        return PRESET_REFUSED;
+
+    // written beside the file and renamed over it: a reader never sees half a preset
+    snprintf(tmp, sizeof(tmp), "%s.%d.tmp", path, (int)getpid());
+    file = fopen(tmp, "wb");
+    ok = file && fputs(text, file) >= 0;
+    ok = file && fclose(file) == 0 && ok;
+    free(text);
+    if (!ok || rename(tmp, path) != 0)
+    {
+        unlink(tmp);
+        return PRESET_REFUSED;
+    }
+    *why = "";
+    return SUCCESS;
+}
+
+/* what a load would apply, on one line of JSON: a file's document with each state body's bytes as their size, or a
+ * listed preset's name and key; malloc'd into `*json` */
+int effects_preset_show(int effect_id, const char *what, char **json, const char **why)
+{
+    effect_t *effect;
+    struct preset_walk w = { .want = -2 };
+    struct preset_body body;
+    struct pj doc, v, *state;
+    char key[PATH_MAX + 256];
+    int ret;
+
+    *json = NULL;
+    *why = "";
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    snprintf(key, sizeof(key), "%s", what);
+    preset_key_decode(key);
+    if (preset_file_read(key, &doc))
+    {
+        ret = preset_check(effect, &doc, &body, why);
+        state = pj_get(&doc, "state");
+        if (ret == SUCCESS && body.state)
+        {
+            pj_del(state, "bytes");
+            pj_number(&v, (double)body.state_len);
+            pj_set(state, "size", &v);
+        }
+        free(body.state);
+        if (ret == SUCCESS && !(*json = pj_write(&doc, 0)))
+            ret = ERR_MEMORY_ALLOCATION;
+        pj_free(&doc);
+        return ret;
+    }
+    w.key = key;
+    if (preset_walk(effect, &w) != 0 || !w.load_key[0])
+    {
+        *why = PRESET_CODE_NOT_OFFERED;
+        return PRESET_REFUSED;
+    }
+    pj_object(&doc);
+    if (set_str(&doc, "name", w.name) != 0 || set_str(&doc, "loadKey", w.load_key) != 0
+        || set_str(&doc, "location", w.kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? "plugin" : "file") != 0
+        || !(*json = pj_write(&doc, 0)))
+        ret = ERR_MEMORY_ALLOCATION;
+    else
+        ret = SUCCESS;
+    pj_free(&doc);
+    return ret;
 }
 
 int effects_state_save(const char *dir)

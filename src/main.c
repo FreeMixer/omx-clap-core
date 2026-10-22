@@ -99,7 +99,11 @@ static const char g_help_msg[] =
     PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
     "audio_ports <instance_number>\n"
-    "preset_load <instance_number> <preset_file>\n"
+    "preset_list <instance_number>\n"
+    "preset_get <instance_number> <index>\n"
+    "preset_load <instance_number> <load_key | preset_file>\n"
+    "preset_save <instance_number> <preset_file> <name>\n"
+    "preset_show <instance_number> <load_key | preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
     "connect <origin_port> <destination_port>\n"
@@ -331,6 +335,94 @@ static void idle_cb(void)
     }
 }
 
+/* the preset verbs of docs/presets.md: a refusal is "resp -104 <code>", the code plugin-hostd#131's */
+static void preset_reply(int resp, const char *why, proto_t *proto)
+{
+    char reply[128];
+
+    if (resp < 0 && why && why[0])
+    {
+        snprintf(reply, sizeof(reply), "resp %i %s", resp, why);
+        protocol_response(reply, proto);
+    }
+    else
+        protocol_response_int(resp, proto);
+}
+
+static void preset_list_cb(proto_t *proto)
+{
+    int count = 0;
+    const int resp = effects_preset_list(atoi(proto->list[1]), &count);
+
+    protocol_response_int(resp == SUCCESS ? count : resp, proto);
+}
+
+static void preset_get_cb(proto_t *proto)
+{
+    char key[SOCKET_MSG_BUFFER_SIZE / 2], name[256], reply[SOCKET_MSG_BUFFER_SIZE];
+    char *end;
+    long index = strtol(proto->list[2], &end, 10);
+    int resp = ERR_INVALID_OPERATION;
+
+    if (*end == '\0' && end != proto->list[2] && index >= 0 && index <= INT32_MAX)
+        resp = effects_preset_get(atoi(proto->list[1]), (int)index, key, sizeof(key), name, sizeof(name));
+    if (resp != SUCCESS)
+    {
+        protocol_response_int(resp, proto);
+        return;
+    }
+    snprintf(reply, sizeof(reply), "resp 0 %s %s", key, name);
+    protocol_response(reply, proto);
+}
+
+static void preset_load_cb(proto_t *proto)
+{
+    const char *why = "";
+    const int resp = effects_preset_load_why(atoi(proto->list[1]), proto->list[2], &why);
+
+    preset_reply(resp, why, proto);
+}
+
+/* preset_save <N> <file> <name>: the name is the rest of the line, or one quoted word */
+static void preset_save_cb(proto_t *proto)
+{
+    char name[256];
+    const char *why = "";
+    size_t len = 0;
+    uint32_t i;
+    int resp;
+
+    name[0] = '\0';
+    for (i = 3; i < proto->list_count; i++)
+    {
+        const int n = snprintf(name + len, sizeof(name) - len, "%s%s", i > 3 ? " " : "", proto->list[i]);
+
+        if (n < 0 || (size_t)n >= sizeof(name) - len)
+            break;
+        len += (size_t)n;
+    }
+    resp = effects_preset_save(atoi(proto->list[1]), proto->list[2], name, &why);
+    preset_reply(resp, why, proto);
+}
+
+static void preset_show_cb(proto_t *proto)
+{
+    const char *why = "";
+    char *json = NULL, *reply;
+    const int resp = effects_preset_show(atoi(proto->list[1]), proto->list[2], &json, &why);
+
+    if (resp != SUCCESS || !json || !(reply = malloc(strlen(json) + 8)))
+    {
+        preset_reply(resp == SUCCESS ? ERR_MEMORY_ALLOCATION : resp, why, proto);
+        free(json);
+        return;
+    }
+    sprintf(reply, "resp 0 %s", json);
+    protocol_response(reply, proto);
+    free(reply);
+    free(json);
+}
+
 static void term_signal(int sig)
 {
     running = 0;
@@ -346,7 +438,7 @@ static void term_signal(int sig)
 static void register_unsupported(void)
 {
     static const char *const commands[] = {
-        EFFECT_PRESET_SAVE, EFFECT_PRESET_SHOW, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
+        EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
         MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
         CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
         FEATURE_ENABLE, SHOW_EXTERNAL_UI, OUTPUT_DATA_READY,
@@ -362,6 +454,8 @@ static int host_init(int socket_port, int feedback_port)
 {
     // the first command registered under a verb is the one that answers it: this add, not the dispatch's
     protocol_add_command(EFFECT_ADD, add_cb);
+    // preset_load answers its refusal's code after the error, so it is this host's before the dispatch's
+    protocol_add_command(EFFECT_PRESET_LOAD, preset_load_cb);
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(PHD_VERB_PIN_EXPECT " %i %s", pin_expect_cb);
@@ -370,6 +464,10 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
     protocol_add_command("audio_ports %i", audio_ports_cb);
+    protocol_add_command(PHD_VERB_PRESET_LIST_FMT, preset_list_cb);
+    protocol_add_command(PHD_VERB_PRESET_GET_FMT, preset_get_cb);
+    protocol_add_command("preset_save %i %s %s ...", preset_save_cb);
+    protocol_add_command("preset_show %i %s", preset_show_cb);
     protocol_add_command(EFFECT_SET_BPM, set_bpm_cb);
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);

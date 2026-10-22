@@ -70,6 +70,12 @@ int effects_bypass(int effect_id, int value);
 int effects_set_parameter(int effect_id, const char *control_symbol, float value);
 int effects_get_parameter(int effect_id, const char *control_symbol, float *value);
 int effects_preset_load(int effect_id, const char *location);
+/* the preset verbs of docs/presets.md: a refusal returns ERR_LV2_INVALID_PRESET_URI with its plugin-hostd code in `why` */
+int effects_preset_load_why(int effect_id, const char *what, const char **why);
+int effects_preset_list(int effect_id, int *count);
+int effects_preset_get(int effect_id, int index, char *key, size_t key_size, char *name, size_t name_size);
+int effects_preset_save(int effect_id, const char *path, const char *name, const char **why);
+int effects_preset_show(int effect_id, const char *what, char **json, const char **why);
 int effects_state_save(const char *dir);
 int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);
