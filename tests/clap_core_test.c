@@ -54,6 +54,10 @@
  *     block: its note output port is read at open, the warm-up's 64 blocks put nothing in the ring, and each live block
  *     of omx_clap_host_run keeps 256 for omx_clap_host_notes_out at the block's frames, counts 44 dropped and the
  *     expression unmapped, and never forwards the NOTE_END, with no allocation on either side under the witness.
+ * 11. THE SIZED DEFAULT (#301): a caller_size too short to carry even `version` is refused whole, not a byte moved; one
+ *     shorter than the library's own struct (no idle_hold_us, as a caller built before ABI 16 and not rebuilt since)
+ *     is filled only that far, `size` says so, and nothing past it is touched, canary or not; the plain default still
+ *     fills to the library's own current size.
  */
 #include <pthread.h>
 #include <sched.h>
@@ -176,6 +180,40 @@ static void t_abi(void) {
   CHECK(omx_clap_host_configure(&config) == -1, "a consumer of ABI 13, whose instance lacks the surround and ambisonic extensions, is refused");
   config.abi = OMX_CLAP_CORE_ABI;
   CHECK(omx_clap_host_configure(&config) == 0, "a consumer of this header (ABI 16) is accepted");
+}
+
+/* ---- 11. the sized default (#301) ---- */
+static void t_config_default_sized(void) {
+  union { struct omx_clap_host_config cfg; unsigned char bytes[sizeof(struct omx_clap_host_config) + 64]; } probe;
+  struct omx_clap_host_config full;
+  uint32_t shrunk, i, moved;
+
+  /* too short to carry even `version` (the same floor omx_clap_host_configure holds a config to): refused whole */
+  memset(probe.bytes, 0xAA, sizeof(probe.bytes));
+  omx_clap_host_config_default_sized(&probe.cfg, 4);
+  for (moved = 0, i = 0; i < sizeof(probe.bytes); i++)
+    moved += probe.bytes[i] != 0xAA;
+  CHECK(moved == 0, "a caller_size of 4, too short to name a host, moves no byte (%u did)", moved);
+
+  /* a caller built before ABI 16 (no idle_hold_us): filled only up to its own sizeof, never past it, canary tail
+   * (the probe's own 64 bytes past the library's current struct) included */
+  shrunk = (uint32_t)offsetof(struct omx_clap_host_config, idle_hold_us);
+  memset(probe.bytes, 0xAA, sizeof(probe.bytes));
+  omx_clap_host_config_default_sized(&probe.cfg, shrunk);
+  for (moved = 0, i = shrunk; i < sizeof(probe.bytes); i++)
+    moved += probe.bytes[i] != 0xAA;
+  CHECK(moved == 0, "a caller_size of %u (no idle_hold_us) never writes past it, not even into the probe's own tail (%u byte(s) did)", shrunk, moved);
+  CHECK(probe.cfg.size == shrunk, "and says it filled exactly that much, never the library's own larger size (%u)", probe.cfg.size);
+  CHECK(probe.cfg.abi == OMX_CLAP_CORE_ABI && probe.cfg.clamp && probe.cfg.nonfinite && probe.cfg.warmup &&
+            !probe.cfg.note_inputs && !probe.cfg.preset_load && !probe.cfg.track_info && !probe.cfg.remote_controls &&
+            probe.cfg.lane_channels == 2,
+        "the fields it does reach are the usual defaults");
+  CHECK(probe.cfg.name && !strcmp(probe.cfg.name, "omx-clap-core") && probe.cfg.vendor && probe.cfg.url && probe.cfg.version,
+        "host, vendor, url and version are set as the plain default sets them");
+
+  /* the plain call is this one at the library's own current sizeof: unchanged by its existence */
+  omx_clap_host_config_default(&full);
+  CHECK(full.abi == OMX_CLAP_CORE_ABI && full.size == sizeof(full), "the plain default still fills to the library's own size (%u, %zu)", full.size, sizeof(full));
 }
 
 static void t_witness(void) {
@@ -1331,6 +1369,7 @@ int main(int argc, char **argv) {
   }
   g_fault_dir = argv[1];
   t_abi();
+  t_config_default_sized();
   t_witness();
   t_guard_page();
   t_audio_role_on_split();

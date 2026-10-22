@@ -557,8 +557,18 @@ struct omx_clap_instance
 
 /** The defaults: clamp, scan and warm-up on, note inputs refused, the declared extensions only, the host named for the
  * library. Fills
- * `abi` and `size` too: start from it. */
+ * `abi` and `size` too: start from it. Stamps the library's own current sizeof regardless of how large `config`
+ * actually is (#301): a caller whose own struct is smaller, because it was compiled against an older header and not
+ * rebuilt since, is overrun once that struct has grown past its size. omx_clap_host_config_default_sized is the call
+ * that cannot do that; prefer it. */
 OMX_CLAP_EXPORT void omx_clap_host_config_default(struct omx_clap_host_config *config);
+
+/** Like omx_clap_host_config_default, but never touches a byte past caller_size (0.15.0, #301): pass sizeof(*config)
+ * so the write is bounded to the struct as the CALLER compiled it, not to the library's own, possibly larger, current
+ * one. config is filled up to whichever of caller_size and the library's own sizeof is smaller, and `size` is set to
+ * that, not to the library's full size. caller_size too short to carry even `version` (the same floor
+ * omx_clap_host_configure holds a config to) is refused: config is left untouched, not partly overwritten. */
+OMX_CLAP_EXPORT void omx_clap_host_config_default_sized(struct omx_clap_host_config *config, uint32_t caller_size);
 
 /** Set the process's configuration, once, before the first binary is opened. -1: the ABI differs, a binary is open
  * already or a configuration was set. */
