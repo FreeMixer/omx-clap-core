@@ -4,18 +4,22 @@
  *
  * preset-census: which plugins of a .clap file offer presets, and through which system.
  *
- *   preset-census [--timeout SECONDS] FILE...
+ *   preset-census [--timeout SECONDS] FILE|DIRECTORY...
+ *
+ * A directory is walked as omx-clap-scan walks it: its .clap files, its subdirectories, and a .clap bundle directory
+ * through its one object.
  *
  * For every file and every plugin id it lists, one TSV line (the header first):
  *
  *   file  plugin_id  name  has_discovery_factory  providers  locations  extensions  presets_counted  has_preset_load
- *   has_state  error  file_presets_unnamed
+ *   has_state  error  file_presets_unnamed  presets_factory
  *
  * The preset-discovery factory is read as omx-clap-scan's design reads it (plugin-presets spec §2c): every provider is
  * created with an indexer that records declare_filetype, declare_location and declare_soundpack, init is called, and
  * get_metadata runs once per declared location (a PLUGIN location with a NULL location; a FILE location walked for the
  * declared extensions). A preset is counted under every plugin id of this file it names; one that names none of them
- * is counted in file_presets_unnamed. Unlike the scanner, the count is not capped.
+ * is counted in file_presets_unnamed. Unlike the scanner, the count is not capped. presets_factory counts the ones whose
+ * flags (the preset's own, else its location's) say CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT.
  *
  * locations is "plugin:N/file:M" over every provider; providers the number the factory declares; extensions the
  * declared file extensions, comma separated ("*" for a filetype with no extension).
@@ -30,6 +34,7 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -52,6 +57,7 @@
 #define CENSUS_OUT_MAX    (1u << 20)
 
 static int g_timeout = 10;
+static FILE *g_out;     // a child's results: its own descriptor, so a plugin that prints to stdout cannot mix into them
 
 /* ---------------------------------------------------------------------------------------------------------------- */
 /* the preset crawl, in the child                                                                                    */
@@ -69,7 +75,7 @@ struct census
 
     // the file's plugin ids, and the presets counted under each
     const char *ids[CENSUS_IDS];
-    unsigned long counts[CENSUS_IDS];
+    unsigned long counts[CENSUS_IDS], factory[CENSUS_IDS];
     uint32_t n_ids;
     unsigned long unnamed;
 
@@ -90,6 +96,8 @@ struct census
     int open;
     int named[CENSUS_IDS];
     int named_any;
+    uint32_t location_flags, flags;
+    int has_flags;
 };
 
 static void preset_end(struct census *c)
@@ -106,7 +114,11 @@ static void preset_end(struct census *c)
     }
     for (i = 0; i < c->n_ids; i++)
         if (c->named[i])
+        {
             c->counts[i]++;
+            if ((c->has_flags ? c->flags : c->location_flags) & CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT)
+                c->factory[i]++;
+        }
 }
 
 static bool idx_filetype(const clap_preset_discovery_indexer_t *indexer, const clap_preset_discovery_filetype_t *ft)
@@ -184,6 +196,7 @@ static bool rx_begin(const clap_preset_discovery_metadata_receiver_t *r, const c
     preset_end(c);
     c->open = 1;
     c->named_any = 0;
+    c->has_flags = 0;
     memset(c->named, 0, sizeof(c->named));
     return true;
 }
@@ -204,7 +217,16 @@ static void rx_plugin_id(const clap_preset_discovery_metadata_receiver_t *r, con
 }
 
 static void rx_soundpack(const clap_preset_discovery_metadata_receiver_t *r, const char *id) { (void)r; (void)id; }
-static void rx_flags(const clap_preset_discovery_metadata_receiver_t *r, uint32_t flags) { (void)r; (void)flags; }
+static void rx_flags(const clap_preset_discovery_metadata_receiver_t *r, uint32_t flags)
+{
+    struct census *c = r->receiver_data;
+
+    if (c->open)
+    {
+        c->flags = flags;
+        c->has_flags = 1;
+    }
+}
 static void rx_creator(const clap_preset_discovery_metadata_receiver_t *r, const char *s) { (void)r; (void)s; }
 static void rx_description(const clap_preset_discovery_metadata_receiver_t *r, const char *s) { (void)r; (void)s; }
 static void rx_timestamps(const clap_preset_discovery_metadata_receiver_t *r, clap_timestamp a, clap_timestamp b)
@@ -221,9 +243,10 @@ static void rx_extra(const clap_preset_discovery_metadata_receiver_t *r, const c
     (void)v;
 }
 
-static void crawl_one(struct census *c, const clap_preset_discovery_provider_t *p, uint32_t kind, const char *location)
+static void crawl_one(struct census *c, const clap_preset_discovery_provider_t *p, uint32_t kind, uint32_t flags, const char *location)
 {
     c->open = 0;
+    c->location_flags = flags;
     p->get_metadata(p, kind, location, &c->receiver);
     preset_end(c);
 }
@@ -248,7 +271,7 @@ static int by_name(const void *a, const void *b)
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
 
-static void crawl_path(struct census *c, const clap_preset_discovery_provider_t *p, const char *path, uint32_t depth)
+static void crawl_path(struct census *c, const clap_preset_discovery_provider_t *p, uint32_t flags, const char *path, uint32_t depth)
 {
     struct stat st;
     struct dirent *e;
@@ -262,7 +285,7 @@ static void crawl_path(struct census *c, const clap_preset_discovery_provider_t 
         return;
     if (S_ISREG(st.st_mode))
     {
-        crawl_one(c, p, CLAP_PRESET_DISCOVERY_LOCATION_FILE, path);
+        crawl_one(c, p, CLAP_PRESET_DISCOVERY_LOCATION_FILE, flags, path);
         return;
     }
     if (!S_ISDIR(st.st_mode) || depth >= CENSUS_DEPTH || !(dir = opendir(path)))
@@ -290,7 +313,7 @@ static void crawl_path(struct census *c, const clap_preset_discovery_provider_t 
     for (i = 0; i < n; i++)
     {
         if (lstat(names[i], &st) == 0 && (S_ISDIR(st.st_mode) || wants(c, names[i])))
-            crawl_path(c, p, names[i], depth + 1);
+            crawl_path(c, p, flags, names[i], depth + 1);
         free(names[i]);
     }
     free(names);
@@ -310,9 +333,9 @@ static void crawl_provider(struct census *c, const clap_preset_discovery_factory
         for (i = 0; i < c->n_locations; i++)
         {
             if (c->locations[i].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
-                crawl_one(c, p, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL);
+                crawl_one(c, p, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, c->locations[i].flags, NULL);
             else
-                crawl_path(c, p, c->locations[i].path, 0);
+                crawl_path(c, p, c->locations[i].flags, c->locations[i].path, 0);
         }
     if (p->destroy)
         p->destroy(p);
@@ -321,7 +344,8 @@ static void crawl_provider(struct census *c, const clap_preset_discovery_factory
     c->n_locations = 0;
 }
 
-/* child: "F\t<factory>\t<providers>\t<locations>\t<extensions>\t<unnamed>" then "C\t<id>\t<count>" per plugin id */
+/* child: "F\t<factory>\t<providers>\t<locations>\t<extensions>\t<unnamed>" then "C\t<id>\t<count>\t<factory count>" per
+ * plugin id */
 static int child_discover(const char *path)
 {
     char reason[256];
@@ -334,16 +358,18 @@ static int child_discover(const char *path)
 
     if (!bin)
     {
-        printf("E\tload: %s\n", reason);
-        return 0;
+        fprintf(g_out, "E\tload: %s\n", reason);
+        fflush(g_out);
+        _exit(0);
     }
     // the core holds the file open; this names the same object and its already-initialised entry
     so = dlopen(path, RTLD_NOW | RTLD_LOCAL | RTLD_NOLOAD);
     entry = so ? dlsym(so, "clap_entry") : NULL;
     if (!entry)
     {
-        printf("E\tno clap_entry\n");
-        return 0;
+        fprintf(g_out, "E\tno clap_entry\n");
+        fflush(g_out);
+        _exit(0);
     }
     f = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID);
     if (!f)
@@ -351,8 +377,8 @@ static int child_discover(const char *path)
     // a file that answers every factory id with its plugin factory has no preset-discovery factory (SpectMorph 0.6.1)
     if (!f || f == entry->get_factory(CLAP_PLUGIN_FACTORY_ID) || !f->count || !f->get_descriptor || !f->create)
     {
-        printf("F\t0\t0\tplugin:0/file:0\t\t0\n");
-        fflush(stdout);
+        fprintf(g_out, "F\t0\t0\tplugin:0/file:0\t\t0\n");
+        fflush(g_out);
         _exit(0);       // no deinit: a file's teardown is not what is measured
     }
     if (!(c = calloc(1, sizeof(*c))))
@@ -375,15 +401,15 @@ static int child_discover(const char *path)
         if (d && d->id)
             crawl_provider(c, f, d->id);
     }
-    printf("F\t1\t%u\tplugin:%u/file:%u\t", c->providers, c->plugin_locations, c->file_locations);
+    fprintf(g_out, "F\t1\t%u\tplugin:%u/file:%u\t", c->providers, c->plugin_locations, c->file_locations);
     if (c->any_ext)
-        printf("*%s", c->n_exts ? "," : "");
+        fprintf(g_out, "*%s", c->n_exts ? "," : "");
     for (i = 0; i < c->n_exts; i++)
-        printf("%s%s", i ? "," : "", c->exts[i]);
-    printf("\t%lu\n", c->unnamed);
+        fprintf(g_out, "%s%s", i ? "," : "", c->exts[i]);
+    fprintf(g_out, "\t%lu\n", c->unnamed);
     for (i = 0; i < c->n_ids; i++)
-        printf("C\t%s\t%lu\n", c->ids[i], c->counts[i]);
-    fflush(stdout);
+        fprintf(g_out, "C\t%s\t%lu\t%lu\n", c->ids[i], c->counts[i], c->factory[i]);
+    fflush(g_out);
     _exit(0);
 }
 
@@ -396,8 +422,8 @@ static int child_list(const char *path)
 
     if (!bin)
     {
-        printf("E\tload: %s\n", reason);
-        fflush(stdout);
+        fprintf(g_out, "E\tload: %s\n", reason);
+        fflush(g_out);
         _exit(0);
     }
     count = omx_clap_host_binary_count(bin);
@@ -405,9 +431,9 @@ static int child_list(const char *path)
     {
         const clap_plugin_descriptor_t *d = omx_clap_host_binary_descriptor(bin, i);
         if (d && d->id)
-            printf("I\t%s\t%s\n", d->id, d->name ? d->name : "");
+            fprintf(g_out, "I\t%s\t%s\n", d->id, d->name ? d->name : "");
     }
-    fflush(stdout);
+    fflush(g_out);
     _exit(0);
 }
 
@@ -421,8 +447,8 @@ static int child_instance(const char *path, const char *id)
 
     if (!bin)
     {
-        printf("E\tload: %s\n", reason);
-        fflush(stdout);
+        fprintf(g_out, "E\tload: %s\n", reason);
+        fflush(g_out);
         _exit(0);
     }
     count = omx_clap_host_binary_count(bin);
@@ -433,17 +459,17 @@ static int child_instance(const char *path, const char *id)
         {
             if (omx_clap_host_create(bin, d, &in) != 0 || !in)
             {
-                printf("E\tcreate or init failed\n");
-                fflush(stdout);
+                fprintf(g_out, "E\tcreate or init failed\n");
+                fflush(g_out);
                 _exit(0);
             }
-            printf("X\t%d\t%d\n", in->preset_load != NULL, in->state != NULL);
-            fflush(stdout);
+            fprintf(g_out, "X\t%d\t%d\n", in->preset_load != NULL, in->state != NULL);
+            fflush(g_out);
             _exit(0);   // the plugin's destroy is not what is measured
         }
     }
-    printf("E\tid not listed\n");
-    fflush(stdout);
+    fprintf(g_out, "E\tid not listed\n");
+    fflush(g_out);
     _exit(0);
 }
 
@@ -488,10 +514,12 @@ static char *run_child(int (*fn)(const char *, const char *), const char *a, con
         int devnull = open("/dev/null", 0);
 
         close(fds[0]);
-        dup2(fds[1], 1);
+        if (!(g_out = fdopen(fds[1], "w")))
+            _exit(3);
+        // the plugin's own chatter, on stdout or stderr, goes to stderr and is kept out of the table
+        dup2(2, 1);
         if (devnull >= 0)
             dup2(devnull, 0);
-        // the plugin's own chatter goes to stderr and is kept out of the table
         _exit(fn(a, b));
     }
     close(fds[1]);
@@ -614,7 +642,7 @@ static void census_file(const char *path)
         char e[256];
 
         field(e, sizeof(e), fail[0] ? NULL : p - 2, 1);
-        printf("%s\t-\t-\t-\t-\t-\t-\t-\t-\t-\tlist: %s\t-\n", path, fail[0] ? fail : e);
+        printf("%s\t-\t-\t-\t-\t-\t-\t-\t-\t-\tlist: %s\t-\t-\n", path, fail[0] ? fail : e);
         free(list);
         return;
     }
@@ -650,7 +678,7 @@ static void census_file(const char *path)
 
     for (p = list; p && *p; p = strchr(p, '\n') ? strchr(p, '\n') + 1 : NULL)
     {
-        char id[1024], name[1024], count[32], ifail[64], pl[8], st[8];
+        char id[1024], name[1024], count[32], fcount[32], ifail[64], pl[8], st[8];
         char *inst, *x, *c;
 
         if (strncmp(p, "I\t", 2) != 0)
@@ -659,9 +687,15 @@ static void census_file(const char *path)
         field(name, sizeof(name), p, 2);
         c = line_of(disc, "C", id);
         if (c)
+        {
             field(count, sizeof(count), c, 0);
+            field(fcount, sizeof(fcount), c, 1);
+        }
         else
+        {
             strcpy(count, factory[0] == '0' ? "0" : "?");
+            strcpy(fcount, count);
+        }
         inst = run_child(fn_instance, path, id, ifail, sizeof(ifail));
         x = line_of(inst, "X", NULL);
         if (x)
@@ -685,13 +719,78 @@ static void census_file(const char *path)
             snprintf(t, sizeof(t), "%.*s", e ? (int)strcspn(e, "\n") : 9, e ? e : "no answer");
             join(err, sizeof(err), "instance: ", t);
         }
-        printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", path, id, name, factory, providers, locations, exts, count, pl,
-               st, err, unnamed);
+        printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", path, id, name, factory, providers, locations, exts, count,
+               pl, st, err, unnamed, fcount);
         fflush(stdout);
         free(inst);
     }
     free(list);
     free(disc);
+}
+
+static int has_suffix(const char *name, const char *suffix)
+{
+    const size_t n = strlen(name), m = strlen(suffix);
+
+    return n > m && !strcmp(name + n - m, suffix);
+}
+
+/* a directory as omx-clap-scan walks it: its .clap files in name order, its directories walked, and a .clap directory
+ * with no .clap file directly inside read as a bundle through its one object */
+static void census_dir(const char *dir, uint32_t depth)
+{
+    struct dirent *e;
+    struct stat st;
+    char **names = NULL;
+    size_t n = 0, cap = 0, i;
+    unsigned here = 0;
+    DIR *d;
+
+    if (depth > CENSUS_DEPTH || !(d = opendir(dir)))
+    {
+        printf("%s\t-\t-\t-\t-\t-\t-\t-\t-\t-\tunreadable directory\t-\t-\n", dir);
+        return;
+    }
+    while ((e = readdir(d)))
+    {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+            continue;
+        if (n == cap)
+        {
+            char **grown = realloc(names, (cap = cap ? cap * 2 : 64) * sizeof(*names));
+            if (!grown)
+                break;
+            names = grown;
+        }
+        if (asprintf(&names[n], "%s/%s", dir, e->d_name) < 0)
+            break;
+        n++;
+    }
+    closedir(d);
+    if (n)
+        qsort(names, n, sizeof(*names), by_name);
+    for (i = 0; i < n; i++)
+    {
+        if (stat(names[i], &st) == 0 && S_ISDIR(st.st_mode))
+            census_dir(names[i], depth + 1);
+        else if (stat(names[i], &st) == 0 && S_ISREG(st.st_mode) && has_suffix(names[i], ".clap"))
+        {
+            census_file(names[i]);
+            here++;
+        }
+        free(names[i]);
+    }
+    free(names);
+    if (here == 0 && has_suffix(dir, ".clap"))
+    {
+        char object[PATH_MAX], reason[256];
+        const int k = omx_clap_host_bundle_object(dir, object, sizeof(object), reason, sizeof(reason));
+
+        if (k == 1)
+            census_file(object);
+        else if (k > 1)
+            printf("%s\t-\t-\t-\t-\t-\t-\t-\t-\t-\tbundle: %s\t-\t-\n", dir, reason);
+    }
 }
 
 int main(int argc, char **argv)
@@ -706,7 +805,7 @@ int main(int argc, char **argv)
     }
     if (a >= argc || g_timeout <= 0)
     {
-        fprintf(stderr, "usage: %s [--timeout SECONDS] FILE...\n", argv[0]);
+        fprintf(stderr, "usage: %s [--timeout SECONDS] FILE|DIRECTORY...\n", argv[0]);
         return 2;
     }
     omx_clap_host_config_default_sized(&config, sizeof(config));
@@ -718,8 +817,15 @@ int main(int argc, char **argv)
         return 2;
     }
     printf("file\tplugin_id\tname\thas_discovery_factory\tproviders\tlocations\textensions\tpresets_counted\thas_preset_load\t"
-           "has_state\terror\tfile_presets_unnamed\n");
+           "has_state\terror\tfile_presets_unnamed\tpresets_factory\n");
     for (; a < argc; a++)
-        census_file(argv[a]);
+    {
+        struct stat st;
+
+        if (stat(argv[a], &st) == 0 && S_ISDIR(st.st_mode))
+            census_dir(argv[a], 0);
+        else
+            census_file(argv[a]);
+    }
     return 0;
 }
