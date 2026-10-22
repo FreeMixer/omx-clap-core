@@ -392,7 +392,9 @@ jobs:
           for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
-            printf '%s\n' '/usr/lib*/libomx-clap-core.so.1' "/usr/lib*/libomx-clap-core.so.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING | sort > expected.txt
+            printf '%s\n' '/usr/lib*/libomx-clap-core.so.1' "/usr/lib*/libomx-clap-core.so.$(cat VERSION)" /usr/share/licenses/omx-clap-core/COPYING \
+              /usr/share/omx-clap-core/ts/omx-clap-core-hosting.js /usr/share/omx-clap-core/ts/omx-clap-core-hosting.d.ts \
+              /usr/share/omx-clap-core/ts/omx-clap-core-vocabulary.js /usr/share/omx-clap-core/ts/omx-clap-core-vocabulary.d.ts | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             # the library names no jack and no protocol library
             rpm -qp --requires "$rpm" | tee requires.txt
@@ -405,8 +407,6 @@ jobs:
               /usr/include/omx-clap-host/clap_host_limits.h /usr/include/omx-clap-host/omx_clap_core_vocabulary.h /usr/include/omx-clap-host/hosted_stage_limits.h /usr/include/omx-clap-host/clap_stage.h /usr/include/omx-clap-host/hosted_stage.h \
               /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h /usr/include/omx-clap-host/omx_clap_midi.h \
               /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.1.abi \
-              /usr/share/omx-clap-core/ts/omx-clap-core-hosting.js /usr/share/omx-clap-core/ts/omx-clap-core-hosting.d.ts \
-              /usr/share/omx-clap-core/ts/omx-clap-core-vocabulary.js /usr/share/omx-clap-core/ts/omx-clap-core-vocabulary.d.ts \
               /usr/share/omx-contract/contract.d/3/omx-clap-core/MANIFEST.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting.json \
               /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/clap.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/cost.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/features.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/latency.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/output.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/override.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/patch.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/preset.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/provenance.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/realised.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/rt-safety.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/stability.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/state.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/topology.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/worker.json | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
@@ -485,6 +485,11 @@ jobs:
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           # the LV2 adapter is linked in and loads lilv itself, on the first LV2 add
           ! grep -q 'liblilv' ldd.txt
+          # the hosting codes' TypeScript modules are in the runtime package: omx-clap-core-devel is not installed
+          # in this clean root, and plugin-qualify reads them at this path with no headers
+          for f in omx-clap-core-hosting.js omx-clap-core-hosting.d.ts omx-clap-core-vocabulary.js omx-clap-core-vocabulary.d.ts; do
+            test -s "/tmp/clean-root/usr/share/omx-clap-core/ts/$f"
+          done
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |
@@ -596,10 +601,17 @@ jobs:
           grep -qx /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/features.json dev-files.txt
           grep -qx /usr/include/omx-clap-host/omx_clap_core_vocabulary.h dev-files.txt
           grep -qx /usr/include/omx-clap-host/hosted_stage_limits.h dev-files.txt
+          # the hosting codes' TypeScript modules ship in the runtime package: a plugin-qualify-like consumer
+          # reads them with no -dev installed, and the Debian file lists never name a path in both packages
           tsdir=$(pkg-config --variable=tsdir omx-clap-core)
-          grep -qx "$tsdir/omx-clap-core-hosting.js" dev-files.txt
-          grep -qx "$tsdir/omx-clap-core-hosting.d.ts" dev-files.txt
-          grep -qx "$tsdir/omx-clap-core-vocabulary.js" dev-files.txt
+          dpkg -L libomx-clap-core1 | sort > core1-files.txt
+          grep -qx "$tsdir/omx-clap-core-hosting.js" core1-files.txt
+          grep -qx "$tsdir/omx-clap-core-hosting.d.ts" core1-files.txt
+          grep -qx "$tsdir/omx-clap-core-vocabulary.js" core1-files.txt
+          grep -qx "$tsdir/omx-clap-core-vocabulary.d.ts" core1-files.txt
+          ! grep -qx "$tsdir/omx-clap-core-hosting.js" dev-files.txt
+          # no FILE in both packages (the shared parent directories, /usr, /usr/share and so on, are in every pair's lists)
+          ! comm -12 core1-files.txt <(sort dev-files.txt) | while IFS= read -r p; do [ -d "$p" ] || printf '%s\n' "$p"; done | grep -q .
 
       # the LV2 adapter: its files, then a program built against libomx-clap-lv2-dev runs the fixture with the system's lilv
       - name: A consumer builds against libomx-clap-lv2-dev and runs an LV2 plugin
@@ -677,6 +689,13 @@ jobs:
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
+
+      - name: The runtime package alone carries the hosting codes' TypeScript modules
+        run: |
+          set -euo pipefail
+          for f in omx-clap-core-hosting.js omx-clap-core-hosting.d.ts omx-clap-core-vocabulary.js omx-clap-core-vocabulary.d.ts; do
+            test -s "/usr/share/omx-clap-core/ts/$f"
+          done
 
       - name: The scanner lists the fake plugins and survives the one that crashes
         run: |

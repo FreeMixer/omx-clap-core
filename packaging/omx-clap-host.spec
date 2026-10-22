@@ -131,12 +131,14 @@ make test-lv2
 %license COPYING
 %{_libdir}/libomx-clap-core.so.1
 %{_libdir}/libomx-clap-core.so.%{version}
+%{_datadir}/omx-clap-core/ts/
 
 %files -n omx-clap-core-devel
 %{_libdir}/libomx-clap-core.so
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
-%{_datadir}/omx-clap-core/
+%{_datadir}/omx-clap-core/omx-clap-core.map
+%{_datadir}/omx-clap-core/libomx-clap-core.so.*.abi
 %{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
@@ -153,6 +155,11 @@ make test-lv2
   allocation. caller_size too short to carry even `version` is refused whole, not a byte moved.
   omx_clap_host_config_default, unchanged, still stamps its own current size and cannot make this
   promise; prefer the sized call. The call is in the version node OMX_CLAP_CORE_0.15 (#301).
+- The hosting codes' TypeScript modules (omx-clap-core-hosting.js,
+  omx-clap-core-vocabulary.js and their .d.ts) move from omx-clap-core-devel
+  to omx-clap-core, at the same path, so a program that only reads them at
+  run time, such as plugin-qualify, needs no development package.
+  pkg-config --variable=tsdir omx-clap-core still names that path.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
 - libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is active,
   at 10 us by default (C1 only), 0 for no idle state, or off: one descriptor
