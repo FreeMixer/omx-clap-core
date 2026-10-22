@@ -11,12 +11,15 @@
 #                                    (needs dnf; the count of the report was made on Fedora 44 with audinux enabled)
 #
 # The class of each function is a judgement read from its body, kept in docs/adapter-seam.tsv (file, function, class,
-# area, thread, reason). This script only measures and sums, the way tools/hosting-compare.sh of #267 does: lizard (LIZARD,
-# default "python3 -m lizard") for the functions and their NLOC. A function the table does not class, or a row whose
-# function is gone, is a failure: the table moves with the code or the numbers stop being reproducible.
+# area, thread, reason). This script only measures and sums, the way tools/hosting-compare.sh of #267 does: lizard
+# (LIZARD, default the "lizard" console script on PATH, falling back to "python3 -m lizard") for the functions and
+# their NLOC. A function the table does not class, or a row whose function is gone, is a failure: the table moves
+# with the code or the numbers stop being reproducible.
 # Exit 0 printed, 1 a tool, a ref or a row is missing.
 set -euo pipefail
 
+# a pipx-style install puts only the "lizard" script on PATH, not the module on python3's sys.path
+LIZARD=${LIZARD:-$(command -v lizard || true)}
 LIZARD=${LIZARD:-python3 -m lizard}
 REPO=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 TABLE=$REPO/docs/adapter-seam.tsv
