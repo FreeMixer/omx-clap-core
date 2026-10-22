@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.14.0
+Version:        0.15.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -146,6 +146,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.15.0-1
+- omx_clap_host_config_default_sized(config, caller_size) bounds the defaults' stamp to caller_size,
+  never to the library's own current sizeof: a consumer whose struct is smaller, because it was built
+  against an older header and not rebuilt since, is filled only that far and never overrun past its own
+  allocation. caller_size too short to carry even `version` is refused whole, not a byte moved.
+  omx_clap_host_config_default, unchanged, still stamps its own current size and cannot make this
+  promise; prefer the sized call. The call is in the version node OMX_CLAP_CORE_0.15 (#301).
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
 - libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is active,
   at 10 us by default (C1 only), 0 for no idle state, or off: one descriptor
