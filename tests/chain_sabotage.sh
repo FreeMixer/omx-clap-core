@@ -3,8 +3,9 @@
 #
 # The sabotage of the chain's guards (#311, docs/chain.md): each arm copies the
 # sources into build/sabotage-chain-<arm>, breaks one guard of src/clap_chain.c
-# there with one sed, builds tests/clap_chain_test in that copy and runs it. The
-# arm holds when the test goes red on the check that names the guard; an arm
+# there with one sed, builds tests/clap_chain_test in that copy and runs it (or
+# tests/clap_chain_tsan, under ThreadSanitizer, for the guard only a race shows).
+# The arm holds when the test goes red on the check that names the guard; an arm
 # whose test stays green, goes red on something else, or whose sed changed
 # nothing fails the run. Nothing outside build/sabotage-chain-* is touched.
 #
@@ -17,9 +18,10 @@ jobs=${CHAIN_SABOTAGE_JOBS:-4}
 failures=0
 file=src/clap_chain.c
 
-# arm <name> <sed expression> <the FAIL line's text>
+# arm <name> <sed expression> <the FAIL line's text> [<test>: clap_chain_test, or clap_chain_tsan whose red is
+# ThreadSanitizer's SUMMARY line]
 arm() {
-    local name=$1 expr=$2 fail=$3 dir log
+    local name=$1 expr=$2 fail=$3 test=${4:-clap_chain_test} dir log
     dir=$root/build/sabotage-chain-$name
     log=$dir.log
     rm -rf "$dir"
@@ -35,16 +37,16 @@ arm() {
     fi
     # the copy's libomx-clap-core and nothing else: make exports LD_LIBRARY_PATH as the worktree, whose library is the
     # one not broken and wins over a test's RUNPATH
-    if (cd "$dir" && make -j"$jobs" tests/clap_chain_test tests/fake.clap tests/fake_compressor.clap \
-            && LD_LIBRARY_PATH=$dir ./tests/clap_chain_test "$dir/tests/fake.clap" "$dir/tests/fake_compressor.clap") >"$log" 2>&1; then
+    if (cd "$dir" && make -j"$jobs" "tests/$test" tests/fake.clap tests/fake_compressor.clap \
+            && TSAN_OPTIONS=halt_on_error=1 LD_LIBRARY_PATH=$dir "./tests/$test" "$dir/tests/fake.clap" "$dir/tests/fake_compressor.clap") >"$log" 2>&1; then
         echo "FAIL $name: survived, the test stays green with $file broken (log $log)"
         failures=$((failures + 1))
-    elif ! grep -q -E "^FAIL .*$fail" "$log"; then
+    elif ! grep -q -E "^(FAIL|SUMMARY: ThreadSanitizer:) .*$fail" "$log"; then
         echo "FAIL $name: red, but not on \"$fail\" (log $log)"
         tail -5 "$log" | sed 's/^/     /'
         failures=$((failures + 1))
     else
-        echo "ok   $name: red as expected: $(grep -m 1 -E "^FAIL .*$fail" "$log")"
+        echo "ok   $name: red as expected: $(grep -m 1 -E "^(FAIL|SUMMARY: ThreadSanitizer:) .*$fail" "$log")"
     fi
 }
 
@@ -83,6 +85,11 @@ arm blocks-alternate 's/chain->block\[s & 1u\]/chain->block[0]/' \
 # 9. a structure of another ABI or size is refused: read and written as if it were this header's
 arm abi-refusal 's/return abi >= OMX_CLAP_CHAIN_ABI_OLDEST/return 1 || abi >= OMX_CLAP_CHAIN_ABI_OLDEST/' \
     'of another ABI'
+
+# 10. a change waits for the cycle that may still read the old plan before the next change builds into it: without the
+# wait, the control thread writes the plan a cycle reads, a race ThreadSanitizer names in publish
+arm publish-wait '/^static void publish/,/^}/{/while (atomic_load(&chain->in_cycle) != 0u)/d; /usleep(CLAP_HOST_UNPUBLISH_POLL_US);/d}' \
+    'data race .* in publish' clap_chain_tsan
 
 if [ "$failures" -ne 0 ]; then
     echo "FAIL chain sabotage: $failures arm(s) did not hold"
