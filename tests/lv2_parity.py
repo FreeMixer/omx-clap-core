@@ -48,6 +48,7 @@ import hashlib
 import json
 import os
 import random
+import shlex
 import shutil
 import signal
 import socket
@@ -339,6 +340,86 @@ def _where(m, rate):
         first = m.get('first_diff', -1)
     return (f"max {m['max_diff']:.3g} at ch{ch} sample {idx} ({idx / rate:.3f} s; {m['max_vals'][0]:.6g} vs "
             f"{m['max_vals'][1]:.6g}); first at sample {first} (block {first // QUANTUM}, +{first % QUANTUM})")
+
+
+# ---------------------------------------------------------------- third host (jalv)
+
+THIRD_HOST_CLASSES = ('AGREES-WITH-MOD-HOST', 'AGREES-WITH-ADAPTER', 'AGREES-WITH-NEITHER', 'JALV-FAULT')
+
+
+def jalv_classify(sha_mod, sha_omx, jalv_rec):
+    """(class, detail) of jalv's recording of one plugin and rate against mod-host's and the adapter's own sha256
+    (from this run's own raw record: 'm'/'sha_mod' and 'm'/'sha_omx'). jalv_rec: {'status': 'ok', 'sha': ...} or
+    {'status': <crash|hang|error>, 'detail': ...}. JALV-FAULT when jalv itself did not come back with a usable
+    recording; otherwise which of the other two hosts it agrees with bit for bit, or neither."""
+    if SABOTAGE == 'jalv-blind':
+        return 'AGREES-WITH-MOD-HOST', 'sabotaged: always agrees with mod-host'
+    if jalv_rec.get('status') != 'ok':
+        return 'JALV-FAULT', f"{jalv_rec.get('status', 'error')}: {jalv_rec.get('detail', '')}"
+    sha = jalv_rec.get('sha', '')
+    if sha and sha == sha_mod:
+        return 'AGREES-WITH-MOD-HOST', f'sha {sha} == mod-host'
+    if sha and sha == sha_omx:
+        return 'AGREES-WITH-ADAPTER', f'sha {sha} == omx-clap-host'
+    return 'AGREES-WITH-NEITHER', f'sha {sha or "(none)"}; mod-host {sha_mod}, omx-clap-host {sha_omx}'
+
+
+def run_jalv(a, uri, rate, env):
+    """One plugin and rate through jalv (or, for the self-test, a stub standing in for it): the record
+    jalv_classify reads. The contract, shared by the real binary and the stub: given `<uri> <rate>` on argv,
+    print a line `sha <hex>` and exit 0 to report a recording; a nonzero exit, a timeout or no such line is a
+    fault. --jalv may be more than one word (so the self-test can point it at the stub through the interpreter,
+    `sys.executable <stub.py>`), split with shlex before the uri and rate are appended."""
+    argv = shlex.split(a.jalv) + [uri, str(rate)]
+    try:
+        p = subprocess.run(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                           timeout=a.jalv_timeout)
+    except subprocess.TimeoutExpired:
+        return {'status': 'hang', 'detail': f'{a.jalv} did not return within {a.jalv_timeout}s'}
+    lines = p.stdout.splitlines()
+    sha_lines = [l for l in lines if l.startswith('sha ')]
+    if p.returncode != 0 or not sha_lines:
+        return {'status': 'crash' if p.returncode else 'error', 'detail': ' | '.join(lines[-3:])}
+    return {'status': 'ok', 'sha': sha_lines[-1].split(' ', 1)[1].strip()}
+
+
+THIRD_HOST_COLS = ['uri', 'rate', 'verdict', 'detail']
+
+
+def cmd_third_host(a):
+    """--third-host jalv: jalv on the --uris list, classified per plugin and rate against a prior `run`'s own
+    raw/<rate>.jsonl in --out (mod-host's and the adapter's sha256). jalv is not wired into the feeder-driven
+    PipeWire graph that `run` uses for the other two hosts (a follow-up); this reads recordings already made."""
+    uris = [u for u in (open(a.uris).read().split() if os.path.exists(a.uris) else a.uris.split(','))]
+    rates = [int(r) for r in a.rates.split(',')]
+    jalv_v = _version(shlex.split(a.jalv) + ['--version']) or '?'
+    raw = {}
+    for rate in rates:
+        rp = os.path.join(a.out, 'raw', f'{rate}.jsonl')
+        raw[rate] = {json.loads(l)['uri']: json.loads(l) for l in open(rp) if l.strip()} if os.path.exists(rp) else {}
+    rows = []
+    for uri in uris:
+        for rate in rates:
+            rec = raw[rate].get(uri)
+            if not rec or rec.get('status') != 'ok':
+                rows.append(dict(uri=uri, rate=rate, verdict='SKIPPED',
+                                  detail='no measurement in this run to compare jalv against'))
+                continue
+            m = rec.get('m', {})
+            jalv_rec = run_jalv(a, uri, rate, dict(os.environ))
+            cls, detail = jalv_classify(m.get('sha_mod', ''), m.get('sha_omx', ''), jalv_rec)
+            rows.append(dict(uri=uri, rate=rate, verdict=cls, detail=detail))
+    write_tsv(os.path.join(a.out, 'third_host.tsv'), rows, THIRD_HOST_COLS)
+    mp = os.path.join(a.out, 'meta.json')
+    meta = json.load(open(mp)) if os.path.exists(mp) else {}
+    meta['jalv'] = f'{a.jalv} ({jalv_v})'
+    with open(mp, 'w') as f:
+        json.dump(meta, f, indent=1)
+    counts = {}
+    for r in rows:
+        counts[r['verdict']] = counts.get(r['verdict'], 0) + 1
+    print(f"third-host {a.third_host}: {len(rows)} measurements: " + ', '.join(f'{k} {v}' for k, v in sorted(counts.items())))
+    return 0
 
 
 # ---------------------------------------------------------------- probe
@@ -1235,6 +1316,24 @@ def report_text(rows, skipped, meta):
             n = meta['full_count']
             L.append(f"- Full run estimate: {n} plugins at 44.1, 48, 96 and 192 kHz, {est:.1f} s per plugin over the four rates: "
                      f"{n * est / 3600:.1f} h.")
+    if meta.get('jalv') or meta.get('third_host_rows'):
+        L += ['', '## Third host (jalv)', '',
+              f"jalv ({meta.get('jalv', '?')}) is classified separately, per plugin and rate, against this run's own "
+              'recordings: AGREES-WITH-MOD-HOST or AGREES-WITH-ADAPTER when it comes out bit for bit the same as one of '
+              'them, AGREES-WITH-NEITHER when it matches neither, JALV-FAULT when jalv itself did not come back with a '
+              "usable recording. jalv is not wired into the feeder-driven PipeWire graph this run uses for mod-host and "
+              "omx-clap-host (a follow-up): the feeder links ports by a fixed client name (effect_<N>), which jalv does "
+              "not use, so whether jalv's own JACK client can sit idle until the feeder's clock ticks it, the way the "
+              'other two hosts do, is not established here.']
+        th = meta.get('third_host_rows') or []
+        if th:
+            counts = {}
+            for r in th:
+                counts[r['verdict']] = counts.get(r['verdict'], 0) + 1
+            L += ['', '| verdict | measurements |', '|---|---:|']
+            for v in THIRD_HOST_CLASSES + ('SKIPPED',):
+                if v in counts:
+                    L.append(f'| {v} | {counts[v]} |')
     L += ['', '## Files', '', f"In `{meta.get('out', '<out>')}` on {meta.get('host', 'the desk')}: `parity.tsv` (one row per plugin and rate: "
           'class, cause, detail, the largest difference and where, latencies, CPU), `plugins.tsv` (the set and the stratum '
           'of each), `skipped.tsv` (#92), `raw/<rate>.jsonl` (every measurement), `keep/<rate>/<plugin>/` (the recordings of '
@@ -1268,6 +1367,9 @@ def cmd_report(a):
         meta['coverage'] = json.load(open(cp))
         mp2 = os.path.join(a.out, 'modhost-only.tsv')
         meta['modhost_only_rows'] = read_tsv(mp2) if os.path.exists(mp2) else []
+    thp = os.path.join(a.out, 'third_host.tsv')
+    if os.path.exists(thp):
+        meta['third_host_rows'] = read_tsv(thp)
     text = report_text(rows, skipped, meta)
     with open(os.path.join(a.out, 'summary.md'), 'w') as f:
         f.write(text)
@@ -1413,6 +1515,47 @@ def self_test():
                      ({'status': 'refused', 'host': 'omx-clap-host', 'detail': 'resp -102 x'}, ('REFUSED', 'omx-clap-host: resp -102 x'))):
         t(f"a {st['status']} record: {want[0]}", classify(dict(st, uri='u', rate=48000))[:2] == want)
 
+    # the third host (jalv): the classifier, pure
+    t('jalv agrees with mod-host', jalv_classify('aaaa', 'bbbb', {'status': 'ok', 'sha': 'aaaa'})[0] == 'AGREES-WITH-MOD-HOST')
+    t('jalv agrees with the adapter', jalv_classify('aaaa', 'bbbb', {'status': 'ok', 'sha': 'bbbb'})[0] == 'AGREES-WITH-ADAPTER')
+    t('jalv agrees with neither', jalv_classify('aaaa', 'bbbb', {'status': 'ok', 'sha': 'cccc'})[0] == 'AGREES-WITH-NEITHER')
+    t('jalv itself faults: JALV-FAULT, named', jalv_classify('aaaa', 'bbbb', {'status': 'crash', 'detail': 'boom'})[0] == 'JALV-FAULT'
+      and 'boom' in jalv_classify('aaaa', 'bbbb', {'status': 'crash', 'detail': 'boom'})[1])
+
+    # the third host end to end: cmd_third_host driving the self-test's own stub, the way it would drive the real
+    # binary (sys.executable + the stub's path, through shlex; env= passed through to the subprocess)
+    stub = os.path.join(HERE, 'lv2_parity_jalv_stub.py')
+    with tempfile.TemporaryDirectory() as d3:
+        out3 = os.path.join(d3, 'out')
+        os.makedirs(os.path.join(out3, 'raw'))
+        fixture_raw = {  # uri -> (sha_mod, sha_omx) this run is pretended to have recorded already
+            'urn:third-host:agree-with-mod-host': ('aaaaaaaaaaaaaaaa', 'zzzzzzzzzzzzzzzz'),
+            'urn:third-host:agree-with-adapter': ('zzzzzzzzzzzzzzzz', 'bbbbbbbbbbbbbbbb'),
+            'urn:third-host:neither': ('yyyyyyyyyyyyyyyy', 'xxxxxxxxxxxxxxxx'),
+            'urn:third-host:fault': ('aaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb'),
+        }
+        with open(os.path.join(out3, 'raw', '48000.jsonl'), 'w') as f:
+            for u3, (sm, so) in fixture_raw.items():
+                f.write(json.dumps({'uri': u3, 'status': 'ok', 'm': {'sha_mod': sm, 'sha_omx': so}}) + '\n')
+        ns3 = argparse.Namespace(out=out3, uris=','.join(fixture_raw), rates='48000', third_host='jalv',
+                                  jalv=f'{sys.executable} {stub}', jalv_timeout=10)
+        with open(os.devnull, 'w') as dn:
+            stdout3, sys.stdout = sys.stdout, dn
+            try:
+                cmd_third_host(ns3)
+            finally:
+                sys.stdout = stdout3
+        th = {r['uri']: r['verdict'] for r in read_tsv(os.path.join(out3, 'third_host.tsv'))}
+        t('stub fixture agree-with-mod-host classified so', th['urn:third-host:agree-with-mod-host'] == 'AGREES-WITH-MOD-HOST')
+        t('stub fixture agree-with-adapter classified so', th['urn:third-host:agree-with-adapter'] == 'AGREES-WITH-ADAPTER')
+        t('stub fixture neither classified so', th['urn:third-host:neither'] == 'AGREES-WITH-NEITHER')
+        t('stub fixture fault classified so (jalv exits 1)', th['urn:third-host:fault'] == 'JALV-FAULT')
+        meta3 = json.load(open(os.path.join(out3, 'meta.json')))
+        t('the jalv version is recorded in meta.json', 'jalv' in meta3 and '1.6.9' in meta3['jalv'])
+        rep3 = report_text([], [], dict(meta3, third_host_rows=read_tsv(os.path.join(out3, 'third_host.tsv'))))
+        t('the report header carries a jalv paragraph and its verdict counts',
+          '1.6.9' in rep3 and 'AGREES-WITH-MOD-HOST | 1' in rep3 and "jalv is not wired into the feeder-driven" in rep3)
+
     # probe: the #92 skips and the stratified sample, on a fake coverage table
     cols = ['uri', 'omx_clap_host', 'mod_host', 'bucket', 'scope', 'class', 'instrument', 'audio_in', 'audio_out',
             'cv', 'atom_in', 'atom_out', 'midi_in', 'midi_out', 'req_features', 'ext_data']
@@ -1488,7 +1631,7 @@ def self_test_with_sabotage():
         return rc
     red = 0
     sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind',
-                 'known-blind']
+                 'known-blind', 'jalv-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, os.path.abspath(__file__), '--self-test'], env=dict(os.environ, LV2_PARITY_SABOTAGE=s),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -1545,8 +1688,16 @@ def main():
         p.add_argument('--out', required=True)
         p.add_argument('--full-count', type=int, default=0)
         p.add_argument('--coverage', help='the coverage table, for the denominator (else the out dir\'s coverage.json)')
+    p = sub.add_parser('third-host')
+    p.add_argument('--third-host', choices=['jalv'], default='jalv')
+    p.add_argument('--out', required=True, help="a prior run's --out: raw/<rate>.jsonl is read for mod-host's and the adapter's sha")
+    p.add_argument('--uris', required=True, help='a file of URIs, or a comma-separated list')
+    p.add_argument('--rates', default='48000,96000')
+    p.add_argument('--jalv', default='jalv', help='the jalv command (may be more than one word)')
+    p.add_argument('--jalv-timeout', type=float, default=30)
     a = ap.parse_args()
-    return {'probe': cmd_probe, 'run': cmd_run, 'classify': cmd_classify, 'report': cmd_report}[a.cmd](a)
+    return {'probe': cmd_probe, 'run': cmd_run, 'classify': cmd_classify, 'report': cmd_report,
+            'third-host': cmd_third_host}[a.cmd](a)
 
 
 if __name__ == '__main__':
