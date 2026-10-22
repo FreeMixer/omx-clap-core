@@ -125,6 +125,16 @@ jobs:
       - name: Build
         run: make
 
+      # omx-clap-scan --fields against the format tables of omx-contract at OMX_CONTRACT_REF (this job has the toolchain and
+      # the CLAP and LV2 headers the scanner and the fake plugins build with)
+      - name: omx-clap-scan --fields reads what the format tables declare
+        run: |
+          set -eu
+          git init -q /tmp/omx-contract
+          git -C /tmp/omx-contract fetch -q --depth 1 https://github.com/FreeMixer/omx-contract "refs/tags/$OMX_CONTRACT_REF"
+          git -C /tmp/omx-contract checkout -q FETCH_HEAD
+          make test-fields OMX_CONTRACT_DIR=/tmp/omx-contract
+
       # the relaxed-ordering copy of clap_stage.h compiles beside the headers it includes (#165)
       - name: The stage bench builds and runs
         run: make bench-stage
