@@ -18,10 +18,10 @@
  * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
  */
 
-/* One signal into up to four effects, every output recorded from the same cycles:
- *   jack_identity <frames> <preroll_blocks> <source.f32> <a.f32> [<b.f32> [<c.f32> [<d.f32>]]]
+/* One signal into up to six effects, every output recorded from the same cycles:
+ *   jack_identity <frames> <preroll_blocks> <source.f32> <a.f32> [<b.f32> ... [<f.f32>]]
  * identity-src:out plays deterministic noise from the cycle after "go" on
- * stdin; identity-rec:a, :b, :c and :d (one per file given) record <frames>
+ * stdin; identity-rec:a, :b ... :f (one per file given) record <frames>
  * frames starting <preroll_blocks> cycles later, and the source frames of that
  * same window go to <source.f32>. Raw float32, one channel each. Prints the
  * rate, the quantum and the peak of each recording, then exits. */
@@ -34,7 +34,7 @@
 #include <unistd.h>
 #include <jack/jack.h>
 
-#define RECORDERS_MAX 4
+#define RECORDERS_MAX 6
 
 static jack_port_t *g_out, *g_in[RECORDERS_MAX];
 static float *g_source, *g_rec[RECORDERS_MAX];
@@ -127,7 +127,7 @@ int main(int argc, char **argv)
 
     if (argc < 5 || argc > 4 + RECORDERS_MAX)
     {
-        fprintf(stderr, "usage: %s <frames> <preroll_blocks> <source.f32> <a.f32> [<b.f32> [<c.f32> [<d.f32>]]]\n", argv[0]);
+        fprintf(stderr, "usage: %s <frames> <preroll_blocks> <source.f32> <a.f32> [<b.f32> ... [<f.f32>]]\n", argv[0]);
         return 2;
     }
     g_recorders = argc - 4;
