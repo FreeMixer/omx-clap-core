@@ -1459,7 +1459,8 @@ static void ports_connect(struct lv2_instance *in, uint32_t max_frames)
         default:
             continue;
         }
-        p->desc->connect_port(in->handle, i, at);
+        if (at)
+            p->desc->connect_port(in->handle, i, at);
     }
 }
 
