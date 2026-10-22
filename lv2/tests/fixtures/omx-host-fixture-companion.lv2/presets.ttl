@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The one preset of omx-host-fixture-companion.lv2: `softer`, -6 dB on the fixture's offset.
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix pset:  <http://lv2plug.in/ns/ext/presets#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix state: <http://lv2plug.in/ns/ext/state#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix fx:    <urn:openmixer:test:host-fixture#> .
+
+<urn:openmixer:test:host-fixture-companion:softer>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture> ;
+    rdfs:label "softer" ;
+    state:state [
+        fx:offset_db "-6.0"^^xsd:float
+    ] .

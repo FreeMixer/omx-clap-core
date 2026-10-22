@@ -170,6 +170,9 @@ jobs:
       - name: Test the LV2 adapter
         run: make test-lv2
 
+      - name: Sabotage the bundle of presets only
+        run: make test-lv2-companion-sabotage
+
       - name: What the LV2 adapter costs per process() call
         run: make lv2-cost
 

@@ -398,7 +398,8 @@ extern const char *const lv2_core_provided[];
 /* The bundle at `path` (an absolute directory, with or without its trailing '/'), loaded on its first reference and kept
  * loaded for the life of the process (lv2_bundle_unref drops a reference, not the bundle), lilv
  * loaded on the first bundle: all or nothing, and a failed load does not latch. NULL with `why` set when lilv cannot be
- * loaded, the library is not configured, or the bundle holds no plugin. */
+ * loaded, the library is not configured, or the bundle holds neither a plugin nor a preset. A bundle of presets only
+ * holds no plugin (its count is 0): its presets join the world, the presets of the plugins they apply to (#320). */
 struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX]);
 void lv2_bundle_unref(struct lv2_bundle *bundle);
 

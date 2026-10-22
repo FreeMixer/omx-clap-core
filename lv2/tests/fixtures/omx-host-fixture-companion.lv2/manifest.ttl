@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# A bundle of presets only, for a plugin of another bundle (omx-host-fixture.lv2), as DISTRHO-Ports ships
+# TAL-NoiseMaker-Noise4U.lv2 and Vitalium-unfa.lv2 beside the plugin's own bundle (#320): no lv2:Plugin, and a manifest
+# that names the plugin's URI through lv2:appliesTo.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix pset: <http://lv2plug.in/ns/ext/presets#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:host-fixture-companion:softer>
+    a pset:Preset ;
+    lv2:appliesTo <urn:openmixer:test:host-fixture> ;
+    rdfs:seeAlso <presets.ttl> .

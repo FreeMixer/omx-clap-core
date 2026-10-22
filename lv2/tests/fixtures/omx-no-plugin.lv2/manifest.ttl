@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# A bundle of neither plugin nor preset: it names the fixture's URI and holds nothing a host can take, so the adapter
+# still refuses it (#320).
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:host-fixture>
+    rdfs:comment "named, not held" .
