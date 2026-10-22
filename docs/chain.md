@@ -50,8 +50,8 @@ that counts the published changes.
   a JACK port buffer is (`OMX_CLAP_CHAIN_ALIGN`), the prototype's `CHAIN_FRAMES_MAX` and `CHAIN_ALIGN`.
 - a chain of one non-bypassed member hands it `inputs` and `outputs` themselves: it runs exactly as it would alone.
 - a chain with no non-bypassed member copies `inputs` to `outputs` (nothing when they are the same buffers).
-- nothing in the cycle allocates, locks, waits or prints. It reads one published plan of the walk (the members, their
-  order and the blocks each reads and writes) with one acquire load.
+- nothing in the cycle allocates, locks, waits or prints. It raises a flag of its own and reads the published plan of
+  the walk (the members in order) with one load, and lowers the flag when it is done.
 
 A cycle longer than `OMX_CLAP_CHAIN_FRAMES_MAX` frames PASSES: `inputs` are copied to `outputs` dry, no member is run,
 and the call answers `OMX_CLAP_CHAIN_PASSED` instead of `OMX_CLAP_CHAIN_OK`, for the caller to count. The prototype
@@ -61,8 +61,10 @@ passes the same cycle dry through its members; the library has no head that owns
 
 Every change is a control-thread call (`omx_clap_chain_add`, `_remove`, `_bypass`, `_member_latency_set`,
 `_refresh`), serialised by a lock the cycle never takes. A change that moves the walk builds the next plan in the
-spare of two, publishes it with one release store, and waits, polling, for the cycle that may still be reading the old
-plan to leave: when the call returns, no cycle reads the old plan, and the next cycle runs the new one.
+spare of two, publishes it with one store, and waits, polling, while the cycle's flag is up. The cycle's flag and load
+and the change's store and poll are sequentially consistent, so either the cycle loads the new plan or the change sees
+its flag and waits for it to leave: when the call returns, no cycle reads the old plan, and the next cycle runs the new
+one.
 
 `omx_clap_chain_remove(chain, id)` takes a member OUT: a member the caller removes, or one that crashed (the quarantine
 itself is plugin-hostd's, S3). The chain closes around it: the member before it hands its output to the member after
@@ -94,7 +96,13 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
 - a bypassed member adds nothing: the output and the latency equal a chain built without it;
 - a removed member: the next cycle equals a chain built without it, bit for bit;
 - a cycle longer than the blocks passes dry and says so;
-- every structure of the wrong `abi` or `size` is refused with `OMX_CLAP_CHAIN_ERR_ABI`, and nothing is written to it.
+- every structure of the wrong `abi` or `size` is refused with `OMX_CLAP_CHAIN_ERR_ABI`, and nothing is written to it;
+- the cycles on a thread of their own while the control thread bypasses, adds and removes members hundreds of times:
+  every block is one whole walk, never part of the old one and part of the new.
 
-`make test-chain-sabotage` breaks each guard in turn (the bypass skip, the latency sum, the removal's close, the
-long-cycle pass, the ABI refusal), sees the test fail, and restores it.
+`make test-chain` also holds the cycle's code (`pass_dry`, `omx_clap_chain_process`) to naming no allocator, sleep, lock
+or printf. `make test-chain-sabotage` (`tests/chain_sabotage.sh`, in CI) breaks each guard in a copy of the tree and
+sees the test red on the check that names it: a bypassed member left in the walk, a bypassed member's latency counted,
+the sum replaced by the last member's, a change never told, a removal that does not publish the walk again, the long
+cycle's bound one frame short, its dry copy dropped, one block for every member instead of two in turn, and the ABI
+refusal waved through.
