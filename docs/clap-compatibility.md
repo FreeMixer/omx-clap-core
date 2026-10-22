@@ -181,7 +181,13 @@ to its caller, or where a program adds something of its own. A row is here when 
 - **in process (the console's stage)**: a program that links `libomx-clap-core` and runs its own
   audio thread through `clap_stage.h`, as the console does. This column says what the library does
   with its defaults (`omx_clap_host_config_default`); the console's own configuration is not stated
-  in this repository.
+  in this repository. Such a caller allocates `struct omx_clap_host_config` itself, so a build of it
+  older than the library it links against (its package floor has no ceiling, #301) has a smaller
+  struct than the one the library's headers now declare: `omx_clap_host_config_default` always
+  stamps its own current size, past the end of that caller's own allocation. `omx_clap_host_config_
+  default_sized(config, sizeof(*config))`, added in 0.15.0, is the call such a caller should make
+  instead: it never writes past `sizeof(*config)` as the CALLER compiled it, filling only that much
+  and saying so in `size`, and refuses whole (no byte moved) a size too short to carry a host's name.
 
 | what | omx-clap-host | plugin-hostd's CLAP worker | in process (the console's stage) |
 |---|---|---|---|
