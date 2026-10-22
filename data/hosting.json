@@ -13,8 +13,8 @@
           "Rendered from HOSTED_STAGE_LIMITS and HOSTING_IDLE_CODES of data/hosting.json, where this library declares",
           "its stage limits and the codes of the dimension it owns. The rendered file is kept in this repository so the",
           "library builds on its own; the numbers and codes are changed where they are declared and the file is",
-          "re-rendered, never edited here. Every other refusal code is omx-contract's, from its",
-          "omxcontract/omx_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*)."
+          "re-rendered, never edited here. Every other refusal code is declared in data/hosting/ and rendered as",
+          "omx_clap_core_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*)."
         ],
         "brief": "The limits of the hosting code, and the codes of the idle dimension.",
         "includes": [

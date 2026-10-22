@@ -19,10 +19,10 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
-CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts
+CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
 
 PKG_CONFIG ?= pkg-config
 
@@ -106,8 +106,9 @@ OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c src/idle_hold.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
-# the scanner shares the plugin loading with the host through the core and needs neither jack nor the protocol library
-SCAN_SRC = src/scan.c
+# the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
+# and needs neither jack nor the protocol library
+SCAN_SRC = src/scan.c src/scan_fields.c src/lv2_locate.c
 SCAN_OBJ = $(SCAN_SRC:.c=.o)
 
 # the LV2 adapter, libomx-clap-lv2.a: lv2/core is the LV2 host with no CLAP in it, lv2/clap the shim that presents one LV2
@@ -147,8 +148,8 @@ $(PROTOCOL_LIB):
 	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
 endif
 
-$(SCAN_PROG): $(SCAN_OBJ) $(CORE_SO)
-	$(CC) $(SCAN_OBJ) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
+$(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
+	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
 # the objects that embed the version: a move of VERSION rebuilds them, or the library keeps answering the old number
@@ -157,6 +158,10 @@ src/clap_host.o src/main.o src/scan.o: VERSION
 
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the scanner's field dump reads an LV2 plugin through the adapter's world: lv2/core's header and the LV2 headers it names
+src/scan_fields.o: src/scan_fields.c
+	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
 
 # the host adds an LV2 plugin through the adapter: its header, and the LV2 headers that names
 src/effects.o: src/effects.c
@@ -226,20 +231,28 @@ install-tests: $(TEST_FIXTURES)
 
 # the definitions this tree owns (data/: the hosting limits and refusal codes), installed as the package omx-clap-core
 # into omx-contract's contract directory, <contractdir>/<schema major>/omx-clap-core/, with a MANIFEST.json naming
-# this version and the tree they came from. contractdir and the install script are omx-contract-devel's (2.15.0 or
+# this version and the tree they came from. contractdir and the install script are omx-contract-devel's (3.0.0 or
 # later); a checkout of omx-contract (OMX_CONTRACT_DIR) stands in for the script when it is not installed.
-CONTRACT_SCHEMA_MAJOR = 2
+CONTRACT_SCHEMA_MAJOR = 3
 CONTRACTDIR = $(or $(shell $(PKG_CONFIG) --variable=contractdir omx-contract 2>/dev/null),$(DATADIR)/omx-contract/contract.d)
 INSTALL_CONTRACT_DIR = $(firstword $(wildcard $(shell $(PKG_CONFIG) --variable=datadir omx-contract 2>/dev/null)/install-contract-dir.sh) $(wildcard $(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh))
 .PHONY: install-contract test-contract
 install-contract:
-	@test -n "$(INSTALL_CONTRACT_DIR)" || { echo "install-contract: no install-contract-dir.sh: install omx-contract-devel 2.15.0 or later, or set OMX_CONTRACT_DIR to a checkout" >&2; exit 1; }
+	@test -n "$(INSTALL_CONTRACT_DIR)" || { echo "install-contract: no install-contract-dir.sh: install omx-contract-devel 3.0.0 or later, or set OMX_CONTRACT_DIR to a checkout" >&2; exit 1; }
 	sh $(INSTALL_CONTRACT_DIR) $(CORE) $(VERSION) $(CONTRACT_SCHEMA_MAJOR) data $(DESTDIR)$(CONTRACTDIR) data
 
 # data/ installed into a contract directory of its own, read back through omx-contract's reader beside omx-contract's
 # own package, and every file this tree commits as a render of it held to `render --package omx-clap-core`, byte for
 # byte (tests/contract-dir-check.sh), and every limit and refusal code of the two hosting headers held, value by value, to
 # what the reader reads (tests/hosting-values-check.mjs, with its sabotage arms); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
+# omx-clap-scan --fields held to omx-contract's TERM files, and the dumps of the fake plugins and the LV2 fixture bundles
+# (their binaries absent: nothing is opened) read as records; PLUGIN_HOSTD_TABLES (plugin-hostd's data/formats) holds
+# every field a dump writes to a row of its table
+PLUGIN_HOSTD_TABLES ?=
+.PHONY: test-fields
+test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap
+	python3 tests/scan-fields-check.py ./$(SCAN_PROG) $(OMX_CONTRACT_DIR)/data/formats $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(LV2_FIXTURE_DIR) $(PLUGIN_HOSTD_TABLES)
+
 test-contract:
 	rm -rf build/contract
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(abspath build/contract/dir) INSTALL_CONTRACT_DIR=$(OMX_CONTRACT_DIR)/tools/install-contract-dir.sh
@@ -324,12 +337,12 @@ test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap 
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap) $(abspath tests/fault-17.clap)
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
 
-# every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of omx-contract's omx_vocabulary.h, the one the build
-# includes: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms)
+# every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of src/omx_clap_core_vocabulary.h, the render of
+# data/hosting/: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms)
 .PHONY: test-codes
 test-codes:
-	CC="$(CC)" CFLAGS="$(DSP_CFLAGS)" bash tests/hosting-codes-check.sh
-	CC="$(CC)" CFLAGS="$(DSP_CFLAGS)" bash tests/hosting-codes-check.sh --self-test
+	bash tests/hosting-codes-check.sh
+	bash tests/hosting-codes-check.sh --self-test
 
 # the stage against fake plugins at six rates, and the core over the fault fixtures and fakes: the witness, the guard
 # page, the audio role on a split, the whole roster and the tempo

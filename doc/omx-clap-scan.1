@@ -5,6 +5,13 @@ omx\-clap\-scan \- list the plugins, parameters and ports of CLAP plugin files
 .B omx\-clap\-scan
 .RB [ \-\-json ]
 .RI [ path ...]
+.br
+.B omx\-clap\-scan \-\-fields
+.BI clap: path # id
+|
+.BI lv2: uri
+|
+.B \-\-list
 .SH DESCRIPTION
 .B omx\-clap\-scan
 loads each
@@ -55,8 +62,41 @@ and either
 or
 .BR error .
 Without it the same facts are printed as a listing for a person.
+.TP
+.BI \-\-fields " target"
+The field dump of one plugin, what plugin\-hostd's format tables read: the line
+.B # omx\-clap\-scan \-\-fields 1
+then one record a line,
+.IR scope " TAB " field " TAB " value .
+A scope is
+.BR plugin ,
+.BI param: i\fR,
+.BI audio_in: i\fR,
+.BI audio_out: i\fR,
+.BI note_in: i\fR,
+.BI note_out: i
+(CLAP) or
+.BI port: i
+(LV2, by lv2:index); a field is a CLAP struct member
+.RB ( clap_param_info.min_value )
+or an LV2 predicate as a CURIE
+.RB ( lv2:minimum );
+a number is written %.17g, a CLAP constant by its name, one record per flag set, an LV2 URI as a CURIE.
+.BI clap: path # id
+is read through an instance of the plugin, created, initialised and activated once at 48 kHz when it offers
+clap.latency or clap.voice\-info;
+.BI lv2: uri
+is found on
+.B LV2_PATH
+and read through the LV2 adapter's lilv world: its binary is never opened. The dump is written only when whole;
+what the plugin prints goes to stderr.
+.B \-\-list
+writes every name the dump spells a CLAP value by, every LV2 field it asks and every prefix it writes.
 .SH EXIT STATUS
 0 when at least one path could be read, even if some plugins reported errors;
 1 when no path could be read; 2 on a bad option.
+With
+.BR \-\-fields :
+0 the dump is written; 1 the plugin could not be read, and nothing is written; 2 on a bad target.
 .SH SEE ALSO
 .BR omx\-clap\-host (1)
