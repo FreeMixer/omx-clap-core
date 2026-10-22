@@ -215,6 +215,37 @@ struct lv2_audio_port
                                                     // group type orders
 };
 
+/* What a port is connected to, read with the ports: the first of these, in this order, that names its index. */
+enum lv2_port_role
+{
+    LV2_ROLE_NONE = 0,              // nothing the instance connects
+    LV2_ROLE_MAIN_IN,               // a main input channel: channel
+    LV2_ROLE_MAIN_OUT,              // a main output channel: channel
+    LV2_ROLE_PATCH_IN,              // the patch input, when it is not the MIDI input
+    LV2_ROLE_PATCH_OUT,             // the patch output, when it is not the MIDI output
+    LV2_ROLE_MIDI_IN,
+    LV2_ROLE_MIDI_OUT,
+    LV2_ROLE_TIME,
+    LV2_ROLE_NOTIFY,                // notify_out[leg]
+    LV2_ROLE_ATOM_IN,               // atom_in[leg]
+    LV2_ROLE_EVENT_IN,              // event_in[leg]
+    LV2_ROLE_EVENT_OUT,             // event_out[leg]
+    LV2_ROLE_AUX_IN,                // aux_in[leg], its channel
+    LV2_ROLE_AUX_OUT,               // aux_out[leg], its channel
+    LV2_ROLE_CV_IN,                 // cv_in[leg]
+    LV2_ROLE_CV_OUT,                // cv_out[leg]
+    LV2_ROLE_LATENCY,
+    LV2_ROLE_CONTROL,               // controls[leg]
+};
+
+/* One port's role, by its index. */
+struct lv2_port_bind
+{
+    uint16_t role;                  // an lv2_port_role
+    uint16_t channel;
+    uint32_t leg;
+};
+
 /* One plugin read from its bundle: its ports and required features, read before its binary is opened. */
 struct lv2_plugin
 {
@@ -268,6 +299,7 @@ struct lv2_plugin
     uint32_t n_notify;              // the atom outputs that are neither MIDI nor the patch output, discarded
     uint32_t notify_out[LV2_CORE_NOTIFY_PORTS];
     uint32_t notify_min;            // the largest rsz:minimumSize of those outputs, 0: none
+    struct lv2_port_bind *roles;    // n_ports, by port index: what the instance connects each to
     char **required;                // lv2:requiredFeature, NULL-terminated
     int safe_restore;               // state:threadSafeRestore among its features: restore() may run beside run()
     void *binary;                   // dlopen'ed by lv2_plugin_load
