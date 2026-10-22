@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
 CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
@@ -103,7 +103,7 @@ LDFLAGS += -Wl,--no-undefined
 # source and object files
 SRC = src/main.c src/effects.c src/lv2_locate.c
 OBJ = $(SRC:.c=.o)
-CORE_SRC = src/clap_host.c src/idle_hold.c
+CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
@@ -504,7 +504,7 @@ abi-check: abi-stage
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/fault-1.clap $(CORE_SO)
-	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
+	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h src/clap_chain.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
