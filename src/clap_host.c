@@ -1905,15 +1905,27 @@ static int64_t istream_read(const clap_istream_t *stream, void *data, uint64_t s
 ************************************************************************************************************************
 */
 
-void omx_clap_host_config_default(struct omx_clap_host_config *config)
+void omx_clap_host_config_default_sized(struct omx_clap_host_config *config, uint32_t caller_size)
 {
     static const struct omx_clap_host_config defaults =
     {
         OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, 0
     };
+    uint32_t n;
 
-    *config = defaults;
-    config->idle_hold_us = idle_hold_target_default();
+    // too short to even carry a size that names a host: refused whole, as omx_clap_host_configure refuses it (#301)
+    if (caller_size < offsetof(struct omx_clap_host_config, version) + sizeof(config->version))
+        return;
+    n = caller_size < sizeof(defaults) ? caller_size : sizeof(defaults);
+    memcpy(config, &defaults, n);
+    config->size = n;
+    if (n >= offsetof(struct omx_clap_host_config, idle_hold_us) + sizeof(config->idle_hold_us))
+        config->idle_hold_us = idle_hold_target_default();
+}
+
+void omx_clap_host_config_default(struct omx_clap_host_config *config)
+{
+    omx_clap_host_config_default_sized(config, sizeof(struct omx_clap_host_config));
 }
 
 int omx_clap_host_configure(const struct omx_clap_host_config *config)
