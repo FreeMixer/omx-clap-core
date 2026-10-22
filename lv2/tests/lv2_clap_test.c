@@ -977,6 +977,106 @@ static void t_preset_list(double rate)
     }
 }
 
+/* ---- a bundle of presets only: the companion of the fixture's bundle (#320) ---- */
+
+/*
+ * DISTRHO-Ports ships TAL NoiseMaker's Noise4U presets and Vitalium's unfa bank as bundles of their own, with no plugin
+ * and a manifest that names the plugin through lv2:appliesTo. Such a bundle is an entry of no plugin, not a refusal;
+ * its presets join the world, so the fixture's entry lists them beside its own three and loads them by URI, whichever
+ * of the two entries was taken first. A bundle of neither plugin nor preset is still refused. Each arm is a child: the
+ * world keeps a bundle once loaded, and the other arms count the fixture's presets alone.
+ */
+#define PRESET_SOFTER "urn:openmixer:test:host-fixture-companion:softer"  /* offset -6 dB, in the companion bundle */
+
+static char g_companion[PATH_MAX], g_no_plugin[PATH_MAX];
+
+static int fixture_presets(struct listed *l)
+{
+    const clap_plugin_entry_t *entry;
+    char why[OMX_CLAP_LV2_WHY_MAX];
+    int listed;
+
+    memset(l, 0, sizeof(*l));
+    entry = omx_clap_lv2_entry(g_fixture, why);
+    if (!entry)
+        return -1;
+    listed = omx_clap_host_entry_presets(entry, list_preset, l);
+    omx_clap_lv2_entry_release(entry);
+    return listed;
+}
+
+static const clap_plugin_entry_t *companion_entry(const char *arm)
+{
+    const clap_plugin_factory_t *factory;
+    const clap_plugin_entry_t *entry;
+    char why[OMX_CLAP_LV2_WHY_MAX] = "x";
+
+    entry = omx_clap_lv2_entry(g_companion, why);
+    factory = entry ? entry->get_factory(CLAP_PLUGIN_FACTORY_ID) : NULL;
+    CHECK(entry && !why[0] && factory && factory->get_plugin_count(factory) == 0,
+          "companion %s: a bundle of presets only is an entry of no plugin, no refusal (%s)", arm, why);
+    return entry;
+}
+
+/* the companion's preset, listed for the fixture and loaded by its key: -20 dB plus its -6 */
+static void companion_softer(const char *arm, const struct listed *l)
+{
+    static float in[N_BLOCKS * BLOCK], out[N_BLOCKS * BLOCK];
+    const struct listed_preset *softer = listed_key(l, PRESET_SOFTER);
+    const clap_plugin_preset_load_t *pl;
+    struct rig g;
+    uint32_t blk;
+
+    CHECK(softer && !strcmp(softer->name, "softer") && !strcmp(softer->plugin, FIXTURE_URI) && softer->plugins == 1,
+          "companion %s: softer is listed for the fixture, by its label, its URI the load key", arm);
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        tone(in + blk * BLOCK, BLOCK, 0.5f, blk * BLOCK);
+    if (rig_up(&g, g_fixture, FIXTURE_URI, 0.0, BLOCK) != 0)
+        return;
+    pl = preset_of(&g);
+    CHECK(pl && pl->from_location(g.plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, PRESET_SOFTER),
+          "companion %s: softer loads by its listed key", arm);
+    CHECK(g.plugin->activate(g.plugin, RATES[0], 1, BLOCK) && g.plugin->start_processing(g.plugin), "companion %s: activates", arm);
+    for (blk = 0; blk < N_BLOCKS; blk++)
+        process(&g, in + blk * BLOCK, NULL, out + blk * BLOCK, NULL, BLOCK, NULL);
+    CHECK(fabs(gain_db(in, out, 2, N_BLOCKS) - -26.0) < 0.01, "companion %s: the gain reads %.3f dB: -20 plus softer's -6", arm,
+          gain_db(in, out, 2, N_BLOCKS));
+    rig_down(&g);
+}
+
+/* the companion taken before the fixture's bundle was ever loaded */
+static void t_companion_first(void)
+{
+    const clap_plugin_entry_t *entry = companion_entry("first");
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    struct listed l;
+    int listed;
+
+    CHECK(omx_clap_lv2_entry(g_no_plugin, why) == NULL && !strcmp(why, "hosting.no-realisation"),
+          "companion first: a bundle of neither plugin nor preset is still refused (%s)", why);
+    listed = fixture_presets(&l);
+    CHECK(listed == 4 && l.n == 4, "companion first: the fixture lists its three presets and the companion's one (%d)", listed);
+    companion_softer("first", &l);
+    omx_clap_lv2_entry_release(entry);
+}
+
+/* the companion taken after the fixture's: its presets join a listing the fixture's entry already made */
+static void t_companion_after(void)
+{
+    const clap_plugin_entry_t *entry;
+    struct listed l;
+    int listed;
+
+    listed = fixture_presets(&l);
+    CHECK(listed == 3 && !listed_key(&l, PRESET_SOFTER), "companion after: before the companion, the fixture lists its own three (%d)",
+          listed);
+    entry = companion_entry("after");
+    omx_clap_lv2_entry_release(entry);
+    listed = fixture_presets(&l);
+    CHECK(listed == 4 && l.n == 4, "companion after: once taken, released or not, the companion's preset is listed too (%d)", listed);
+    companion_softer("after", &l);
+}
+
 /* ---- the live twin of the worker gain: options:interface and state:threadSafeRestore ---- */
 
 /*
@@ -4002,6 +4102,10 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-host-fixture.lv2", build);
     abs_dir(dir, g_fixture);
     snprintf(g_fixture_so, sizeof(g_fixture_so), "%somx-host-fixture.so", g_fixture);
+    snprintf(dir, sizeof(dir), "%somx-host-fixture-companion.lv2", build);
+    abs_dir(dir, g_companion);
+    snprintf(dir, sizeof(dir), "%somx-no-plugin.lv2", build);
+    abs_dir(dir, g_no_plugin);
     snprintf(dir, sizeof(dir), "%somx-worker-gain.lv2", build);
     abs_dir(dir, g_wg);
     snprintf(dir, sizeof(dir), "%somx-lv2-fakes.lv2", build);
@@ -4052,6 +4156,7 @@ int main(int argc, char **argv)
     in_child("make path with no root", make_path_no_root);
     in_child("make path with a relative root", make_path_relative_root);
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
+    in_child("companion first", t_companion_first);
     t_entry();
     t_refusals();
     t_midi_refusal();
@@ -4101,6 +4206,7 @@ int main(int argc, char **argv)
         t_warmup_block(RATES[r], WARMB, MAXB);
         printf("lv2 clap @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
     }
+    in_child("companion after", t_companion_after);
     CHECK(rt_allocs == 0, "no allocation inside process() or the CLAP body's run (%d)", rt_allocs);
     printf("%s\n", g_failures == 0 ? "lv2 clap test ok" : "lv2 clap test FAILED");
     return g_failures == 0 ? 0 : 1;

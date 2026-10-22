@@ -273,8 +273,20 @@ static void bundle_free(struct lv2_bundle *b)
     free(b);
 }
 
-/* the plugins whose bundle is THIS one: another loaded bundle's are not listed */
-static int bundle_list(struct lv2_bundle *b)
+/* the pset:Preset the world knows: a bundle whose load adds some and no plugin is a bundle of presets */
+static uint32_t world_presets(void)
+{
+    LilvNodes *all = L.lilv_world_find_nodes(g.world, NULL, g.node[N_RDF_TYPE], g.node[N_PSET_PRESET]);
+    const uint32_t n = all ? (uint32_t)L.lilv_nodes_size(all) : 0u;
+
+    if (all)
+        L.lilv_nodes_free(all);
+    return n;
+}
+
+/* the plugins whose bundle is THIS one: another loaded bundle's are not listed; none is a bundle only when its load
+ * brought presets (`presets_before` the world's count before it), a bundle of presets for another bundle's plugin */
+static int bundle_list(struct lv2_bundle *b, uint32_t presets_before)
 {
     const LilvPlugins *all = L.lilv_world_get_all_plugins(g.world);
     uint32_t n = 0;
@@ -283,7 +295,7 @@ static int bundle_list(struct lv2_bundle *b)
     for (it = L.lilv_plugins_begin(all); !L.lilv_plugins_is_end(all, it); it = L.lilv_plugins_next(all, it))
         n += L.lilv_node_equals(L.lilv_plugin_get_bundle_uri(L.lilv_plugins_get(all, it)), b->node) ? 1u : 0u;
     if (n == 0)
-        return -1;
+        return world_presets() > presets_before ? 0 : -1;
     b->uris = calloc(n, sizeof(*b->uris));
     b->names = calloc(n, sizeof(*b->names));
     if (!b->uris || !b->names)
@@ -310,6 +322,7 @@ static int bundle_list(struct lv2_bundle *b)
 struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX])
 {
     struct lv2_bundle *b;
+    uint32_t presets;
     size_t n;
     char *dir;
 
@@ -355,8 +368,9 @@ struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX])
         lv2_why_set(why, LV2_CODE_NO_REALISATION);
         return NULL;
     }
+    presets = world_presets();
     L.lilv_world_load_bundle(g.world, b->node);
-    if (bundle_list(b) != 0)
+    if (bundle_list(b, presets) != 0)
     {
         L.lilv_world_unload_bundle(g.world, b->node);
         bundle_free(b);

@@ -1739,7 +1739,7 @@ const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[
             slot = &g_slots[i];
     }
     n = lv2_bundle_count(bundle);
-    if (!slot || !(slot->descs = calloc(n, sizeof(*slot->descs))))
+    if (!slot || !(slot->descs = calloc(n ? n : 1u, sizeof(*slot->descs))))     // a bundle of presets only lists none
     {
         lv2_bundle_unref(bundle);
         why_set(why, LV2_CODE_NO_REALISATION);

@@ -728,7 +728,14 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-cv-fixture.lv2/omx-cv-fixture.so \
               build/lv2/omx-event-fixture.lv2/omx-event-fixture.so \
               build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so \
-              build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
+              build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so \
+              $(LV2_TTL_BUNDLES)
+# the bundles of TTL alone, no binary: one of presets only for the host fixture, one of neither plugin nor preset (#320)
+LV2_TTL_BUNDLES = build/lv2/omx-host-fixture-companion.lv2/manifest.ttl build/lv2/omx-no-plugin.lv2/manifest.ttl
+
+$(LV2_TTL_BUNDLES): build/lv2/%/manifest.ttl: $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture-companion.lv2/*.ttl $(LV2_FIXTURE_DIR)/omx-no-plugin.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/$*/*.ttl $(@D)/
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -853,6 +860,10 @@ lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tes
 test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
 	./lv2/tests/lv2_clap_test build/lv2
 
+# a bundle of presets only (#320) broken in a copy of the tree, the adapter's test seen red on the check that names it
+test-lv2-companion-sabotage:
+	./tests/lv2_companion_sabotage.sh
+
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged
 lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h src/omx_clap_raw.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
@@ -893,10 +904,12 @@ lv2-stage2-kinds:
 	echo "ok   the kinds check fails on an empty fixture tree"
 .PHONY: lv2-stage2-kinds
 
-# the fixture bundles against the LV2 specifications, with lv2_validate (the lv2 package's) when it is installed
+# the fixture bundles against the LV2 specifications, with lv2_validate (the lv2 package's) when it is installed; the
+# bundle of presets only beside the bundle of the plugin they apply to, as a host's world holds them
 test-lv2-validate: $(LV2_BUNDLES)
 	@if command -v lv2_validate >/dev/null && command -v sord_validate >/dev/null; then \
-	    for b in build/lv2/*.lv2; do lv2_validate $$b/*.ttl 2>&1 | tail -1 | tee build/lv2/validate.txt; grep -q '^Found 0 errors' build/lv2/validate.txt || exit 1; done; \
+	    for b in build/lv2/*.lv2; do with=; [ $$b != build/lv2/omx-host-fixture-companion.lv2 ] || with=build/lv2/omx-host-fixture.lv2/*.ttl; \
+	        lv2_validate $$b/*.ttl $$with 2>&1 | tail -1 | tee build/lv2/validate.txt; grep -q '^Found 0 errors' build/lv2/validate.txt || exit 1; done; \
 	    echo "ok   every fixture bundle validates"; \
 	else echo "lv2_validate or sord_validate is not installed: the fixture bundles were not validated"; fi
 .PHONY: test-lv2-validate

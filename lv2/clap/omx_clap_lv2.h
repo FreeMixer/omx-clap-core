@@ -76,7 +76,8 @@ extern const char *const omx_clap_lv2_provided[];
 /* [main-thread] The entry for ONE bundle (an absolute directory), reference-counted: the bundle
  * is loaded on the first call and unloaded when the last reference is released. NULL with `why`
  * set when lilv cannot be loaded or the bundle cannot be read. The entry's factory lists the
- * bundle's plugins, each with descriptor id = its LV2 URI. */
+ * bundle's plugins, each with descriptor id = its LV2 URI: none for a bundle of presets only, whose presets join those
+ * of the plugin they apply to, listed and loaded through that plugin's entry. */
 const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[OMX_CLAP_LV2_WHY_MAX]);
 void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry);
 
