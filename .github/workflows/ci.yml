@@ -610,7 +610,8 @@ jobs:
           grep -qx "$tsdir/omx-clap-core-vocabulary.js" core1-files.txt
           grep -qx "$tsdir/omx-clap-core-vocabulary.d.ts" core1-files.txt
           ! grep -qx "$tsdir/omx-clap-core-hosting.js" dev-files.txt
-          ! comm -12 core1-files.txt <(sort dev-files.txt) | grep -vx /usr/share/omx-clap-core | grep -q .
+          # no FILE in both packages (the shared parent directories, /usr, /usr/share and so on, are in every pair's lists)
+          ! comm -12 core1-files.txt <(sort dev-files.txt) | while IFS= read -r p; do [ -d "$p" ] || printf '%s\n' "$p"; done | grep -q .
 
       # the LV2 adapter: its files, then a program built against libomx-clap-lv2-dev runs the fixture with the system's lilv
       - name: A consumer builds against libomx-clap-lv2-dev and runs an LV2 plugin
