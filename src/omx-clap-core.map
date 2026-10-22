@@ -143,3 +143,20 @@ OMX_CLAP_CORE_0.15
     /* bounded to the caller's own sizeof, never the library's (#301) */
     omx_clap_host_config_default_sized;
 } OMX_CLAP_CORE_0.14;
+
+/* added after 0.15.0: the 0.15 node is frozen */
+OMX_CLAP_CORE_0.16
+{
+  global:
+    /* the chain (clap_chain.h, #311) */
+    omx_clap_chain_add;
+    omx_clap_chain_bypass;
+    omx_clap_chain_create;
+    omx_clap_chain_destroy;
+    omx_clap_chain_member_info;
+    omx_clap_chain_member_latency_set;
+    omx_clap_chain_process;
+    omx_clap_chain_refresh;
+    omx_clap_chain_remove;
+    omx_clap_chain_report;
+} OMX_CLAP_CORE_0.15;
