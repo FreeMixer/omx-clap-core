@@ -4,6 +4,7 @@ tests/clap_host_test
 tests/clap_ext_test
 tests/clap_unoffered_test
 tests/idle_hold_test
+tests/clap_chain_test
 tests/clap_scan_test
 tests/crash.clap
 omx-clap-scan
