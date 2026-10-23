@@ -390,6 +390,11 @@ jobs:
             echo "::warning::test-jack-params SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # the host-ready wait test-jack-params relies on (#191), sabotaged: a host that never logs ready!, a port a
+      # listener already held, a host merely slow. No jack, PipeWire or namespace needed, so this always runs.
+      - name: Test the host-ready wait's two causes, sabotaged
+        run: make test-jack-params-ready-sabotage
+
       # An LV2 plugin through the host: the fixture bundles on LV2_PATH, add lv2:<uri>, the adapter's refusals with their
       # codes in the reply, the control ports by symbol, lv2:enabled as the bypass, state, presets by URI and remove.
       - name: Test an LV2 plugin through the host over jack
