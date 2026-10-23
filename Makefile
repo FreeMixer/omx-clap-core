@@ -330,7 +330,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
+test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check test-jack-params-ready-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -659,6 +659,11 @@ test-jack-info: $(PROG) tests/fake.clap
 # feedback port, in order, and the values read again when there were more than the ring holds
 test-jack-params: $(PROG) tests/fake_mover.clap
 	./tests/jack_params_e2e.sh
+
+# the sabotage of tests/host_ready_wait.sh (#191): a host that never logs ready!, a port a listener already held,
+# and a host merely slow inside the longer bound; no jack or namespace needed, so this runs everywhere test-jack-params does not
+test-jack-params-ready-sabotage: tests/host_ready_wait.sh tests/jack_params_ready_sabotage.sh
+	./tests/jack_params_ready_sabotage.sh
 
 tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h
 	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
