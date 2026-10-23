@@ -40,6 +40,16 @@ jobs:
       - name: make private-refs
         run: make private-refs
 
+  omx-dsp-floor:
+    name: the omx-dsp gate refuses below its floor, pkg-config or checkout
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: make test-omx-dsp-floor
+        run: make test-omx-dsp-floor
+
   contract:
     name: data/ read back through omx-contract's reader, the committed headers and ts module its render
     runs-on: ubuntu-latest

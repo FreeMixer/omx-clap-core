@@ -11,6 +11,11 @@ Version: @VERSION@
 Requires: clap
 # hosted_stage.h takes its DSP words from omx-dsp's headers, which name omx-contract's; clap_host.h its hosting codes
 # from omx_clap_core_vocabulary.h, installed beside it; nothing of either is linked
+# #77: a floor, no ceiling, like every other Requires here (and the Makefile's own omx-dsp gate) — a published
+# minor bump is never pinned out
+# #77: omxdsp's -ffp-contract=off belongs in a consumer's Cflags, Requires.private and all: hosted_stage.h is
+# header-only, its inline functions call omx_db_to_lin and omx_wetdry_xfade_block directly, so a consumer compiling
+# against it needs the same contract setting the kernels were built with, not just omx-clap-core's own .o files
 Requires.private: omxdsp >= 0.18.0, omx-contract >= 3.0.0
 Libs: -L${libdir} -lomx-clap-core
 Cflags: -I${includedir}

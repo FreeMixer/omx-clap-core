@@ -63,14 +63,29 @@ endif
 CLAP_TEST_PLUGIN ?= /usr/lib/clap/omx-delay.clap
 
 # omx-dsp's headers: hosted_stage.h spells no DSP word of its own (omx_block_finite, omx_denormals_off, omx_db_to_lin,
-# omx_wetdry_xfade_block), it takes them from omx-dsp. pkg-config when omx-dsp-devel is installed (it names omx-contract and
-# the -ffp-contract=off the kernels are built with), an omx-dsp and an omx-contract checkout otherwise
+# omx_wetdry_xfade_block), it takes them from omx-dsp. pkg-config when omx-dsp-devel is installed at the omx-clap-core.pc.in
+# floor (it names omx-contract and the -ffp-contract=off the kernels are built with), an omx-dsp and an omx-contract
+# checkout otherwise, gated on the checkout's own VERSION file reading at or above the same floor (no ceiling: #77 settles
+# on a floor-only policy, matching every other dependency this tree names by >=)
 OMX_DSP_DIR ?= ../omx-dsp
 OMX_CONTRACT_DIR ?= ../omx-contract
-ifeq ($(shell $(PKG_CONFIG) --exists omxdsp && echo true), true)
+OMX_DSP_FLOOR = 0.18.0
+OMX_DSP_FLOOR_NUM := $(shell echo $(OMX_DSP_FLOOR) | awk -F. '{ print $$1 * 10000 + $$2 * 100 + $$3 }')
+ifeq ($(shell $(PKG_CONFIG) --exists 'omxdsp >= $(OMX_DSP_FLOOR)' && echo true), true)
 DSP_CFLAGS = $(shell $(PKG_CONFIG) --cflags omxdsp)
 else
+OMX_DSP_CHECKOUT_VERSION := $(strip $(shell cat $(OMX_DSP_DIR)/VERSION 2>/dev/null))
+OMX_DSP_CHECKOUT_NUM := $(shell echo "$(OMX_DSP_CHECKOUT_VERSION)" | awk -F. 'NF==3 { print $$1 * 10000 + $$2 * 100 + $$3 }')
+# DSP_CFLAGS below is `=` (recursive), not `:=`: a target whose recipe never expands it (clean, private-refs,
+# version-check...) must not refuse just because this tree has no omx-dsp; $(error) only fires where CFLAGS is
+# actually built into a compile line, or print-dsp-cflags asks for it on purpose
+ifeq ($(OMX_DSP_CHECKOUT_NUM),)
+DSP_CFLAGS = $(error omx-dsp: no omxdsp.pc >= $(OMX_DSP_FLOOR) and no readable VERSION at $(OMX_DSP_DIR); install omxdsp-devel or point OMX_DSP_DIR at a checkout with a VERSION file)
+else ifeq ($(shell [ $(OMX_DSP_CHECKOUT_NUM) -ge $(OMX_DSP_FLOOR_NUM) ] && echo yes), yes)
 DSP_CFLAGS = -ffp-contract=off -I$(OMX_DSP_DIR)/include -I$(OMX_CONTRACT_DIR)/include
+else
+DSP_CFLAGS = $(error omx-dsp: the checkout at $(OMX_DSP_DIR) is $(OMX_DSP_CHECKOUT_VERSION), below the $(OMX_DSP_FLOOR) floor omx-clap-core.pc.in requires)
+endif
 endif
 
 # default compiler and linker flags; everything is hidden by default, the core's export list is its version script
@@ -279,9 +294,14 @@ install_man:
 	for page in doc/*.1; do sed -e 's,@VERSION@,$(VERSION),' $$page > $(DESTDIR)$(MANDIR)/$$(basename $$page); chmod 644 $(DESTDIR)$(MANDIR)/$$(basename $$page); done
 
 # the version of this tree is VERSION: the spec's Version and the newest debian/changelog entry must say the same
-.PHONY: version-check print-version-num
+.PHONY: version-check print-version-num print-dsp-cflags
 print-version-num:
 	@echo $(VERSION_NUM)
+
+# DSP_CFLAGS as the omx-dsp floor gate resolved it (tests/omx-dsp-floor-check.sh drives this with PKG_CONFIG and
+# OMX_DSP_DIR of its own, to prove the gate refuses a checkout below $(OMX_DSP_FLOOR) and a missing VERSION file)
+print-dsp-cflags:
+	@echo $(DSP_CFLAGS)
 
 # the fixtures core_link_test runs on, in order: test-core's and the clean-root consumer steps' (ci.yml) one list
 CORE_LINK_FIXTURES = tests/fake.clap tests/fake_synth.clap tests/fault-1.clap
@@ -317,6 +337,12 @@ version-check:
 private-refs:
 	tools/private-refs-check.sh
 	tools/private-refs-check.sh --self-test
+
+# the omx-dsp gate above (pkg-config at the floor, else a checked-out VERSION at the same floor, never unversioned)
+# refuses every version below 0.18.0 and accepts every one at or above it (#77).
+.PHONY: test-omx-dsp-floor
+test-omx-dsp-floor:
+	sh tests/omx-dsp-floor-check.sh
 
 .PHONY: docs
 # the C API reference by doxygen, from the installed headers' docstrings; build-time only
