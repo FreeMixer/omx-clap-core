@@ -40,15 +40,19 @@
 ************************************************************************************************************************
 */
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <ftw.h>
 #include <limits.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <lv2/atom/atom.h>
 #include <lv2/buf-size/buf-size.h>
@@ -268,7 +272,8 @@ static int same_config(const struct lv2_core_config *c)
 }
 
 
-/* every directory of the absolute `path`, made when missing: 0, or -1 */
+/* every directory of the absolute `path`, made when missing, 0700 so no other local user can read into a saved LV2
+ * state: 0, or -1 */
 int lv2_mkdirs(const char *path)
 {
     char buf[PATH_MAX];
@@ -284,11 +289,57 @@ int lv2_mkdirs(const char *path)
         if (buf[i] != '/' && buf[i] != '\0')
             continue;
         buf[i] = '\0';
-        if (mkdir(buf, 0755) != 0 && (errno != EEXIST || stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)))
+        if (mkdir(buf, 0700) != 0 && (errno != EEXIST || stat(buf, &st) != 0 || !S_ISDIR(st.st_mode)))
             return -1;
         buf[i] = path[i];
     }
     return 0;
+}
+
+/* every entry `nftw` is walked to, removed, depth first, never following a link */
+static int sweep_entry_remove(const char *path, const struct stat *st, int flag, struct FTW *ftw)
+{
+    (void)st;
+    (void)flag;
+    (void)ftw;
+    remove(path);
+    return 0;
+}
+
+/* whether `pid` names a process still alive: kill with no signal only asks, EPERM still means it exists */
+static int pid_alive(long pid)
+{
+    return pid > 0 && (kill((pid_t)pid, 0) == 0 || errno == EPERM);
+}
+
+/* the root's own lv2-<pid>-<n> directories (never the .saved copies beside them) whose pid is no longer alive, removed
+ * whole: what a host that crashed before it tore its instances down left behind. Run once, when the root is made, so a
+ * long-lived root does not grow one directory per crash forever. */
+static void state_root_sweep(const char *root)
+{
+    DIR *d = opendir(root);
+    struct dirent *e;
+
+    if (!d)
+        return;
+    while ((e = readdir(d)) != NULL)
+    {
+        char path[PATH_MAX];
+        char *end;
+        long pid;
+
+        if (strncmp(e->d_name, "lv2-", 4) != 0)
+            continue;
+        pid = strtol(e->d_name + 4, &end, 10);
+        if (end == e->d_name + 4 || *end != '-')
+            continue;
+        strtol(end + 1, &end, 10);
+        if (*end != '\0' || pid_alive(pid))
+            continue;
+        if (snprintf(path, sizeof(path), "%s/%s", root, e->d_name) < (int)sizeof(path))
+            nftw(path, sweep_entry_remove, 16, FTW_DEPTH | FTW_PHYS);
+    }
+    closedir(d);
 }
 
 /* the state root made and taken by its real path: NULL when it is not absolute or cannot be made */
@@ -298,6 +349,7 @@ static char *state_root_make(const char *root)
 
     if (!root || root[0] != '/' || lv2_mkdirs(root) != 0 || !realpath(root, real))
         return NULL;
+    state_root_sweep(real);
     return strdup(real);
 }
 
