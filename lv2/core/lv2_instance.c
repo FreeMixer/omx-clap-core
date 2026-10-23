@@ -1344,6 +1344,9 @@ static int buffers_make(struct lv2_instance *in)
     uint32_t k;
 
     in->midi_bytes = atom_bytes();
+    // the note path's own rsz:minimumSize, rounded up to 8 as atom_bytes() is
+    if (((p->midi_min + 7u) & ~7u) > in->midi_bytes)
+        in->midi_bytes = (p->midi_min + 7u) & ~7u;
     // a shared port carries the patch messages too: the MIDI buffers are at least the patch capacity
     if ((p->patch_in_shared || p->patch_out_shared) && patch_cap(p) > in->midi_bytes)
         in->midi_bytes = patch_cap(p);

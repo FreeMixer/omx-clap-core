@@ -1350,8 +1350,15 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
                 p->atom_min = rsz_max(rsz, p->atom_min);
                 L.lilv_nodes_free(rsz);
             }
-            else if (input)
-                p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+            else
+            {
+                LilvNodes *rsz = L.lilv_port_get_value(pl, port, g.node[N_RSZ_MIN]);
+
+                if (input)
+                    p->midi_time = L.lilv_port_supports_event(pl, port, g.node[N_TIME_POSITION]) ? 1 : 0;
+                p->midi_min = rsz_max(rsz, p->midi_min);
+                L.lilv_nodes_free(rsz);
+            }
             if (input)
                 p->midi_in_port = (int32_t)i;
             else

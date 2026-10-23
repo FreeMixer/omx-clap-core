@@ -402,9 +402,14 @@ static const LV2_Descriptor SOURCE = { ECHO_URI "#source", tool_instantiate, sou
 static const LV2_Descriptor TWO_IN = { ECHO_URI "#two-in", two_instantiate, two_in_connect, NULL, two_in_run, NULL, echo_cleanup, NULL };
 static const LV2_Descriptor TWO_OUT = { ECHO_URI "#two-out", two_instantiate, two_out_connect, NULL, two_out_run, NULL, echo_cleanup, NULL };
 
+/* the big-buffer twin (#big): the same echo, ports and run as the plain echo above, over whatever buffer the host
+ * gives its MIDI ports (sized to their rsz:minimumSize) */
+static const LV2_Descriptor BIG = { ECHO_URI "#big", echo_instantiate, echo_connect, NULL, echo_run, NULL, echo_cleanup, NULL };
+
 EXPORT const LV2_Descriptor *lv2_descriptor(uint32_t index)
 {
-    return index == 0 ? &DESCRIPTOR : index == 1 ? &SYNTH : index == 2 ? &TWO_IN : index == 3 ? &TWO_OUT : index == 4 ? &TOOL : index == 5 ? &SOURCE : NULL;
+    return index == 0 ? &DESCRIPTOR : index == 1 ? &SYNTH : index == 2 ? &TWO_IN : index == 3 ? &TWO_OUT : index == 4 ? &TOOL :
+           index == 5 ? &SOURCE : index == 6 ? &BIG : NULL;
 }
 
 /* the last run's input: how many events it had, and the one at `i`, with its frame, size and first bytes */

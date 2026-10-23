@@ -1195,6 +1195,63 @@ static void t_midi_run(void)
     lv2_plugin_close(p);
 }
 
+/* ---- rsz:minimumSize on a MIDI atom port (#53) ---- */
+
+#define BIG_URI MIDI_URI "#big"
+#define BIG_MSG_BYTES 2000u     // more than the default atom buffer's ~1016-byte body could ever hold, well inside
+                                // the #big twin's 8192-byte rsz:minimumSize
+
+struct big_seen { uint32_t n; uint32_t size; int64_t frame; };
+
+static void big_collect(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+{
+    struct big_seen *g = ctx;
+
+    (void)data;
+    g->n++;
+    g->size = size;
+    g->frame = frame;
+}
+
+/* the #big twin declares rsz:minimumSize 8192 on its MIDI ports: a message the default 1024-byte buffer could never
+ * hold is not dropped, and comes back out whole at its frame, proving the buffer the host gave the plugin is sized
+ * to the port's own minimum, not the configured default */
+static void t_midi_big_buffer(void)
+{
+    static uint8_t msg[BIG_MSG_BYTES];
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_plugin(g_midi, BIG_URI, why);
+    struct lv2_instance *in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    struct lv2_counters before, after;
+    struct big_seen g;
+    uint32_t i;
+
+    for (i = 0; i < BIG_MSG_BYTES; i++)
+        msg[i] = (uint8_t)(i & 0xffu);
+    CHECK(in && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0,
+          "midi big buffer: the #big twin instantiates and activates (%s)", why);
+    if (!in)
+    {
+        lv2_plugin_close(p);
+        return;
+    }
+    lv2_instance_counters(in, &before);
+    CHECK(lv2_instance_midi_in_add(in, 7, msg, BIG_MSG_BYTES) == 0,
+          "midi big buffer: a %u-byte message, past the default 1024-byte buffer, is accepted", BIG_MSG_BYTES);
+    lv2_instance_counters(in, &after);
+    CHECK(after.midi_in_dropped == before.midi_in_dropped,
+          "midi big buffer: it is not counted as dropped (%u, %u)", before.midi_in_dropped, after.midi_in_dropped);
+    memset(&g, 0, sizeof(g));
+    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_midi_out_each(in, big_collect, &g);
+    CHECK(g.n == 1 && g.frame == 7 && g.size == BIG_MSG_BYTES,
+          "midi big buffer: the message arrives whole at its frame, not truncated or dropped (%u messages, frame %lld, %u bytes)",
+          g.n, (long long)g.frame, g.size);
+    lv2_instance_deactivate(in);
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
 /* ---- MIDI through ev:EventPort ---- */
 
 #define EV_URI LV2_EVENT_FIXTURE_URI
@@ -2147,6 +2204,7 @@ int main(int argc, char **argv)
     t_atom_ports();
     t_atom_ui();
     t_midi_run();
+    t_midi_big_buffer();
     t_event_ports();
     t_event_run();
     t_event_mixed();

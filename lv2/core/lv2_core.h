@@ -274,6 +274,8 @@ struct lv2_plugin
     int midi_in_ll;                 // the MIDI input is an llext:MidiPort (ll-plugins' MIDI port, zynadd's): an LV2_MIDI
                                     // (lv2_ll_midi.h), each event a double timestamp, a size_t size and the bytes
     int midi_out_ll;                // the MIDI output is an llext:MidiPort
+    uint32_t midi_min;              // the largest rsz:minimumSize of the MIDI input and output atom ports (the note
+                                    // path's, not shared with a patch port), 0: none
     uint32_t n_event_in;            // the ev:EventPort MIDI inputs after the MIDI input: fed an empty buffer
     uint32_t event_in[LV2_CORE_ATOM_IN_PORTS];
     uint32_t n_event_out;           // the ev:EventPort MIDI outputs after the MIDI output: offered a buffer, never read

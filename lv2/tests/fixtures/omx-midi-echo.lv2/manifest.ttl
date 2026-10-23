@@ -20,6 +20,11 @@
     lv2:binary <omx-midi-echo.so> ;
     rdfs:seeAlso <omx-midi-echo.ttl> .
 
+<urn:openmixer:test:midi-echo#big>
+    a lv2:Plugin ;
+    lv2:binary <omx-midi-echo.so> ;
+    rdfs:seeAlso <omx-midi-echo.ttl> .
+
 <urn:openmixer:test:midi-echo#tool>
     a lv2:Plugin ;
     lv2:binary <omx-midi-echo.so> ;

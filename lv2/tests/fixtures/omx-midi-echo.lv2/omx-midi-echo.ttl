@@ -8,6 +8,7 @@
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
 @prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
 @prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rsz:   <http://lv2plug.in/ns/ext/resize-port#> .
 @prefix urid:  <http://lv2plug.in/ns/ext/urid#> .
 
 <urn:openmixer:test:midi-echo>
@@ -58,6 +59,25 @@
     ] , [
         a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
         lv2:index 4 ; lv2:symbol "midi_out_b" ; lv2:name "MIDI Out B"
+    ] .
+
+# the big-buffer twin (#big): the MIDI input and output each declare rsz:minimumSize 8192, above the default atom
+# buffer (1024 bytes), so a message the default buffer could not hold arrives whole
+<urn:openmixer:test:midi-echo#big>
+    a lv2:Plugin ;
+    doap:name "openmixer midi echo (big MIDI buffer twin)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:requiredFeature urid:map ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] , [
+        a atom:AtomPort , lv2:InputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        rsz:minimumSize 8192 ; lv2:index 2 ; lv2:symbol "midi_in" ; lv2:name "MIDI In"
+    ] , [
+        a atom:AtomPort , lv2:OutputPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ;
+        rsz:minimumSize 8192 ; lv2:index 3 ; lv2:symbol "midi_out" ; lv2:name "MIDI Out"
     ] .
 
 # the instrument: a MIDI input and a stereo output, no audio input
