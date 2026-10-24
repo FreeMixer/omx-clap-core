@@ -160,3 +160,14 @@ OMX_CLAP_CORE_0.16
     omx_clap_chain_remove;
     omx_clap_chain_report;
 } OMX_CLAP_CORE_0.15;
+
+/* added after 0.16.0: the 0.16 node is frozen */
+OMX_CLAP_CORE_0.17
+{
+  global:
+    /* the plugin's resource hints (#323) */
+    omx_clap_host_resource_hints;
+    omx_clap_resource_hint_figure;
+    omx_clap_resource_hint_unit;
+    omx_clap_resource_hint_word;
+} OMX_CLAP_CORE_0.16;

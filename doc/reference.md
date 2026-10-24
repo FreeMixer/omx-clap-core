@@ -561,6 +561,29 @@ The last activate's answer is kept across a deactivate. A plugin that
 says its voice info changed (the host's `clap.voice-info`) is asked again
 by the next `omx_clap_host_tick` while it is active.
 
+Resource hints
+--------------
+
+A plugin may state its own footprint through
+`org.openmixer.resource-hints.draft/0`, omx-contract's `RESOURCE_HINTS`
+(3.1.0, `omxcontract/omx_resource_hints.h`): footprint-at-rest,
+footprint-per-voice and shared-load in bytes, threads-spawned a count,
+streams-from-disk and opens-sockets flags, activate-time in ms. The
+extension is asked once, when the instance is created, and kept for its
+life. A program that hosts the plugin through the library reads it with
+`omx_clap_host_resource_hints`, which answers 1 with the declaration, 0
+when the plugin states none (no extension, a `get` that answers false, no
+bit set), or -1 when the declaration is refused, with the code: a bit of
+`declared` that names no hint is `hosting.resource-hints.unknown-hint`, a
+declared flag whose byte is neither 0 nor 1 is
+`hosting.resource-hints.wrong-unit`. A refused declaration is trusted for
+none of its hints. A hint whose bit is clear is unknown, never zero: its
+member reads 0 whatever the plugin left in it, and
+`omx_clap_resource_hint_figure` answers 0 for it. The hint's word and
+unit are omx-contract's, from `omx_clap_resource_hint_word` and
+`omx_clap_resource_hint_unit`. A hint is a claim; the library neither
+measures it nor admits a plugin by it.
+
 Instrument details
 ------------------
 

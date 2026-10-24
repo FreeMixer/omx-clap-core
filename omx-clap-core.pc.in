@@ -10,7 +10,8 @@ Description: The CLAP hosting core of omx-clap-host: a plugin's process() on the
 Version: @VERSION@
 Requires: clap
 # hosted_stage.h takes its DSP words from omx-dsp's headers, which name omx-contract's; clap_host.h its hosting codes
-# from omx_clap_core_vocabulary.h, installed beside it; nothing of either is linked
+# from omx_clap_core_vocabulary.h, installed beside it, and the resource hints from omx-contract's
+# omxcontract/omx_resource_hints.h (3.1.0); nothing of either is linked
 Requires.private: omxdsp >= 0.18.0, omx-contract >= 3.1.0
 Libs: -L${libdir} -lomx-clap-core
 Cflags: -I${includedir}

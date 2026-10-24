@@ -154,6 +154,10 @@ jobs:
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
 
+      # each guard of the resource hints broken in a copy of the sources, the test that holds it red (#323)
+      - name: The sabotage of the resource hints' guards
+        run: make test-resource-hints-sabotage
+
       - name: Test what a plugin reports about its parameters under AddressSanitizer
         run: make test-untrusted-asan
 
