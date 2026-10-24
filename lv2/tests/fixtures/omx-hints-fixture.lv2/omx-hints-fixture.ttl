@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# Two mono pads: urn:omx:test:hints:two states footprint-at-rest and threads-spawned in omx-contract's omxres
+# namespace, typed by the ranges of its omx-resource-hints.ttl; urn:omx:test:hints:none states none.
+@prefix doap:   <http://usefulinc.com/ns/doap#> .
+@prefix lv2:    <http://lv2plug.in/ns/lv2core#> .
+@prefix omxres: <https://www.openmixer.org/ns/resource-hints#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:omx:test:hints:two>
+    a lv2:Plugin ;
+    doap:name "omx hints two" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    omxres:footprintAtRest "3145728"^^xsd:unsignedLong ;
+    omxres:threadsSpawned "2"^^xsd:unsignedInt ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .
+
+<urn:omx:test:hints:none>
+    a lv2:Plugin ;
+    doap:name "omx hints none" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .

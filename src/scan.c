@@ -45,6 +45,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <omxcontract/omx_vocabulary.h>
+
 #include "clap_host.h"
 #include "layout_pin.h"
 #include "scan_fields.h"
@@ -520,6 +522,59 @@ static void put_voice_info(FILE *out, struct omx_clap_instance *instance)
                 (info.flags & CLAP_VOICE_INFO_SUPPORTS_OVERLAPPING_NOTES) ? ", overlapping notes" : "");
 }
 
+/* the resource hints the plugin declares (org.openmixer.resource-hints.draft/0), as the core read them at create: every
+ * hint by omx-contract's word with its unit and its figure, null when unknown, never 0; and the code when the core refused
+ * the declaration. Left out when the plugin states none. */
+static void put_resource_hints(FILE *out, const struct omx_clap_instance *instance)
+{
+    omx_resource_hints_t hints;
+    const char *why = NULL;
+    const int rc = omx_clap_host_resource_hints(instance, &hints, &why);
+    uint32_t i, put = 0;
+
+    if (rc == 0)
+        return;
+    if (g_json)
+    {
+        fprintf(out, ",\"resource_hints\":{\"declared\":%u", hints.declared);
+        if (why)
+            fprintf(out, ",\"refused\":\"%s\"", why);
+    }
+    else if (why)
+        fprintf(out, "    resource hints refused: %s\n", why);
+    else
+        fputs("    resource hints", out);
+    for (i = 0; i < OMX_RESOURCE_HINT_COUNT; i++)
+    {
+        const char *unit = omx_clap_resource_hint_unit(i);
+        const int flag = !strcmp(unit, OMX_RESOURCE_UNITS_FLAG);
+        uint64_t figure;
+        const int known = omx_clap_resource_hint_figure(&hints, i, &figure) == 1;
+
+        if (g_json)
+        {
+            fprintf(out, ",\"%s\":{\"unit\":\"%s\",\"figure\":", omx_clap_resource_hint_word(i), unit);
+            if (!known)
+                fputs("null}", out);
+            else if (flag)
+                fputs(figure ? "true}" : "false}", out);
+            else
+                fprintf(out, "%llu}", (unsigned long long)figure);
+        }
+        else if (known && !why)
+        {
+            if (flag)
+                fprintf(out, "%s %s %s", put++ ? "," : "", omx_clap_resource_hint_word(i), figure ? "yes" : "no");
+            else
+                fprintf(out, "%s %s %llu %s", put++ ? "," : "", omx_clap_resource_hint_word(i), (unsigned long long)figure, unit);
+        }
+    }
+    if (g_json)
+        fputc('}', out);
+    else if (!why)
+        fputc('\n', out);
+}
+
 /* what a plugin that is only initialised answers; a plugin not yet activated may say 0, so 0 is left out as unknown */
 static void put_latency(FILE *out, const struct omx_clap_instance *instance)
 {
@@ -602,6 +657,7 @@ static void put_plugin(FILE *out, const char *path, struct omx_clap_binary *bina
     put_note_names(out, instance);
     put_latency(out, instance);
     put_voice_info(out, instance);
+    put_resource_hints(out, instance);
     if (g_json)
         fputc('}', out);
     omx_clap_host_close(instance);

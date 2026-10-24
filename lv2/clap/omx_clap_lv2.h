@@ -117,6 +117,14 @@ int omx_clap_lv2_patch_text_set(const clap_plugin_t *plugin, const char *uri, co
  * NUL-terminated, in `buf`. 0 and an empty `buf` for a property the plugin does not list. */
 uint32_t omx_clap_lv2_patch_text_get(const clap_plugin_t *plugin, const char *uri, char *buf, uint32_t size);
 
+/* [main-thread] Why the resource hints the plugin's TTL states (omx-contract's RESOURCE_HINTS as omxres properties) were
+ * refused, for a plugin this adapter created: "" when they were read or it states none, and the plugin then offers them
+ * through org.openmixer.resource-hints.draft/0 when it states any; a hosting.resource-hints.* code when one hint is not
+ * in its unit (wrong-unit: a flag that is not an xsd:boolean, a size, a count or a time that is not an integer) or past
+ * its member (out-of-range), and the plugin then offers no hints at all. NULL for a plugin the adapter did not
+ * create. */
+const char *omx_clap_lv2_resource_hints_why(const clap_plugin_t *plugin);
+
 /* [main-thread] FOR TESTS ONLY: block the caller until the plugin's LV2 worker has serviced every pending request, so
  * a test that compares two hosts pins the worker's schedule. The real worker thread runs; only the schedule is pinned. */
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin);

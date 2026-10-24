@@ -158,6 +158,7 @@ say.
 |---|---|---|---|---|
 | `clap.meters/1` | — | supported: every meter declared, read whole at open or not at all; values read off the audio thread (`tests/clap_core_test.c:t_meters`, `make test-jack-meters`) | — | the draft proposed to the CLAP SDK, declared in `src/clap_meters.h` until an SDK ships it (`docs/meters.md`) |
 | `org.openmixer.param-contract/1` | — | supported: read and checked at open and after each `params.rescan`, trusted whole or not at all, the broken rule named (`tests/param_contract_test.c`, `tests/clap_host_test.c:contract_checks`, `tests/clap_host_test.c:mover_checks`, `make test-jack-info`) | — | the vendor extension of `src/omx_clap_ext.h`; the LV2 adapter makes one from the TTL (`lv2/tests/lv2_clap_test.c:t_props`) |
+| `org.openmixer.resource-hints.draft/0` | — | supported: read once at create, whole or refused by code (`hosting.resource-hints.unknown-hint`, `hosting.resource-hints.wrong-unit`); a hint whose bit is clear reads as unknown, never zero (`tests/resource_hints_test.c`, `make test-resource-hints-sabotage`) | — | omx-contract's RESOURCE_HINTS, rendered as `omxcontract/omx_resource_hints.h` (3.1.0); the LV2 adapter makes one from the TTL's `omxres:` properties (`lv2/tests/lv2_clap_test.c:t_hints`) |
 | `org.openmixer.declaration/1` | — | unsupported: declared in `src/omx_clap_ext.h` for a plugin to serve; nothing in this repository asks for it | — | |
 | `clap.track-info.draft/0` | unsupported: an id older than the headers' | — | 2 | |
 | `clap.voice-info.draft/0` | unsupported: an id older than the headers' | — | 2 | |
@@ -199,6 +200,7 @@ to its caller, or where a program adds something of its own. A row is here when 
 | `clap.state-context` | not used: `state_save` and `state_load` save and load the plain state | as omx-clap-host | `omx_clap_host_state_save_context` and `_load_context` for the caller (`tests/clap_ext_test.c`) |
 | auxiliary ports (`clap.audio-ports-activation`) | each bound to its JACK ports, `aux_in_<p>_<k>` and `aux_out_<p>_<k>` (`make test-jack-fake`) | as omx-clap-host | active while the caller binds buffers to it (`tests/clap_ext_test.c`) |
 | `org.openmixer.param-contract/1` | answers `param_info` (`make test-jack-info`) | as omx-clap-host; `param_info` is its verb | `omx_clap_host_param_contract` and `omx_clap_host_param_meaning` (`tests/clap_host_test.c:contract_checks`) |
+| `org.openmixer.resource-hints.draft/0` | read, nothing answers it on the socket | as omx-clap-host | `omx_clap_host_resource_hints`, each hint's word, unit and figure by `omx_clap_resource_hint_word`, `_unit` and `_figure` (`tests/resource_hints_test.c`) |
 | `clap.gui` | no window: the host has no plugin GUI (`README.md`) | not stated here | not asked by the library |
 
 Measured
