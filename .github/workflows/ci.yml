@@ -125,9 +125,10 @@ jobs:
       - name: Build
         run: make
 
-      # omx-clap-scan --fields against the format tables of omx-contract at OMX_CONTRACT_REF (this job has the toolchain and
-      # the CLAP and LV2 headers the scanner and the fake plugins build with)
-      - name: omx-clap-scan --fields reads what the format tables declare
+      # omx-clap-scan --fields against the format tables of omx-contract at OMX_CONTRACT_REF, and --json's resource hints
+      # against its RESOURCE_HINTS (this job has the toolchain and the CLAP and LV2 headers the scanner and the fake
+      # plugins build with)
+      - name: omx-clap-scan --fields reads what the format tables declare, --json the resource hints RESOURCE_HINTS declares
         run: |
           set -eu
           git init -q /tmp/omx-contract
