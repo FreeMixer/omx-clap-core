@@ -16,7 +16,7 @@ env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.7.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
-  OMX_CONTRACT_REF: v3.0.0
+  OMX_CONTRACT_REF: v3.1.0
 
 jobs:
   version:
@@ -91,7 +91,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
-            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan \
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan libabigail \
             python3-numpy python3-lilv \
             dnf5-plugins
 
@@ -101,9 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.0.0' mod-host
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.1.0' mod-host
           pkg-config --modversion omxdsp
-          pkg-config --atleast-version=3.0.0 omx-contract
+          pkg-config --atleast-version=3.1.0 omx-contract
           command -v mod-host
 
       - uses: actions/checkout@v4
@@ -125,9 +125,10 @@ jobs:
       - name: Build
         run: make
 
-      # omx-clap-scan --fields against the format tables of omx-contract at OMX_CONTRACT_REF (this job has the toolchain and
-      # the CLAP and LV2 headers the scanner and the fake plugins build with)
-      - name: omx-clap-scan --fields reads what the format tables declare
+      # omx-clap-scan --fields against the format tables of omx-contract at OMX_CONTRACT_REF, and --json's resource hints
+      # against its RESOURCE_HINTS (this job has the toolchain and the CLAP and LV2 headers the scanner and the fake
+      # plugins build with)
+      - name: omx-clap-scan --fields reads what the format tables declare, --json the resource hints RESOURCE_HINTS declares
         run: |
           set -eu
           git init -q /tmp/omx-contract
@@ -153,6 +154,15 @@ jobs:
       # each guard of the chain broken in a copy of the sources, tests/clap_chain_test red on it (#311)
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
+
+      # each guard of the resource hints broken in a copy of the sources, the test that holds it red (#323)
+      - name: The sabotage of the resource hints' guards
+        run: make test-resource-hints-sabotage
+
+      # abi-check.sh's reading of abidiff against a fixture library: a pointee grown reads ok, a function pointer, a
+      # retyped pointer and a reorder each FAIL (#323)
+      - name: The sabotage of the ABI check's report reading
+        run: make test-abi-sabotage
 
       - name: Test what a plugin reports about its parameters under AddressSanitizer
         run: make test-untrusted-asan
@@ -416,7 +426,7 @@ jobs:
               /usr/include/omx-clap-host/clap_host_extensions.h /usr/include/omx-clap-host/omx_clap_ext.h /usr/include/omx-clap-host/omx_msgring.h /usr/include/omx-clap-host/clap_meters.h /usr/include/omx-clap-host/omx_clap_raw.h /usr/include/omx-clap-host/omx_clap_midi.h /usr/include/omx-clap-host/clap_chain.h \
               /usr/share/omx-clap-core/omx-clap-core.map /usr/share/omx-clap-core/libomx-clap-core.so.1.abi \
               /usr/share/omx-contract/contract.d/3/omx-clap-core/MANIFEST.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting.json \
-              /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/clap.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/cost.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/features.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/latency.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/output.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/override.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/patch.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/preset.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/provenance.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/realised.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/rt-safety.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/stability.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/state.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/topology.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/worker.json | sort > expected.txt
+              /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/clap.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/cost.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/features.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/latency.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/output.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/override.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/patch.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/preset.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/provenance.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/realised.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/resource-hints.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/rt-safety.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/stability.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/state.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/topology.json /usr/share/omx-contract/contract.d/3/omx-clap-core/hosting/worker.json | sort > expected.txt
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
           done
           for rpm in rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm; do

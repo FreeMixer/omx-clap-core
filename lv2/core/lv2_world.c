@@ -40,6 +40,7 @@
 */
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,6 +60,7 @@
 
 #include "lv2_core_internal.h"
 #include "lv2_ll_midi.h"
+#include "resource_hints.h"
 
 
 /*
@@ -74,7 +76,7 @@
 #define OMX_LILV_FNS(X) \
     X(lilv_world_new) X(lilv_world_free) X(lilv_new_uri) X(lilv_new_file_uri) X(lilv_node_free) \
     X(lilv_node_equals) X(lilv_node_as_uri) X(lilv_node_as_string) X(lilv_node_as_float) X(lilv_node_is_float) \
-    X(lilv_node_is_int) X(lilv_world_load_bundle) X(lilv_world_unload_bundle) X(lilv_world_get_all_plugins) \
+    X(lilv_node_is_int) X(lilv_node_is_literal) X(lilv_node_is_bool) X(lilv_node_as_bool) X(lilv_world_load_bundle) X(lilv_world_unload_bundle) X(lilv_world_get_all_plugins) \
     X(lilv_plugins_get_by_uri) X(lilv_plugins_begin) X(lilv_plugins_next) X(lilv_plugins_is_end) X(lilv_plugins_get) \
     X(lilv_plugin_get_uri) X(lilv_plugin_get_name) X(lilv_plugin_get_bundle_uri) X(lilv_plugin_get_library_uri) \
     X(lilv_plugin_get_num_ports) X(lilv_plugin_get_port_by_index) X(lilv_plugin_get_required_features) \
@@ -1650,6 +1652,103 @@ void lv2_plugin_close(struct lv2_plugin *p)
     free(p);
 }
 
+/* hint `index`'s property: the namespace and its word in lower camel case, as the contract's Turtle names it */
+static void hint_property(uint32_t index, char *out, size_t size)
+{
+    const char *w = resource_hints_table[index].word;
+    size_t n = (size_t)snprintf(out, size, "%s", LV2_CORE_RESOURCE_HINTS_NS);
+
+    for (; *w && n + 1 < size; w++)
+        if (*w == '-' && w[1])
+            out[n++] = (char)(w[1] >= 'a' && w[1] <= 'z' ? w[1] - 'a' + 'A' : w[1]), w++;
+        else
+            out[n++] = *w;
+    out[n] = '\0';
+}
+
+/* the figure of one hint's value in its unit: NULL with `*figure`, or the refusal. A flag is an xsd:boolean; a size, a
+ * count or a time an integer literal (xsd:integer, or the xsd:unsignedLong and xsd:unsignedInt of the contract's ranges,
+ * which lilv reads as text) of decimal digits, never a boolean, a decimal or a resource */
+static const char *hint_figure(const LilvNode *v, uint32_t index, uint64_t *figure)
+{
+    const char *text, *c;
+    unsigned long long n;
+    int digits = 0;
+
+    if (!L.lilv_node_is_literal(v))
+        return LV2_CODE_HINT_WRONG_UNIT;
+    if (resource_hint_max(index) == 1u)
+    {
+        if (!L.lilv_node_is_bool(v))
+            return LV2_CODE_HINT_WRONG_UNIT;
+        *figure = L.lilv_node_as_bool(v) ? 1u : 0u;
+        return NULL;
+    }
+    if (L.lilv_node_is_bool(v) || L.lilv_node_is_float(v))
+        return LV2_CODE_HINT_WRONG_UNIT;
+    text = L.lilv_node_as_string(v);
+    c = text && (*text == '-' || *text == '+') ? text + 1 : text;
+    for (; c && *c >= '0' && *c <= '9'; c++)
+        digits++;
+    if (!text || !digits || *c)
+        return LV2_CODE_HINT_WRONG_UNIT;
+    if (*text == '-')
+    {
+        for (c = text + 1; *c == '0'; c++)
+            ;
+        if (*c)
+            return LV2_CODE_HINT_OUT_OF_RANGE;  // below zero; -0 is 0
+    }
+    errno = 0;
+    n = strtoull(*text == '-' || *text == '+' ? text + 1 : text, NULL, 10);
+    if (errno == ERANGE || n > resource_hint_max(index))
+        return LV2_CODE_HINT_OUT_OF_RANGE;
+    *figure = n;
+    return NULL;
+}
+
+/* The omxres properties of the plugin, whole or refused: a hint it does not state is unknown and its bit clear; one
+ * whose figure is not in its unit or past its member refuses them all with its code. Read from the bundle's data alone,
+ * the binary never opened. lilv answers one value of a property however many literals the data gives it, so a hint
+ * stated twice reads as the one lilv answers: there is no second figure here to refuse it by. */
+static void resource_hints_read(struct lv2_plugin *p, const LilvPlugin *pl)
+{
+    omx_resource_hints_t h;
+    char uri[160];
+    uint32_t i;
+
+    memset(&p->hints, 0, sizeof(p->hints));
+    p->hints_why = NULL;
+    memset(&h, 0, sizeof(h));
+    // refused by the codes of HOSTING_RESOURCE_HINTS_CODES (data/hosting/resource-hints.json)
+    for (i = 0; i < OMX_RESOURCE_HINT_COUNT && !p->hints_why; i++)
+    {
+        LilvNode *pred;
+        LilvNodes *vals;
+        uint64_t figure = 0;
+
+        hint_property(i, uri, sizeof(uri));
+        pred = L.lilv_new_uri(g.world, uri);
+        vals = pred ? L.lilv_plugin_get_value(pl, pred) : NULL;
+        if (pred)
+            L.lilv_node_free(pred);
+        if (!vals)
+            continue;
+        if (nodes_count(vals) != 0u)
+        {
+            p->hints_why = hint_figure(L.lilv_nodes_get(vals, L.lilv_nodes_begin(vals)), i, &figure);
+            if (!p->hints_why)
+            {
+                h.declared |= resource_hints_table[i].bit;
+                resource_hint_set(&h, i, figure);
+            }
+        }
+        L.lilv_nodes_free(vals);
+    }
+    if (!p->hints_why)
+        p->hints = h;
+}
+
 struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, char why[LV2_CORE_WHY_MAX])
 {
     struct lv2_plugin *p;
@@ -1696,6 +1795,7 @@ struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, c
         lv2_why_set(why, refusal);
         return NULL;
     }
+    resource_hints_read(p, pl);
     lv2_why_set(why, "");
     return p;
 }

@@ -101,6 +101,7 @@
 #include "fixtures/lv2_ll_midi_fixture.h"
 #include "fixtures/lv2_host_fixture.h"
 #include "fixtures/lv2_patch_fixture.h"
+#include "fixtures/lv2_hints_fixture.h"
 struct lv2_midi_echo_two { unsigned runs, a, b, in; };
 #include "lv2_test_util.h"
 
@@ -139,6 +140,7 @@ static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
 static char g_layout[PATH_MAX];
+static char g_hints[PATH_MAX], g_hints_refused[PATH_MAX];
 static char g_path[PATH_MAX], g_path_so[PATH_MAX + 32], g_root[PATH_MAX + 64], g_build[PATH_MAX], g_fixture_so[PATH_MAX + 32];
 static char g_atom[PATH_MAX], g_atom_so[PATH_MAX + 32];
 static char g_cv[PATH_MAX], g_cv_so[PATH_MAX + 32];
@@ -1593,6 +1595,88 @@ static int info_of(struct rig *g, clap_id id, clap_param_info_t *info)
         if (g->params->get_info(g->plugin, i, info) && info->id == id)
             return 1;
     return 0;
+}
+
+/* the resource hints the TTL states (omxres properties): the two read through the face's
+ * org.openmixer.resource-hints.draft/0 and through the core, the rest unknown; a pad that states none offers none; each
+ * malformed property refuses them all, the face offering none and the adapter naming the code */
+static void t_hints(void)
+{
+    static const struct
+    {
+        const char *uri, *code;
+    } refused[] = {
+        { HINTS_WRONG_UNIT, "hosting.resource-hints.wrong-unit" },
+        { HINTS_OUT_OF_RANGE, "hosting.resource-hints.out-of-range" },
+    };
+    const omx_clap_plugin_resource_hints_t *ext;
+    omx_resource_hints_t h;
+    struct rig g;
+    const char *why;
+    size_t i;
+
+    if (rig_up(&g, g_hints, HINTS_TWO, 0.0, MAXB) == 0)
+    {
+        ext = g.plugin->get_extension(g.plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT);
+        memset(&h, 0x5a, sizeof(h));
+        CHECK(ext && ext->get(g.plugin, &h) &&
+                  h.declared == (OMX_RESOURCE_HINT_FOOTPRINT_AT_REST | OMX_RESOURCE_HINT_THREADS_SPAWNED) &&
+                  h.footprint_at_rest == HINTS_AT_REST && h.threads_spawned == HINTS_THREADS,
+              "hints: the face offers the draft, footprint-at-rest %u bytes and threads-spawned %u (%#x, %llu, %u)", HINTS_AT_REST,
+              HINTS_THREADS, ext ? h.declared : 0u, ext ? (unsigned long long)h.footprint_at_rest : 0ull, ext ? h.threads_spawned : 0u);
+        CHECK(ext && h.footprint_per_voice == 0 && h.shared_load == 0 && !h.streams_from_disk && !h.opens_sockets && h.activate_time == 0,
+              "hints: the five it does not state are clear, their members 0");
+        why = omx_clap_lv2_resource_hints_why(g.plugin);
+        CHECK(why && !strcmp(why, ""), "hints: nothing refused (%s)", why ? why : "NULL");
+        rig_down(&g);
+    }
+    if (rig_up(&g, g_hints, HINTS_NONE, 0.0, MAXB) == 0)
+    {
+        why = omx_clap_lv2_resource_hints_why(g.plugin);
+        CHECK(!g.plugin->get_extension(g.plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT) && why && !strcmp(why, ""),
+              "hints: a pad that states none offers no draft, nothing refused");
+        rig_down(&g);
+    }
+    for (i = 0; i < sizeof(refused) / sizeof(refused[0]); i++)
+    {
+        if (rig_up(&g, g_hints_refused, refused[i].uri, 0.0, MAXB) != 0)
+            continue;
+        why = omx_clap_lv2_resource_hints_why(g.plugin);
+        CHECK(!g.plugin->get_extension(g.plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT) && why && !strcmp(why, refused[i].code),
+              "hints: %s offers no draft, refused with %s (%s)", refused[i].uri, refused[i].code, why ? why : "NULL");
+        rig_down(&g);
+    }
+    CHECK(omx_clap_lv2_resource_hints_why(NULL) == NULL, "hints: no plugin of the adapter's, no answer");
+
+    /* through the core: the declaration the instance keeps, and a refused one read as none */
+    {
+        char cwhy[OMX_CLAP_WHY_MAX], awhy[OMX_CLAP_LV2_WHY_MAX] = "";
+        const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_hints, awhy);
+        struct omx_clap_instance *in = NULL;
+        uint64_t f = 0;
+
+        CHECK(entry && omx_clap_host_open_entry(entry, HINTS_TWO, &in, cwhy) == 0, "hints: the core opens the two-hint pad (%s)", cwhy);
+        if (in)
+        {
+            CHECK(omx_clap_host_resource_hints(in, &h, &why) == 1 && why == NULL && omx_clap_resource_hint_figure(&h, 0, &f) == 1 &&
+                      f == HINTS_AT_REST && omx_clap_resource_hint_figure(&h, 3, &f) == 1 && f == HINTS_THREADS &&
+                      omx_clap_resource_hint_figure(&h, 6, &f) == 0,
+                  "hints: the core reads them from the TTL, %s and %s, activate-time unknown", omx_clap_resource_hint_word(0),
+                  omx_clap_resource_hint_word(3));
+            omx_clap_host_close(in);
+        }
+        omx_clap_lv2_entry_release(entry);
+        entry = omx_clap_lv2_entry(g_hints_refused, awhy);
+        in = NULL;
+        CHECK(entry && omx_clap_host_open_entry(entry, HINTS_WRONG_UNIT, &in, cwhy) == 0, "hints: the core opens the wrong-unit pad (%s)", cwhy);
+        if (in)
+        {
+            CHECK(omx_clap_host_resource_hints(in, &h, &why) == 0 && h.declared == 0,
+                  "hints: the refused declaration reaches the core as none, its mask all clear");
+            omx_clap_host_close(in);
+        }
+        omx_clap_lv2_entry_release(entry);
+    }
 }
 
 static void t_props(void)
@@ -4016,6 +4100,15 @@ int main(int argc, char **argv)
     abs_dir(dir, g_sc);
     snprintf(dir, sizeof(dir), "%somx-layout-fixture.lv2", build);
     abs_dir(dir, g_layout);
+    // the resource hints' bundles beside build/lv2, never validated with it
+    {
+        char hints[PATH_MAX + 64];
+
+        snprintf(hints, sizeof(hints), "%s../lv2-hints/omx-hints-fixture.lv2", build);
+        abs_dir(hints, g_hints);
+        snprintf(hints, sizeof(hints), "%s../lv2-hints/omx-hints-refused.lv2", build);
+        abs_dir(hints, g_hints_refused);
+    }
     snprintf(dir, sizeof(dir), "%somx-path-fixture.lv2", build);
     abs_dir(dir, g_path);
     snprintf(g_path_so, sizeof(g_path_so), "%somx-path-fixture.so", g_path);
@@ -4056,6 +4149,7 @@ int main(int argc, char **argv)
     t_refusals();
     t_midi_refusal();
     t_props();
+    t_hints();
     for (r = 0; r < N_RATES; r++)
     {
         const int before = g_failures;
