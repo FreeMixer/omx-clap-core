@@ -17,6 +17,8 @@
 # with the code or the numbers stop being reproducible.
 # Exit 0 printed, 1 a tool, a ref or a row is missing.
 set -euo pipefail
+# sort, join and comm must collate alike whatever the caller's locale: join refuses a ca_ES order of "|"
+export LC_ALL=C
 
 # a pipx-style install puts only the "lizard" script on PATH, not the module on python3's sys.path
 LIZARD=${LIZARD:-$(command -v lizard || true)}
