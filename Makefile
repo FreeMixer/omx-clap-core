@@ -59,6 +59,15 @@ JACK_CFLAGS = -I$(JACK_DIR)/include
 JACK_LIBS = -L$(JACK_DIR)/lib -ljack -Wl,-rpath,$(abspath $(JACK_DIR)/lib)
 endif
 
+# a plugin's own window (#180): X11 through xcb, found by pkg-config and optional; without it (or with X11=0) the host
+# builds and show_external_ui answers hosting.window.not-built
+ifneq ($(X11),0)
+ifeq ($(shell $(PKG_CONFIG) --exists xcb && echo true), true)
+X11_CFLAGS = $(shell $(PKG_CONFIG) --cflags xcb) -DOMX_CLAP_HOST_X11
+X11_LIBS = $(shell $(PKG_CONFIG) --libs xcb)
+endif
+endif
+
 # plugin the test loads
 CLAP_TEST_PLUGIN ?= /usr/lib/clap/omx-delay.clap
 
@@ -101,7 +110,7 @@ INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 LDFLAGS += -Wl,--no-undefined
 
 # source and object files
-SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c
+SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c src/window.c
 OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
@@ -141,7 +150,7 @@ $(CORE_SO): $(CORE_SONAME)
 
 # linking rule: the LV2 adapter is linked in, and lilv is not: the adapter dlopens it on the first LV2 add
 $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(OBJ) $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(OBJ) $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
@@ -174,6 +183,16 @@ src/scan_fields.o: src/scan_fields.c
 # the host adds an LV2 plugin through the adapter: its header, and the LV2 headers that names
 src/effects.o: src/effects.c
 	$(CC) -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the window is the one object that names xcb; the defines of X11=0 or of a build without it leave it none, so the
+# object is made again whenever the choice changes
+src/window.o: src/window.c build/x11-choice
+	$(CC) $(X11_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
+
+.PHONY: FORCE
+build/x11-choice: FORCE
+	@mkdir -p build
+	@echo '$(X11_CFLAGS)' | cmp -s - $@ || echo '$(X11_CFLAGS)' > $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 lv2/core/%.o: lv2/core/%.c

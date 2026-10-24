@@ -58,6 +58,7 @@
 #include "layout_pin.h"
 #include "omx_clap_core_vocabulary.h"
 #include "lv2_locate.h"
+#include "window.h"
 #include "omx_msgring.h"
 #include "omx_clap_lv2.h"
 #include "host-dispatch.h"
@@ -217,6 +218,7 @@ static int g_follow_jack;
 static uint32_t g_lane_channels = 2;
 static int32_t g_idle_hold = INT32_MIN;      // --idle-hold; INT32_MIN until given, the core's default then
 static int g_idle_hold_said;                 // the refusal, said on stderr once
+static int g_show_ui;                        // -S: every plugin's own window shown at its add (#180)
 /* the control thread's idle ticks, counted by effects_idle */
 static uint32_t g_idle_ticks;
 /* OMX_CLAP_HOST_CHAIN, read at init: the instances of the one chain in order, the head first; empty when unset */
@@ -794,6 +796,8 @@ static void instance_free(effect_t *effect)
         jack_client_close(effect->jack_client);
     if (effect->clap)
     {
+        // the plugin's window goes before the plugin: clap.gui's destroy, then the host's window
+        window_close(effect->clap);
         omx_clap_host_stop(effect->clap);
         omx_clap_host_close(effect->clap);
     }
@@ -1816,6 +1820,7 @@ int effects_init(void)
     }
     configure_lv2();
     chain_configure();
+    window_init();
     g_jack_global_client = jack_client_open("omx-clap-host", JackNoStartServer, NULL);
     if (!g_jack_global_client)
     {
@@ -1835,6 +1840,7 @@ int effects_init(void)
 int effects_finish(void)
 {
     effects_remove(REMOVE_ALL);
+    window_finish();
     if (g_jack_global_client)
         jack_client_close(g_jack_global_client);
     g_jack_global_client = NULL;
@@ -2076,6 +2082,14 @@ int effects_add(const char *uri, int instance, const char *client_name)
     }
     publish_latency(effect);
     idle_hold_say_once();
+    if (g_show_ui)
+    {
+        const char *code;
+
+        // the add stands whatever the window answers: the plugin runs, and stderr says why it shows none
+        if (window_show(effect->clap, effect->clap->desc->name, &code) != 0)
+            fprintf(stderr, "effect_%d: no window: %s\n", instance, code);
+    }
 
     return instance;
 
@@ -2504,6 +2518,29 @@ void effects_idle(void)
         param_events_notify(effect);
         outputs_notify(effect);
     }
+    window_idle();
+}
+
+void effects_show_ui_at_add(int on)
+{
+    g_show_ui = on;
+}
+
+int effects_show_ui(int effect_id, const char **code)
+{
+    *code = NULL;
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (window_show(g_effects[effect_id].clap, g_effects[effect_id].clap->desc->name, code) != 0)
+        return ERR_EXTERNAL_UI_UNAVAILABLE;
+    return SUCCESS;
+}
+
+int effects_hide_ui(int effect_id)
+{
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    return window_hide(g_effects[effect_id].clap) == 0 ? SUCCESS : ERR_EXTERNAL_UI_UNAVAILABLE;
 }
 
 /* the CLAP flag of a strip kind of PHD_TRACK_KINDS, 0 for an input channel */
