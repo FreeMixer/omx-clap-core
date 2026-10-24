@@ -59,6 +59,7 @@
 #include <lv2/uri-map/uri-map.h>
 #include <lv2/urid/urid.h>
 #include <lv2/worker/worker.h>
+#include <omxcontract/omx_resource_hints.h>
 
 #include "omx_lv2_features.h"
 #include "lv2_rtmempool.h"
@@ -129,6 +130,15 @@
 #define LV2_CODE_PATCH_NOT_WRITABLE     OMX_HOSTING_PATCH_NOT_WRITABLE
 #define LV2_CODE_PATCH_TOO_LARGE        OMX_HOSTING_PATCH_TOO_LARGE
 #define LV2_CODE_PATCH_BUSY             OMX_HOSTING_PATCH_BUSY
+
+/* the resource hints' refusals (omx-contract's RESOURCE_HINTS as omxres properties) */
+#define LV2_CODE_HINT_WRONG_UNIT        OMX_HOSTING_RESOURCE_HINTS_WRONG_UNIT
+#define LV2_CODE_HINT_OUT_OF_RANGE      OMX_HOSTING_RESOURCE_HINTS_OUT_OF_RANGE
+
+/* the namespace of the resource hints' LV2 properties, prefix omxres: RESOURCE_HINTS' extension.lv2 (omx-contract 3.1.0,
+ * share/omx-contract/omx-resource-hints.ttl); each hint is the property of its word in lower camel case
+ * (footprint-at-rest, omxres:footprintAtRest) */
+#define LV2_CORE_RESOURCE_HINTS_NS      "https://www.openmixer.org/ns/resource-hints#"
 
 /* what a control port declares, as lv2_control.props reads it */
 #define LV2_PROP_INTEGER                (1u << 0)
@@ -306,6 +316,8 @@ struct lv2_plugin
     const LV2_Descriptor *desc;
     void *uri_node;                 // the lilv node of the URI, for the default state
     void *lilv_plugin;              // the LilvPlugin, owned by the world: for the state the instance saves
+    omx_resource_hints_t hints;     // the omxres properties the plugin states, whole or refused: declared 0 with none
+    const char *hints_why;          // NULL, or the LV2_CODE_HINT_ code the properties were refused by
 };
 
 /* One running instance of a plugin. Opaque. */

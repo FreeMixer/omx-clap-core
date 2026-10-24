@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# Two mono pads, each with one malformed omxres property beside a well-formed footprint-at-rest: a flag stated as the
+# integer 1 (wrong unit), a thread count past a uint32_t (out of range).
+@prefix doap:   <http://usefulinc.com/ns/doap#> .
+@prefix lv2:    <http://lv2plug.in/ns/lv2core#> .
+@prefix omxres: <https://www.openmixer.org/ns/resource-hints#> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+
+<urn:omx:test:hints:wrong-unit>
+    a lv2:Plugin ;
+    doap:name "omx hints wrong unit" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    omxres:footprintAtRest "3145728"^^xsd:unsignedLong ;
+    omxres:streamsFromDisk 1 ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .
+
+<urn:omx:test:hints:out-of-range>
+    a lv2:Plugin ;
+    doap:name "omx hints out of range" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    omxres:footprintAtRest "3145728"^^xsd:unsignedLong ;
+    omxres:threadsSpawned "4294967296"^^xsd:unsignedInt ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in" ; lv2:name "In"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 1 ; lv2:symbol "out" ; lv2:name "Out"
+    ] .

@@ -584,6 +584,20 @@ unit are omx-contract's, from `omx_clap_resource_hint_word` and
 `omx_clap_resource_hint_unit`. A hint is a claim; the library neither
 measures it nor admits a plugin by it.
 
+An LV2 plugin states the same hints as properties of the plugin in
+omx-contract's `omxres:` namespace
+(`https://www.openmixer.org/ns/resource-hints#`), each its word in lower
+camel case (`omxres:footprintAtRest`), typed as the contract's
+`omx-resource-hints.ttl` ranges them: `xsd:unsignedLong` for bytes,
+`xsd:unsignedInt` for a count or a time, `xsd:boolean` for a flag. The LV2
+adapter reads them from the bundle's data and offers them through the same
+extension, so the library reads them as it reads a CLAP plugin's. A figure
+not in its unit (a flag that is not a boolean, a number that is not an
+integer) refuses them all with `hosting.resource-hints.wrong-unit`, one
+below zero or past its member with `hosting.resource-hints.out-of-range`;
+the plugin then offers none, and `omx_clap_lv2_resource_hints_why` names
+the code.
+
 Instrument details
 ------------------
 
