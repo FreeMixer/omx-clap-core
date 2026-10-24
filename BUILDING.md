@@ -328,6 +328,14 @@ one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
 `FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
 changes a symbol (`follow`, refused under R3).
 
+`make test-panel-abi` holds `org.openmixer.panel-description/1` as
+`omx_clap_ext.h` states it to omx-plugins' `omx_panel_description.h`, the ABI,
+as omx-plugins-devel installs it (`pkg-config omxplugins`): the id, every code,
+the size and member offsets of each structure, and a row of each table filled
+by omx-plugins' `omx_panel_get` read back member by member. omx-plugins builds
+on this tree, so the header is read from its package, never copied; the target
+fails, naming the package, where it is not installed. CI installs it.
+
 The hosting limits are declared in `data/hosting.json` and the hosting codes in
 `data/hosting/<dimension>.json`, in omx-contract's schema; every hosting code the
 sources write is an `OMX_HOSTING_*` macro of `src/omx_clap_core_vocabulary.h`, their
