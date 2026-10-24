@@ -188,6 +188,29 @@ export declare const HOSTING_REALISED_CODES: {
 };
 
 /**
+ * The hosting codes of the resource-hints dimension: hosting.resource-hints.*, why the host refuses the hints a plugin declares about itself (omx-contract's RESOURCE_HINTS, through the CLAP draft org.openmixer.resource-hints.draft/0 or the omxres LV2 properties). A refused declaration is trusted for none of its hints: every hint reads as unknown.
+ * @see data/hosting/resource-hints.json
+ */
+export declare const HOSTING_RESOURCE_HINTS_CODES: {
+  readonly resourceHintsOutOfRange: {
+    readonly code: "hosting.resource-hints.out-of-range";
+    readonly doc: "a figure below zero, or past what its hint's member holds";
+  };
+  readonly resourceHintsStatedTwice: {
+    readonly code: "hosting.resource-hints.stated-twice";
+    readonly doc: "an LV2 plugin states one hint with two different figures";
+  };
+  readonly resourceHintsUnknownHint: {
+    readonly code: "hosting.resource-hints.unknown-hint";
+    readonly doc: "the declared mask sets a bit RESOURCE_HINTS has no hint for";
+  };
+  readonly resourceHintsWrongUnit: {
+    readonly code: "hosting.resource-hints.wrong-unit";
+    readonly doc: "a figure not in its hint's unit: a flag that is not a boolean, a count, a time or a size that is not an integer";
+  };
+};
+
+/**
  * The hosting codes of the rt-safety dimension: hosting.rt-safety.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).
  * @see data/hosting/rt-safety.json
  */
