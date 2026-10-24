@@ -117,7 +117,7 @@ CORE_OBJ = $(CORE_SRC:.c=.o)
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
 # and needs neither jack nor the protocol library
-SCAN_SRC = src/scan.c src/scan_fields.c src/lv2_locate.c
+SCAN_SRC = src/scan.c src/scan_fields.c src/scan_panel.c src/lv2_locate.c
 SCAN_OBJ = $(SCAN_SRC:.c=.o)
 
 # the LV2 adapter, libomx-clap-lv2.a: lv2/core is the LV2 host with no CLAP in it, lv2/clap the shim that presents one LV2
