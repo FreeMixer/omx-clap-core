@@ -1025,7 +1025,8 @@ bench: bench-tools
 #   make fuzz-run FUZZ_TIME=60   fuzz each from its seed corpus; red on any crash, the input left in fuzz/findings/
 #   make fuzz-sabotage           each mutant of fuzz/mutants/ must make its harness abort on a seed, in its own property
 #   make fuzz-coverage           the coverage witness: llvm-cov over the corpus, held to fuzz/coverage-floor.txt
-#   make fuzz-corpus             write fuzz/corpus/ again from the fixtures; fuzz-corpus-check: it is what they give
+#   make fuzz-static             each harness linked fully static with a plain driver, over its corpus
+#   make fuzz-corpus            write fuzz/corpus/ again from the fixtures; fuzz-corpus-check: it is what they give
 FUZZ_CC        ?= clang
 FUZZ_TIME      ?= 60
 FUZZ_BUILD     := build/fuzz
@@ -1075,6 +1076,20 @@ fuzz-coverage: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
 	done
 	@LLVM_COV=$(LLVM_COV) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
 
+# the same harnesses driven by fuzz/standalone.c instead of libFuzzer and linked fully static, each run over its corpus:
+# the build a verifier that brings its own driver takes. Needs the static libc (glibc-static)
+FUZZ_STATIC_BUILD := $(FUZZ_BUILD)/static
+FUZZ_STATIC_FLAGS := -O2 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror
+
+$(FUZZ_STATIC_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/standalone.c $(FUZZ_DEPS)
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(FUZZ_STATIC_FLAGS) -Isrc -include fuzz/alloc.h -c -o $@.reader.o $(FUZZ_READER_$*)
+	$(FUZZ_CC) $(FUZZ_STATIC_FLAGS) -static -Isrc -Ifuzz -o $@ $< fuzz/alloc.c fuzz/standalone.c $@.reader.o -lm
+
+fuzz-static: $(FUZZ_HARNESSES:%=$(FUZZ_STATIC_BUILD)/fuzz_%)
+	@set -e; for h in $(FUZZ_HARNESSES); do \
+	  echo "fuzz_$$h, static: $$($(FUZZ_STATIC_BUILD)/fuzz_$$h fuzz/corpus/$$h/*)"; done
+
 # the seed corpus is written from the tree's own fixtures (fuzz/gen-corpus.c), never from a network, and committed
 $(FUZZ_BUILD)/gen-corpus: fuzz/gen-corpus.c src/preset_file.c src/preset_file.h src/lv2_locate.h
 	@mkdir -p $(@D)
@@ -1088,4 +1103,4 @@ fuzz-corpus-check: $(FUZZ_BUILD)/gen-corpus
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
 	$(FUZZ_BUILD)/gen-corpus $$tmp/corpus; diff -r $$tmp/corpus fuzz/corpus; echo "the seed corpus is current"
 
-.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-coverage fuzz-corpus fuzz-corpus-check
+.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check
