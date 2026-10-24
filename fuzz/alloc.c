@@ -1,0 +1,121 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> */
+
+/* The count of the bytes a reader holds (fuzz/alloc.h). Each block carries its size in a head before the bytes the
+ * reader sees; under AddressSanitizer the head is poisoned, so a read just before a block is still a report, and the
+ * block still ends where the reader's bytes end. The count is of what the reader asked for, not of the heads. */
+
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "fuzz.h"
+
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#include <sanitizer/asan_interface.h>
+#define HEAD_HIDE(b) ASAN_POISON_MEMORY_REGION((b), HEAD)
+#define HEAD_SHOW(b) ASAN_UNPOISON_MEMORY_REGION((b), HEAD)
+#endif
+#endif
+#ifndef HEAD_HIDE
+#define HEAD_HIDE(b) ((void)(b))
+#define HEAD_SHOW(b) ((void)(b))
+#endif
+
+/* malloc's own alignment, so the reader's bytes are aligned as malloc's would be */
+#define HEAD 16u
+
+static size_t g_live, g_peak;
+
+static void *own(unsigned char *b, size_t n)
+{
+    memcpy(b, &n, sizeof(n));
+    HEAD_HIDE(b);
+    g_live += n;
+    if (g_live > g_peak)
+        g_peak = g_live;
+    return b + HEAD;
+}
+
+static size_t disown(unsigned char *b)
+{
+    size_t n;
+
+    HEAD_SHOW(b);
+    memcpy(&n, b, sizeof(n));
+    g_live -= n;
+    return n;
+}
+
+void *fuzz_malloc(size_t n)
+{
+    unsigned char *b = n <= SIZE_MAX - HEAD ? malloc(HEAD + n) : NULL;
+
+    return b ? own(b, n) : NULL;
+}
+
+void *fuzz_calloc(size_t k, size_t n)
+{
+    void *p = k && n > SIZE_MAX / k ? NULL : fuzz_malloc(k * n);
+
+    if (p)
+        memset(p, 0, k * n);
+    return p;
+}
+
+void *fuzz_realloc(void *p, size_t n)
+{
+    unsigned char *b, *nb;
+    size_t old;
+
+    if (!p)
+        return fuzz_malloc(n);
+    if (n > SIZE_MAX - HEAD)
+        return NULL;
+    b = (unsigned char *)p - HEAD;
+    old = disown(b);
+    nb = realloc(b, HEAD + n);
+    if (!nb)
+    {
+        own(b, old);
+        return NULL;
+    }
+    return own(nb, n);
+}
+
+char *fuzz_strdup(const char *s)
+{
+    const size_t n = strlen(s) + 1;
+    char *d = fuzz_malloc(n);
+
+    if (d)
+        memcpy(d, s, n);
+    return d;
+}
+
+void fuzz_free(void *p)
+{
+    unsigned char *b;
+
+    if (!p)
+        return;
+    b = (unsigned char *)p - HEAD;
+    disown(b);
+    free(b);
+}
+
+size_t fuzz_alloc_live(void)
+{
+    return g_live;
+}
+
+size_t fuzz_alloc_peak(void)
+{
+    return g_peak;
+}
+
+void fuzz_alloc_peak_reset(void)
+{
+    g_peak = g_live;
+}
