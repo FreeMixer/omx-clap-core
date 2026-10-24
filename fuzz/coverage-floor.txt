@@ -2,4 +2,4 @@
 # turns fuzz-coverage red. harness covered-lines
 preset 387
 state 59
-manifest 85
+manifest 92
