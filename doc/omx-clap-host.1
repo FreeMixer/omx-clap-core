@@ -13,6 +13,7 @@ omx\-clap\-host \- CLAP plugin host for JACK, driven over mod\-host's socket pro
 .IR dir ]
 .RB [ \-c
 .IR channels ]
+.RB [ \-S ]
 .br
 .B omx\-clap\-host
 .RB { \-V | \-h }
@@ -149,6 +150,11 @@ refusal is said once on stderr and in every
 .B idle_hold
 answer, by code.
 .TP
+.BR \-S ", " \-\-show\-ui
+Show every plugin's own window at its add, as
+.B show_external_ui
+does; the add answers as before whatever the window does.
+.TP
 .BR \-V ", " \-\-version
 Print the version and exit.
 .TP
@@ -162,6 +168,7 @@ answered with
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
 .BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", " audio_ports ", "
+.BR show_external_ui ", " hide_external_ui ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " idle_hold ", " note_drops ", " note_out_drops ", "
 .BR note_input ", " note_on ", " note_off ", " all_notes_off ", "
 .BR set_bpm ", " set_bpb ", " transport ", " transport_sync ", " help ", " quit .
@@ -192,6 +199,30 @@ and
 .BI "param_gesture " "N param " end
 when its user holds the control, in the plugin's order, the last value of
 each parameter per idle tick.
+.BI "show_external_ui " N
+puts the plugin's own window on the X display
+.B DISPLAY
+names, over clap.gui with the X11 API: set into a window of the host's titled
+with the plugin's name, or floating when that is all the plugin offers. Its
+timers and descriptors run on the host's idle tick.
+.BI "hide_external_ui " N
+takes it off the display and keeps it;
+.B remove
+destroys it. When no window can be shown,
+.B show_external_ui
+answers
+.B "resp \-404"
+and a code, and the audio runs on:
+.B hosting.window.no\-display
+(no
+.B DISPLAY
+or no X server),
+.B hosting.window.unsupported
+(the plugin offers no X11 window),
+.B hosting.window.refused
+(the plugin's own call failed) or
+.B hosting.window.not\-built
+(a host built without xcb).
 .B idle_hold
 answers
 .BI "resp 0 " "target held aggregate active code" :

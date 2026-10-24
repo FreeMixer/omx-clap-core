@@ -23,7 +23,8 @@
  * What a full host offers besides the basics, through libomx-clap-core against tests/fake_ext.clap: timers and file
  * descriptors served by the tick, the thread pool inside process() and refused outside it, render, the tail and the
  * tail changed, the sleep of a plugin that says it needs no processing and its waking, state-context, and
- * audio-ports-activation of the auxiliary output.
+ * audio-ports-activation of the auxiliary output; and the caller's clap.gui offered (omx_clap_host_offer_gui): the plugin
+ * is handed the caller's own object, which can no longer change once a binary is open.
  *   clap_ext_test <fake_ext.clap>
  */
 
@@ -248,6 +249,13 @@ static void sleep_section(struct omx_clap_instance *in, ext_stats_t *st, int (*s
 
 }
 
+/* the caller's clap.gui, as a host that shows windows offers it; never called here */
+static void gui_hints_changed(const clap_host_t *host) { (void)host; }
+static bool gui_request_resize(const clap_host_t *host, uint32_t w, uint32_t h) { (void)host; (void)w; (void)h; return false; }
+static bool gui_request(const clap_host_t *host) { (void)host; return false; }
+static void gui_closed(const clap_host_t *host, bool destroyed) { (void)host; (void)destroyed; }
+static const clap_host_gui_t g_caller_gui = { gui_hints_changed, gui_request_resize, gui_request, gui_request, gui_closed };
+
 int main(int argc, char **argv)
 {
     struct omx_clap_instance *in = NULL;
@@ -269,9 +277,13 @@ int main(int argc, char **argv)
     setenv("FAKE_EXT_FD", buf, 1);
     snprintf(buf, sizeof(buf), "%d", idle[0]);
     setenv("FAKE_EXT_FD2", buf, 1);
+    CHECK(omx_clap_host_offer_gui(&g_caller_gui) == 0, "clap.gui offered before any binary is open");
     CHECK(omx_clap_host_open(argv[1], EXT_ID, &in, why) == 0, "fake_ext opens (%s)", why);
     if (!in)
         return report("clap ext test");
+    CHECK(in->host.get_extension(&in->host, CLAP_EXT_GUI) == &g_caller_gui, "a plugin asking for clap.gui is handed the caller's own");
+    CHECK(omx_clap_host_offer_gui(NULL) == -1 && in->host.get_extension(&in->host, CLAP_EXT_GUI) == &g_caller_gui,
+          "and the offer cannot change once a binary is open");
     st = (ext_stats_t *)((void *(*)(void))hook(argv[1], "fake_ext_stats"))();
     set_tail = (int (*)(uint32_t))hook(argv[1], "fake_ext_set_tail");
     wake = (void (*)(void))hook(argv[1], "fake_ext_wake");
