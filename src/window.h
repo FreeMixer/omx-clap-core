@@ -19,11 +19,14 @@
  */
 
 /*
- * window.h: a plugin's own window, over CLAP's clap.gui with the X11 API, in the standalone omx-clap-host only (#180).
- * The host makes one top-level X window per plugin and embeds the plugin's window in it, or lets the plugin open a
- * floating one when that is all it offers. Everything here runs on the control thread: the commands and the idle tick;
- * the plugin's clap.gui calls to the host, which may come from any thread, only leave a request the tick answers.
- * Built without xcb (no OMX_CLAP_HOST_X11), every show answers CLAP_HOST_CODE_WINDOW_NOT_BUILT.
+ * window.h: a plugin's own window, over CLAP's clap.gui with the Wayland or the X11 API, in the standalone omx-clap-host
+ * only (#180, #329). A show tries Wayland floating first, when WAYLAND_DISPLAY names a compositor that answers: the plugin
+ * opens its own toplevel. Then X11: the host makes one top-level X window per plugin and embeds the plugin's window in
+ * it, or lets the plugin open a floating one when that is all it offers, or when it offers X11 embedded but has no
+ * set_parent to be embedded with. Everything here runs on the control thread: the commands and the idle tick; the
+ * plugin's clap.gui calls to the host, which may come from any thread, only leave a request the tick answers.
+ * Wayland needs no library of the host's and is always built; built without xcb (no OMX_CLAP_HOST_X11, or X11=0), a show
+ * tries Wayland alone, so a plugin with only an X11 window is CLAP_HOST_CODE_WINDOW_UNSUPPORTED there.
  */
 
 #ifndef WINDOW_H
