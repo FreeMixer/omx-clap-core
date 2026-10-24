@@ -8,7 +8,8 @@
 # the plugin is asked create("wayland", true), never X11, its toplevel is configured and drawn by the compositor, its
 # descriptor and timer are served on the host's tick, and the host holds no connection of its own to either display;
 # hide_external_ui and a second show work on it as on X11, and remove destroys it. The same plugin with no Wayland
-# window falls to X11; with neither display, or none that answers, the show is refused hosting.window.no-display and
+# window falls to X11, and one with only a Wayland window on an X11 session is refused hosting.window.no-display; with
+# neither display, or none that answers, the show is refused hosting.window.no-display and
 # the plugin is never asked to create a window; a plugin with no clap.gui is refused hosting.window.unsupported; the
 # audio runs on throughout. Then the host as X11=0 builds it, which links no xcb: the same plugin's Wayland window is
 # shown and mapped by weston, a session with an X display and no compositor is hosting.window.no-display, and a plugin
@@ -236,6 +237,20 @@ expect "show_external_ui 0" "resp 0"
 for _ in $(seq 30); do shown "fake gui view" && break; sleep 0.1; done
 shown "fake gui" && shown "fake gui view"; step $? "the host's window, fake gui, and the plugin's inside it are on the X display"
 [ "$(wl_connections)" = 0 ]; step $? "and nothing is connected to the compositor ($(wl_connections))"
+expect "remove 0" "resp 0"
+expect "quit" "resp 0"
+sleep 0.3
+
+# ---- an X11 session, a plugin with only a Wayland window: no display it can go on ----
+port=$((port + 1))
+: >"$runtime/gui.log"
+start_host "$runtime/host2b.log" env -u WAYLAND_DISPLAY DISPLAY="$display" FAKE_GUI_LOG="$runtime/gui.log" FAKE_GUI_NO_X11=1 "$host"
+expect "add clap:$gui#org.omx-clap-host.test.gui 0" "resp 0"
+feed 0
+expect "show_external_ui 0" "resp -404 hosting.window.no-display"
+[ "$(created)" = 0 ]; step $? "a Wayland-only plugin on an X11 session: never asked to create a window"
+[ "$(x_connections)" = 0 ]; step $? "and the host keeps no X connection after the refusal ($(x_connections))"
+audio_runs 0 "a Wayland-only plugin on an X11 session, after the refusal"
 expect "remove 0" "resp 0"
 expect "quit" "resp 0"
 sleep 0.3

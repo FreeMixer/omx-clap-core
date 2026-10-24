@@ -33,7 +33,7 @@
  *    <w> <h> <answer>", and once after each show "timer on the tick" and "fd on the tick" when the host calls them.
  *
  * Built with FAKE_GUI_WAYLAND (tests/fake_gui_wl.clap, #329) it offers a Wayland window too, floating only as CLAP
- * defines it, unless FAKE_GUI_NO_WAYLAND=1: create("wayland", true) opens a connection of its own to the compositor
+ * defines it, unless FAKE_GUI_NO_WAYLAND=1, and with FAKE_GUI_NO_X11=1 no X11 window at all: create("wayland", true) opens a connection of its own to the compositor
  * WAYLAND_DISPLAY names, whose descriptor and timer the host serves as for X11; show makes an xdg-shell toplevel titled
  * as suggest_title says, hide takes it off. It logs as well "wayland configured" once after each show when the compositor
  * has configured the toplevel and its buffer is attached, and "wayland frame" when the compositor has drawn it.
@@ -186,6 +186,11 @@ static bool ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_input
 static int wayland_offered(void)
 {
     return !(getenv("FAKE_GUI_NO_WAYLAND") && !strcmp(getenv("FAKE_GUI_NO_WAYLAND"), "1"));
+}
+
+static int x11_offered(void)
+{
+    return !(getenv("FAKE_GUI_NO_X11") && !strcmp(getenv("FAKE_GUI_NO_X11"), "1"));
 }
 
 static void wm_base_ping(void *data, struct xdg_wm_base *base, uint32_t serial)
@@ -393,6 +398,8 @@ static bool gui_is_api_supported(const clap_plugin_t *plugin, const char *api, b
 #ifdef FAKE_GUI_WAYLAND
     if (api && !strcmp(api, CLAP_WINDOW_API_WAYLAND))
         return is_floating && wayland_offered();
+    if (!x11_offered())
+        return false;
 #endif
     return api && !strcmp(api, CLAP_WINDOW_API_X11) && is_floating == (g_floating != 0);
 }
