@@ -357,7 +357,7 @@ test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fa
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
 test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap tests/fake_synth.clap
-	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap)
+	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR))
 
 # the same without omx-delay.clap: only the fake plugin's checks
 test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test
@@ -366,7 +366,7 @@ test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap 
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
 	./tests/idle_hold_test $(abspath tests/fake.clap)
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap) $(abspath tests/fault-17.clap)
-	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap)
+	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR))
 
 # every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of src/omx_clap_core_vocabulary.h, the render of
 # data/hosting/: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms)
