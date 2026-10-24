@@ -19,12 +19,13 @@
  */
 
 /*
- * window.c: a plugin's own window over clap.gui and X11 (window.h). One xcb connection, opened by the first show and
- * closed with the last window; one top-level window per plugin that embeds, titled with the plugin's name, which the
- * plugin's window is set into (set_parent); none for a plugin that only floats, which opens its own. The X events are
- * read on the idle tick: a resize of the host's window is the plugin's set_size, its close button (WM_DELETE_WINDOW)
- * hides the plugin. The plugin's timers and descriptors, which a plugin's window lives on, are the library's tick
- * (clap.timer-support, clap.posix-fd-support).
+ * window.c: a plugin's own window over clap.gui and X11 (window.h). The APIs a show tries are a table, in its order:
+ * X11 embedded, X11 floating. X11 is one xcb connection, opened by the first show and closed with the last X window;
+ * one top-level window per plugin that embeds, titled with the plugin's name, which the plugin's window is set into
+ * (set_parent); none for a plugin that only floats, which opens its own. The X events are read on the idle tick: a
+ * resize of the host's window is the plugin's set_size, its close button (WM_DELETE_WINDOW) hides the plugin. The
+ * plugin's timers and descriptors, which a plugin's window lives on, are the library's tick (clap.timer-support,
+ * clap.posix-fd-support).
  */
 
 #include <stdatomic.h>
@@ -54,10 +55,21 @@
 #define WINDOW_REQ_CLOSED       (1u << 4)
 #define WINDOW_REQ_DESTROYED    (1u << 5)
 
+/* a window API a show may take: the display it needs, found and let go */
+struct window_api
+{
+    const char *name;               ///< CLAP_WINDOW_API_*
+    int floating;                   ///< the plugin opens its own window; the host makes none
+    int (*connect)(void);           ///< 0 when the display this API shows on answers, -1 when there is none
+    void (*release)(void);          ///< the display let go once no window of this API is left
+    uint32_t *open;                 ///< the windows of this API made and not yet destroyed
+};
+
 struct window
 {
     struct omx_clap_instance *_Atomic in;   ///< the plugin whose window this is, NULL for a free slot
     const clap_plugin_gui_t *gui;
+    const struct window_api *api;   ///< the API the window was made with
     int floating;                   ///< the plugin opens its own window; the host made none
     int created;                    ///< gui->create answered true, and no destroy since
     int visible;
@@ -149,7 +161,7 @@ static const clap_host_gui_t g_host_gui = {
 static xcb_connection_t *g_x;
 static xcb_screen_t *g_screen;
 static xcb_atom_t g_wm_protocols, g_wm_delete, g_net_wm_name, g_utf8_string;
-static uint32_t g_open;             // the windows made and not yet destroyed: the connection closes at 0
+static uint32_t g_open;             // the X windows made and not yet destroyed: the connection closes at 0
 static int g_x_lost_said;
 
 static xcb_atom_t atom(const char *name)
@@ -200,6 +212,12 @@ static void x_release(void)
         g_screen = NULL;
     }
 }
+
+/* the APIs a show tries, first to last: the first the plugin offers whose display answers is taken */
+static const struct window_api g_apis[] = {
+    { CLAP_WINDOW_API_X11, 0, x_connect, x_release, &g_open },
+    { CLAP_WINDOW_API_X11, 1, x_connect, x_release, &g_open },
+};
 
 /* WM_NORMAL_HINTS: a window the plugin cannot resize has its size as both its least and its most */
 static void x_size_hints(const struct window *w)
@@ -253,8 +271,8 @@ static void window_drop(struct window *w, int destroy_gui)
     w->created = 0;
     w->visible = 0;
     w->xid = 0;
-    g_open--;
-    x_release();
+    (*w->api->open)--;
+    w->api->release();
 }
 
 /* the plugin's clap.gui call that answered false, on stderr: the reply carries only hosting.window.refused */
@@ -276,12 +294,14 @@ static int window_unhide(struct window *w, const char **code)
         refused_say(in, "show");
         if (w->xid)
             xcb_unmap_window(g_x, w->xid);
-        xcb_flush(g_x);
+        if (g_x)
+            xcb_flush(g_x);
         *code = CLAP_HOST_CODE_WINDOW_REFUSED;
         return -1;
     }
     w->visible = 1;
-    xcb_flush(g_x);
+    if (g_x)
+        xcb_flush(g_x);
     return 0;
 }
 
@@ -294,12 +314,13 @@ static void window_conceal(struct window *w)
     w->gui->hide(in->plugin);
     if (w->xid)
         xcb_unmap_window(g_x, w->xid);
-    xcb_flush(g_x);
+    if (g_x)
+        xcb_flush(g_x);
     w->visible = 0;
 }
 
 /* a free slot claimed for `in`; NULL when every slot is a window already */
-static struct window *window_claim(struct omx_clap_instance *in, const clap_plugin_gui_t *gui, int floating)
+static struct window *window_claim(struct omx_clap_instance *in, const clap_plugin_gui_t *gui, const struct window_api *api)
 {
     uint32_t high = atomic_load_explicit(&g_high, memory_order_relaxed), i;
     struct window *w = NULL;
@@ -312,7 +333,8 @@ static struct window *window_claim(struct omx_clap_instance *in, const clap_plug
     if (!w)
         return NULL;
     w->gui = gui;
-    w->floating = floating;
+    w->api = api;
+    w->floating = api->floating;
     w->created = w->visible = w->resizable = 0;
     w->xid = 0;
     w->width = WINDOW_DEFAULT_WIDTH;
@@ -324,46 +346,57 @@ static struct window *window_claim(struct omx_clap_instance *in, const clap_plug
     return w;
 }
 
+/* the first API of g_apis the plugin offers and whose display answers; NULL with *code unsupported when it offers
+ * none, no-display when it offers one but no display of any it offers answers */
+static const struct window_api *window_api_pick(const clap_plugin_t *plugin, const clap_plugin_gui_t *gui, const char **code)
+{
+    int offered = 0;
+
+    for (size_t i = 0; i < sizeof(g_apis) / sizeof(g_apis[0]); i++)
+    {
+        const struct window_api *api = &g_apis[i];
+
+        if (!gui->is_api_supported(plugin, api->name, api->floating) || (!api->floating && !gui->set_parent))
+            continue;
+        offered = 1;
+        if (api->connect() == 0)
+            return api;
+    }
+    *code = offered ? CLAP_HOST_CODE_WINDOW_NO_DISPLAY : CLAP_HOST_CODE_WINDOW_UNSUPPORTED;
+    return NULL;
+}
+
 /* a plugin's own window, as clap.gui orders it: create, the scale, the size, the parent (or the title of a floating
  * one), show */
 static int window_make(struct omx_clap_instance *in, const char *title, const char **code)
 {
     const clap_plugin_t *plugin = in->plugin;
     const clap_plugin_gui_t *gui = plugin->get_extension(plugin, CLAP_EXT_GUI);
+    const struct window_api *api;
     struct window *w;
-    int floating;
 
     if (!gui || !gui->is_api_supported || !gui->create || !gui->destroy || !gui->show || !gui->hide)
     {
         *code = CLAP_HOST_CODE_WINDOW_UNSUPPORTED;
         return -1;
     }
-    floating = !gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, false);
-    if ((floating && !gui->is_api_supported(plugin, CLAP_WINDOW_API_X11, true)) || (!floating && !gui->set_parent))
-    {
-        *code = CLAP_HOST_CODE_WINDOW_UNSUPPORTED;
+    if (!(api = window_api_pick(plugin, gui, code)))
         return -1;
-    }
-    if (x_connect() != 0)
-    {
-        *code = CLAP_HOST_CODE_WINDOW_NO_DISPLAY;
-        return -1;
-    }
-    w = window_claim(in, gui, floating);
-    if (!w || !gui->create(plugin, CLAP_WINDOW_API_X11, floating))
+    w = window_claim(in, gui, api);
+    if (!w || !gui->create(plugin, api->name, api->floating))
     {
         if (w)
         {
             atomic_store_explicit(&w->in, NULL, memory_order_release);
             refused_say(in, "create");
         }
-        x_release();
+        api->release();
         *code = CLAP_HOST_CODE_WINDOW_REFUSED;
         return -1;
     }
     w->created = 1;
-    g_open++;
-    if (floating)
+    (*api->open)++;
+    if (api->floating)
     {
         if (gui->suggest_title)
             gui->suggest_title(plugin, title);
