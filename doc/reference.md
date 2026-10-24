@@ -772,7 +772,13 @@ instance that is initialised, read and destroyed without being activated:
   allocated, and whether two notes may sound on one key. The extension
   answers only while active, so a plugin that offers it is activated once,
   at 48 kHz with blocks of up to 1024 frames, read and deactivated; absent
-  when it offers none or answers outside `1 <= count <= capacity`.
+  when it offers none or answers outside `1 <= count <= capacity`;
+- the resource hints (Resource hints, above): `declared`, the mask, then
+  every hint of omx-contract's `RESOURCE_HINTS` by its word, in its order,
+  with its unit and its figure (a flag `true` or `false`), the figure
+  `null` when the hint is unknown, never 0; `refused` with the code when
+  the declaration is refused, every figure then `null`. The text form is
+  one line of the declared hints. Absent when the plugin states none.
 
 `--json` writes one document on stdout with the keys in a fixed order:
 
@@ -784,7 +790,9 @@ instance that is initialised, read and destroyed without being activated:
      "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo","jack":["in_1","in_2"]}],"outputs":[...]},
      "note_ports":{"inputs":0,"outputs":0},
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
-     "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}
+     "voice_info":{"count":4,"capacity":8,"overlapping_notes":true},
+     "resource_hints":{"declared":9,"footprint-at-rest":{"unit":"bytes","figure":3145728},
+      "footprint-per-voice":{"unit":"bytes","figure":null},...,"activate-time":{"unit":"ms","figure":null}}}
     ],"presets":[
     {"name":"Init","location_kind":"plugin","location":null,"load_key":"init",
      "provider":"...","plugins":["..."],"flags":["factory"]}

@@ -255,11 +255,14 @@ install-contract:
 # what the reader reads (tests/hosting-values-check.mjs, with its sabotage arms); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
 # omx-clap-scan --fields held to omx-contract's TERM files, and the dumps of the fake plugins and the LV2 fixture bundles
 # (their binaries absent: nothing is opened) read as records; PLUGIN_HOSTD_TABLES (plugin-hostd's data/formats) holds
-# every field a dump writes to a row of its table
+# every field a dump writes to a row of its table; and omx-clap-scan --json's resource hints held to omx-contract's
+# RESOURCE_HINTS, words, order and units, over fake_ext's declaration (tests/resource-hints-check.py, with its sabotage arms)
 PLUGIN_HOSTD_TABLES ?=
 .PHONY: test-fields
-test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap
+test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap tests/fake_ext.clap
 	python3 tests/scan-fields-check.py ./$(SCAN_PROG) $(OMX_CONTRACT_DIR)/data/formats $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(LV2_FIXTURE_DIR) $(PLUGIN_HOSTD_TABLES)
+	python3 tests/resource-hints-check.py ./$(SCAN_PROG) $(abspath tests/fake_ext.clap) $(OMX_CONTRACT_DIR)
+	python3 tests/resource-hints-check.py --self-test ./$(SCAN_PROG) $(abspath tests/fake_ext.clap) $(OMX_CONTRACT_DIR)
 
 test-contract:
 	rm -rf build/contract
