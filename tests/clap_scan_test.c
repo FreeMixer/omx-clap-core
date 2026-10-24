@@ -21,8 +21,8 @@
 /* The scanner, run as a program: what it lists for tests/fake.clap, a .clap
  * that is no library, one that crashes its process, a directory walk and a
  * path that can't be read. Arguments: omx-clap-scan, fake.clap, crash.clap
- * and optionally omx-delay.clap (parameter 0 = time, 5 = its bypass) and
- * fake_synth.clap. */
+ * and optionally omx-delay.clap (parameter 0 = time, 5 = its bypass),
+ * fake_synth.clap, the LV2 fixtures and fake_panel.clap. */
 
 #include <limits.h>
 #include <stdarg.h>
@@ -444,6 +444,85 @@ static void fields_checks(const char *scan, const char *fake, const char *crash,
     CHECK(status == 1 && out[0] == '\0', "a URI no bundle holds is refused (%i)", status);
 }
 
+/* the panel description fake_panel.clap's panel plugin publishes (org.openmixer.panel-description/1), as --json and
+ * --fields print it, value by value; its panel-none plugin and every plugin of fake.clap serve none */
+static void panel_checks(const char *scan, const char *fake, const char *panel, char *out)
+{
+    int status = run(out, "%s --json %s", scan, panel);
+
+    CHECK(status == 0 && !has(out, "\"error\""), "fake_panel.clap scans (%i)", status);
+    CHECK(plugin_has(out, "panel","\"panel\":{\"family\":\"dynamics\","
+                                     "\"fingerprint\":\"5f2c1e0a9b8d7c6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e\","),
+          "the panel's family by its word and its fingerprint as the plugin gives it");
+    CHECK(has(out, ",\"sections\":[{\"key\":\"main\",\"labelKey\":\"panel.section.main\",\"label\":\"Main\"},"
+                   "{\"key\":\"detail\",\"labelKey\":\"panel.section.detail\",\"label\":\"Detail\"}],"),
+          "its two sections in order: key, label key, label");
+    CHECK(has(out, ",\"controls\":[{\"paramId\":0,\"section\":0,\"widget\":\"fader\",\"labelKey\":\"panel.threshold\",\"label\":\"Threshold\","
+                   "\"visibleParamId\":null,\"visibleMask\":\"0\"},"),
+          "control 0: threshold, a fader in main, always visible");
+    CHECK(has(out, "},{\"paramId\":1,\"section\":1,\"widget\":\"switch\",\"labelKey\":\"panel.mode\",\"label\":\"Mode\","
+                   "\"visibleParamId\":null,\"visibleMask\":\"0\"},"),
+          "control 1: mode, a switch in detail");
+    CHECK(has(out, "},{\"paramId\":2,\"section\":1,\"widget\":\"knob\",\"labelKey\":\"panel.knee\",\"label\":\"Knee\","
+                   "\"visibleParamId\":1,\"visibleMask\":\"6\"}],"),
+          "control 2: knee, a knob in detail shown while mode is 1 or 2 (parameter 1, mask 6)");
+    CHECK(has(out, ",\"roles\":[{\"role\":\"threshold\",\"index\":0,\"paramId\":0}],"), "its one role: threshold, parameter 0");
+    CHECK(has(out, ",\"displays\":[{\"kind\":\"gain_reduction_bar\",\"section\":0,\"source\":\"meters\",\"meterIds\":[7,null],"
+                   "\"curveIndex\":0,\"floorParamId\":null,\"floorDb\":-24,\"labelKey\":\"panel.display.gain_reduction\","
+                   "\"label\":\"Gain reduction\"}],"),
+          "its one display: a gain reduction bar over main from meter 7, a -24 dB floor no parameter sets");
+    CHECK(has(out, ",\"placementDefaults\":[]}"), "a table the plugin leaves empty is empty, nothing filled in");
+    CHECK(count(out, "\"panel\":{") == 1 && plugin_has(out, "panel-none", "\"panel\":null"),
+          "panel-none serves no description: \"panel\":null (%i described)", count(out, "\"panel\":{"));
+    status = run(out, "%s --json %s", scan, fake);
+    CHECK(status == 0 && count(out, "\"panel\":null") == 23, "and none of fake.clap's 23 plugins does (%i null)", count(out, "\"panel\":null"));
+    status = run(out, "%s %s", scan, panel);
+    CHECK(status == 0 && has(out, "\n    panel dynamics, 2 sections, 3 controls, 1 roles, 1 displays, 0 placement defaults\n")
+          && count(out, "    panel ") == 1,
+          "the listing for a person counts the panel's tables, for the plugin that has one (%i)", status);
+
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.panel", scan, panel);
+    CHECK(status == 0 && has(out, "\nplugin\tclap_plugin.get_extension\torg.openmixer.panel-description/1\n"),
+          "the dump names the extension the plugin answers (%i)", status);
+    CHECK(has(out, "\npanel\tomx_clap_plugin_panel_description.family\tOMX_CLAP_FAMILY_DYNAMICS\n")
+          && has(out, "\npanel\tomx_clap_plugin_panel_description.fingerprint\t5f2c1e0a9b8d7c6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e\n"),
+          "the family by its enumerator and the fingerprint under panel");
+    CHECK(has(out, "\nsection:0\tomx_clap_panel_section.key\tmain\nsection:0\tomx_clap_panel_section.label_key\tpanel.section.main\n"
+                   "section:0\tomx_clap_panel_section.label\tMain\n")
+          && has(out, "\nsection:1\tomx_clap_panel_section.key\tdetail\nsection:1\tomx_clap_panel_section.label_key\tpanel.section.detail\n"
+                      "section:1\tomx_clap_panel_section.label\tDetail\n"),
+          "each section under section:<index>");
+    CHECK(has(out, "\ncontrol:0\tomx_clap_panel_control.param_id\t0\ncontrol:0\tomx_clap_panel_control.section\t0\n"
+                   "control:0\tomx_clap_panel_control.widget\tOMX_CLAP_WIDGET_FADER\ncontrol:0\tomx_clap_panel_control.label_key\tpanel.threshold\n"
+                   "control:0\tomx_clap_panel_control.label\tThreshold\ncontrol:1\t"),
+          "control 0: threshold, a fader in section 0, no visibility rule stated");
+    CHECK(has(out, "\ncontrol:1\tomx_clap_panel_control.param_id\t1\ncontrol:1\tomx_clap_panel_control.section\t1\n"
+                   "control:1\tomx_clap_panel_control.widget\tOMX_CLAP_WIDGET_SWITCH\n"),
+          "control 1: mode, a switch in section 1");
+    CHECK(has(out, "\ncontrol:2\tomx_clap_panel_control.widget\tOMX_CLAP_WIDGET_KNOB\ncontrol:2\tomx_clap_panel_control.label_key\tpanel.knee\n"
+                   "control:2\tomx_clap_panel_control.label\tKnee\ncontrol:2\tomx_clap_panel_control.visible_param_id\t1\n"
+                   "control:2\tomx_clap_panel_control.visible_mask\t6\n"),
+          "control 2: knee, a knob, shown while parameter 1 is 1 or 2 (mask 6)");
+    CHECK(count(out, "visible_param_id") == 1, "the visibility rule is stated once, for the control that has one (%i)",
+          count(out, "visible_param_id"));
+    CHECK(has(out, "\nrole:0\tomx_clap_panel_role.role\tthreshold\nrole:0\tomx_clap_panel_role.index\t0\nrole:0\tomx_clap_panel_role.param_id\t0\n"),
+          "the role under role:0");
+    CHECK(has(out, "\ndisplay:0\tomx_clap_panel_display.kind\tOMX_CLAP_DISPLAY_GAIN_REDUCTION_BAR\ndisplay:0\tomx_clap_panel_display.section\t0\n"
+                   "display:0\tomx_clap_panel_display.source\tOMX_CLAP_DISPLAY_FROM_METERS\ndisplay:0\tomx_clap_panel_display.meter_ids[0]\t7\n"
+                   "display:0\tomx_clap_panel_display.curve_index\t0\ndisplay:0\tomx_clap_panel_display.floor_db\t-24\n"
+                   "display:0\tomx_clap_panel_display.label_key\tpanel.display.gain_reduction\n"
+                   "display:0\tomx_clap_panel_display.label\tGain reduction\n"),
+          "the display under display:0, no second meter and no floor parameter stated");
+    CHECK(!has(out, "placement_default:"), "no placement default record: the plugin's table is empty");
+    CHECK(count(out, "\nsection:") == 6 && count(out, "\ncontrol:") == 17 && count(out, "\nrole:") == 3 && count(out, "\ndisplay:") == 8,
+          "and no record more: 6 section, 17 control, 3 role, 8 display (%i, %i, %i, %i)",
+          count(out, "\nsection:"), count(out, "\ncontrol:"), count(out, "\nrole:"), count(out, "\ndisplay:"));
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.panel-none", scan, panel);
+    CHECK(status == 0 && !has(out, "\npanel\t") && !has(out, "panel-description") && !has(out, "\nsection:") && !has(out, "\ncontrol:"),
+          "a plugin that serves none has no panel record (%i)", status);
+    CHECK(has(out, "\nparam:2\tclap_param_info.name\tknee\n"), "and its parameters are dumped as before");
+}
+
 int main(int argc, char **argv)
 {
     char *out;
@@ -451,7 +530,7 @@ int main(int argc, char **argv)
 
     if (argc < 6)
     {
-        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> <omx-delay.clap | -> <fake_synth.clap> [<lv2 fixtures dir> | -]\n", argv[0]);
+        fprintf(stderr, "usage: %s <omx-clap-scan> <fake.clap> <crash.clap> <omx-delay.clap | -> <fake_synth.clap> [<lv2 fixtures dir> | - [<fake_panel.clap>]]\n", argv[0]);
         return 2;
     }
     if (!realpath(argv[1], scan))
@@ -477,6 +556,8 @@ int main(int argc, char **argv)
     if (argc > 5)
         synth_checks(scan, argv[5], out);
     fields_checks(scan, argv[2], argv[3], argv[5], argc > 6 ? argv[6] : "-", out);
+    if (argc > 7)
+        panel_checks(scan, argv[2], argv[7], out);
 
     printf("%s\n", g_failures == 0 ? "clap scan test ok" : "clap scan test FAILED");
     free(out);
