@@ -19,6 +19,8 @@ binary's rpath; `JACK_DIR` defaults to `../jack-dev`. A plugin's own window
 (`show_external_ui`, `-S`) needs xcb, found by `pkg-config xcb` (Fedora
 `libxcb-devel`, Debian `libxcb1-dev`); without it, or with `X11=0`, the host
 builds all the same and the command answers `resp -404 hosting.window.not-built`.
+The Wayland window (#329) needs no library in the host: the plugin opens its
+own connection to the compositor.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
@@ -111,6 +113,21 @@ by `-S`; and refused `hosting.window.no-display` with `DISPLAY` unset or naming
 no server, the plugin never asked to create a window and its audio still
 running. A plugin with no `clap.gui` is refused `hosting.window.unsupported`.
 Needs Xvfb, xdotool and ss besides PipeWire.
+
+    make test-jack-window-wl
+
+runs `tests/jack_window_wl_e2e.sh` the same way with a headless weston
+(`--backend=headless-backend.so`) beside the Xvfb: `tests/fake_gui_wl.clap`,
+the same fixture built with a Wayland window too (an xdg-shell toplevel on a
+connection of its own), is shown over Wayland when both displays are named,
+never asked for an X11 window; weston configures and draws its toplevel and its
+scene graph (`weston-debug scene-graph`) holds it, titled with the plugin's
+name, until it is hidden; the host holds no connection of its own to either
+display. With `FAKE_GUI_NO_WAYLAND=1` the same plugin is embedded over X11;
+with neither display, or none that answers, the show is refused
+`hosting.window.no-display` and no window is created. Needs wayland-client and
+wayland-protocols (Fedora `wayland-devel`, `wayland-protocols-devel`) to build
+the fixture, and weston besides the X11 test's tools.
 
     make test-jack-params
 

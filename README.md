@@ -12,7 +12,7 @@ to mod-host and want CLAP plugins as well.
 - LV2 plugins too: `add lv2:<uri> <N>` (or the URI alone, as mod-host takes it) runs an LV2 plugin from `LV2_PATH` on the same ports, its controls addressed by their LV2 symbols.
 - Tempo-synced plugins get a transport: `set_bpm`, `set_bpb` and `transport` drive the host's own, or `-t` follows the JACK transport.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
-- A plugin's own window, on request: `show_external_ui <N>` puts it on your X display, as jalv and mod-host show one, and `hide_external_ui <N>` takes it off.
+- A plugin's own window, on request: `show_external_ui <N>` puts it on your display, as jalv and mod-host show one, and `hide_external_ui <N>` takes it off. On a Wayland session it is a Wayland window when the plugin has one; X11 otherwise.
 - `-S` shows every plugin's window as it is added; with no display the command says so by code and the audio runs on.
 - `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
 
@@ -99,10 +99,15 @@ which the scan prints):
 
 The plugin is now the JACK client `effect_0`: link your audio to its `in_<k>` ports and take it
 from its `out_<k>` ports. On a desktop, or over the VNC display a Zynthian serves, a plugin that
-has its own window shows it (CLAP plugins with X11 windows; LV2 desktop UIs are not shown yet):
+has its own window shows it (CLAP plugins with Wayland or X11 windows; LV2 desktop UIs are not
+shown yet):
 
     send "show_external_ui 0"                                                      # resp 0
     send "hide_external_ui 0"                                                      # resp 0
+
+The show tries, in order: a Wayland floating window, when `WAYLAND_DISPLAY` names a compositor
+and the plugin offers one; an X11 window embedded in one of the host's, on `DISPLAY`; an X11
+floating window. The first the plugin offers whose display answers is taken.
 
 An LV2 plugin is added by its URI, from the bundles on `LV2_PATH`, and its controls are its port
 symbols, as with mod-host. Its audio ports are read by the LV2 port groups, so a mono-in
