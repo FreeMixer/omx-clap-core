@@ -19,8 +19,10 @@
  */
 
 /*
- * window.c: a plugin's own window over clap.gui and X11 (window.h). The APIs a show tries are a table, in its order:
- * X11 embedded, X11 floating. X11 is one xcb connection, opened by the first show and closed with the last X window;
+ * window.c: a plugin's own window over clap.gui, Wayland or X11 (window.h). The APIs a show tries are a table, in its
+ * order: Wayland floating, X11 embedded, X11 floating (#329). CLAP gives Wayland no parent handle, so a Wayland window
+ * is always the plugin's own toplevel and the host holds no Wayland connection: it only checks that the compositor
+ * WAYLAND_DISPLAY names answers. X11 is one xcb connection, opened by the first show and closed with the last X window;
  * one top-level window per plugin that embeds, titled with the plugin's name, which the plugin's window is set into
  * (set_parent); none for a plugin that only floats, which opens its own. The X events are read on the idle tick: a
  * resize of the host's window is the plugin's set_size, its close button (WM_DELETE_WINDOW) hides the plugin. The
@@ -33,6 +35,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <clap/ext/gui.h>
 #ifdef OMX_CLAP_HOST_X11
 #include <xcb/xcb.h>
@@ -162,7 +167,39 @@ static xcb_connection_t *g_x;
 static xcb_screen_t *g_screen;
 static xcb_atom_t g_wm_protocols, g_wm_delete, g_net_wm_name, g_utf8_string;
 static uint32_t g_open;             // the X windows made and not yet destroyed: the connection closes at 0
+static uint32_t g_wl_open;          // the Wayland windows made and not yet destroyed
 static int g_x_lost_said;
+
+/* the compositor WAYLAND_DISPLAY names answers a connection: -1 when it is unset or nothing listens. The host speaks no
+ * Wayland itself, the plugin opens a connection of its own, so this one is closed at once */
+static int wl_connect(void)
+{
+    const char *display = getenv("WAYLAND_DISPLAY"), *dir = getenv("XDG_RUNTIME_DIR");
+    struct sockaddr_un addr = { .sun_family = AF_UNIX };
+    int fd, n, answered;
+
+    if (!display || !display[0])
+        return -1;
+    if (display[0] == '/')
+        n = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s", display);
+    else if (dir && dir[0])
+        n = snprintf(addr.sun_path, sizeof(addr.sun_path), "%s/%s", dir, display);
+    else
+        return -1;
+    if (n < 0 || (size_t)n >= sizeof(addr.sun_path))
+        return -1;
+    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd < 0)
+        return -1;
+    answered = connect(fd, (const struct sockaddr *)&addr, sizeof(addr)) == 0;
+    close(fd);
+    return answered ? 0 : -1;
+}
+
+/* nothing to let go: the host keeps no Wayland connection */
+static void wl_release(void)
+{
+}
 
 static xcb_atom_t atom(const char *name)
 {
@@ -213,8 +250,11 @@ static void x_release(void)
     }
 }
 
-/* the APIs a show tries, first to last: the first the plugin offers whose display answers is taken */
+/* the APIs a show tries, first to last: the first the plugin offers whose display answers is taken. Wayland first, on
+ * the operator's ruling of 2026-10-24 (#329): a Wayland session shows a Wayland window, and X11 (through Xwayland there)
+ * only for a plugin with none */
 static const struct window_api g_apis[] = {
+    { CLAP_WINDOW_API_WAYLAND, 1, wl_connect, wl_release, &g_wl_open },
     { CLAP_WINDOW_API_X11, 0, x_connect, x_release, &g_open },
     { CLAP_WINDOW_API_X11, 1, x_connect, x_release, &g_open },
 };
@@ -599,10 +639,12 @@ void window_idle(void)
 #ifdef OMX_CLAP_HOST_X11
     const uint32_t high = atomic_load_explicit(&g_high, memory_order_relaxed);
 
-    if (!g_x)
+    // a Wayland window's requests (show, hide, closed) are served with no X connection open
+    if (!g_x && !g_wl_open)
         return;
-    x_events();
-    for (uint32_t i = 0; i < high && g_x; i++)
+    if (g_x)
+        x_events();
+    for (uint32_t i = 0; i < high; i++)
         if (atomic_load_explicit(&g_windows[i].in, memory_order_relaxed))
             window_requests(&g_windows[i]);
     if (g_x)
