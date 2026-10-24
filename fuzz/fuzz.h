@@ -55,4 +55,19 @@ size_t fuzz_alloc_live(void);
 size_t fuzz_alloc_peak(void);
 void fuzz_alloc_peak_reset(void);
 
+/* how many allocations the reader has asked for; fuzz_alloc_fail(k): the k-th from now (0 the next) fails, once, as
+ * when memory runs out; SIZE_MAX none */
+size_t fuzz_alloc_count(void);
+void fuzz_alloc_fail(size_t k);
+
+/* which of `n` allocations an input fails: one its bytes choose, so the same input fails the same one */
+static inline size_t fuzz_pick(const uint8_t *p, size_t len, size_t n)
+{
+    size_t h = 5381, i;
+
+    for (i = 0; i < len; i++)
+        h = h * 33 + p[i];
+    return n ? h % n : 0;
+}
+
 #endif /* OMX_FUZZ_H */
