@@ -1,0 +1,13 @@
+diff --git a/src/lv2_locate.c b/src/lv2_locate.c
+index 0efd5a3..19fec4f 100644
+--- a/src/lv2_locate.c
++++ b/src/lv2_locate.c
+@@ -84,7 +84,7 @@ int lv2_locate_manifest_names(const char *text, const char *uri)
+ 
+     if (uri_len == 0)
+         return 0;
+-    whole = malloc(uri_len + 3);
++    whole = malloc(uri_len * 2 + 3);
+     if (!whole)
+         return 0;
+     snprintf(whole, uri_len + 3, "<%s>", uri);

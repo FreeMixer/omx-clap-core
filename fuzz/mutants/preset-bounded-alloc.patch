@@ -1,0 +1,13 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..d2343fe 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -47,7 +47,7 @@ static int grow(struct pj *v)
+ 
+     if (v->n < v->cap)
+         return 0;
+-    cap = v->cap ? v->cap * 2 : 8;
++    cap = v->cap ? v->cap * 2 : 512;
+     kids = realloc(v->kids, cap * sizeof(*kids));
+     if (!kids)
+         return -1;

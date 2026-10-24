@@ -1,0 +1,12 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..75e7268 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -640,7 +640,6 @@ uint8_t *preset_base64_decode(const char *text, size_t *len)
+     *len = n;
+     return out;
+ bad:
+-    free(out);
+     return NULL;
+ }
+ 
