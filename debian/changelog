@@ -1,3 +1,16 @@
+omx-clap-host (0.20.0) unstable; urgency=medium
+
+  * omx-clap-scan prints the panel a plugin publishes through
+    org.openmixer.panel-description/1: --json carries it as "panel" (family,
+    fingerprint, sections, controls, roles, displays, placementDefaults),
+    null when the plugin serves none, and --fields as the scopes panel,
+    section:<i>, control:<i>, role:<i>, display:<i> and
+    placement_default:<i>. Nothing is filled in: an empty table is empty.
+    omx_clap_ext.h states the extension's structures, held to omx-plugins'
+    omx_panel_description.h by make test-panel-abi; no export changes (#337).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 25 Oct 2026 01:30:00 +0200
+
 omx-clap-host (0.19.0) unstable; urgency=medium
 
   * show_external_ui tries a Wayland window first: on a session whose
