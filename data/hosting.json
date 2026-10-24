@@ -10,13 +10,13 @@
         "guard": "CLAP_HOST_LIMITS_H",
         "project": "omx-clap-host",
         "banner": [
-          "Rendered from HOSTED_STAGE_LIMITS and HOSTING_IDLE_CODES of data/hosting.json, where this library declares",
-          "its stage limits and the codes of the dimension it owns. The rendered file is kept in this repository so the",
+          "Rendered from HOSTED_STAGE_LIMITS, HOSTING_IDLE_CODES and HOSTING_WINDOW_CODES of data/hosting.json, where this",
+          "tree declares its stage limits and the codes of the dimensions it owns. The rendered file is kept in this repository so the",
           "library builds on its own; the numbers and codes are changed where they are declared and the file is",
           "re-rendered, never edited here. Every other refusal code is declared in data/hosting/ and rendered as",
           "omx_clap_core_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*)."
         ],
-        "brief": "The limits of the hosting code, and the codes of the idle dimension.",
+        "brief": "The limits of the hosting code, and the codes of the idle and window dimensions.",
         "includes": [
           "stddef.h"
         ],
@@ -29,7 +29,7 @@
           "levels": "*Dbfs"
         },
         "codes": {
-          "comment": "the idle dimension: what the library answers about its hold of /dev/cpu_dma_latency (#296)",
+          "comment": "the idle dimension, what the library answers about its hold of /dev/cpu_dma_latency (#296), and the window dimension, why omx-clap-host shows no plugin window (#180)",
           "prefix": "CLAP_HOST_CODE_"
         }
       },
@@ -136,6 +136,34 @@
       "idleHoldRefused": {
         "code": "hosting.idle.hold-refused",
         "doc": "the device could not be opened for writing (no permission, or no such device): the host runs with no hold"
+      }
+    }
+  },
+  "HOSTING_WINDOW_CODES": {
+    "kind": "codes",
+    "since": "3.1.0",
+    "source": {
+      "impl": [
+        "src/window.c#window_show"
+      ]
+    },
+    "doc": "The hosting codes of the window dimension, hosting.window.*: why omx-clap-host refuses to show a plugin's own window (clap.gui) when show_external_ui asks for it (#180). The dimension is the standalone host's: the console never shows a plugin's native window.",
+    "codes": {
+      "windowNoDisplay": {
+        "code": "hosting.window.no-display",
+        "doc": "no X display to show it on: DISPLAY is unset, or the X server refused the connection; the plugin runs on"
+      },
+      "windowNotBuilt": {
+        "code": "hosting.window.not-built",
+        "doc": "this omx-clap-host was built without X11 (xcb), so it shows no window"
+      },
+      "windowUnsupported": {
+        "code": "hosting.window.unsupported",
+        "doc": "the plugin has no clap.gui, or its clap.gui offers no X11 window, embedded or floating"
+      },
+      "windowRefused": {
+        "code": "hosting.window.refused",
+        "doc": "the plugin's clap.gui answered false when asked to create, embed or show its window"
       }
     }
   }

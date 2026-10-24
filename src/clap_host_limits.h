@@ -22,15 +22,15 @@
 #define CLAP_HOST_LIMITS_H
 /*
  * GENERATED — DO NOT EDIT BY HAND.
- * Rendered from HOSTED_STAGE_LIMITS and HOSTING_IDLE_CODES of data/hosting.json, where this library declares
- * its stage limits and the codes of the dimension it owns. The rendered file is kept in this repository so the
+ * Rendered from HOSTED_STAGE_LIMITS, HOSTING_IDLE_CODES and HOSTING_WINDOW_CODES of data/hosting.json, where this
+ * tree declares its stage limits and the codes of the dimensions it owns. The rendered file is kept in this repository so the
  * library builds on its own; the numbers and codes are changed where they are declared and the file is
  * re-rendered, never edited here. Every other refusal code is declared in data/hosting/ and rendered as
  * omx_clap_core_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*).
  */
 
 /** @file
- * @brief The limits of the hosting code, and the codes of the idle dimension. */
+ * @brief The limits of the hosting code, and the codes of the idle and window dimensions. */
 
 #include <stddef.h>
 
@@ -55,7 +55,11 @@
 #define CLAP_HOST_LATENCY_HOLD_MS 250u  ///< the hold before a hosted stage's new latency takes effect, in milliseconds
 #define CLAP_HOST_IDLE_HOLD_US 10u  ///< the latency the library holds /dev/cpu_dma_latency at while an instance is active, in microseconds: 10 keeps the cores in C1
 
-/** the idle dimension: what the library answers about its hold of /dev/cpu_dma_latency (#296) */
+/** the idle dimension, what the library answers about its hold of /dev/cpu_dma_latency (#296), and the window dimension, why omx-clap-host shows no plugin window (#180) */
 #define CLAP_HOST_CODE_IDLE_HOLD_REFUSED "hosting.idle.hold-refused"  ///< the device could not be opened for writing (no permission, or no such device): the host runs with no hold
+#define CLAP_HOST_CODE_WINDOW_NO_DISPLAY "hosting.window.no-display"  ///< no X display to show it on: DISPLAY is unset, or the X server refused the connection; the plugin runs on
+#define CLAP_HOST_CODE_WINDOW_NOT_BUILT "hosting.window.not-built"  ///< this omx-clap-host was built without X11 (xcb), so it shows no window
+#define CLAP_HOST_CODE_WINDOW_UNSUPPORTED "hosting.window.unsupported"  ///< the plugin has no clap.gui, or its clap.gui offers no X11 window, embedded or floating
+#define CLAP_HOST_CODE_WINDOW_REFUSED "hosting.window.refused"  ///< the plugin's clap.gui answered false when asked to create, embed or show its window
 
 #endif /* CLAP_HOST_LIMITS_H */
