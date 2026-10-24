@@ -421,13 +421,13 @@ The re-check is `tools/adapter-seam.sh --vst3-packages` for the repositories, an
 
 ## 4. Follow-ups
 
-To file against this repository, each linked from #287:
+Filed against this repository, each linked from #287:
 
-- lv2: `write_controls` and `midi_out_event` become direct calls, removing the shim's two indirect calls on the audio
+- #332, lv2: `write_controls` and `midi_out_event` become direct calls, removing the shim's two indirect calls on the audio
   path (1.5); the objdump count is the test.
-- one SHA-256 for omx-clap-core and plugin-hostd: `pc_sha256_*` (`src/param_contract.h`) and `phd_sha256_*`
+- #333, one SHA-256 for omx-clap-core and plugin-hostd: `pc_sha256_*` (`src/param_contract.h`) and `phd_sha256_*`
   (`include/plugin-hostd/pin.h:55-150`) are the same FIPS 180-4 code twice.
-- seam: when a second adapter is approved, move the 1161 reusable NLOC of `lv2_clap.c` into the shared shim (1.5),
+- #334, seam: when a second adapter is approved, move the 1161 reusable NLOC of `lv2_clap.c` into the shared shim (1.5),
   with #280's helpers first. This one is parked behind the trigger of 3.3.
 
 ## Reproduce
