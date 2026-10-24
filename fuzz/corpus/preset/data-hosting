@@ -144,7 +144,8 @@
     "since": "3.1.0",
     "source": {
       "impl": [
-        "src/window.c#window_show"
+        "src/window.c#window_api_pick",
+        "src/window.c#window_make"
       ]
     },
     "doc": "The hosting codes of the window dimension, hosting.window.*: why omx-clap-host refuses to show a plugin's own window (clap.gui) when show_external_ui asks for it (#180). The dimension is the standalone host's: the console never shows a plugin's native window.",
@@ -152,10 +153,6 @@
       "windowNoDisplay": {
         "code": "hosting.window.no-display",
         "doc": "no display to show it on: none is named, or its server refused the connection; the plugin runs on"
-      },
-      "windowNotBuilt": {
-        "code": "hosting.window.not-built",
-        "doc": "this omx-clap-host was built without X11 (xcb), so it shows no window"
       },
       "windowUnsupported": {
         "code": "hosting.window.unsupported",
