@@ -23,8 +23,8 @@
  * `<scope>\t<field>\t<value>`, as plugin-hostd's format tables name the fields (plugin-hostd docs/formats.md, "The field
  * dump"). A CLAP plugin is read through the core's instance, created and initialised, and activated once at 48 kHz when
  * it offers clap.latency or clap.voice-info, which answer only while active; an LV2 plugin through the adapter's own
- * lilv world, its binary never opened. The dump is held until it is whole: a plugin that crashes leaves nothing on
- * stdout, and whatever the plugin prints goes to stderr. */
+ * lilv world, its binary never opened. The dump is made in a child and written only when it is whole: a plugin that
+ * crashes, hangs or ends its process early leaves nothing on stdout, and whatever the plugin prints goes to stderr. */
 
 /*
 ************************************************************************************************************************
@@ -32,6 +32,7 @@
 ************************************************************************************************************************
 */
 
+#include <errno.h>
 #include <limits.h>
 #include <math.h>
 #include <signal.h>
@@ -812,18 +813,39 @@ int scan_fields_list(void)
     return 0;
 }
 
-/* the dump itself, in the child: the plugin's code runs here and only here */
-static int fields_dump(const char *target)
-{
-    char *dump = NULL;
-    size_t size = 0;
-    int out, rc;
+/* the line that closes the child's dump on the pipe: the parent writes the dump only when it reads this as its end, so
+ * a child that leaves early (a plugin that calls exit(0) in its code) gives no dump, not an empty one */
+static const char g_dump_end[] = "# omx-clap-scan --fields end\n";
 
-    // what the plugin prints goes to stderr; the dump to stdout, once it is whole
+/* all of buffer to fd, through a short write and a signal */
+static int write_all(int fd, const char *buffer, size_t size)
+{
+    while (size > 0)
+    {
+        ssize_t n = write(fd, buffer, size);
+
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            return -1;
+        buffer += n;
+        size -= (size_t)n;
+    }
+    return 0;
+}
+
+/* the dump itself, in the child: the plugin's code runs here and only here; the whole dump, its version line first and
+ * g_dump_end last, goes to fd once the plugin is done with */
+static int fields_dump(const char *target, int fd)
+{
+    char *dump = NULL, head[64];
+    size_t size = 0;
+    int rc;
+
+    // what the plugin prints goes to stderr; the dump to the pipe, once it is whole
     fflush(stdout);
-    out = dup(STDOUT_FILENO);
     g_out = open_memstream(&dump, &size);
-    if (out < 0 || !g_out || dup2(STDERR_FILENO, STDOUT_FILENO) < 0)
+    if (!g_out || dup2(STDERR_FILENO, STDOUT_FILENO) < 0)
     {
         fprintf(stderr, "omx-clap-scan: no stream for the dump\n");
         return 1;
@@ -840,26 +862,61 @@ static int fields_dump(const char *target)
     else
         rc = fields_lv2(target + 4);
     fclose(g_out);
-    fflush(stdout);
-    dup2(out, STDOUT_FILENO);
-    close(out);
     if (rc == 0)
     {
-        printf("# omx-clap-scan --fields %d\n", FIELDS_VERSION);
-        fwrite(dump, 1, size, stdout);
-        fflush(stdout);
+        snprintf(head, sizeof(head), "# omx-clap-scan --fields %d\n", FIELDS_VERSION);
+        if (write_all(fd, head, strlen(head)) < 0 || write_all(fd, dump, size) < 0
+            || write_all(fd, g_dump_end, sizeof(g_dump_end) - 1) < 0)
+            rc = 1;
     }
     free(dump);
     return rc;
 }
 
+/* everything the child writes to fd, to its end; NULL when there is no memory for it */
+static char *read_all(int fd, size_t *size)
+{
+    char *buffer = NULL;
+    size_t have = 0, room = 0;
+
+    for (;;)
+    {
+        ssize_t n;
+
+        if (room - have < 4096)
+        {
+            char *grown = realloc(buffer, room ? room * 2 : 65536);
+
+            if (!grown)
+            {
+                free(buffer);
+                return NULL;
+            }
+            buffer = grown;
+            room = room ? room * 2 : 65536;
+        }
+        n = read(fd, buffer + have, room - have);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            break;
+        have += (size_t)n;
+    }
+    *size = have;
+    return buffer;
+}
+
 /* the dump is made in a child, as a listing's file is: a plugin that crashes or hangs in its entry, init or a call
- * (tests/crash_plugin.c aborts in clap_entry.init) takes the child, never the scanner, and leaves no partial dump,
- * only the reason on stderr */
+ * (tests/crash_plugin.c aborts in clap_entry.init) takes the child, never the scanner. The child hands its dump over a
+ * pipe and the parent writes it to stdout only when it is whole, from its version line to g_dump_end: a child that
+ * crashes, hangs or leaves early leaves stdout empty, and the reason goes to stderr */
 int scan_fields(const char *target)
 {
     pid_t pid;
-    int status = 0;
+    int status = 0, pipe_fd[2];
+    char *dump;
+    size_t size = 0, head = 0, end = sizeof(g_dump_end) - 1;
+    char version[64];
 
     if (strncmp(target, "clap:", 5) != 0 && strncmp(target, "lv2:", 4) != 0)
     {
@@ -873,26 +930,56 @@ int scan_fields(const char *target)
     }
     fflush(stdout);
     fflush(stderr);
+    if (pipe(pipe_fd) < 0)
+    {
+        fprintf(stderr, "omx-clap-scan: --fields: no pipe for the dump\n");
+        return 1;
+    }
     pid = fork();
     if (pid < 0)
     {
         fprintf(stderr, "omx-clap-scan: --fields: no process for the dump\n");
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
         return 1;
     }
     if (pid == 0)
     {
+        close(pipe_fd[0]);
         alarm(FIELDS_TIMEOUT_S);
-        _exit(fields_dump(target));
+        _exit(fields_dump(target, pipe_fd[1]));
     }
+    close(pipe_fd[1]);
+    dump = read_all(pipe_fd[0], &size);
+    close(pipe_fd[0]);
     if (waitpid(pid, &status, 0) < 0)
+    {
+        free(dump);
         return 1;
+    }
     if (WIFSIGNALED(status))
     {
         if (WTERMSIG(status) == SIGALRM)
             fprintf(stderr, "omx-clap-scan: --fields: %s: timed out after %d s\n", target, FIELDS_TIMEOUT_S);
         else
             fprintf(stderr, "omx-clap-scan: --fields: %s: crashed with signal %d (%s)\n", target, WTERMSIG(status), strsignal(WTERMSIG(status)));
+        free(dump);
         return 1;
     }
-    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    {
+        free(dump);
+        return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+    }
+    head = (size_t)snprintf(version, sizeof(version), "# omx-clap-scan --fields %d\n", FIELDS_VERSION);
+    if (!dump || size < head + end || memcmp(dump, version, head) != 0 || memcmp(dump + size - end, g_dump_end, end) != 0)
+    {
+        fprintf(stderr, "omx-clap-scan: --fields: %s: the plugin's process ended before its dump was whole\n", target);
+        free(dump);
+        return 1;
+    }
+    fwrite(dump, 1, size - end, stdout);
+    fflush(stdout);
+    free(dump);
+    return 0;
 }
