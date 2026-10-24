@@ -19,16 +19,26 @@
  */
 
 /* A .clap whose entry point takes the process down, for the scanner's test. The crash is deliberate and
- * leaves no core dump and no coredumpctl entry: the process is made non-dumpable first. */
+ * leaves no core dump and no coredumpctl entry: the process is made non-dumpable first. OMX_CRASH_MODE picks
+ * another way down: "hang" never returns from the entry, "exit0" ends the process with status 0 in it. */
 
 #include <stdlib.h>
+#include <string.h>
 #include <sys/prctl.h>
+#include <unistd.h>
 #include <clap/clap.h>
 
 static bool entry_init(const char *path)
 {
+    const char *mode = getenv("OMX_CRASH_MODE");
+
     (void)path;
     prctl(PR_SET_DUMPABLE, 0);
+    if (mode && strcmp(mode, "hang") == 0)
+        for (;;)
+            pause();
+    if (mode && strcmp(mode, "exit0") == 0)
+        exit(0);
     abort();
 }
 

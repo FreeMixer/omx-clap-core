@@ -14,7 +14,7 @@ to mod-host and want CLAP plugins as well.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
 - A plugin's own window, on request: `show_external_ui <N>` puts it on your display, as jalv and mod-host show one, and `hide_external_ui <N>` takes it off. On a Wayland session it is a Wayland window when the plugin has one; X11 otherwise.
 - `-S` shows every plugin's window as it is added; with no display the command says so by code and the audio runs on.
-- `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
+- `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON; `--fields` dumps every field one CLAP or LV2 plugin states, the records plugin-hostd builds its descriptors from.
 
 LV2 plugins run through the same CLAP host by an LV2 to CLAP adapter, the library
 `libomx-clap-lv2`, which omx-clap-host links in (and any program can, from the package
