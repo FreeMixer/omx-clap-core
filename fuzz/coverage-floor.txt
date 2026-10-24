@@ -1,0 +1,5 @@
+# Reader lines each harness's seed corpus covers (make fuzz-coverage, fuzz/coverage.sh); a harness below its floor
+# turns fuzz-coverage red. harness covered-lines
+preset 387
+state 59
+manifest 85
