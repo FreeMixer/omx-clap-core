@@ -56,8 +56,10 @@
 */
 
 #define FIELDS_VERSION      1
-/* the seconds a plugin gets to answer the dump, as a listing gives a file */
+/* the seconds a plugin gets to answer the dump, as a listing gives a file; OMX_CLAP_SCAN_FIELDS_TIMEOUT (1 to 3600)
+ * sets another, as the scanner's test does to see a hang end */
 #define FIELDS_TIMEOUT_S 30
+#define FIELDS_TIMEOUT_MAX_S 3600
 #define FIELDS_RATE         48000.0
 #define FIELDS_MAX_FRAMES   1024u
 #define FIELDS_ENUM_MAX     1024    ///< the most values of one enumerated parameter asked for a text
@@ -908,6 +910,19 @@ static char *read_all(int fd, size_t *size)
     return buffer;
 }
 
+/* the seconds the child gets: FIELDS_TIMEOUT_S, or OMX_CLAP_SCAN_FIELDS_TIMEOUT when it is a whole number in range */
+static int fields_timeout(void)
+{
+    const char *env = getenv("OMX_CLAP_SCAN_FIELDS_TIMEOUT");
+    char *end = NULL;
+    long seconds;
+
+    if (!env || !*env)
+        return FIELDS_TIMEOUT_S;
+    seconds = strtol(env, &end, 10);
+    return *end == '\0' && seconds >= 1 && seconds <= FIELDS_TIMEOUT_MAX_S ? (int)seconds : FIELDS_TIMEOUT_S;
+}
+
 /* the dump is made in a child, as a listing's file is: a plugin that crashes or hangs in its entry, init or a call
  * (tests/crash_plugin.c aborts in clap_entry.init) takes the child, never the scanner. The child hands its dump over a
  * pipe and the parent writes it to stdout only when it is whole, from its version line to g_dump_end: a child that
@@ -915,7 +930,7 @@ static char *read_all(int fd, size_t *size)
 int scan_fields(const char *target)
 {
     pid_t pid, waited;
-    int status = 0, pipe_fd[2];
+    int status = 0, pipe_fd[2], timeout = fields_timeout();
     char *dump;
     size_t size = 0, head = 0, end = sizeof(g_dump_end) - 1;
     char version[64];
@@ -948,7 +963,7 @@ int scan_fields(const char *target)
     if (pid == 0)
     {
         close(pipe_fd[0]);
-        alarm(FIELDS_TIMEOUT_S);
+        alarm((unsigned)timeout);
         _exit(fields_dump(target, pipe_fd[1]));
     }
     close(pipe_fd[1]);
@@ -965,7 +980,7 @@ int scan_fields(const char *target)
     if (WIFSIGNALED(status))
     {
         if (WTERMSIG(status) == SIGALRM)
-            fprintf(stderr, "omx-clap-scan: --fields: %s: timed out after %d s\n", target, FIELDS_TIMEOUT_S);
+            fprintf(stderr, "omx-clap-scan: --fields: %s: timed out after %d s\n", target, timeout);
         else
             fprintf(stderr, "omx-clap-scan: --fields: %s: crashed with signal %d (%s)\n", target, WTERMSIG(status), strsignal(WTERMSIG(status)));
         free(dump);

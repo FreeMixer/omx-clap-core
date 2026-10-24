@@ -890,8 +890,9 @@ adapter's world (`lv2_bundle_fields`), nothing instantiated, so a bundle whose
 binary is missing still dumps. The dump is made in a child and handed to the
 scanner over a pipe, closed by an end line; the scanner writes it to stdout
 only when it arrived whole, so the dump on stdout is never partial. A plugin
-that crashes, hangs (30 s) or ends its process early leaves stdout empty and
-the reason goes to stderr. Exit 0 dumped, 1 not read, 2 not a target
+that crashes, hangs (30 s, or the seconds `OMX_CLAP_SCAN_FIELDS_TIMEOUT`
+gives, 1 to 3600) or ends its process early leaves stdout empty and the reason
+goes to stderr. Exit 0 dumped, 1 not read, 2 not a target
 (`tests/clap_scan_test.c`, `fields_checks`).
 
 
