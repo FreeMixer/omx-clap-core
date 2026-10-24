@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.19.0
+Version:        0.20.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -151,6 +151,16 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.0-1
+- omx-clap-scan prints the panel a plugin publishes through
+  org.openmixer.panel-description/1: --json carries it as "panel" (family,
+  fingerprint, sections, controls, roles, displays, placementDefaults), null
+  when the plugin serves none, and --fields as the scopes panel, section:<i>,
+  control:<i>, role:<i>, display:<i> and placement_default:<i>. Nothing is
+  filled in: an empty table is empty. omx_clap_ext.h states the extension's
+  structures, held to omx-plugins' omx_panel_description.h by make
+  test-panel-abi; no export changes (#337).
+
 * Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.19.0-1
 - show_external_ui tries a Wayland window first: on a session whose
   WAYLAND_DISPLAY names a compositor that answers, a plugin that offers a
