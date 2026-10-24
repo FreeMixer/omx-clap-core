@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.16.0
+Version:        0.17.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -149,6 +149,17 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.17.0-1
+- omx_clap_host_resource_hints reads the resource hints a plugin declares about
+  itself (org.openmixer.resource-hints.draft/0, omx-contract 3.1.0's
+  RESOURCE_HINTS), asked once at create: whole or refused by code
+  (hosting.resource-hints.unknown-hint, wrong-unit, out-of-range), a hint whose
+  bit is clear unknown, never zero. omx_clap_resource_hint_word, _unit and
+  _figure give each hint in the contract's words and units. The LV2 adapter
+  reads the same hints from the TTL's omxres properties and offers them through
+  the draft; omx_clap_lv2_resource_hints_why names a refusal. omx-clap-scan
+  --json writes them. ABI 17; the calls are in the version node
+  OMX_CLAP_CORE_0.17. omx-contract 3.1.0 or newer (#323).
 * Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.16.0-1
 - clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of
   stages one audio cycle runs in order, each an instance the library hosts or a
