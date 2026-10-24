@@ -27,7 +27,8 @@
  *  - embeds (set_parent: a child window of the host's, filled, named "fake gui view") and resizes (can_resize, any size),
  *    or with FAKE_GUI_FLOATING=1 only floats: a top-level window of its own, titled as suggest_title says;
  *  - with FAKE_GUI_RESIZE=<w>x<h> asks the host for that size (request_resize) once, on its fifth timer while shown;
- *  - appends a line per call to the file FAKE_GUI_LOG: "host gui offered" or "host gui none" at init, "create <api>
+ *  - appends a line per call to the file FAKE_GUI_LOG, in the order the calls come, so a test reads their order off the
+ *    line numbers: "host gui offered" or "host gui none" at init, "create <api>
  *    <floating>", "scale", "set_parent", "show", "hide", "set_size <w> <h>", "title <title>", "destroy", "request_resize
  *    <w> <h> <answer>", and once after each show "timer on the tick" and "fd on the tick" when the host calls them.
  */
