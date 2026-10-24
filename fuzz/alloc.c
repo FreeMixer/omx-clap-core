@@ -3,7 +3,8 @@
 
 /* The count of the bytes a reader holds (fuzz/alloc.h). Each block carries its size in a head before the bytes the
  * reader sees; under AddressSanitizer the head is poisoned, so a read just before a block is still a report, and the
- * block still ends where the reader's bytes end. The count is of what the reader asked for, not of the heads. */
+ * block still ends where the reader's bytes end. The count is of what the reader asked for, not of the heads. One
+ * allocation can be made to fail, as when memory runs out, so a harness reaches what a reader does then. */
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -26,7 +27,16 @@
 /* malloc's own alignment, so the reader's bytes are aligned as malloc's would be */
 #define HEAD 16u
 
-static size_t g_live, g_peak;
+static size_t g_live, g_peak, g_count, g_fail_at = SIZE_MAX;
+
+/* whether this allocation is the one asked to fail; it fails once */
+static int failing(void)
+{
+    if (g_count++ != g_fail_at)
+        return 0;
+    g_fail_at = SIZE_MAX;
+    return 1;
+}
 
 static void *own(unsigned char *b, size_t n)
 {
@@ -50,7 +60,7 @@ static size_t disown(unsigned char *b)
 
 void *fuzz_malloc(size_t n)
 {
-    unsigned char *b = n <= SIZE_MAX - HEAD ? malloc(HEAD + n) : NULL;
+    unsigned char *b = !failing() && n <= SIZE_MAX - HEAD ? malloc(HEAD + n) : NULL;
 
     return b ? own(b, n) : NULL;
 }
@@ -71,7 +81,7 @@ void *fuzz_realloc(void *p, size_t n)
 
     if (!p)
         return fuzz_malloc(n);
-    if (n > SIZE_MAX - HEAD)
+    if (failing() || n > SIZE_MAX - HEAD)
         return NULL;
     b = (unsigned char *)p - HEAD;
     old = disown(b);
@@ -118,4 +128,14 @@ size_t fuzz_alloc_peak(void)
 void fuzz_alloc_peak_reset(void)
 {
     g_peak = g_live;
+}
+
+size_t fuzz_alloc_count(void)
+{
+    return g_count;
+}
+
+void fuzz_alloc_fail(size_t k)
+{
+    g_fail_at = k < SIZE_MAX - g_count ? g_count + k : SIZE_MAX;
 }

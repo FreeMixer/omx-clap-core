@@ -12,7 +12,8 @@
  *   no_overread    the answer is the one the text and the URI give: both with a name character after their NUL and
  *                  with a NUL there answer the same. The call that follows reads copies of exactly each string and its
  *                  NUL, so a read past them is AddressSanitizer's to report.
- *   reject_clean   no answer, a refusal ("does not name it") above all, leaves a byte of the reader's held.
+ *   reject_clean   no answer, a refusal ("does not name it") above all, leaves a byte of the reader's held; asked with
+ *                  its allocation failing, it holds nothing either.
  *   round_trip     the answer written back as a manifest reads back as the same answer: one that names the URI, as
  *                  "<uri>", and at every split into a namespace and a plain local name as "@prefix p: <ns> . p:local",
  *                  "PREFIX p: <ns> p:local" and "@prefix : <ns> . :local", names it; one that does not, "", does not.
@@ -56,6 +57,17 @@ static __attribute__((noinline)) void check_reject_clean(size_t live_before)
 {
     if (fuzz_alloc_live() != live_before)
         abort();
+}
+
+/* asked again with the reader's allocation failing, as when memory runs out: whatever it answers, it holds nothing */
+static __attribute__((noinline)) void check_reject_clean_starved(const char *text, const char *uri)
+{
+    const size_t live = fuzz_alloc_live();
+
+    fuzz_alloc_fail(0);
+    (void)lv2_locate_manifest_names(text, uri);
+    fuzz_alloc_fail(SIZE_MAX);
+    check_reject_clean(live);
 }
 
 /* what the reader's header says a prefixed name may spell unescaped: letters, digits, '_', '-', ':' and '.', not last */
@@ -130,6 +142,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     named = lv2_locate_manifest_names(t, u);
     check_bounded_alloc(fuzz_alloc_peak() - live, un);
     check_reject_clean(live);
+    check_reject_clean_starved(t, u);
     check_round_trip(u, named);
     free(u);
     free(t);

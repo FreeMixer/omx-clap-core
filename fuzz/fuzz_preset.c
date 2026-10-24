@@ -11,7 +11,9 @@
  *                  after it is the same answer and the same tree. The parse that follows reads the input from a buffer
  *                  of exactly its size, so a read past it is AddressSanitizer's to report.
  *   reject_clean   a refused file leaves the tree as pj_parse found it, every byte zero, and gives back every byte the
- *                  reader took on the way to refusing it.
+ *                  reader took on the way to refusing it. So does the file read again with one of its allocations
+ *                  failing (which one, the input's bytes choose), which is refused; and a write with one of the
+ *                  writer's failing gives no text and gives its buffer back.
  *   round_trip     an accepted file written back, compact and pretty, parses to the same tree (types, member names in
  *                  order, every number's text and value, every string) and writes the same text again; a rewrite that
  *                  sets one member, as a save sets modifiedAt, keeps every other member and its place.
@@ -81,13 +83,45 @@ static __attribute__((noinline)) void check_bounded_alloc(size_t held, size_t si
         abort();
 }
 
-static __attribute__((noinline)) void check_reject_clean(const struct pj *doc, size_t live_before)
+static __attribute__((noinline)) void check_reject_clean(int rc, const struct pj *doc, size_t live_before)
 {
     static const struct pj empty;
 
+    if (rc == 0)
+        abort();
     if (memcmp(doc, &empty, sizeof(empty)) != 0)
         abort();
     if (fuzz_alloc_live() != live_before)
+        abort();
+}
+
+/* The file again with one of the allocations its reading took failing, as when memory runs out: refused like any
+ * refusal. And a tree written with one of the writer's failing: no text, and its buffer given back. */
+static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *data, size_t size, size_t took,
+                                                                 const struct pj *doc)
+{
+    struct pj starved;
+    size_t live = fuzz_alloc_live(), before;
+    char *text;
+    int rc;
+
+    if (took)
+    {
+        fuzz_alloc_fail(fuzz_pick(data, size, took));
+        rc = pj_parse((const char *)data, size, &starved);
+        fuzz_alloc_fail(SIZE_MAX);
+        check_reject_clean(rc, &starved, live);
+    }
+    if (!doc)
+        return;
+    before = fuzz_alloc_count();
+    fuzz_free(pj_write(doc, 1));
+    if (fuzz_alloc_count() == before)
+        return;
+    fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
+    text = pj_write(doc, 1);
+    fuzz_alloc_fail(SIZE_MAX);
+    if (text || fuzz_alloc_live() != live)
         abort();
 }
 
@@ -169,7 +203,7 @@ static void read_members(const struct pj *doc)
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     struct pj doc;
-    size_t live;
+    size_t live, count;
     int rc;
 
     if (size > PRESET_FILE_MAX_BYTES)
@@ -177,16 +211,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     check_no_overread(data, size);
 
     live = fuzz_alloc_live();
+    count = fuzz_alloc_count();
     fuzz_alloc_peak_reset();
     rc = pj_parse((const char *)data, size, &doc);
     check_bounded_alloc(fuzz_alloc_peak() - live, size);
+    count = fuzz_alloc_count() - count;
     if (rc != 0)
     {
-        check_reject_clean(&doc, live);
+        check_reject_clean(rc, &doc, live);
+        check_reject_clean_starved(data, size, count, NULL);
         return 0;
     }
     read_members(&doc);
     check_round_trip(&doc);
+    check_reject_clean_starved(data, size, count, &doc);
     pj_free(&doc);
     return 0;
 }
