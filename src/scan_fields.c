@@ -914,7 +914,7 @@ static char *read_all(int fd, size_t *size)
  * crashes, hangs or leaves early leaves stdout empty, and the reason goes to stderr */
 int scan_fields(const char *target)
 {
-    pid_t pid;
+    pid_t pid, waited;
     int status = 0, pipe_fd[2];
     char *dump;
     size_t size = 0, head = 0, end = sizeof(g_dump_end) - 1;
@@ -954,7 +954,10 @@ int scan_fields(const char *target)
     close(pipe_fd[1]);
     dump = read_all(pipe_fd[0], &size);
     close(pipe_fd[0]);
-    if (waitpid(pid, &status, 0) < 0)
+    do
+        waited = waitpid(pid, &status, 0);
+    while (waited < 0 && errno == EINTR);
+    if (waited < 0)
     {
         free(dump);
         return 1;
