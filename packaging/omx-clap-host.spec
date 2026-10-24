@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.18.0
+Version:        0.19.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -151,6 +151,15 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.19.0-1
+- show_external_ui tries a Wayland window first: on a session whose
+  WAYLAND_DISPLAY names a compositor that answers, a plugin that offers a
+  Wayland window opens its own floating toplevel there (create("wayland",
+  true), show); X11 embedded, then X11 floating, follow for a plugin with no
+  Wayland window and for X11 sessions. hide_external_ui and remove work the
+  same on it. The host links no Wayland library and keeps no Wayland
+  connection; no code is added and no export changes (#329).
+
 * Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.18.0-1
 - omx-clap-host shows a plugin's own window, over clap.gui and X11, on
   request: show_external_ui <N> as mod-host takes it, hide_external_ui <N>,
