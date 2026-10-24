@@ -1,3 +1,19 @@
+omx-clap-host (0.19.0) unstable; urgency=medium
+
+  * show_external_ui tries a Wayland window first: on a session whose
+    WAYLAND_DISPLAY names a compositor that answers, a plugin that offers a
+    Wayland window opens its own floating toplevel there (create("wayland",
+    true), show); X11 embedded, then X11 floating, follow for a plugin with no
+    Wayland window and for X11 sessions. hide_external_ui and remove work the
+    same on it. The host links no Wayland library and keeps no Wayland
+    connection, so a build without xcb (X11=0) shows Wayland windows too, and
+    hosting.window.not-built, which nothing answers any more, is gone from the
+    window codes; no export changes. A plugin that offers X11 embedded but
+    has no set_parent is shown floating when it offers that, where it was
+    hosting.window.unsupported (#329).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 24 Oct 2026 23:30:00 +0200
+
 omx-clap-host (0.18.0) unstable; urgency=medium
 
   * omx-clap-host shows a plugin's own window, over clap.gui and X11, on
