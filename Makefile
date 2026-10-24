@@ -675,6 +675,12 @@ test-jack-fake: $(PROG) tests/fake.clap tests/jack_meter_source tests/jack_synth
 test-jack-window: $(PROG) tests/fake_gui.clap tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
 	./tests/jack_window_e2e.sh
 
+# a plugin's own window over clap.gui and Wayland first (#329), in a PipeWire, a headless weston and an Xvfb of their
+# own: Wayland taken when both displays are there and mapped by weston, X11 for a plugin with no Wayland window,
+# no-display with neither; needs wayland-client, wayland-protocols, weston, Xvfb, xdotool and ss
+test-jack-window-wl: $(PROG) tests/fake_gui_wl.clap tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
+	./tests/jack_window_wl_e2e.sh
+
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/fake.clap tests/jack_synth_probe
 	./tests/jack_synth_e2e.sh
