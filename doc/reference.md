@@ -893,6 +893,35 @@ crashes or hangs (30 s) takes only its own file's entry: each file is
 scanned in a child process and the scan goes on. The exit status is 0 when
 at least one path could be read, 1 when none could.
 
+`omx-clap-scan --fields clap:<path>#<id>` or `--fields lv2:<uri>` writes the
+field dump of one plugin, the records plugin-hostd's format tables map to a
+descriptor (its `docs/formats.md`, "The field dump"): the line
+`# omx-clap-scan --fields 1`,
+the format's version, then one record per field the plugin states,
+`<scope>` TAB `<field>` TAB `<value>`. The scope is `plugin`, `param:<index>`
+(in `get_info` order), `audio_in:<index>`, `audio_out:<index>`,
+`note_in:<index>`, `note_out:<index>`, or for LV2 `port:<index>` by
+`lv2:index`; the field is the source field as the headers or the
+specifications spell it (`clap_param_info.min_value`, `clap_plugin.get_extension`,
+`lv2:symbol`, `units:unit`); the value is text: a number in `%.17g`, a CLAP
+constant by its macro name (one record per flag bit set, per feature, per
+extension the plugin answers of those the stable headers name and this host's
+own), an LV2 URI as a CURIE under the LV2 prefixes and in full under none, a
+scale point or a value text as `<number> <label>`, a TAB or newline in a text
+a space. A CLAP dump starts with `plugin	clap_entry	<file name>`, an LV2 one
+with `plugin	rdfs:seeAlso	<bundle directory>/<data file>`. A CLAP plugin is
+read from an instance created and initialised, not activated, but for the
+one activation `clap.voice-info` needs; an LV2 plugin from its bundle's data
+alone, the bundle found on `LV2_PATH` (`lv2_locate`) and read through the
+adapter's world (`lv2_bundle_fields`), nothing instantiated, so a bundle whose
+binary is missing still dumps. The dump is made in a child and handed to the
+scanner over a pipe, closed by an end line; the scanner writes it to stdout
+only when it arrived whole, so the dump on stdout is never partial. A plugin
+that crashes, hangs (30 s, or the seconds `OMX_CLAP_SCAN_FIELDS_TIMEOUT`
+gives, 1 to 3600) or ends its process early leaves stdout empty and the reason
+goes to stderr. Exit 0 dumped, 1 not read, 2 not a target
+(`tests/clap_scan_test.c`, `fields_checks`).
+
 
 Layout pin
 ----------
