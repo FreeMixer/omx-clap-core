@@ -80,7 +80,7 @@ int lv2_locate_manifest_names(const char *text, const char *uri)
     const size_t uri_len = strlen(uri);
     const char *at;
     char *whole;
-    int found;
+    int found, read_again = 0;
 
     if (uri_len == 0)
         return 0;
@@ -125,9 +125,13 @@ int lv2_locate_manifest_names(const char *text, const char *uri)
         if (!ns_end)
             break;
         ns_len = (size_t)(ns_end - ns);
-        if (ns_len < uri_len && strncmp(uri, ns, ns_len) == 0 && plain_local(uri + ns_len)
-            && has_prefixed(text, name, name_len, uri + ns_len))
-            return 1;
+        if (ns_len < uri_len && strncmp(uri, ns, ns_len) == 0 && plain_local(uri + ns_len))
+        {
+            // each such declaration reads the whole text for its name: past the most a manifest is read for, it is a
+            // candidate unread, so no manifest costs more than LV2_LOCATE_PREFIXES_MAX readings of it
+            if (++read_again > LV2_LOCATE_PREFIXES_MAX || has_prefixed(text, name, name_len, uri + ns_len))
+                return 1;
+        }
         at = ns_end;
     }
     return 0;

@@ -21,6 +21,7 @@
 /* Which bundles on an LV2 path the host opens for a URI (src/lv2_locate.c): the manifest's text against each way a URI
  * is spelled in it, then a walk over a path of temporary directories, its order, its stop and its "~/". */
 
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,6 +55,45 @@ static void names(void)
     for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
         CHECK(lv2_locate_manifest_names(cases[i].text, URI) == cases[i].want, "manifest: %s -> %d", cases[i].what, cases[i].want);
     CHECK(lv2_locate_manifest_names("<urn:a:b>", "") == 0, "manifest: an empty URI is named by nothing");
+}
+
+static void on_alarm(int sig)
+{
+    static const char m[] = "FAIL manifest: many declarations of the URI's namespace, still reading after 20 s\n";
+
+    (void)sig;
+    if (write(STDOUT_FILENO, m, sizeof(m) - 1) < 0)
+        _exit(2);
+    _exit(1);
+}
+
+/* A manifest that declares the URI's namespace again and again: each declaration reads the whole text for its name, so
+ * one of the largest size read (4 MiB) took minutes, a stall of every lookup on its path. */
+static void many_prefixes(void)
+{
+    static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
+    const size_t len = sizeof(line) - 1, n = (4u << 20) / len;
+    char *text = malloc(n * len + 1);
+    size_t i;
+    int got;
+
+    if (!text)
+    {
+        CHECK(0, "manifest: memory for a 4 MiB manifest");
+        return;
+    }
+    for (i = 0; i < n; i++)
+        memcpy(text + i * len, line, len);
+    text[n * len] = '\0';
+    signal(SIGALRM, on_alarm);
+    alarm(20);
+    got = lv2_locate_manifest_names(text, URI);
+    alarm(0);
+    CHECK(got == 1, "manifest: %zu declarations of the URI's namespace and no name: a candidate, read in bounded work", n);
+    text[LV2_LOCATE_PREFIXES_MAX * len] = '\0';
+    CHECK(lv2_locate_manifest_names(text, URI) == 0,
+          "manifest: %d declarations of the URI's namespace and no name: read whole, not a candidate", LV2_LOCATE_PREFIXES_MAX);
+    free(text);
 }
 
 static void bundle(const char *dir, const char *name, const char *manifest)
@@ -156,6 +196,7 @@ static void walk(void)
 int main(void)
 {
     names();
+    many_prefixes();
     walk();
     if (g_failures)
     {
