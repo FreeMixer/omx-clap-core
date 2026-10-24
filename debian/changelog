@@ -1,3 +1,50 @@
+omx-clap-host (0.17.0) unstable; urgency=medium
+
+  * omx_clap_host_resource_hints reads the resource hints a plugin declares about
+    itself (org.openmixer.resource-hints.draft/0, omx-contract 3.1.0's
+    RESOURCE_HINTS), asked once at create: whole or refused by code
+    (hosting.resource-hints.unknown-hint, wrong-unit, out-of-range), a hint whose
+    bit is clear unknown, never zero. omx_clap_resource_hint_word, _unit and
+    _figure give each hint in the contract's words and units. The LV2 adapter
+    reads the same hints from the TTL's omxres properties and offers them through
+    the draft; omx_clap_lv2_resource_hints_why names a refusal. omx-clap-scan
+    --json writes them. ABI 17; the calls are in the version node
+    OMX_CLAP_CORE_0.17. omx-contract 3.1.0 or newer (#323).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 24 Oct 2026 12:55:37 +0200
+
+omx-clap-host (0.16.0) unstable; urgency=medium
+
+  * clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of
+    stages one audio cycle runs in order, each an instance the library hosts or a
+    stage of the caller's own, each with a bypass flag (a bypassed member is not
+    run, copied or counted), its latency and its channel layout; the chain reports
+    the sum of its non-bypassed members' latencies and tells every change of it.
+    omx_clap_chain_remove takes a member out and the next cycle equals a chain built
+    without it. The cycle allocates, locks and waits for nothing; a cycle longer
+    than OMX_CLAP_CHAIN_FRAMES_MAX (8192) passes dry and says so. Every structure a
+    consumer allocates carries its ABI and size first and a mismatch is refused,
+    OMX_CLAP_CHAIN_ERR_ABI. The functions are in the version node
+    OMX_CLAP_CORE_0.16 (docs/chain.md, #311).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 22 Oct 2026 12:00:00 +0200
+
+omx-clap-host (0.15.0) unstable; urgency=medium
+
+  * omx_clap_host_config_default_sized(config, caller_size) bounds the defaults' stamp to caller_size,
+    never to the library's own current sizeof: a consumer whose struct is smaller, because it was built
+    against an older header and not rebuilt since, is filled only that far and never overrun past its own
+    allocation. caller_size too short to carry even `version` is refused whole, not a byte moved.
+    omx_clap_host_config_default, unchanged, still stamps its own current size and cannot make this
+    promise; prefer the sized call. The call is in the version node OMX_CLAP_CORE_0.15 (#301).
+  * The hosting codes' TypeScript modules (omx-clap-core-hosting.js,
+    omx-clap-core-vocabulary.js and their .d.ts) move from libomx-clap-core-dev
+    to libomx-clap-core1, at the same path, so a program that only reads them
+    at run time, such as plugin-qualify, needs no development package.
+    pkg-config --variable=tsdir omx-clap-core still names that path.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 22 Oct 2026 09:00:00 +0200
+
 omx-clap-host (0.14.0) unstable; urgency=medium
 
   * libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is

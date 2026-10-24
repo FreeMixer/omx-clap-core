@@ -561,6 +561,43 @@ The last activate's answer is kept across a deactivate. A plugin that
 says its voice info changed (the host's `clap.voice-info`) is asked again
 by the next `omx_clap_host_tick` while it is active.
 
+Resource hints
+--------------
+
+A plugin may state its own footprint through
+`org.openmixer.resource-hints.draft/0`, omx-contract's `RESOURCE_HINTS`
+(3.1.0, `omxcontract/omx_resource_hints.h`): footprint-at-rest,
+footprint-per-voice and shared-load in bytes, threads-spawned a count,
+streams-from-disk and opens-sockets flags, activate-time in ms. The
+extension is asked once, when the instance is created, and kept for its
+life. A program that hosts the plugin through the library reads it with
+`omx_clap_host_resource_hints`, which answers 1 with the declaration, 0
+when the plugin states none (no extension, a `get` that answers false, no
+bit set), or -1 when the declaration is refused, with the code: a bit of
+`declared` that names no hint is `hosting.resource-hints.unknown-hint`, a
+declared flag whose byte is neither 0 nor 1 is
+`hosting.resource-hints.wrong-unit`. A refused declaration is trusted for
+none of its hints. A hint whose bit is clear is unknown, never zero: its
+member reads 0 whatever the plugin left in it, and
+`omx_clap_resource_hint_figure` answers 0 for it. The hint's word and
+unit are omx-contract's, from `omx_clap_resource_hint_word` and
+`omx_clap_resource_hint_unit`. A hint is a claim; the library neither
+measures it nor admits a plugin by it.
+
+An LV2 plugin states the same hints as properties of the plugin in
+omx-contract's `omxres:` namespace
+(`https://www.openmixer.org/ns/resource-hints#`), each its word in lower
+camel case (`omxres:footprintAtRest`), typed as the contract's
+`omx-resource-hints.ttl` ranges them: `xsd:unsignedLong` for bytes,
+`xsd:unsignedInt` for a count or a time, `xsd:boolean` for a flag. The LV2
+adapter reads them from the bundle's data and offers them through the same
+extension, so the library reads them as it reads a CLAP plugin's. A figure
+not in its unit (a flag that is not a boolean, a number that is not an
+integer) refuses them all with `hosting.resource-hints.wrong-unit`, one
+below zero or past its member with `hosting.resource-hints.out-of-range`;
+the plugin then offers none, and `omx_clap_lv2_resource_hints_why` names
+the code.
+
 Instrument details
 ------------------
 
@@ -749,7 +786,13 @@ instance that is initialised, read and destroyed without being activated:
   allocated, and whether two notes may sound on one key. The extension
   answers only while active, so a plugin that offers it is activated once,
   at 48 kHz with blocks of up to 1024 frames, read and deactivated; absent
-  when it offers none or answers outside `1 <= count <= capacity`.
+  when it offers none or answers outside `1 <= count <= capacity`;
+- the resource hints (Resource hints, above): `declared`, the mask, then
+  every hint of omx-contract's `RESOURCE_HINTS` by its word, in its order,
+  with its unit and its figure (a flag `true` or `false`), the figure
+  `null` when the hint is unknown, never 0; `refused` with the code when
+  the declaration is refused, every figure then `null`. The text form is
+  one line of the declared hints. Absent when the plugin states none.
 
 `--json` writes one document on stdout with the keys in a fixed order:
 
@@ -761,7 +804,9 @@ instance that is initialised, read and destroyed without being activated:
      "audio_ports":{"inputs":[{"id":0,"name":"...","role":"main","channels":2,"kind":"stereo","jack":["in_1","in_2"]}],"outputs":[...]},
      "note_ports":{"inputs":0,"outputs":0},
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
-     "voice_info":{"count":4,"capacity":8,"overlapping_notes":true}}
+     "voice_info":{"count":4,"capacity":8,"overlapping_notes":true},
+     "resource_hints":{"declared":9,"footprint-at-rest":{"unit":"bytes","figure":3145728},
+      "footprint-per-voice":{"unit":"bytes","figure":null},...,"activate-time":{"unit":"ms","figure":null}}}
     ],"presets":[
     {"name":"Init","location_kind":"plugin","location":null,"load_key":"init",
      "provider":"...","plugins":["..."],"flags":["factory"]}

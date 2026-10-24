@@ -252,7 +252,7 @@ static const bit_name_t g_voice_flags[] = {
 };
 
 /* the extensions of this tree's own, by their id: no TERM names them */
-static const char *const g_omx_extensions[] = { OMX_CLAP_EXT_DECLARATION, OMX_CLAP_EXT_PARAM_CONTRACT, NULL };
+static const char *const g_omx_extensions[] = { OMX_CLAP_EXT_DECLARATION, OMX_CLAP_EXT_PARAM_CONTRACT, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT, NULL };
 
 /* the prefixes a URI is written under, and the specification each LV2 one is (written <prefix>:<spec>.lv2) */
 static const prefix_t g_prefixes[] = {

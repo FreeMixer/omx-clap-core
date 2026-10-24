@@ -201,6 +201,10 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   thread: `omx_clap_midi_size` is a message's length from its status byte, `omx_clap_note_midi`
   the MIDI message of a CLAP note on, note off or choke. The host's note output and the LV2
   adapter's MIDI input both convert with it.
+- `clap_chain.h`: the chain, `omx_clap_chain_*`, an ordered list of stages (hosted instances
+  or the caller's own) that one call runs in order on the audio thread, with bypass, the summed
+  latency and removal; every structure a consumer allocates carries its ABI and size first
+  ([docs/chain.md](docs/chain.md)).
 
 The audio role is what the plugin's `clap.thread-check` reads: `is_audio_thread`
 answers true on the thread that holds it and false on every other, and a
@@ -269,6 +273,13 @@ No reader sees fields of two publishes, and no position goes backwards except
 at a published loop wrap. `make test-fake` includes it. `make test-transport-tsan`
 runs it under ThreadSanitizer (CI does). `make test-transport-sabotage` takes
 the sequence re-check out of the read and expects torn records.
+
+`make test-chain` runs `tests/clap_chain_test.c`, the chain by value over the fake plugins
+and stages of its own: its output equals its members in series bit for bit, the latency is
+their sum and re-reported, a bypassed or removed member equals a chain built without it, a
+cycle longer than 8192 frames passes dry, a structure of another ABI or size is refused.
+`make test-fake` includes it. `make test-chain-tsan` runs it under ThreadSanitizer and `make
+test-chain-sabotage` breaks each guard in a copy of the tree and expects it red (CI runs both).
 
 `make test-param-contract` checks the parameter contract's arithmetic against
 answers computed elsewhere: SHA-256 against FIPS 180-4's examples, the

@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
 CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
@@ -101,9 +101,9 @@ INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 LDFLAGS += -Wl,--no-undefined
 
 # source and object files
-SRC = src/main.c src/effects.c src/lv2_locate.c
+SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c
 OBJ = $(SRC:.c=.o)
-CORE_SRC = src/clap_host.c src/idle_hold.c
+CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
@@ -150,6 +150,14 @@ endif
 
 $(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
 	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
+
+# the preset census (tools/preset-census.c): every plugin's preset-discovery factory, preset-load and state, one TSV line
+# each; built on demand, never installed
+.PHONY: preset-census
+preset-census: tools/preset-census
+
+tools/preset-census: tools/preset-census.c src/clap_host.h $(CORE_SO)
+	$(CC) -Isrc $(INCS) $(CFLAGS) $< $(CORE_LINK_TEST) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # meta-rule to generate the object files
 # the objects that embed the version: a move of VERSION rebuilds them, or the library keeps answering the old number
@@ -247,11 +255,14 @@ install-contract:
 # what the reader reads (tests/hosting-values-check.mjs, with its sabotage arms); node and an omx-contract checkout with its npm ci done (OMX_CONTRACT_DIR)
 # omx-clap-scan --fields held to omx-contract's TERM files, and the dumps of the fake plugins and the LV2 fixture bundles
 # (their binaries absent: nothing is opened) read as records; PLUGIN_HOSTD_TABLES (plugin-hostd's data/formats) holds
-# every field a dump writes to a row of its table
+# every field a dump writes to a row of its table; and omx-clap-scan --json's resource hints held to omx-contract's
+# RESOURCE_HINTS, words, order and units, over fake_ext's declaration (tests/resource-hints-check.py, with its sabotage arms)
 PLUGIN_HOSTD_TABLES ?=
 .PHONY: test-fields
-test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap
+test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap tests/fake_ext.clap
 	python3 tests/scan-fields-check.py ./$(SCAN_PROG) $(OMX_CONTRACT_DIR)/data/formats $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(LV2_FIXTURE_DIR) $(PLUGIN_HOSTD_TABLES)
+	python3 tests/resource-hints-check.py ./$(SCAN_PROG) $(abspath tests/fake_ext.clap) $(OMX_CONTRACT_DIR)
+	python3 tests/resource-hints-check.py --self-test ./$(SCAN_PROG) $(abspath tests/fake_ext.clap) $(OMX_CONTRACT_DIR)
 
 test-contract:
 	rm -rf build/contract
@@ -260,7 +271,6 @@ test-contract:
 	node $(OMX_CONTRACT_DIR)/bin/omx-contract.mjs render --target json --contract-dir build/contract/dir --out build/contract/json
 	node tests/hosting-values-check.mjs build/contract/json/omx-contract.json src
 	node tests/hosting-values-check.mjs --self-test build/contract/json/omx-contract.json src
-	$(MAKE) --no-print-directory test-fields
 
 install: install-lib install-lv2 install-tests install_man install-contract
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(UDEVDIR)
@@ -318,12 +328,12 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap tests/clap_unoffered_test
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
+test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -331,8 +341,9 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR))
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-host-transport tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test
+test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
+	./tests/resource_hints_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
 	./tests/idle_hold_test $(abspath tests/fake.clap)
 	./tests/clap_host_test - $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap) $(abspath tests/fake_mover.clap) $(abspath tests/fault-17.clap)
@@ -388,6 +399,15 @@ tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CO
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
 
+# the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
+# control thread publishes, and build into the other
+tests/clap_chain_tsan: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+
+test-chain-tsan: tests/clap_chain_tsan tests/fake.clap tests/fake_compressor.clap
+	TSAN_OPTIONS=halt_on_error=1 ./tests/clap_chain_tsan $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
 tests/transport_seqlock_test: tests/transport_seqlock_test.c src/clap_stage.h src/hosted_stage.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DOMX_TEST_WITNESS $(WRAP_ALLOC) -pthread -o $@ $< -lm
 
@@ -419,6 +439,24 @@ test-transport-sabotage: tests/transport_seqlock_test.c src/clap_stage.h src/hos
 test-layouts-sabotage:
 	./tests/layout_sabotage.sh
 
+# the chain (docs/chain.md, #311): its values over the fake plugins and stages of the test's own; and its cycle, pass_dry and
+# omx_clap_chain_process, names nothing that allocates, waits, locks or prints
+test-chain: tests/clap_chain_test tests/fake.clap tests/fake_compressor.clap
+	mkdir -p build && sed -n '/^static void pass_dry/,/^}/p; /^int omx_clap_chain_process/,/^}/p' src/clap_chain.c > build/clap_chain_rt.c
+	grep -q 'omx_clap_host_run_ports' build/clap_chain_rt.c && grep -q 'memcpy' build/clap_chain_rt.c \
+	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_chain_rt.c \
+	    && echo "ok   the chain's cycle (pass_dry, omx_clap_chain_process) names no allocator, sleep, lock or printf"
+	./tests/clap_chain_test $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
+# each guard of the chain broken in a copy of the tree, the test seen red on the check that names it
+test-chain-sabotage:
+	./tests/chain_sabotage.sh
+
+# each guard of the resource hints (#323) broken in a copy of the tree, the test seen red on the check that names it
+.PHONY: test-resource-hints-sabotage
+test-resource-hints-sabotage:
+	./tests/resource_hints_sabotage.sh
+
 # the raw CLAP open a probe or an oracle runs, against the fake effect and the plugin whose init fails
 test-raw: tests/clap_raw_test tests/fake.clap tests/fault-2.clap
 	./tests/clap_raw_test $(abspath tests/fake.clap) $(abspath tests/fault-2.clap)
@@ -439,6 +477,14 @@ test-param-contract: tests/param_contract_test
 
 tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -lm
+
+# the preset file of docs/presets.md on its own: JSON both ways, values exact, unknown members kept, base64, load keys
+.PHONY: test-preset-file
+test-preset-file: tests/preset_file_test
+	./tests/preset_file_test
+
+tests/preset_file_test: tests/preset_file_test.c src/preset_file.c src/preset_file.h
+	$(CC) $(CFLAGS) -Werror -Isrc -o $@ tests/preset_file_test.c src/preset_file.c -lm
 
 tests/msgring_test: tests/msgring_test.c src/omx_msgring.h src/hosted_stage_limits.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
@@ -475,10 +521,17 @@ tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADER
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
+tests/clap_chain_test: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+
 tests/idle_hold_test: tests/idle_hold_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
 
 tests/clap_ext_test: tests/clap_ext_test.c $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -ldl -lpthread -lm
+
+# the plugin's resource hints (#323) through the core, against fake_ext's declaration of two
+tests/resource_hints_test: tests/resource_hints_test.c tests/test_util.h $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -ldl -lpthread -lm
 
 # the ABI: abidw records what the library exports and the types its public headers reach, abidiff compares a build with the
@@ -496,6 +549,12 @@ abi-baseline: abi-stage
 	abidw --headers-dir build/abi/usr/include --out-file $(ABI_BASELINE) build/abi/usr/lib/$(CORE_FILE)
 	CC="$(CC)" CPPFLAGS="$(CLAP_CFLAGS) $(DSP_CFLAGS)" sh tests/abi-layout.sh build/abi/usr/include $(ABI_LAYOUT) $(VERSION) --record
 
+# abi-check.sh's reading of abidiff, sabotaged: a fixture library whose member points to a structure, the pointee grown
+# (ok) and changed five ways that must each FAIL (tests/abi-check-sabotage.sh, #323); needs gcc, abidw and abidiff
+.PHONY: test-abi-sabotage
+test-abi-sabotage:
+	sh tests/abi-check-sabotage.sh
+
 # libabigail's dump leaves _Atomic members out (#117): abi-layout.sh reads every member's offset, size and type with
 # pahole and holds them to abi/<soname>.layout, recorded with the baseline
 abi-check: abi-stage
@@ -505,7 +564,7 @@ abi-check: abi-stage
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/fault-1.clap $(CORE_SO)
-	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h
+	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h src/clap_chain.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
@@ -643,6 +702,11 @@ tests/jack_meter_source: tests/jack_meter_source.c
 test-identity: $(PROG) tests/jack_identity build/bench/inproc
 	./tests/clap_lv2_identity.sh
 
+# a chain of plugins in one JACK client against the same plugins one client each in series, bit for bit, and the latency
+# the chain reports their sum (#302): the fake plugins of this tree; PLUGINS=bench/plugins.tsv for the omx-plugins set
+test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap
+	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
+
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
 
@@ -700,6 +764,20 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-event-fixture.lv2/omx-event-fixture.so \
               build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so \
               build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
+
+# the resource hints' LV2 face (#323), outside build/lv2: the refused bundle is malformed on purpose, and lv2_validate
+# knows no omxres property (omx-contract's omx-resource-hints.ttl does not validate on its own), so neither is validated
+LV2_HINTS_BUNDLES = build/lv2-hints/omx-hints-fixture.lv2/omx-hints-fixture.so build/lv2-hints/omx-hints-refused.lv2/omx-hints-refused.so
+
+build/lv2-hints/omx-hints-fixture.lv2/omx-hints-fixture.so: $(LV2_FIXTURE_DIR)/lv2_hints_fixture.c $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h $(wildcard $(LV2_FIXTURE_DIR)/omx-hints-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-hints-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $<
+
+build/lv2-hints/omx-hints-refused.lv2/omx-hints-refused.so: $(LV2_FIXTURE_DIR)/lv2_hints_fixture.c $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h $(wildcard $(LV2_FIXTURE_DIR)/omx-hints-refused.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-hints-refused.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -DHINTS_REFUSED -o $@ $<
 
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
@@ -817,11 +895,11 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
-lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
+lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
-test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
+test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES) $(LV2_HINTS_BUNDLES)
 	./lv2/tests/lv2_clap_test build/lv2
 
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged

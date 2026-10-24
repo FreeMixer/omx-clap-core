@@ -1,4 +1,4 @@
-version 0.13.0
+version 0.17.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -19,6 +19,42 @@ member struct omx_clap_aux_in aux_in_ptrs 2088 32768 float * aux_in_ptrs[4096]
 member struct omx_clap_aux_in aux_in_base 34856 256 uint32_t aux_in_base[64]
 member struct omx_clap_aux_in aux_silence 35112 16 float * aux_silence[2]
 size struct omx_clap_aux_in 35128
+member struct omx_clap_chain_config abi 0 4 uint32_t abi
+member struct omx_clap_chain_config size 4 4 uint32_t size
+member struct omx_clap_chain_config channels 8 4 uint32_t channels
+member struct omx_clap_chain_config latency_changed 16 8 omx_clap_chain_latency_fn latency_changed
+member struct omx_clap_chain_config ctx 24 8 void * ctx
+size struct omx_clap_chain_config 32
+member struct omx_clap_chain_member abi 0 4 uint32_t abi
+member struct omx_clap_chain_member size 4 4 uint32_t size
+member struct omx_clap_chain_member instance 8 8 struct omx_clap_instance * instance
+member struct omx_clap_chain_member process 16 8 omx_clap_chain_process_fn process
+member struct omx_clap_chain_member ctx 24 8 void * ctx
+member struct omx_clap_chain_member in_channels 32 4 uint32_t in_channels
+member struct omx_clap_chain_member out_channels 36 4 uint32_t out_channels
+member struct omx_clap_chain_member latency 40 4 uint32_t latency
+member struct omx_clap_chain_member bypass 44 4 uint32_t bypass
+size struct omx_clap_chain_member 48
+member struct omx_clap_chain_member_info abi 0 4 uint32_t abi
+member struct omx_clap_chain_member_info size 4 4 uint32_t size
+member struct omx_clap_chain_member_info id 8 4 uint32_t id
+member struct omx_clap_chain_member_info position 12 4 uint32_t position
+member struct omx_clap_chain_member_info in_channels 16 4 uint32_t in_channels
+member struct omx_clap_chain_member_info out_channels 20 4 uint32_t out_channels
+member struct omx_clap_chain_member_info latency 24 4 uint32_t latency
+member struct omx_clap_chain_member_info bypass 28 4 uint32_t bypass
+member struct omx_clap_chain_member_info instance 32 8 struct omx_clap_instance * instance
+member struct omx_clap_chain_member_info ctx 40 8 void * ctx
+size struct omx_clap_chain_member_info 48
+member struct omx_clap_chain_report abi 0 4 uint32_t abi
+member struct omx_clap_chain_report size 4 4 uint32_t size
+member struct omx_clap_chain_report channels 8 4 uint32_t channels
+member struct omx_clap_chain_report members 12 4 uint32_t members
+member struct omx_clap_chain_report running 16 4 uint32_t running
+member struct omx_clap_chain_report latency 20 4 uint32_t latency
+member struct omx_clap_chain_report revision 24 4 uint32_t revision
+member struct omx_clap_chain_report passed 32 8 uint64_t passed
+size struct omx_clap_chain_report 40
 member struct omx_clap_fd fd 0 4 int fd
 member struct omx_clap_fd flags 4 4 uint32_t flags
 size struct omx_clap_fd 8
@@ -36,7 +72,14 @@ member struct omx_clap_host_config version 56 8 const char * version
 member struct omx_clap_host_config track_info 64 4 int track_info
 member struct omx_clap_host_config remote_controls 68 4 int remote_controls
 member struct omx_clap_host_config lane_channels 72 4 uint32_t lane_channels
+member struct omx_clap_host_config idle_hold_us 76 4 int32_t idle_hold_us
 size struct omx_clap_host_config 80
+member struct omx_clap_idle_hold target_us 0 4 int32_t target_us
+member struct omx_clap_idle_hold held_us 4 4 int32_t held_us
+member struct omx_clap_idle_hold aggregate_us 8 4 int32_t aggregate_us
+member struct omx_clap_idle_hold active 12 4 uint32_t active
+member struct omx_clap_idle_hold code 16 64 char code[64]
+size struct omx_clap_idle_hold 80
 member struct omx_clap_instance bin 0 8 struct omx_clap_binary * bin
 member struct omx_clap_instance desc 8 8 const clap_plugin_descriptor_t * desc
 member struct omx_clap_instance plugin 16 8 const clap_plugin_t * plugin
@@ -146,7 +189,10 @@ member struct omx_clap_instance ports_rescanned 269488 4 _Atomic uint32_t ports_
 member struct omx_clap_instance configurable_audio_ports 269496 8 const clap_plugin_configurable_audio_ports_t * configurable_audio_ports
 member struct omx_clap_instance audio_ports_config 269504 8 const clap_plugin_audio_ports_config_t * audio_ports_config
 member struct omx_clap_instance passthrough 269512 4 uint32_t passthrough
-size struct omx_clap_instance 269520
+member struct omx_clap_instance idle_held 269516 4 uint32_t idle_held
+member struct omx_clap_instance resource_hints 269520 48 omx_resource_hints_t resource_hints
+member struct omx_clap_instance resource_hints_why 269568 8 const char * resource_hints_why
+size struct omx_clap_instance 269576
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
