@@ -69,7 +69,6 @@
 
 /* HOSTING_RESOURCE_HINTS_CODES (data/hosting/resource-hints.json) */
 #define OMX_HOSTING_RESOURCE_HINTS_OUT_OF_RANGE "hosting.resource-hints.out-of-range" ///< a figure below zero, or past what its hint's member holds
-#define OMX_HOSTING_RESOURCE_HINTS_STATED_TWICE "hosting.resource-hints.stated-twice" ///< an LV2 plugin states one hint with two different figures
 #define OMX_HOSTING_RESOURCE_HINTS_UNKNOWN_HINT "hosting.resource-hints.unknown-hint" ///< the declared mask sets a bit RESOURCE_HINTS has no hint for
 #define OMX_HOSTING_RESOURCE_HINTS_WRONG_UNIT "hosting.resource-hints.wrong-unit" ///< a figure not in its hint's unit: a flag that is not a boolean, a count, a time or a size that is not an integer
 
