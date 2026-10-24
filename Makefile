@@ -59,6 +59,15 @@ JACK_CFLAGS = -I$(JACK_DIR)/include
 JACK_LIBS = -L$(JACK_DIR)/lib -ljack -Wl,-rpath,$(abspath $(JACK_DIR)/lib)
 endif
 
+# a plugin's own window (#180): X11 through xcb, found by pkg-config and optional; without it (or with X11=0) the host
+# builds and show_external_ui answers hosting.window.not-built
+ifneq ($(X11),0)
+ifeq ($(shell $(PKG_CONFIG) --exists xcb && echo true), true)
+X11_CFLAGS = $(shell $(PKG_CONFIG) --cflags xcb) -DOMX_CLAP_HOST_X11
+X11_LIBS = $(shell $(PKG_CONFIG) --libs xcb)
+endif
+endif
+
 # plugin the test loads
 CLAP_TEST_PLUGIN ?= /usr/lib/clap/omx-delay.clap
 
@@ -101,7 +110,7 @@ INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 LDFLAGS += -Wl,--no-undefined
 
 # source and object files
-SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c
+SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c src/window.c
 OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
@@ -141,7 +150,7 @@ $(CORE_SO): $(CORE_SONAME)
 
 # linking rule: the LV2 adapter is linked in, and lilv is not: the adapter dlopens it on the first LV2 add
 $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(OBJ) $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(OBJ) $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
@@ -174,6 +183,16 @@ src/scan_fields.o: src/scan_fields.c
 # the host adds an LV2 plugin through the adapter: its header, and the LV2 headers that names
 src/effects.o: src/effects.c
 	$(CC) -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the window is the one object that names xcb; the defines of X11=0 or of a build without it leave it none, so the
+# object is made again whenever the choice changes
+src/window.o: src/window.c build/x11-choice
+	$(CC) $(X11_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
+
+.PHONY: FORCE
+build/x11-choice: FORCE
+	@mkdir -p build
+	@echo '$(X11_CFLAGS)' | cmp -s - $@ || echo '$(X11_CFLAGS)' > $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 lv2/core/%.o: lv2/core/%.c
@@ -328,7 +347,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -611,6 +630,10 @@ tests/fake_ext.clap: tests/fake_ext.c
 tests/fake_compressor.clap: tests/fake_compressor.c src/clap_meters.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
 
+# the window fixture opens a connection of its own to the display, as a plugin's window does (#180)
+tests/fake_gui.clap: tests/fake_gui.c
+	$(CC) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags xcb) $(CFLAGS) -Werror -shared -o $@ $< $(shell $(PKG_CONFIG) --libs xcb)
+
 tests/crash.clap: tests/crash_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
 
@@ -632,6 +655,11 @@ tests/jack_latency_probe: tests/jack_latency_probe.c
 # after the buffer size changes, a bypassed plugin's auxiliary output silent; CI runs it, omx-delay is not needed
 test-jack-fake: $(PROG) tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
 	./tests/jack_fake_e2e.sh
+
+# a plugin's own window over clap.gui and X11 (#180), in a PipeWire and an Xvfb of their own: shown, resized, hidden,
+# removed open, refused by code with no display while the audio runs on; needs xcb, Xvfb, xdotool and ss
+test-jack-window: $(PROG) tests/fake_gui.clap tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
+	./tests/jack_window_e2e.sh
 
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/fake.clap tests/jack_synth_probe

@@ -15,7 +15,10 @@ headers come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLA
 JACK's headers and library come from `pkg-config jack` (the
 pipewire-jack-audio-connection-kit-devel package) or, when that is absent,
 from `JACK_DIR/include` and `JACK_DIR/lib`, the latter also becoming the
-binary's rpath; `JACK_DIR` defaults to `../jack-dev`.
+binary's rpath; `JACK_DIR` defaults to `../jack-dev`. A plugin's own window
+(`show_external_ui`, `-S`) needs xcb, found by `pkg-config xcb` (Fedora
+`libxcb-devel`, Debian `libxcb1-dev`); without it, or with `X11=0`, the host
+builds all the same and the command answers `resp -404 hosting.window.not-built`.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 
@@ -93,6 +96,21 @@ with no parameter contract; with `FAKE_CONTRACT=good` the contract's unit,
 scale, range, default, step and symbol; with `FAKE_CONTRACT=fingerprint`
 `-511` and the broken rule in the host's log), and every call of the plugin
 on the thread that ran `init`.
+
+    make test-jack-window
+
+runs `tests/jack_window_e2e.sh` in the same kind of namespace, with an Xvfb
+of its own on a private `/tmp`: `tests/fake_gui.clap`, a plugin whose window
+opens its own connection to the display and lives on a timer and that
+connection's descriptor, is shown embedded in the host's window titled with its
+name, its timer and descriptor served on the host's tick, its `request_resize`
+resizing the host's window and the host's window resized (xdotool) becoming its
+`set_size`; hidden and shown again without a second `create`; removed while
+open, after which the host holds no connection to the display; shown floating
+by `-S`; and refused `hosting.window.no-display` with `DISPLAY` unset or naming
+no server, the plugin never asked to create a window and its audio still
+running. A plugin with no `clap.gui` is refused `hosting.window.unsupported`.
+Needs Xvfb, xdotool and ss besides PipeWire.
 
     make test-jack-params
 
