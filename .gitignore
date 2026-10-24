@@ -55,3 +55,4 @@ tests/transport_seqlock_tsan
 tests/cycle_gate_tsan
 tests/preset_file_test
 tools/preset-census
+/fuzz/findings/
