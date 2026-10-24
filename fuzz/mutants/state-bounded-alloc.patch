@@ -1,0 +1,13 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..b275d12 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -605,7 +605,7 @@ char *preset_base64_encode(const uint8_t *data, size_t len)
+ 
+ uint8_t *preset_base64_decode(const char *text, size_t *len)
+ {
+-    uint8_t *out = malloc(strlen(text) / 4 * 3 + 3);
++    uint8_t *out = malloc(strlen(text) * 3 + 3);
+     uint32_t w = 0;
+     size_t n = 0;
+     int bits = 0, pad = 0;

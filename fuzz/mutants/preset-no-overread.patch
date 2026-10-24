@@ -1,0 +1,13 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..570d3ab 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -190,7 +190,7 @@ static int parse_number(struct pj_in *in, struct pj *v)
+ 
+     if (*s == '-')
+         s++;
+-    if (s >= in->end || *s < '0' || *s > '9' || (*s == '0' && s + 1 < in->end && s[1] >= '0' && s[1] <= '9'))
++    if (s >= in->end || *s < '0' || *s > '9' || (*s == '0' && s + 1 <= in->end && s[1] >= '0' && s[1] <= '9'))
+         return -1;
+     while (s < in->end && ((*s >= '0' && *s <= '9') || *s == '.' || *s == 'e' || *s == 'E' || *s == '+' || *s == '-'))
+         s++;

@@ -1,0 +1,12 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..0ef9946 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -243,7 +243,6 @@ static int parse_items(struct pj_in *in, struct pj *v, int object)
+         memset(&v->kids[v->n], 0, sizeof(v->kids[v->n]));
+         if (parse_value(in, &v->kids[v->n]) != 0)
+         {
+-            v->n++;   // freed with the rest
+             return -1;
+         }
+         v->n++;
