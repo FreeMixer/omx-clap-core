@@ -499,6 +499,17 @@ test-lv2-locate: tests/lv2_locate_test tests/param_contract_test
 tests/lv2_locate_test: tests/lv2_locate_test.c src/lv2_locate.c src/lv2_locate.h tests/test_util.h
 	$(CC) -Isrc $(CFLAGS) -Werror -o $@ tests/lv2_locate_test.c src/lv2_locate.c -lm
 
+# org.openmixer.panel-description/1 as src/omx_clap_ext.h states it, held to omx-plugins' omx_panel_description.h, the
+# ABI, as omx-plugins-devel installs it (pkg-config omxplugins): omx-plugins builds on this tree, so the header is read
+# here, never copied
+.PHONY: test-panel-abi
+test-panel-abi: tests/panel_abi_test
+	./tests/panel_abi_test
+
+tests/panel_abi_test: tests/panel_abi_test.c src/omx_clap_ext.h
+	@$(PKG_CONFIG) --exists omxplugins || { echo "test-panel-abi: no omx-plugins-devel (pkg-config omxplugins), whose omx_panel_description.h is the ABI" >&2; exit 1; }
+	$(CC) -Isrc $(shell $(PKG_CONFIG) --cflags omxplugins) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $<
+
 # the parameter contract's SHA-256, canonical fingerprint and shortest decimals against answers computed elsewhere
 test-param-contract: tests/param_contract_test
 	./tests/param_contract_test
