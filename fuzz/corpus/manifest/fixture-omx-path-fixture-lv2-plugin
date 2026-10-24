@@ -1,0 +1,20 @@
+#http://lv2plug.in/ns/lv2core#Plugin# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The state:makePath fixtures (lv2_path_fixture.c).
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:path-fixture>
+    a lv2:Plugin ;
+    lv2:binary <omx-path-fixture.so> ;
+    rdfs:seeAlso <omx-path-fixture.ttl> .
+
+<urn:openmixer:test:path-fixture#escape>
+    a lv2:Plugin ;
+    lv2:binary <omx-path-fixture.so> ;
+    rdfs:seeAlso <omx-path-fixture.ttl> .
+
+<urn:openmixer:test:path-fixture#mappath>
+    a lv2:Plugin ;
+    lv2:binary <omx-path-fixture.so> ;
+    rdfs:seeAlso <omx-path-fixture.ttl> .

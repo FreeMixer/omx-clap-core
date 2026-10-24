@@ -1,0 +1,36 @@
+{
+  "format": "org.openmixer.preset/1",
+  "plugin": {
+    "id": "org.openmixer.omx-delay",
+    "version": "1.2.0",
+    "fingerprint": "omx-layout/1:0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"
+  },
+  "id": "org.openmixer.omx-delay@2026-10-22T21:00:00Z",
+  "name": "Slap back",
+  "createdAt": "2026-10-22T21:00:00Z",
+  "modifiedAt": "2026-10-22T21:00:00Z",
+  "carries": "params",
+  "params": [
+    {
+      "symbol": "gain",
+      "unit": "dB",
+      "value": -6
+    },
+    {
+      "symbol": "mix",
+      "unit": "",
+      "value": 0.25
+    },
+    {
+      "symbol": "time",
+      "unit": "ms",
+      "value": 0.1
+    },
+    {
+      "symbol": "3",
+      "unit": "",
+      "value": 0.001
+    }
+  ],
+  "alias": "Slap"
+}
