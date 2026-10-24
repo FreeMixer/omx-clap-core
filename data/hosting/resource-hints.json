@@ -1,0 +1,29 @@
+{
+  "$schema": "../../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.0.0"
+  },
+  "HOSTING_RESOURCE_HINTS_CODES": {
+    "kind": "codes",
+    "since": "3.1.0",
+    "doc": "The hosting codes of the resource-hints dimension: hosting.resource-hints.*, why the host refuses the hints a plugin declares about itself (omx-contract's RESOURCE_HINTS, through the CLAP draft org.openmixer.resource-hints.draft/0 or the omxres LV2 properties). A refused declaration is trusted for none of its hints: every hint reads as unknown.",
+    "codes": {
+      "resourceHintsOutOfRange": {
+        "code": "hosting.resource-hints.out-of-range",
+        "doc": "a figure below zero, or past what its hint's member holds"
+      },
+      "resourceHintsStatedTwice": {
+        "code": "hosting.resource-hints.stated-twice",
+        "doc": "an LV2 plugin states one hint with two different figures"
+      },
+      "resourceHintsUnknownHint": {
+        "code": "hosting.resource-hints.unknown-hint",
+        "doc": "the declared mask sets a bit RESOURCE_HINTS has no hint for"
+      },
+      "resourceHintsWrongUnit": {
+        "code": "hosting.resource-hints.wrong-unit",
+        "doc": "a figure not in its hint's unit: a flag that is not a boolean, a count, a time or a size that is not an integer"
+      }
+    }
+  }
+}
