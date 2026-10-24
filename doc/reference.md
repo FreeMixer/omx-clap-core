@@ -862,7 +862,24 @@ instance that is initialised, read and destroyed without being activated:
   with its unit and its figure (a flag `true` or `false`), the figure
   `null` when the hint is unknown, never 0; `refused` with the code when
   the declaration is refused, every figure then `null`. The text form is
-  one line of the declared hints. Absent when the plugin states none.
+  one line of the declared hints. Absent when the plugin states none;
+- the panel the plugin publishes (`org.openmixer.panel-description/1`,
+  omx-plugins' `include/omx_panel_description.h`), in the extension's own
+  shape: `family`, `fingerprint`, then its five tables in their published
+  order, `sections` (`key`, `labelKey`, `label`), `controls` (`paramId`,
+  `section`, `widget`, `labelKey`, `label`, `visibleParamId`, `visibleMask`),
+  `roles` (`role`, `index`, `paramId`), `displays` (`kind`, `section`,
+  `source`, `meterIds`, `curveIndex`, `floorParamId`, `floorDb`, `labelKey`,
+  `label`) and `placementDefaults` (`placement`, `paramId`, `value`). A code
+  is omx-plugins' word for it (`dynamics`, `fader`, `gain_reduction_bar`,
+  `meters`, `return`), its number when the extension names none; an id that
+  is no parameter or meter (`CLAP_INVALID_ID`) is `null`; a visibility mask
+  is the hex string the canonical serialisation writes (`"6"`: shown while
+  `visibleParamId`'s value is 1 or 2). Nothing is filled in: a table the
+  plugin leaves empty or cannot count is `[]`, an entry its `get` refuses is
+  left out, a family or fingerprint it has no function for is `null`.
+  `"panel":null` when the plugin serves no description. The text form is one
+  line counting the tables, none without a description.
 
 `--json` writes one document on stdout with the keys in a fixed order:
 
@@ -876,7 +893,14 @@ instance that is initialised, read and destroyed without being activated:
      "note_names":[{"name":"Kick","port":-1,"key":36,"channel":-1}],"latency":64,
      "voice_info":{"count":4,"capacity":8,"overlapping_notes":true},
      "resource_hints":{"declared":9,"footprint-at-rest":{"unit":"bytes","figure":3145728},
-      "footprint-per-voice":{"unit":"bytes","figure":null},...,"activate-time":{"unit":"ms","figure":null}}}
+      "footprint-per-voice":{"unit":"bytes","figure":null},...,"activate-time":{"unit":"ms","figure":null}},
+     "panel":{"family":"dynamics","fingerprint":"5f2c...3d2e",
+      "sections":[{"key":"main","labelKey":"panel.section.main","label":"Main"}],
+      "controls":[{"paramId":2,"section":0,"widget":"knob","labelKey":"panel.knee","label":"Knee","visibleParamId":1,"visibleMask":"6"}],
+      "roles":[{"role":"threshold","index":0,"paramId":0}],
+      "displays":[{"kind":"gain_reduction_bar","section":0,"source":"meters","meterIds":[7,null],"curveIndex":0,
+       "floorParamId":null,"floorDb":-24,"labelKey":"panel.display.gain_reduction","label":"Gain reduction"}],
+      "placementDefaults":[]}}
     ],"presets":[
     {"name":"Init","location_kind":"plugin","location":null,"load_key":"init",
      "provider":"...","plugins":["..."],"flags":["factory"]}
@@ -921,6 +945,18 @@ that crashes, hangs (30 s, or the seconds `OMX_CLAP_SCAN_FIELDS_TIMEOUT`
 gives, 1 to 3600) or ends its process early leaves stdout empty and the reason
 goes to stderr. Exit 0 dumped, 1 not read, 2 not a target
 (`tests/clap_scan_test.c`, `fields_checks`).
+
+A CLAP plugin that serves `org.openmixer.panel-description/1` adds its
+description, scoped `panel` (the family by its enumerator,
+`OMX_CLAP_FAMILY_DYNAMICS`, and the fingerprint), `section:<i>`,
+`control:<i>`, `role:<i>`, `display:<i>` and `placement_default:<i>`, `<i>`
+the entry's index in the plugin's table; each field is the member as
+`omx_panel_description.h` names it (`omx_clap_panel_control.widget`
+`OMX_CLAP_WIDGET_FADER`, `omx_clap_panel_display.meter_ids[0]`), a code its
+number when the header names none. An id that is no parameter or meter is
+not stated, and a control's `visible_mask`, in hex, only with the
+`visible_param_id` it applies to. A plugin that serves no description has no
+panel record (`tests/clap_scan_test.c`, `panel_checks`).
 
 
 Layout pin

@@ -32,10 +32,15 @@ opens it, the JACK ports that host registers for it:
 .BI aux_in_ p _ k
 and
 .BI aux_out_ p _ k\fR),
-the note port counts and the latency.
+the note port counts, the latency, and the panel the plugin publishes through
+org.openmixer.panel\-description/1: its family, its fingerprint and its five
+tables (sections, controls with their widget and visibility rule, roles,
+displays and placement defaults), each entry as the plugin answers it.
 .PP
 The latency is left out when the plugin reports 0 before it is activated,
-since that answer is not a measurement.
+since that answer is not a measurement. Nothing of the panel is filled in: a
+table the plugin leaves empty is empty, and a plugin that serves no
+description has none.
 .PP
 With no
 .I path
@@ -61,6 +66,15 @@ and either
 .B plugins
 or
 .BR error .
+A plugin's panel is the key
+.BR panel :
+.B family, fingerprint, sections, controls, roles, displays
+and
+.BR placementDefaults ,
+each entry with the members of its structure, a code by omx\-plugins' word for
+it, an id that is none as null, a visibility mask as a hex string; or
+.B null
+when the plugin serves no description.
 Without it the same facts are printed as a listing for a person.
 .TP
 .BI \-\-fields " target"
@@ -74,11 +88,21 @@ A scope is
 .BI audio_in: i\fR,
 .BI audio_out: i\fR,
 .BI note_in: i\fR,
-.BI note_out: i
-(CLAP) or
+.BI note_out: i\fR,
+and for a plugin that serves a panel description
+.BR panel ,
+.BI section: i\fR,
+.BI control: i\fR,
+.BI role: i\fR,
+.BI display: i
+and
+.BI placement_default: i
+(CLAP; none for a plugin that serves no description) or
 .BI port: i
 (LV2, by lv2:index); a field is a CLAP struct member
-.RB ( clap_param_info.min_value )
+.RB ( clap_param_info.min_value ),
+a member of the panel description's structures as omx_panel_description.h names them
+.RB ( omx_clap_panel_control.widget )
 or an LV2 predicate as a CURIE
 .RB ( lv2:minimum );
 a number is written %.17g, a CLAP constant by its name, one record per flag set, an LV2 URI as a CURIE.
