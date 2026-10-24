@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.17.0
+Version:        0.18.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -151,6 +151,17 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.18.0-1
+- omx-clap-host shows a plugin's own window, over clap.gui and X11, on
+  request: show_external_ui <N> as mod-host takes it, hide_external_ui <N>,
+  and -S (--show-ui) for every plugin at its add. The plugin's window is set
+  into a window of the host's titled with the plugin's name, or floats on its
+  own when that is all it offers; its timers and descriptors run on the host's
+  tick. With no display, or a plugin with no X11 window, the command answers
+  resp -404 and a code (hosting.window.no-display, unsupported, refused,
+  not-built) and the audio runs on. libxcb is linked when found at build time.
+  omx_clap_host_offer_gui, in the version node OMX_CLAP_CORE_0.18, hands a
+  plugin the caller's clap.gui; the library draws nothing (#180).
 * Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.17.0-1
 - omx_clap_host_resource_hints reads the resource hints a plugin declares about
   itself (org.openmixer.resource-hints.draft/0, omx-contract 3.1.0's
