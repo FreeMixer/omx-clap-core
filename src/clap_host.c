@@ -120,6 +120,7 @@ static struct omx_clap_host_config g_config =
 };
 static int g_configured;
 static int g_sealed;        // a binary was opened: the configuration can no longer change
+static const clap_host_gui_t *g_gui;   // the caller's clap.gui (omx_clap_host_offer_gui), NULL for none
 
 
 /*
@@ -788,6 +789,8 @@ static const void *host_get_extension(const clap_host_t *host, const char *id)
         return &g_host_track_info;
     if (g_config.remote_controls && (!strcmp(id, CLAP_EXT_REMOTE_CONTROLS) || !strcmp(id, CLAP_EXT_REMOTE_CONTROLS_COMPAT)))
         return &g_host_remote_controls;
+    if (g_gui && !strcmp(id, CLAP_EXT_GUI))
+        return g_gui;
     // the draft ids of the two layout extensions, answered as their own; the declared list names the final ids only
     if (!strcmp(id, CLAP_EXT_SURROUND_COMPAT))
         return &g_host_surround;
@@ -2215,6 +2218,14 @@ uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, do
         n = capacity;
     memcpy(values, read, n * sizeof(*values));
     return n;
+}
+
+int omx_clap_host_offer_gui(const clap_host_gui_t *gui)
+{
+    if (g_sealed)
+        return -1;
+    g_gui = gui;
+    return 0;
 }
 
 int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in)

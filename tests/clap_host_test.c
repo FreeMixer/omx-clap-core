@@ -297,6 +297,7 @@ static void t_surround_ambisonic(const char *path)
                   && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC) != NULL
                   && in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC_COMPAT) == in->host.get_extension(&in->host, CLAP_EXT_AMBISONIC),
               "the host answers clap.surround/4 and clap.ambisonic/3 under their draft ids too");
+        CHECK(in->host.get_extension(&in->host, CLAP_EXT_GUI) == NULL, "a host that offers no clap.gui answers none (omx_clap_host_offer_gui)");
         rescan_checks(in, FAKE_SURROUND, "surround.changed");
         omx_clap_host_close(in);
         in = NULL;
