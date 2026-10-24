@@ -333,7 +333,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
+test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -548,6 +548,12 @@ abi-baseline: abi-stage
 	mkdir -p abi
 	abidw --headers-dir build/abi/usr/include --out-file $(ABI_BASELINE) build/abi/usr/lib/$(CORE_FILE)
 	CC="$(CC)" CPPFLAGS="$(CLAP_CFLAGS) $(DSP_CFLAGS)" sh tests/abi-layout.sh build/abi/usr/include $(ABI_LAYOUT) $(VERSION) --record
+
+# abi-check.sh's reading of abidiff, sabotaged: a fixture library whose member points to a structure, the pointee grown
+# (ok) and changed five ways that must each FAIL (tests/abi-check-sabotage.sh, #323); needs gcc, abidw and abidiff
+.PHONY: test-abi-sabotage
+test-abi-sabotage:
+	sh tests/abi-check-sabotage.sh
 
 # libabigail's dump leaves _Atomic members out (#117): abi-layout.sh reads every member's offset, size and type with
 # pahole and holds them to abi/<soname>.layout, recorded with the baseline

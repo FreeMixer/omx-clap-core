@@ -51,20 +51,40 @@ fi
 # removed or changed, a data member removed, moved or changed, a size that shrank, an enumerator changed is incompatible.
 # "no data member change (N filtered)" is abidiff saying the members it filtered out (the _Atomic ones, #117) did not
 # change: an appended field beside them is no change, and abi-layout.sh holds every member's offset itself.
-# A member that is a pointer keeps its offset, size and type when the structure it points to grows: abidiff still lists
-# it as a "data member change" ("type of 'struct omx_clap_instance* instance' changed", struct omx_clap_chain_member,
-# #323), with the pointee's own changes below it. That heading is left out and the pointee's lines are judged as any
-# other: an insertion is an addition, a deletion, a moved offset or a shrink is not.
+# A member that points to a structure keeps its offset, size and type when that structure grows: abidiff still lists it
+# under a "data member change" heading ("type of 'omx_clap_instance* instance' changed", then "in pointed to type
+# 'struct omx_clap_instance'"; struct omx_clap_chain_member, #323), with the structure's own changes below it. Every
+# member under such a heading is read: one that points to a structure is passed and its structure's lines are judged as
+# any others (an insertion is an addition; a deletion, a moved offset, a shrink, a renamed type is not); any other member
+# under it (a function pointer whose signature changed, a member retyped in place) keeps the heading, which refuses.
 judged=$(dirname "$lib")/../../../abidiff-judged.txt
 awk '
-    /^ *no data member change/ { next }
-    /^ *[0-9]+ data member changes?:$/ { held = $0; next }
-    held != "" { if ($0 !~ /^ *type of \x27[^\x27]*\*[^\x27]*\x27 changed:$/) print held; held = "" }
-    { print }
-    END { if (held != "") print held }
+    function indent(l) { match(l, /^ */); return RLENGTH }
+    { line[NR] = $0 }
+    END {
+        depth = -1
+        for (i = 1; i <= NR; i++) {
+            l = line[i]
+            if (depth >= 0 && l != "" && indent(l) <= depth)
+                depth = -1
+            if (l ~ /^ *no data member change/)
+                continue
+            if (l ~ /^ *[0-9]+ data member changes?( \([0-9]+ filtered\))?:$/) {
+                depth = indent(l)
+                continue
+            }
+            # a member entry directly under the heading
+            if (depth >= 0 && indent(l) == depth + 2) {
+                pointee = line[i + 1]
+                if (!(l ~ /^ *type of \x27[^\x27(]*\* [^\x27(]*\x27 changed:$/ && pointee ~ /^ *in pointed to type \x27struct /))
+                    print "data member change: " l
+            }
+            print l
+        }
+    }
 ' "$report" > "$judged"
 if [ $((rc & 8)) -ne 0 ] \
-   || grep -Eq "Removed function|Removed variable|data member deletion|data member change|offset changed|return type changed|parameter [0-9]+ of type .* changed|enumerator|Changed variable" "$judged" \
+   || grep -Eq "Removed function|Removed variable|data member deletion|data member change|offset changed|return type changed|parameter [0-9]+ of type .* (changed|was added|was removed)|pointer type changed|type name changed|enumerator|Changed variable" "$judged" \
    || awk '/type size changed from/ { if ($6 + 0 < $4 + 0) bad = 1 } END { exit !bad }' "$judged"; then
     echo "FAIL an incompatible change under the soname $old_soname: a function or a field removed, moved or changed needs a new soname major"
     exit 1
