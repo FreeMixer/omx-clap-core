@@ -47,6 +47,7 @@
 #include "lv2_core.h"
 #include "lv2_locate.h"
 #include "scan_fields.h"
+#include "scan_panel.h"
 
 
 /*
@@ -255,7 +256,8 @@ static const bit_name_t g_voice_flags[] = {
 };
 
 /* the extensions of this tree's own, by their id: no TERM names them */
-static const char *const g_omx_extensions[] = { OMX_CLAP_EXT_DECLARATION, OMX_CLAP_EXT_PARAM_CONTRACT, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT, NULL };
+static const char *const g_omx_extensions[] = { OMX_CLAP_EXT_DECLARATION, OMX_CLAP_EXT_PARAM_CONTRACT, OMX_CLAP_EXT_PANEL_DESCRIPTION,
+                                                OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT, NULL };
 
 /* the prefixes a URI is written under, and the specification each LV2 one is (written <prefix>:<spec>.lv2) */
 static const prefix_t g_prefixes[] = {
@@ -575,6 +577,101 @@ static void clap_note_ports(const struct omx_clap_instance *in, bool is_input)
     }
 }
 
+/* a code of the panel description by its enumerator in omx_panel_description.h, as its number when it names none */
+static void record_code(const char *scope, const char *field, const char *name, uint32_t code)
+{
+    if (name)
+        record(scope, field, name);
+    else
+        record_number(scope, field, code);
+}
+
+/* a parameter or meter id of the panel description; none is not stated */
+static void record_id(const char *scope, const char *field, uint32_t id)
+{
+    if (id != CLAP_INVALID_ID)
+        record_number(scope, field, id);
+}
+
+/* the panel description the plugin publishes (org.openmixer.panel-description/1): the family and the fingerprint under
+ * panel, each table's entry under <table>:<index in the plugin's table>, its fields as omx_panel_description.h names them;
+ * no record when the plugin serves none */
+static void clap_panel(const struct omx_clap_instance *in)
+{
+    struct scan_panel p;
+    char scope[48], hex[24];
+    uint32_t i;
+
+    if (scan_panel_read(in->plugin, &p) != 1)
+        return;
+    if (p.has_family)
+        record_code("panel", "omx_clap_plugin_panel_description.family", scan_panel_family_enum(p.family), p.family);
+    if (p.has_fingerprint)
+        record_text("panel", "omx_clap_plugin_panel_description.fingerprint", p.fingerprint);
+    for (i = 0; i < p.table[SCAN_PANEL_SECTIONS].n; i++)
+    {
+        const omx_clap_panel_description_section_t *s = SCAN_PANEL_ROW(&p, SCAN_PANEL_SECTIONS, omx_clap_panel_description_section_t, i);
+
+        snprintf(scope, sizeof(scope), "section:%u", p.table[SCAN_PANEL_SECTIONS].index[i]);
+        record_text(scope, "omx_clap_panel_section.key", s->key);
+        record_text(scope, "omx_clap_panel_section.label_key", s->label_key);
+        record_text(scope, "omx_clap_panel_section.label", s->label);
+    }
+    for (i = 0; i < p.table[SCAN_PANEL_CONTROLS].n; i++)
+    {
+        const omx_clap_panel_description_control_t *c = SCAN_PANEL_ROW(&p, SCAN_PANEL_CONTROLS, omx_clap_panel_description_control_t, i);
+
+        snprintf(scope, sizeof(scope), "control:%u", p.table[SCAN_PANEL_CONTROLS].index[i]);
+        record_id(scope, "omx_clap_panel_control.param_id", c->param_id);
+        record_number(scope, "omx_clap_panel_control.section", c->section);
+        record_code(scope, "omx_clap_panel_control.widget", scan_panel_widget_enum(c->widget), c->widget);
+        record_text(scope, "omx_clap_panel_control.label_key", c->label_key);
+        record_text(scope, "omx_clap_panel_control.label", c->label);
+        // the visibility rule: the parameter it follows and, in hex as the canonical serialisation writes it, its mask
+        if (c->visible_param_id != CLAP_INVALID_ID)
+        {
+            record_number(scope, "omx_clap_panel_control.visible_param_id", c->visible_param_id);
+            snprintf(hex, sizeof(hex), "%llx", (unsigned long long)c->visible_mask);
+            record(scope, "omx_clap_panel_control.visible_mask", hex);
+        }
+    }
+    for (i = 0; i < p.table[SCAN_PANEL_ROLES].n; i++)
+    {
+        const omx_clap_panel_description_role_t *r = SCAN_PANEL_ROW(&p, SCAN_PANEL_ROLES, omx_clap_panel_description_role_t, i);
+
+        snprintf(scope, sizeof(scope), "role:%u", p.table[SCAN_PANEL_ROLES].index[i]);
+        record_text(scope, "omx_clap_panel_role.role", r->role);
+        record_number(scope, "omx_clap_panel_role.index", r->index);
+        record_id(scope, "omx_clap_panel_role.param_id", r->param_id);
+    }
+    for (i = 0; i < p.table[SCAN_PANEL_DISPLAYS].n; i++)
+    {
+        const omx_clap_panel_description_display_t *d = SCAN_PANEL_ROW(&p, SCAN_PANEL_DISPLAYS, omx_clap_panel_description_display_t, i);
+
+        snprintf(scope, sizeof(scope), "display:%u", p.table[SCAN_PANEL_DISPLAYS].index[i]);
+        record_code(scope, "omx_clap_panel_display.kind", scan_panel_display_kind_enum(d->kind), d->kind);
+        record_number(scope, "omx_clap_panel_display.section", d->section);
+        record_code(scope, "omx_clap_panel_display.source", scan_panel_display_source_enum(d->source), d->source);
+        record_id(scope, "omx_clap_panel_display.meter_ids[0]", d->meter_ids[0]);
+        record_id(scope, "omx_clap_panel_display.meter_ids[1]", d->meter_ids[1]);
+        record_number(scope, "omx_clap_panel_display.curve_index", d->curve_index);
+        record_id(scope, "omx_clap_panel_display.floor_param_id", d->floor_param_id);
+        record_number(scope, "omx_clap_panel_display.floor_db", d->floor_db);
+        record_text(scope, "omx_clap_panel_display.label_key", d->label_key);
+        record_text(scope, "omx_clap_panel_display.label", d->label);
+    }
+    for (i = 0; i < p.table[SCAN_PANEL_PLACEMENT_DEFAULTS].n; i++)
+    {
+        const omx_clap_panel_description_default_t *d = SCAN_PANEL_ROW(&p, SCAN_PANEL_PLACEMENT_DEFAULTS, omx_clap_panel_description_default_t, i);
+
+        snprintf(scope, sizeof(scope), "placement_default:%u", p.table[SCAN_PANEL_PLACEMENT_DEFAULTS].index[i]);
+        record_code(scope, "omx_clap_panel_placement_default.placement", scan_panel_placement_enum(d->placement), d->placement);
+        record_id(scope, "omx_clap_panel_placement_default.param_id", d->param_id);
+        record_number(scope, "omx_clap_panel_placement_default.value", d->value);
+    }
+    scan_panel_free(&p);
+}
+
 /* the one activation: clap.latency and clap.voice-info answer while active */
 static void clap_active(const struct omx_clap_instance *in)
 {
@@ -648,6 +745,7 @@ static int fields_clap(const char *path, const char *id)
     clap_audio_ports(in, false);
     clap_note_ports(in, true);
     clap_note_ports(in, false);
+    clap_panel(in);
     clap_active(in);
     omx_clap_host_close(in);
     omx_clap_host_binary_close(binary);
