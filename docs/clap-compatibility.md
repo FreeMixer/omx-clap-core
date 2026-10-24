@@ -55,6 +55,7 @@ The tests named below:
 | `tests/jack_info_e2e.sh` | omx-clap-host over jack: `track_info`, the remote pages, `param_info` (`make test-jack-info`) |
 | `tests/jack_meters_e2e.sh` | omx-clap-host over jack: the meters as `output_set` lines (`make test-jack-meters`) |
 | `tests/jack_window_e2e.sh` | omx-clap-host over jack and Xvfb: a plugin's own window over `clap.gui` and X11, embedded and floating, its timer and X descriptor on the tick, the refusals by code (`make test-jack-window`) |
+| `tests/jack_window_wl_e2e.sh` | omx-clap-host over jack, a headless weston and Xvfb: a plugin's own window over `clap.gui` with Wayland first, mapped by weston, X11 for a plugin with no Wayland window, no-display with neither (`make test-jack-window-wl`) |
 | `tests/jack_params_e2e.sh` | omx-clap-host over jack: a plugin's own parameter changes, gestures and rescans (`make test-jack-params`) |
 | `lv2/tests/lv2_clap_test.c` | the LV2 adapter's CLAP face, which serves a subset of the plugin-side extensions for an LV2 plugin (`make test-lv2-clap`) |
 
@@ -203,7 +204,7 @@ to its caller, or where a program adds something of its own. A row is here when 
 | auxiliary ports (`clap.audio-ports-activation`) | each bound to its JACK ports, `aux_in_<p>_<k>` and `aux_out_<p>_<k>` (`make test-jack-fake`) | as omx-clap-host | active while the caller binds buffers to it (`tests/clap_ext_test.c`) |
 | `org.openmixer.param-contract/1` | answers `param_info` (`make test-jack-info`) | as omx-clap-host; `param_info` is its verb | `omx_clap_host_param_contract` and `omx_clap_host_param_meaning` (`tests/clap_host_test.c:contract_checks`) |
 | `org.openmixer.resource-hints.draft/0` | read, nothing answers it on the socket | as omx-clap-host | `omx_clap_host_resource_hints`, each hint's word, unit and figure by `omx_clap_resource_hint_word`, `_unit` and `_figure` (`tests/resource_hints_test.c`) |
-| `clap.gui` | the plugin's own window over X11 on request: `show_external_ui`, `hide_external_ui`, `-S` (`make test-jack-window`) | never asked: plugin-hostd has no window verb | never offered: the console draws every panel; the library offers only what the caller hands `omx_clap_host_offer_gui` |
+| `clap.gui` | the plugin's own window on request, over Wayland first, then X11: `show_external_ui`, `hide_external_ui`, `-S` (`make test-jack-window-wl`, `make test-jack-window`) | never asked: plugin-hostd has no window verb | never offered: the console draws every panel; the library offers only what the caller hands `omx_clap_host_offer_gui` |
 
 Measured
 --------
@@ -232,7 +233,7 @@ The ids the hosted plugins asked for most and were not given:
 
 | asked for | plugins | where it stands |
 |---|---|---|
-| `clap.gui` | 317 | supported in omx-clap-host since #180, on request (`make test-jack-window`); out of scope in the console |
+| `clap.gui` | 317 | supported in omx-clap-host since #180, on request, Wayland first since #329 (`make test-jack-window`, `make test-jack-window-wl`); out of scope in the console |
 | `clap.audio-ports-config` (host-side) | 70 | supported since #263 (`tests/clap_host_test.c:t_request_layout`); the next run counts 0 |
 | `clap.context-menu.draft/0`, `clap.context-menu/1` | 68, 67 | out of scope |
 | `clap.resource-directory/1` | 67 | unsupported, P3 |

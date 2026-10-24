@@ -105,13 +105,30 @@ A plugin's own window
 ---------------------
 
 `show_external_ui <N>`, mod-host's command, puts the plugin's own window on the
-X display `DISPLAY` names, through CLAP's `clap.gui` with the X11 API; it
-answers `resp 0`. `hide_external_ui <N>` takes it off the display and keeps it
-for the next show, `resp 0` also when nothing is shown (mod-host has no command
-that hides). `-S` shows every plugin's window at its add; the add answers as
-before whatever the window does, and stderr says why it shows none.
+display, through CLAP's `clap.gui`; it answers `resp 0`. `hide_external_ui <N>`
+takes it off the display and keeps it for the next show, `resp 0` also when
+nothing is shown (mod-host has no command that hides). `-S` shows every
+plugin's window at its add; the add answers as before whatever the window
+does, and stderr says why it shows none.
 
-A plugin that can embed is set into a window of the host's, titled with the
+The show takes the first of these the plugin offers whose display answers:
+
+1. Wayland, floating: when `WAYLAND_DISPLAY` names a compositor that accepts a
+   connection and the plugin answers true to `is_api_supported("wayland",
+   true)`.
+2. X11, embedded: when `DISPLAY` names an X server that accepts the connection
+   and the plugin answers true to `is_api_supported("x11", false)`.
+3. X11, floating: the same display, `is_api_supported("x11", true)`.
+
+So a Wayland session shows a Wayland window, and X11 (through Xwayland there)
+only for a plugin that has none; an X11 session, Zynthian's over VNC among
+them, shows X11 as before. CLAP gives Wayland no parent handle, so a Wayland
+window is always the plugin's own toplevel: the host calls
+`create("wayland", true)`, `suggest_title` and `show`, keeps no window and no
+Wayland connection of its own, and `hide_external_ui` and `remove` call the
+plugin's `hide` and `destroy` as for X11.
+
+A plugin that can embed over X11 is set into a window of the host's, titled with the
 plugin's name: `create`, `set_scale` 1.0, `can_resize` and `get_size`, then
 `set_parent` and `show`. Resizing that window asks the plugin to take the size
 (`adjust_size`, then `set_size`); a plugin that cannot resize keeps its size,
@@ -131,10 +148,10 @@ audio runs on:
 
 | code | why |
 |---|---|
-| `hosting.window.no-display` | `DISPLAY` is unset, or the X server refused the connection |
-| `hosting.window.unsupported` | the plugin has no `clap.gui`, or offers no X11 window, embedded or floating (an LV2 plugin, for now) |
+| `hosting.window.no-display` | no display the plugin's window can go on: neither `WAYLAND_DISPLAY` nor `DISPLAY` names one that accepts the connection, for any API the plugin offers |
+| `hosting.window.unsupported` | the plugin has no `clap.gui`, or offers neither a Wayland window nor an X11 one, embedded or floating (an LV2 plugin, for now) |
 | `hosting.window.refused` | the plugin answered false to `create`, `set_parent` or `show` |
-| `hosting.window.not-built` | the host was built without xcb |
+| `hosting.window.not-built` | the host was built without xcb (Wayland included) |
 
 An instance that does not exist answers `resp -3`. Only the standalone host
 shows a window: the console draws every plugin's panel itself, and
@@ -946,7 +963,7 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/configurable-audio-ports.h` | supported | `clap.configurable-audio-ports/1` (and its draft id): read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive, before `clap.audio-ports-config`: `can_apply_configuration`, then `apply_configuration`, and the description read again; a false from either falls back to `clap.audio-ports-config`, and a plugin neither offers the layout through keeps its declared one (`OMX_CLAP_LAYOUT_DECLARED`) |
 | `ext/context-menu.h` | not planned | the console draws its own menus (ruled 2026-10-19, #95) |
 | `ext/event-registry.h` | supported | the host offers it; no event space beyond the core one |
-| `ext/gui.h` | supported | in omx-clap-host, the plugin's own window over X11, on request: [A plugin's own window](#a-plugins-own-window); never in the console (GUI ruling 2026-10-19), and the library offers it only when its caller hands it one (`omx_clap_host_offer_gui`) |
+| `ext/gui.h` | supported | in omx-clap-host, the plugin's own window over Wayland first, then X11, on request: [A plugin's own window](#a-plugins-own-window); never in the console (GUI ruling 2026-10-19), and the library offers it only when its caller hands it one (`omx_clap_host_offer_gui`) |
 | `ext/latency.h` | supported | Latency above |
 | `ext/log.h` | supported | the host offers it; the tick drains it |
 | `ext/note-name.h` | supported | Instrument details above |
