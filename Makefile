@@ -347,7 +347,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -630,6 +630,10 @@ tests/fake_ext.clap: tests/fake_ext.c
 tests/fake_compressor.clap: tests/fake_compressor.c src/clap_meters.h
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< -lm
 
+# the window fixture opens a connection of its own to the display, as a plugin's window does (#180)
+tests/fake_gui.clap: tests/fake_gui.c
+	$(CC) $(CLAP_CFLAGS) $(shell $(PKG_CONFIG) --cflags xcb) $(CFLAGS) -Werror -shared -o $@ $< $(shell $(PKG_CONFIG) --libs xcb)
+
 tests/crash.clap: tests/crash_plugin.c
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $<
 
@@ -651,6 +655,11 @@ tests/jack_latency_probe: tests/jack_latency_probe.c
 # after the buffer size changes, a bypassed plugin's auxiliary output silent; CI runs it, omx-delay is not needed
 test-jack-fake: $(PROG) tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
 	./tests/jack_fake_e2e.sh
+
+# a plugin's own window over clap.gui and X11 (#180), in a PipeWire and an Xvfb of their own: shown, resized, hidden,
+# removed open, refused by code with no display while the audio runs on; needs xcb, Xvfb, xdotool and ss
+test-jack-window: $(PROG) tests/fake_gui.clap tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
+	./tests/jack_window_e2e.sh
 
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/fake.clap tests/jack_synth_probe
