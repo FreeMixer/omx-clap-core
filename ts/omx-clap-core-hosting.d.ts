@@ -40,3 +40,26 @@ export declare const HOSTING_IDLE_CODES: {
     readonly doc: "the device could not be opened for writing (no permission, or no such device): the host runs with no hold";
   };
 };
+
+/**
+ * The hosting codes of the window dimension, hosting.window.*: why omx-clap-host refuses to show a plugin's own window (clap.gui) when show_external_ui asks for it (#180). The dimension is the standalone host's: the console never shows a plugin's native window.
+ * @see data/hosting.json
+ */
+export declare const HOSTING_WINDOW_CODES: {
+  readonly windowNoDisplay: {
+    readonly code: "hosting.window.no-display";
+    readonly doc: "no X display to show it on: DISPLAY is unset, or the X server refused the connection; the plugin runs on";
+  };
+  readonly windowNotBuilt: {
+    readonly code: "hosting.window.not-built";
+    readonly doc: "this omx-clap-host was built without X11 (xcb), so it shows no window";
+  };
+  readonly windowUnsupported: {
+    readonly code: "hosting.window.unsupported";
+    readonly doc: "the plugin has no clap.gui, or its clap.gui offers no X11 window, embedded or floating";
+  };
+  readonly windowRefused: {
+    readonly code: "hosting.window.refused";
+    readonly doc: "the plugin's clap.gui answered false when asked to create, embed or show its window";
+  };
+};
