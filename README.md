@@ -12,6 +12,8 @@ to mod-host and want CLAP plugins as well.
 - LV2 plugins too: `add lv2:<uri> <N>` (or the URI alone, as mod-host takes it) runs an LV2 plugin from `LV2_PATH` on the same ports, its controls addressed by their LV2 symbols.
 - Tempo-synced plugins get a transport: `set_bpm`, `set_bpb` and `transport` drive the host's own, or `-t` follows the JACK transport.
 - Meters and latency reach your graph: gain-reduction meters come back as `output_set` lines, and the plugin's latency is published on its ports.
+- A plugin's own window, on request: `show_external_ui <N>` puts it on your X display, as jalv and mod-host show one, and `hide_external_ui <N>` takes it off.
+- `-S` shows every plugin's window as it is added; with no display the command says so by code and the audio runs on.
 - `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON.
 
 LV2 plugins run through the same CLAP host by an LV2 to CLAP adapter, the library
@@ -73,7 +75,6 @@ LV2 support is partial: [docs/lv2-compatibility.md](docs/lv2-compatibility.md) l
 claimed and the test behind each row.
 Every CLAP extension, what the host does with it and the test behind each claim, is in
 [docs/clap-compatibility.md](docs/clap-compatibility.md).
-The host has no plugin GUI.
 
 Try it
 ------
@@ -97,7 +98,11 @@ which the scan prints):
     send "bypass 0 1"                                                              # resp 0
 
 The plugin is now the JACK client `effect_0`: link your audio to its `in_<k>` ports and take it
-from its `out_<k>` ports.
+from its `out_<k>` ports. On a desktop, or over the VNC display a Zynthian serves, a plugin that
+has its own window shows it (CLAP plugins with X11 windows; LV2 desktop UIs are not shown yet):
+
+    send "show_external_ui 0"                                                      # resp 0
+    send "hide_external_ui 0"                                                      # resp 0
 
 An LV2 plugin is added by its URI, from the bundles on `LV2_PATH`, and its controls are its port
 symbols, as with mod-host. Its audio ports are read by the LV2 port groups, so a mono-in

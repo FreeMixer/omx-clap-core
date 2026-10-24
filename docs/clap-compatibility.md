@@ -30,7 +30,8 @@ How to read the tables
   test exercises it yet. That is not supported.
 - **refused**: the plugin is not opened, with the hosting code named.
 - **out of scope**: ruled out, with the ruling. The console draws every panel itself, so a
-  plugin's own window and every extension that only serves one is out of scope.
+  plugin's own window and every extension that only serves one is out of scope there; the
+  standalone omx-clap-host alone shows a plugin's window, on request (`clap.gui`).
 - **unsupported**: not done; the issue that plans it, when one does.
 - **unruled (#207)**: a draft nobody has ruled on yet. #207 asks for the ruling.
 - **asked on msi**: how many of the hosted plugins on the desk asked the host for the id and were
@@ -53,6 +54,7 @@ The tests named below:
 | `tests/param_contract_test.c` | the rules of `org.openmixer.param-contract/1` (`tests/param_contract_test.c`, in `make test-fake`) |
 | `tests/jack_info_e2e.sh` | omx-clap-host over jack: `track_info`, the remote pages, `param_info` (`make test-jack-info`) |
 | `tests/jack_meters_e2e.sh` | omx-clap-host over jack: the meters as `output_set` lines (`make test-jack-meters`) |
+| `tests/jack_window_e2e.sh` | omx-clap-host over jack and Xvfb: a plugin's own window over `clap.gui` and X11, embedded and floating, its timer and X descriptor on the tick, the refusals by code (`make test-jack-window`) |
 | `tests/jack_params_e2e.sh` | omx-clap-host over jack: a plugin's own parameter changes, gestures and rescans (`make test-jack-params`) |
 | `lv2/tests/lv2_clap_test.c` | the LV2 adapter's CLAP face, which serves a subset of the plugin-side extensions for an LV2 plugin (`make test-lv2-clap`) |
 
@@ -86,7 +88,7 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.context-menu/1` | out of scope: the console draws its own menus (ruled 2026-10-19, #95) | out of scope: the same ruling | 62 | |
 | `clap.context-menu.draft/0` | out of scope: the same ruling | out of scope: the same ruling | 63 | |
 | `clap.event-registry` | offered, untested: `query` answers false for every space, the host reads no event space but CLAP's core one | — | offered | |
-| `clap.gui` | out of scope: the console draws every panel from the plugin's parameters (GUI ruling 2026-10-19); native windows in the standalone omx-clap-host are #180 | out of scope: no code in this repository asks a plugin for it | 297 | |
+| `clap.gui` | supported in omx-clap-host, offered when it is built with X11: `request_resize` resizes the host's window, `request_show` and `request_hide` show and hide it, `closed` hides a floating window or forgets a destroyed one, `resize_hints_changed` reads `can_resize` again (`make test-jack-window`); the library offers the caller's object, `omx_clap_host_offer_gui`, and none by default (`tests/clap_ext_test.c`, `tests/clap_host_test.c`). Out of scope in the console, which draws every panel from the plugin's parameters (GUI ruling 2026-10-19) | supported in omx-clap-host, on request (`show_external_ui`, `-S`): the X11 API, embedded in a window of the host's titled with the plugin's name (`create`, `set_scale` 1.0, `can_resize`, `get_size`, `set_parent`, `show`, `hide`, `destroy`; a resize of the host's window is `adjust_size` then `set_size`) or floating when that is all the plugin offers (`suggest_title`) (`make test-jack-window`). Out of scope in the console | offered in omx-clap-host | refused by code, `resp -404`: no display `hosting.window.no-display`, no X11 window `hosting.window.unsupported`, the plugin's call answered false `hosting.window.refused`, a host built without xcb `hosting.window.not-built` (`make test-jack-window` for the first two) |
 | `clap.latency` | supported: `changed`, then the restart the plugin asks for, runs on the control thread (`tests/clap_host_test.c:fake_plugin_checks`) | supported: read at every activate (`tests/clap_host_test.c:fake_plugin_checks`) | offered | omx-clap-host publishes it on the plugin's JACK ports. The LV2 adapter serves it (`lv2/tests/lv2_clap_test.c:t_latency_hold`) |
 | `clap.log` | supported: the plugin's lines reach the host's log, one per tick through `omx_clap_host_log_take`, a plugin that logs every tick sharing it with the host's own lines (`tests/clap_host_test.c:unoffered_starve`) | — | offered | |
 | `clap.note-name` | supported: `changed` read once through `omx_clap_host_note_names_changed` (`tests/clap_host_test.c:synth_host_details_checks`) | supported: each name with its port, key and channel (`tests/clap_host_test.c:synth_host_details_checks`) | offered | omx-clap-scan lists them (`doc/reference.md`, Scanning) |
@@ -201,7 +203,7 @@ to its caller, or where a program adds something of its own. A row is here when 
 | auxiliary ports (`clap.audio-ports-activation`) | each bound to its JACK ports, `aux_in_<p>_<k>` and `aux_out_<p>_<k>` (`make test-jack-fake`) | as omx-clap-host | active while the caller binds buffers to it (`tests/clap_ext_test.c`) |
 | `org.openmixer.param-contract/1` | answers `param_info` (`make test-jack-info`) | as omx-clap-host; `param_info` is its verb | `omx_clap_host_param_contract` and `omx_clap_host_param_meaning` (`tests/clap_host_test.c:contract_checks`) |
 | `org.openmixer.resource-hints.draft/0` | read, nothing answers it on the socket | as omx-clap-host | `omx_clap_host_resource_hints`, each hint's word, unit and figure by `omx_clap_resource_hint_word`, `_unit` and `_figure` (`tests/resource_hints_test.c`) |
-| `clap.gui` | no window: the host has no plugin GUI (`README.md`) | not stated here | not asked by the library |
+| `clap.gui` | the plugin's own window over X11 on request: `show_external_ui`, `hide_external_ui`, `-S` (`make test-jack-window`) | never asked: plugin-hostd has no window verb | never offered: the console draws every panel; the library offers only what the caller hands `omx_clap_host_offer_gui` |
 
 Measured
 --------
@@ -230,7 +232,7 @@ The ids the hosted plugins asked for most and were not given:
 
 | asked for | plugins | where it stands |
 |---|---|---|
-| `clap.gui` | 317 | out of scope |
+| `clap.gui` | 317 | supported in omx-clap-host since #180, on request (`make test-jack-window`); out of scope in the console |
 | `clap.audio-ports-config` (host-side) | 70 | supported since #263 (`tests/clap_host_test.c:t_request_layout`); the next run counts 0 |
 | `clap.context-menu.draft/0`, `clap.context-menu/1` | 68, 67 | out of scope |
 | `clap.resource-directory/1` | 67 | unsupported, P3 |
