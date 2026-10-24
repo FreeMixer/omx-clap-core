@@ -36,6 +36,10 @@ if [ -z "${JACK_E2E_INSIDE:-}" ]; then
         exec unshare --user --map-root-user --net --pid --fork --mount-proc "$0" "$@"
 fi
 
+# pid 1 of the private namespace, or nothing at all: JACK_E2E_INSIDE leaked into a session's shell would run the rest
+# there, and the exit's kill -TERM -- -1 with it
+[ "$$" = 1 ] || { echo "not pid 1 of a private pid namespace (JACK_E2E_INSIDE set outside it?): nothing run" >&2; exit 2; }
+
 # a /tmp of the namespace's own: Xvfb's lock and socket (/tmp/.X<n>-lock, /tmp/.X11-unix) never meet the session's, whose
 # lock names a pid this pid namespace cannot see and would read as stale
 mount -t tmpfs tmpfs /tmp || { echo "no private /tmp in the namespace" >&2; exit 2; }
@@ -47,13 +51,22 @@ step() {
     else
         echo "FAIL $2"
         failures=$((failures + 1))
-        tail -5 "$runtime/host.log" 2>/dev/null | sed 's/^/     host: /'
-        tail -8 "$runtime/gui.log" 2>/dev/null | sed 's/^/     plugin: /'
+        tail -5 "${runtime:-/nonexistent}/host.log" 2>/dev/null | sed 's/^/     host: /'
+        tail -8 "${runtime:-/nonexistent}/gui.log" 2>/dev/null | sed 's/^/     plugin: /'
     fi
 }
 run() {
     timeout 10 "$@"
 }
+
+step 0 "pid 1 of a private pid namespace"
+# the private /tmp took: a tmpfs of its own, empty, so no X socket or lock of the session is in it. Either failing ends
+# the run before Xvfb starts, which on the session's /tmp would take a display the session holds
+fstype=$(awk '$2 == "/tmp" { t = $3 } END { print t }' /proc/self/mounts)
+[ "$fstype" = tmpfs ]; step $? "/tmp is a tmpfs ($fstype)"
+[ "$failures" = 0 ] || exit 1
+[ -z "$(ls -A /tmp)" ] && [ ! -e /tmp/.X11-unix ]; step $? "/tmp is empty, no /tmp/.X11-unix in it: the namespace's own"
+[ "$failures" = 0 ] || exit 1
 
 runtime=$(mktemp -d /tmp/omx-clap-host-window.XXXXXX)
 export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH=$runtime/pulse
@@ -67,7 +80,6 @@ cleanup() {
     rm -rf "${runtime:?}"
 }
 trap cleanup EXIT
-[ "$$" = 1 ]; step $? "pid 1 of a private pid namespace"
 
 ip link set lo up
 
@@ -135,6 +147,17 @@ xwin() { DISPLAY=$display run xdotool "$@" 2>/dev/null; }
 shown() { [ -n "$(xwin search --onlyvisible --name "^$1\$")" ]; }
 named() { [ -n "$(xwin search --name "^$1\$")" ]; }
 logged() { grep -c -x -F "$1" "$runtime/gui.log" 2>/dev/null; }
+# the line of the plugin's log, one call per line in the order they came, that first says $1
+at() { grep -n -x -F "$1" "$runtime/gui.log" 2>/dev/null | head -1 | cut -d: -f1; }
+# every number given, and each greater than the one before it
+in_order() {
+    local prev=0 n
+    [ "$#" -gt 0 ] || return 1
+    for n in "$@"; do
+        [ -n "$n" ] && [ "$n" -gt "$prev" ] || return 1
+        prev=$n
+    done
+}
 wait_logged() {
     for _ in $(seq 50); do [ "$(logged "$1")" -ge 1 ] && return 0; sleep 0.1; done
     return 1
@@ -162,7 +185,9 @@ for _ in $(seq 30); do shown "fake gui view" && break; sleep 0.1; done
 shown "fake gui view"; step $? "and the plugin's own window, fake gui view, viewable inside it"
 [ "$(x_connections)" = 2 ]; step $? "two connections to the display, the host's and the plugin's own ($(x_connections))"
 [ "$(logged "create x11 0")" = 1 ] && [ "$(logged "scale 1.0")" = 1 ] && [ "$(logged "set_parent x11")" = 1 ] && [ "$(logged "show")" = 1 ]
-step $? "the plugin was asked create x11 embedded, set_scale 1.0, set_parent, show, in that order once each"
+step $? "the plugin was asked create x11 embedded, set_scale 1.0, set_parent and show, once each"
+order="$(at "create x11 0") $(at "scale 1.0") $(at "set_parent x11") $(at "show")"
+[ "$(echo $order | wc -w)" = 4 ] && in_order $order; step $? "in that order: the plugin's log lines $order"
 wait_logged "timer on the tick"; step $? "the plugin's timer is called on the host's tick while its window is open"
 wait_logged "fd on the tick"; step $? "and its X descriptor polled on the host's tick"
 wait_logged "request_resize 320 240 1"; step $? "the plugin's request_resize 320x240 is accepted"
