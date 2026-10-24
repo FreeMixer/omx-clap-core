@@ -25,7 +25,8 @@
  * clap_host_extensions.h: the host extensions the core's host object offers a plugin. This file is their home: the list
  * is written here by hand and nowhere else. A consumer that names them (a qualifier profile judging which extensions a
  * plugin may ask for) mirrors this list and tests its mirror against it. The configuration adds clap.preset-load,
- * clap.track-info and clap.remote-controls on request (struct omx_clap_host_config); this is the list it starts from.
+ * clap.track-info and clap.remote-controls on request (struct omx_clap_host_config), and omx_clap_host_offer_gui adds
+ * clap.gui, the caller's own object; this is the list they start from.
  */
 
 #ifndef CLAP_HOST_EXTENSIONS_H

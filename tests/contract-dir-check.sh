@@ -67,7 +67,7 @@ for f in worker_poll_us:WORKER_POLL_US worker_ring_bytes:WORKER_RING_BYTES; do
 done
 # each module loads as an ES module and exports its files' items, nothing else: the hosting module data/hosting.json's,
 # the vocabulary module every item of data/hosting/
-node --input-type=module -e "import('$(pwd)/ts/omx-clap-core-hosting.js').then((m) => { const k = Object.keys(m).sort().join(' '); if (k !== 'HOSTED_STAGE_LIMITS HOSTING_IDLE_CODES') { console.error('contract-dir-check: ts/omx-clap-core-hosting.js exports ' + k); process.exit(1); } })"
+node --input-type=module -e "import('$(pwd)/ts/omx-clap-core-hosting.js').then((m) => { const k = Object.keys(m).sort().join(' '); if (k !== 'HOSTED_STAGE_LIMITS HOSTING_IDLE_CODES HOSTING_WINDOW_CODES') { console.error('contract-dir-check: ts/omx-clap-core-hosting.js exports ' + k); process.exit(1); } })"
 node --input-type=module -e "
 import { readdirSync, readFileSync } from 'node:fs';
 const items = readdirSync('data/hosting').flatMap((f) => Object.keys(JSON.parse(readFileSync('data/hosting/' + f, 'utf8'))).filter((k) => !k.startsWith('\$') && k !== 'requires')).sort().join(' ');
