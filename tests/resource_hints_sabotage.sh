@@ -60,6 +60,10 @@ arm unknown-bit src/clap_host.c 's/    if (d & ~RESOURCE_HINTS_ALL)/    if (0)/'
 # 3. an unknown hint's member is never read: the plugin's struct copied whole, its garbage reaches the reader
 arm unknown-member src/clap_host.c 's/^    out->declared = d;$/    *out = h;/' "an unknown hint's member is 0" hints_test
 
+# 4. the LV2 face: a flag the TTL states as an integer is refused, wrong-unit; with the boolean test gone it reads as a figure
+arm lv2-flag lv2/core/lv2_world.c 's/        if (!L.lilv_node_is_bool(v))$/        if (0)/' \
+    'wrong-unit offers no draft, refused with hosting.resource-hints.wrong-unit' make -j"$jobs" test-lv2-clap
+
 if [ "$failures" -eq 0 ]; then
     echo "resource hints sabotage ok"
     exit 0

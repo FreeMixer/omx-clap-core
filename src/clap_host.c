@@ -51,12 +51,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <omxcontract/omx_vocabulary.h>
-
 #include "clap_host.h"
 #include "clap_meters.h"
 #include "idle_hold.h"
 #include "param_contract.h"
+#include "resource_hints.h"
 
 
 /*
@@ -1293,27 +1292,7 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
     return ret;
 }
 
-/* The hints of RESOURCE_HINTS, by index: bit 1u << index of `declared`, its word and its unit, as omx-contract spells
- * them (omx_vocabulary.h). omx_resource_hints.h lays the bits and the members out in the same order. */
-static const struct
-{
-    uint32_t bit;
-    const char *word;
-    const char *unit;
-} g_resource_hints[] = {
-    { OMX_RESOURCE_HINT_FOOTPRINT_AT_REST, OMX_RESOURCE_HINTS_FOOTPRINT_AT_REST, OMX_RESOURCE_UNITS_BYTES },
-    { OMX_RESOURCE_HINT_FOOTPRINT_PER_VOICE, OMX_RESOURCE_HINTS_FOOTPRINT_PER_VOICE, OMX_RESOURCE_UNITS_BYTES },
-    { OMX_RESOURCE_HINT_SHARED_LOAD, OMX_RESOURCE_HINTS_SHARED_LOAD, OMX_RESOURCE_UNITS_BYTES },
-    { OMX_RESOURCE_HINT_THREADS_SPAWNED, OMX_RESOURCE_HINTS_THREADS_SPAWNED, OMX_RESOURCE_UNITS_PLAIN_COUNT },
-    { OMX_RESOURCE_HINT_STREAMS_FROM_DISK, OMX_RESOURCE_HINTS_STREAMS_FROM_DISK, OMX_RESOURCE_UNITS_FLAG },
-    { OMX_RESOURCE_HINT_OPENS_SOCKETS, OMX_RESOURCE_HINTS_OPENS_SOCKETS, OMX_RESOURCE_UNITS_FLAG },
-    { OMX_RESOURCE_HINT_ACTIVATE_TIME, OMX_RESOURCE_HINTS_ACTIVATE_TIME, OMX_RESOURCE_UNITS_MS },
-};
-_Static_assert(sizeof(g_resource_hints) / sizeof(g_resource_hints[0]) == OMX_RESOURCE_HINT_COUNT &&
-                   OMX_RESOURCE_HINT_COUNT == OMX_RESOURCE_HINTS_COUNT,
-               "one row per hint of RESOURCE_HINTS");
 _Static_assert(sizeof(bool) == 1, "a flag member is one byte, read as it lies");
-#define RESOURCE_HINTS_ALL      ((1u << OMX_RESOURCE_HINT_COUNT) - 1u)
 
 /* a flag member as the plugin wrote it, its byte read rather than its bool, which only 0 and 1 may be */
 static unsigned flag_byte(const bool *flag)
@@ -1332,7 +1311,7 @@ static void resource_hints_read(struct omx_clap_instance *in)
 {
     const omx_clap_plugin_resource_hints_t *ext = in->plugin->get_extension(in->plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT);
     omx_resource_hints_t h, *out = &in->resource_hints;
-    uint32_t d;
+    uint32_t d, i;
 
     memset(out, 0, sizeof(*out));
     in->resource_hints_why = NULL;
@@ -1352,21 +1331,11 @@ static void resource_hints_read(struct omx_clap_instance *in)
         in->resource_hints_why = OMX_HOSTING_RESOURCE_HINTS_WRONG_UNIT;
         return;
     }
+    // a flag's byte is 0 or 1 here, which its bool then holds as it is
     out->declared = d;
-    if (d & OMX_RESOURCE_HINT_FOOTPRINT_AT_REST)
-        out->footprint_at_rest = h.footprint_at_rest;
-    if (d & OMX_RESOURCE_HINT_FOOTPRINT_PER_VOICE)
-        out->footprint_per_voice = h.footprint_per_voice;
-    if (d & OMX_RESOURCE_HINT_SHARED_LOAD)
-        out->shared_load = h.shared_load;
-    if (d & OMX_RESOURCE_HINT_THREADS_SPAWNED)
-        out->threads_spawned = h.threads_spawned;
-    if (d & OMX_RESOURCE_HINT_STREAMS_FROM_DISK)
-        out->streams_from_disk = flag_byte(&h.streams_from_disk) == 1u;
-    if (d & OMX_RESOURCE_HINT_OPENS_SOCKETS)
-        out->opens_sockets = flag_byte(&h.opens_sockets) == 1u;
-    if (d & OMX_RESOURCE_HINT_ACTIVATE_TIME)
-        out->activate_time = h.activate_time;
+    for (i = 0; i < OMX_RESOURCE_HINT_COUNT; i++)
+        if (d & resource_hints_table[i].bit)
+            resource_hint_set(out, i, resource_hint_get(&h, i));
 }
 
 /* Create the plugin of `desc`, init it and read its extensions, with no layout judged. Takes over the caller's reference
@@ -2187,39 +2156,24 @@ int omx_clap_host_resource_hints(const struct omx_clap_instance *in, omx_resourc
 
 const char *omx_clap_resource_hint_word(uint32_t index)
 {
-    return index < OMX_RESOURCE_HINT_COUNT ? g_resource_hints[index].word : NULL;
+    return index < OMX_RESOURCE_HINT_COUNT ? resource_hints_table[index].word : NULL;
 }
 
 const char *omx_clap_resource_hint_unit(uint32_t index)
 {
-    return index < OMX_RESOURCE_HINT_COUNT ? g_resource_hints[index].unit : NULL;
+    return index < OMX_RESOURCE_HINT_COUNT ? resource_hints_table[index].unit : NULL;
 }
 
 int omx_clap_resource_hint_figure(const omx_resource_hints_t *hints, uint32_t index, uint64_t *figure)
 {
-    uint64_t v = 0;
-    int known;
-
     if (figure)
         *figure = 0;
     if (!hints || index >= OMX_RESOURCE_HINT_COUNT)
         return -1;
-    known = (hints->declared & g_resource_hints[index].bit) != 0;
-    if (!known)
+    if (!(hints->declared & resource_hints_table[index].bit))
         return 0;
-    switch (g_resource_hints[index].bit)
-    {
-    case OMX_RESOURCE_HINT_FOOTPRINT_AT_REST: v = hints->footprint_at_rest; break;
-    case OMX_RESOURCE_HINT_FOOTPRINT_PER_VOICE: v = hints->footprint_per_voice; break;
-    case OMX_RESOURCE_HINT_SHARED_LOAD: v = hints->shared_load; break;
-    case OMX_RESOURCE_HINT_THREADS_SPAWNED: v = hints->threads_spawned; break;
-    case OMX_RESOURCE_HINT_STREAMS_FROM_DISK: v = hints->streams_from_disk ? 1u : 0u; break;
-    case OMX_RESOURCE_HINT_OPENS_SOCKETS: v = hints->opens_sockets ? 1u : 0u; break;
-    case OMX_RESOURCE_HINT_ACTIVATE_TIME: v = hints->activate_time; break;
-    default: return -1;
-    }
     if (figure)
-        *figure = v;
+        *figure = resource_hint_get(hints, index);
     return 1;
 }
 

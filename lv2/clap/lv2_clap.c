@@ -1377,10 +1377,26 @@ static bool preset_from_location(const clap_plugin_t *plugin, uint32_t kind, con
 
 static const clap_plugin_preset_load_t g_preset_load = { preset_from_location };
 
+/* org.openmixer.resource-hints.draft/0, from the omxres properties the TTL states: offered when it states one and
+ * none was refused; a refusal leaves the face with none, its code answered by omx_clap_lv2_resource_hints_why */
+static bool hints_get(const clap_plugin_t *plugin, omx_resource_hints_t *hints)
+{
+    const struct shim *s = SHIM_OF(plugin);
+
+    if (s->lv2->hints_why || !s->lv2->hints.declared)
+        return false;
+    *hints = s->lv2->hints;
+    return true;
+}
+
+static const omx_clap_plugin_resource_hints_t g_resource_hints = { hints_get };
+
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT))
         return SHIM_OF(plugin)->contracted ? &g_contract : NULL;
+    if (!strcmp(id, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT))
+        return !SHIM_OF(plugin)->lv2->hints_why && SHIM_OF(plugin)->lv2->hints.declared ? &g_resource_hints : NULL;
     if (!strcmp(id, CLAP_EXT_PARAMS))
         return &g_params;
     if (!strcmp(id, CLAP_EXT_LATENCY))
@@ -1791,6 +1807,15 @@ const char *omx_clap_lv2_param_symbol(const clap_plugin_t *plugin, clap_id id)
     const int32_t k = s && s->control_of_port ? control_of_id(s, id) : -1;
 
     return k >= 0 ? s->lv2->controls[k].symbol : NULL;
+}
+
+const char *omx_clap_lv2_resource_hints_why(const clap_plugin_t *plugin)
+{
+    const struct shim *s = plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+
+    if (!s || !s->lv2)
+        return NULL;
+    return s->lv2->hints_why ? s->lv2->hints_why : "";
 }
 
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin)

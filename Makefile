@@ -759,6 +759,20 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-ll-midi-fixture.lv2/omx-ll-midi-fixture.so \
               build/lv2/omx-layout-fixture.lv2/omx-layout-fixture.so
 
+# the resource hints' LV2 face (#323), outside build/lv2: the refused bundle is malformed on purpose, and lv2_validate
+# knows no omxres property (omx-contract's omx-resource-hints.ttl does not validate on its own), so neither is validated
+LV2_HINTS_BUNDLES = build/lv2-hints/omx-hints-fixture.lv2/omx-hints-fixture.so build/lv2-hints/omx-hints-refused.lv2/omx-hints-refused.so
+
+build/lv2-hints/omx-hints-fixture.lv2/omx-hints-fixture.so: $(LV2_FIXTURE_DIR)/lv2_hints_fixture.c $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h $(wildcard $(LV2_FIXTURE_DIR)/omx-hints-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-hints-fixture.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $<
+
+build/lv2-hints/omx-hints-refused.lv2/omx-hints-refused.so: $(LV2_FIXTURE_DIR)/lv2_hints_fixture.c $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h $(wildcard $(LV2_FIXTURE_DIR)/omx-hints-refused.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-hints-refused.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -DHINTS_REFUSED -o $@ $<
+
 build/lv2/omx-host-fixture.lv2/omx-host-fixture.so: $(LV2_FIXTURE_DIR)/lv2_host_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-host-fixture.lv2/*.ttl $(@D)/
@@ -875,11 +889,11 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
-lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
+lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
-test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES)
+test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES) $(LV2_HINTS_BUNDLES)
 	./lv2/tests/lv2_clap_test build/lv2
 
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged

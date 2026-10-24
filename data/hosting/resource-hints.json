@@ -8,7 +8,8 @@
     "since": "3.1.0",
     "source": {
       "impl": [
-        "src/clap_host.c#resource_hints_read"
+        "src/clap_host.c#resource_hints_read",
+        "lv2/core/lv2_world.c#resource_hints_read"
       ]
     },
     "doc": "The hosting codes of the resource-hints dimension: hosting.resource-hints.*, why the host refuses the hints a plugin declares about itself (omx-contract's RESOURCE_HINTS, through the CLAP draft org.openmixer.resource-hints.draft/0 or the omxres LV2 properties). A refused declaration is trusted for none of its hints: every hint reads as unknown.",
