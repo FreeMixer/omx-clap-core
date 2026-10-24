@@ -13,6 +13,10 @@
 # libomx-clap-core, the LV2 one through libomx-clap-lv2: the engine's in-process tier), hostd (LV2 through
 # plugin-hostd, its worker omx-clap-host with the adapter, one pool worker for the set), jalv (LV2, one jalv process
 # per plugin, as Zynthian runs its layers; RSS and CPU are the sum over them, RSS empty is 0: no host before an add).
+# clap-series and adapter-series: clap's and adapter's plugins in one client each, linked in series (the noise into the
+# first, each output into the next one's input, the last one recorded); chain-clap and chain-adapter: the same plugins
+# in series in ONE client, OMX_CLAP_HOST_CHAIN (#302). Their plugins.csv rows carry the series' output's first sound and
+# silent blocks, and a chain member, which is no node of its own, no node times.
 # BENCH_IDLE_HOLD: the CPU idle hold of the run (bench/lib.sh), recorded with the device's aggregate in runs.csv.
 #
 # Writes <out dir>/plugins.csv and <out dir>/runs.csv rows (appended, no header) and keeps the raw profiler log,
@@ -34,7 +38,13 @@ path=$1 rate=$2 quantum=$3 seconds=$4 rep=$5 out=$6
 
 if [ -z "${BENCH_INSIDE:-}" ]; then
     mkdir -p "$out"
-    BENCH_INSIDE=1 exec unshare --user --map-root-user --net --pid --fork --mount-proc "$0" "$path" "$rate" "$quantum" \
+    if unshare --user --map-root-user --net --pid --fork --mount-proc true 2>/dev/null; then
+        BENCH_INSIDE=1 exec unshare --user --map-root-user --net --pid --fork --mount-proc "$0" "$path" "$rate" "$quantum" \
+            "$seconds" "$rep" "$(readlink -f "$out")"
+    fi
+    # a container whose /proc is masked refuses a /proc of its own (podman: "mount too revealing"): no pid namespace,
+    # the run a session of its own, which its cleanup ends (bench/lib.sh)
+    BENCH_INSIDE=1 BENCH_SESSION=1 exec unshare --user --map-root-user --net setsid -w "$0" "$path" "$rate" "$quantum" \
         "$seconds" "$rep" "$(readlink -f "$out")"
 fi
 
@@ -54,8 +64,8 @@ die() {
 graph_start
 plugin_set
 n_fx=${#names[@]}
-# the probe: noise to every plugin, the impulse to the pad and to the reference
-probe_start "$n_fx" 2
+# the probe: noise to every plugin (to the first of a series), the impulse to the pad and to the reference
+if [ "$topology" = parallel ]; then probe_start "$n_fx" 2; else probe_start 1 2; fi
 host_start
 sleep 0.5
 rss_empty=$(host_rss_kb)
@@ -73,12 +83,41 @@ for k in $(seq 0 $((n_fx - 1))); do
         echo "$path,$rate,$quantum,$rep,${names[$k]},refused,\"${adds[$k]} -> $reply\"" >>"$out/refusals.csv"
         continue
     fi
-    link_fx "effect_$k" bench-src:src_l bench-src:src_r "bench-rec:rec_$k" || die "${names[$k]}: ports"
+    # a series is linked once every plugin is in (series_link)
+    [ "$topology" = parallel ] && { link_fx "effect_$k" bench-src:src_l bench-src:src_r "bench-rec:rec_$k" || die "${names[$k]}: ports"; }
     t2=$(now_ns)
     t_add[$k]=$t0
     add_ms[$k]=$(ms "$t0" "$t1")
     link_ms[$k]=$(ms "$t1" "$t2")
 done
+# a series: the noise into the first plugin's two inputs, each plugin's first two outputs into the next one's inputs,
+# the last one's first output recorded; a chain is one client, effect_0, and its members no node at all
+series_link() {
+    local k prev= ins outs
+    for k in $(seq 0 $((n_fx - 1))); do
+        [ -n "${refused[$k]:-}" ] && continue
+        [ "$topology" = chain ] && [ -n "$prev" ] && continue
+        if [ -z "$prev" ]; then
+            link_fx "effect_$k" bench-src:src_l bench-src:src_r bench-rec:rec_0 || return 1
+        else
+            ins=$(python3 -I "$here/stats.py" ports "effect_$k" | awk '$1 == "in" { print $2 }' | head -2)
+            outs=$(python3 -I "$here/stats.py" ports "effect_$prev" | awk '$1 == "out" { print $2 }' | head -2)
+            [ "$(echo "$ins" | grep -c .)" = 2 ] && [ "$(echo "$outs" | grep -c .)" = 2 ] || return 1
+            pw-link -d "$(echo "$outs" | sed -n 1p)" bench-rec:rec_0 || return 1
+            pw-link "$(echo "$outs" | sed -n 1p)" "$(echo "$ins" | sed -n 1p)" &&
+                pw-link "$(echo "$outs" | sed -n 2p)" "$(echo "$ins" | sed -n 2p)" &&
+                pw-link "$(python3 -I "$here/stats.py" ports "effect_$k" | awk '$1 == "out" { print $2 }' | head -1)" bench-rec:rec_0 ||
+                return 1
+        fi
+        prev=$k
+    done
+}
+if [ "$topology" != parallel ]; then
+    t1=$(now_ns)
+    series_link || die "the series: ports"
+    link_s=$(ms "$t1" "$(now_ns)")
+    for k in "${!add_ms[@]}"; do link_ms[$k]=$link_s; done
+fi
 reply=$(send "$pad $n_fx")
 added "$reply" "$n_fx" || die "pad: $pad -> $reply"
 link_fx "effect_$n_fx" bench-src:imp bench-src:imp bench-rec:lat_1 || die "pad: ports"
@@ -120,9 +159,11 @@ err_delta() {
 for k in $(seq 0 $((n_fx - 1))); do
     [ -n "${refused[$k]:-}" ] && continue
     id=$(awk -v n="effect_$k" '$2 == n { print $1 }' "$raw/nodes.txt" | head -1)
-    prof=$(grep "^node $id " "$raw/profile.txt")
-    first=$(grep "^input rec_$k " "$raw/probe.txt" | field first_ns)
-    silent=$(grep "^input rec_$k " "$raw/probe.txt" | field silent_after)
+    prof=$([ -n "$id" ] && grep "^node $id " "$raw/profile.txt")
+    rec=rec_$k
+    [ "$topology" = parallel ] || rec=rec_0
+    first=$(grep "^input $rec " "$raw/probe.txt" | field first_ns)
+    silent=$(grep "^input $rec " "$raw/probe.txt" | field silent_after)
     if [ "${first:-0}" -gt 0 ]; then first_ms=$(ms "${t_add[$k]}" "$first"); else first_ms=NA; fi
     run_stats="NA,NA,NA"
     case $path in

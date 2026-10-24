@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.14.0
+Version:        0.17.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -16,7 +16,7 @@ BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
 # the codes under contract.d/3 (3.0.0, the hosting codes moved here)
-BuildRequires: omx-contract-devel >= 3.0.0
+BuildRequires: omx-contract-devel >= 3.1.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -68,8 +68,9 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0)
-Requires: omx-contract-devel >= 3.0.0
+# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0), and
+# omxcontract/omx_resource_hints.h, which clap_host.h includes (3.1.0)
+Requires: omx-contract-devel >= 3.1.0
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
@@ -131,12 +132,14 @@ make test-lv2
 %license COPYING
 %{_libdir}/libomx-clap-core.so.1
 %{_libdir}/libomx-clap-core.so.%{version}
+%{_datadir}/omx-clap-core/ts/
 
 %files -n omx-clap-core-devel
 %{_libdir}/libomx-clap-core.so
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
-%{_datadir}/omx-clap-core/
+%{_datadir}/omx-clap-core/omx-clap-core.map
+%{_datadir}/omx-clap-core/libomx-clap-core.so.*.abi
 %{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
@@ -146,6 +149,41 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.17.0-1
+- omx_clap_host_resource_hints reads the resource hints a plugin declares about
+  itself (org.openmixer.resource-hints.draft/0, omx-contract 3.1.0's
+  RESOURCE_HINTS), asked once at create: whole or refused by code
+  (hosting.resource-hints.unknown-hint, wrong-unit, out-of-range), a hint whose
+  bit is clear unknown, never zero. omx_clap_resource_hint_word, _unit and
+  _figure give each hint in the contract's words and units. The LV2 adapter
+  reads the same hints from the TTL's omxres properties and offers them through
+  the draft; omx_clap_lv2_resource_hints_why names a refusal. omx-clap-scan
+  --json writes them. ABI 17; the calls are in the version node
+  OMX_CLAP_CORE_0.17. omx-contract 3.1.0 or newer (#323).
+* Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.16.0-1
+- clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of
+  stages one audio cycle runs in order, each an instance the library hosts or a
+  stage of the caller's own, each with a bypass flag (a bypassed member is not
+  run, copied or counted), its latency and its channel layout; the chain reports
+  the sum of its non-bypassed members' latencies and tells every change of it.
+  omx_clap_chain_remove takes a member out and the next cycle equals a chain built
+  without it. The cycle allocates, locks and waits for nothing; a cycle longer
+  than OMX_CLAP_CHAIN_FRAMES_MAX (8192) passes dry and says so. Every structure a
+  consumer allocates carries its ABI and size first and a mismatch is refused,
+  OMX_CLAP_CHAIN_ERR_ABI. The functions are in the version node
+  OMX_CLAP_CORE_0.16 (docs/chain.md, #311).
+* Thu Oct 22 2026 Pau Aliagas <linuxnow@gmail.com> - 0.15.0-1
+- omx_clap_host_config_default_sized(config, caller_size) bounds the defaults' stamp to caller_size,
+  never to the library's own current sizeof: a consumer whose struct is smaller, because it was built
+  against an older header and not rebuilt since, is filled only that far and never overrun past its own
+  allocation. caller_size too short to carry even `version` is refused whole, not a byte moved.
+  omx_clap_host_config_default, unchanged, still stamps its own current size and cannot make this
+  promise; prefer the sized call. The call is in the version node OMX_CLAP_CORE_0.15 (#301).
+- The hosting codes' TypeScript modules (omx-clap-core-hosting.js,
+  omx-clap-core-vocabulary.js and their .d.ts) move from omx-clap-core-devel
+  to omx-clap-core, at the same path, so a program that only reads them at
+  run time, such as plugin-qualify, needs no development package.
+  pkg-config --variable=tsdir omx-clap-core still names that path.
 * Tue Oct 20 2026 Pau Aliagas <linuxnow@gmail.com> - 0.14.0-1
 - libomx-clap-core holds /dev/cpu_dma_latency while a hosted plugin is active,
   at 10 us by default (C1 only), 0 for no idle state, or off: one descriptor

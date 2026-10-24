@@ -10,7 +10,10 @@ import statistics
 import sys
 from collections import defaultdict
 
-PATHS = ["modhost", "clap", "adapter", "inproc-clap", "inproc-lv2", "hostd", "jalv"]
+PATHS = ["modhost", "clap", "adapter", "inproc-clap", "inproc-lv2", "hostd", "jalv", "clap-series", "chain-clap",
+         "adapter-series", "chain-adapter"]
+# the chain's arms (#302): one client per plugin in series, and the same plugins in one client
+CHAIN_PAIRS = [("clap-series", "chain-clap"), ("adapter-series", "chain-adapter")]
 HOLDS = ["default", "off", "1000", "10", "0"]
 
 
@@ -87,6 +90,68 @@ def idle_hold_table(runs, power):
     print()
 
 
+def chain_table(runs, plugins):
+    """The chain against one client per plugin in series (#302), per rate, quantum and hold: the medians of the
+    repetitions side by side, the change of the cycle end, and whether p99, overruns and xruns got worse."""
+    pairs = [(a, b) for (a, b) in CHAIN_PAIRS if any(r["path"] == b for r in runs)]
+    if not pairs:
+        return
+    print("### The chain: one client per plugin in series against one client for all of them\n")
+    print("Series / chain, the median of the repetitions; change = (chain - series) / series. Worse = the chain's "
+          "median cycle end p99, overruns, probe late cycles or xruns above the series'. sched p50 = a node's wake-up to "
+          "its start, the median over the arm's nodes (the chain has one, its head) and repetitions.\n")
+    print("| rate | quantum | hold | arms | plugins | cycle end p50 us | change | cycle end p99 us | change | "
+          "cycle end max us | overruns | late | xruns (probe/driver) | sched p50 us | host CPU % | RSS MiB | pad latency | "
+          "worse |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    g = defaultdict(list)
+    for r in runs:
+        g[(int(r["rate"]), int(r["quantum"]), r.get("idle_hold", "default"), r["path"])].append(r)
+
+    pg = defaultdict(list)
+    for p in plugins:
+        pg[(int(p["rate"]), int(p["quantum"]), p.get("idle_hold", "default"), p["path"])].append(num(p["sched_p50_us"]))
+
+    def m(rs, k):
+        if k == "sched_p50_us":
+            return med(pg.get(rs, []))
+        return med([num(r[k]) for r in rs])
+
+    def f(v, fmt="%.1f"):
+        return "NA" if v is None else fmt % v
+
+    def pct(a, b):
+        return "NA" if a is None or b is None or a == 0 else "%+.1f%%" % (100 * (b - a) / a)
+
+    keys = sorted({(k[0], k[1], k[2]) for k in g}, key=lambda k: (-k[0], k[1], hidx(k[2])))
+    for a, b in pairs:
+        for (rate, q, hold) in keys:
+            sa, sb = g.get((rate, q, hold, a)), g.get((rate, q, hold, b))
+            if not sa or not sb:
+                continue
+            worse = [k for k in ("cycle_end_p99_us", "overruns", "probe_late", "probe_xruns", "driver_xruns")
+                     if (m(sb, k) or 0) > (m(sa, k) or 0)]
+            print("| %d | %d | %s | %s / %s | %s | %s / %s | %s | %s / %s | %s | %s / %s | %s / %s | %s / %s | "
+                  "%s/%s / %s/%s | %s / %s | %s / %s | %s / %s | %s / %s | %s |" % (
+                      rate, q, hold, a, b, sa[0]["plugins"],
+                      f(m(sa, "cycle_end_p50_us")), f(m(sb, "cycle_end_p50_us")),
+                      pct(m(sa, "cycle_end_p50_us"), m(sb, "cycle_end_p50_us")),
+                      f(m(sa, "cycle_end_p99_us")), f(m(sb, "cycle_end_p99_us")),
+                      pct(m(sa, "cycle_end_p99_us"), m(sb, "cycle_end_p99_us")),
+                      f(m(sa, "cycle_end_max_us"), "%.0f"), f(m(sb, "cycle_end_max_us"), "%.0f"),
+                      f(m(sa, "overruns"), "%.0f"), f(m(sb, "overruns"), "%.0f"),
+                      f(m(sa, "probe_late"), "%.0f"), f(m(sb, "probe_late"), "%.0f"),
+                      f(m(sa, "probe_xruns"), "%.0f"), f(m(sa, "driver_xruns"), "%.0f"),
+                      f(m(sb, "probe_xruns"), "%.0f"), f(m(sb, "driver_xruns"), "%.0f"),
+                      f(m((rate, q, hold, a), "sched_p50_us")), f(m((rate, q, hold, b), "sched_p50_us")),
+                      f(m(sa, "host_cpu_pct")), f(m(sb, "host_cpu_pct")),
+                      f(m(sa, "rss_loaded_kb") and m(sa, "rss_loaded_kb") / 1024),
+                      f(m(sb, "rss_loaded_kb") and m(sb, "rss_loaded_kb") / 1024),
+                      f(m(sa, "pad_lat_max"), "%.0f"), f(m(sb, "pad_lat_max"), "%.0f"),
+                      ", ".join(worse) or "no"))
+    print()
+
+
 def main(d):
     runs = load(d + "/runs.csv")
     plugins = load(d + "/plugins.csv")
@@ -96,6 +161,7 @@ def main(d):
         power = []
 
     idle_hold_table(runs, power)
+    chain_table(runs, plugins)
 
     print("### Per run: the whole graph\n")
     print("Cycle end = the driver's time from wake-up to the last node finished (pw-profiler), median of the run; "
@@ -140,6 +206,9 @@ def main(d):
             cells = []
             for path in PATHS:
                 g = pg.get((rate, 128, n, path))
+                # a chain member is no node of its own: no node time
+                if g and med([num(x["dur_p50_us"]) for x in g]) is None:
+                    g = None
                 if not g:
                     cells.append("-")
                     if path.startswith("inproc"):

@@ -1120,6 +1120,21 @@ static int time_of(const clap_process_t *process, struct lv2_time *out)
     return 1;
 }
 
+/* channel c of a host buffer, NULL when the host does not hand it */
+static inline float *host_channel(const clap_audio_buffer_t *b, uint32_t c)
+{
+    return b && b->data32 && c < b->channel_count ? b->data32[c] : NULL;
+}
+
+/* one leg of n frames: src copied to dst, silence where there is no src */
+static inline void leg_copy(float *dst, const float *src, uint32_t n)
+{
+    if (src)
+        memcpy(dst, src, n * sizeof(float));
+    else
+        memset(dst, 0, n * sizeof(float));
+}
+
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process)
 {
     struct shim *s = SHIM_OF(plugin);
@@ -1148,10 +1163,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                          : leg < b->channel_count ? b->data32[leg]
                          : s->lv2->in_legs <= 2 ? b->data32[0] : NULL;
 
-        if (src)
-            memcpy(dst, src, n * sizeof(float));
-        else
-            memset(dst, 0, n * sizeof(float));
+        leg_copy(dst, src, n);
     }
     for (leg = 0; leg < s->lv2->n_aux_in; leg++)
     {
@@ -1159,25 +1171,14 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         uint32_t c;
 
         for (c = 0; c < s->lv2->aux_in[leg].n; c++)
-        {
-            float *dst = lv2_instance_aux_in(s->in, leg, c);
-
-            if (b && b->data32 && c < b->channel_count && b->data32[c])
-                memcpy(dst, b->data32[c], n * sizeof(float));
-            else
-                memset(dst, 0, n * sizeof(float));
-        }
+            leg_copy(lv2_instance_aux_in(s->in, leg, c), host_channel(b, c), n);
     }
     for (leg = 0; leg < s->lv2->n_cv_in; leg++)
     {
         const uint32_t port = m + s->lv2->n_aux_in + leg;
         const clap_audio_buffer_t *b = process->audio_inputs_count > port ? &process->audio_inputs[port] : NULL;
-        float *dst = lv2_instance_cv_in(s->in, leg);
 
-        if (b && b->data32 && b->channel_count && b->data32[0])
-            memcpy(dst, b->data32[0], n * sizeof(float));
-        else
-            memset(dst, 0, n * sizeof(float));
+        leg_copy(lv2_instance_cv_in(s->in, leg), host_channel(b, 0), n);
     }
     {
         struct lv2_time tm;
@@ -1228,21 +1229,17 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         // a channel past the plugin's own is silence
         for (c = 0; b && b->data32 && c < b->channel_count; c++)
         {
-            if (!b->data32[c])
-                continue;
-            if (c < s->lv2->aux_out[leg].n)
-                memcpy(b->data32[c], lv2_instance_aux_out(s->in, leg, c), n * sizeof(float));
-            else
-                memset(b->data32[c], 0, n * sizeof(float));
+            if (b->data32[c])
+                leg_copy(b->data32[c], c < s->lv2->aux_out[leg].n ? lv2_instance_aux_out(s->in, leg, c) : NULL, n);
         }
     }
     for (leg = 0; leg < s->lv2->n_cv_out; leg++)
     {
         const uint32_t port = 1u + s->lv2->n_aux_out + leg;
-        const clap_audio_buffer_t *b = process->audio_outputs_count > port ? &process->audio_outputs[port] : NULL;
+        float *dst = host_channel(process->audio_outputs_count > port ? &process->audio_outputs[port] : NULL, 0);
 
-        if (b && b->data32 && b->channel_count && b->data32[0])
-            memcpy(b->data32[0], lv2_instance_cv_out(s->in, leg), n * sizeof(float));
+        if (dst)
+            memcpy(dst, lv2_instance_cv_out(s->in, leg), n * sizeof(float));
     }
     latency_watch(s, n);
     lv2_instance_counters(s->in, &c);
@@ -1380,10 +1377,26 @@ static bool preset_from_location(const clap_plugin_t *plugin, uint32_t kind, con
 
 static const clap_plugin_preset_load_t g_preset_load = { preset_from_location };
 
+/* org.openmixer.resource-hints.draft/0, from the omxres properties the TTL states: offered when it states one and
+ * none was refused; a refusal leaves the face with none, its code answered by omx_clap_lv2_resource_hints_why */
+static bool hints_get(const clap_plugin_t *plugin, omx_resource_hints_t *hints)
+{
+    const struct shim *s = SHIM_OF(plugin);
+
+    if (s->lv2->hints_why || !s->lv2->hints.declared)
+        return false;
+    *hints = s->lv2->hints;
+    return true;
+}
+
+static const omx_clap_plugin_resource_hints_t g_resource_hints = { hints_get };
+
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     if (!strcmp(id, OMX_CLAP_EXT_PARAM_CONTRACT))
         return SHIM_OF(plugin)->contracted ? &g_contract : NULL;
+    if (!strcmp(id, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT))
+        return !SHIM_OF(plugin)->lv2->hints_why && SHIM_OF(plugin)->lv2->hints.declared ? &g_resource_hints : NULL;
     if (!strcmp(id, CLAP_EXT_PARAMS))
         return &g_params;
     if (!strcmp(id, CLAP_EXT_LATENCY))
@@ -1794,6 +1807,15 @@ const char *omx_clap_lv2_param_symbol(const clap_plugin_t *plugin, clap_id id)
     const int32_t k = s && s->control_of_port ? control_of_id(s, id) : -1;
 
     return k >= 0 ? s->lv2->controls[k].symbol : NULL;
+}
+
+const char *omx_clap_lv2_resource_hints_why(const clap_plugin_t *plugin)
+{
+    const struct shim *s = plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+
+    if (!s || !s->lv2)
+        return NULL;
+    return s->lv2->hints_why ? s->lv2->hints_why : "";
 }
 
 void omx_clap_lv2_worker_quiesce(const clap_plugin_t *plugin)
