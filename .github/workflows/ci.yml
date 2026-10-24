@@ -93,7 +93,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
             lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan libabigail \
             python3-numpy python3-lilv \
-            libxcb-devel xorg-x11-server-Xvfb xdotool \
+            libxcb-devel xorg-x11-server-Xvfb xdotool wayland-devel wayland-protocols-devel weston \
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
@@ -205,6 +205,16 @@ jobs:
             make test-jack-window
           else
             echo "::warning::test-jack-window SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The same with Wayland first, beside a headless weston of its own: the Wayland window taken when both displays
+      # are there, X11 for a plugin with none, no-display with neither (#329).
+      - name: Test a plugin's own window over Wayland first
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-window-wl
+          else
+            echo "::warning::test-jack-window-wl SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # The transport over jack the same way: the host's own and, with -t, the JACK transport followed.
