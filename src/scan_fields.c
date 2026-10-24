@@ -862,6 +862,8 @@ static int fields_dump(const char *target, int fd)
     else
         rc = fields_lv2(target + 4);
     fclose(g_out);
+    // the plugin is done with: its time limit is not the pipe's
+    alarm(0);
     if (rc == 0)
     {
         snprintf(head, sizeof(head), "# omx-clap-scan --fields %d\n", FIELDS_VERSION);
