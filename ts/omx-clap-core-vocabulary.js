@@ -196,10 +196,6 @@ export const HOSTING_RESOURCE_HINTS_CODES = {
     "code": "hosting.resource-hints.out-of-range",
     "doc": "a figure below zero, or past what its hint's member holds"
   },
-  "resourceHintsStatedTwice": {
-    "code": "hosting.resource-hints.stated-twice",
-    "doc": "an LV2 plugin states one hint with two different figures"
-  },
   "resourceHintsUnknownHint": {
     "code": "hosting.resource-hints.unknown-hint",
     "doc": "the declared mask sets a bit RESOURCE_HINTS has no hint for"
