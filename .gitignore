@@ -22,6 +22,7 @@ tests/jack_transport_ctl
 tests/fake_transport.clap
 tests/jack_notes_out_probe
 tests/fake_compressor.clap
+tests/fake_gui.clap
 tests/jack_meter_source
 *.d
 /libomx-clap-core.so*

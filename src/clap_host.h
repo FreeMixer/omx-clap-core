@@ -832,6 +832,13 @@ OMX_CLAP_EXPORT int omx_clap_host_track_info_set(struct omx_clap_instance *in, c
 /** Whether the plugin called the host's remote_controls.changed since the last call; reading clears it. */
 OMX_CLAP_EXPORT int omx_clap_host_remote_controls_changed(struct omx_clap_instance *in);
 
+/** Offer clap.gui to every plugin opened from now on (0.18.0, #180): a plugin that asks the host for CLAP_EXT_GUI is
+ * handed `gui` itself, the caller's own object, besides the declared list; each call's `host->host_data` is the
+ * instance. The library draws nothing and links no toolkit: showing the window, and keeping the calls thread-safe as
+ * clap.gui requires, is the caller's. Called before the first binary is opened, as the configuration is; NULL offers
+ * none, the default. 0, or -1 once a binary was opened. */
+OMX_CLAP_EXPORT int omx_clap_host_offer_gui(const clap_host_gui_t *gui);
+
 /** The meters the plugin declared through clap.meters/1, read at open: 0 when it has none, or none read whole. Any thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_count(const struct omx_clap_instance *in);
 

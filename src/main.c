@@ -99,6 +99,8 @@ static const char g_help_msg[] =
     PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
     "audio_ports <instance_number>\n"
+    "show_external_ui <instance_number>\n"
+    "hide_external_ui <instance_number>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
@@ -307,6 +309,28 @@ static void audio_ports_cb(proto_t *proto)
     free(reply);
 }
 
+/* show_external_ui, as mod-host answers it, with the hosting.window.* code after -404 when no window is shown:
+ * "resp -404 <code>" */
+static void show_external_ui_cb(proto_t *proto)
+{
+    char reply[128];
+    const char *code;
+    const int resp = effects_show_ui(atoi(proto->list[1]), &code);
+
+    if (resp == ERR_EXTERNAL_UI_UNAVAILABLE && code)
+    {
+        snprintf(reply, sizeof(reply), "resp %i %s", resp, code);
+        protocol_response(reply, proto);
+    }
+    else
+        protocol_response_int(resp, proto);
+}
+
+static void hide_external_ui_cb(proto_t *proto)
+{
+    protocol_response_int(effects_hide_ui(atoi(proto->list[1])), proto);
+}
+
 static void help_cb(proto_t *proto)
 {
     proto->response = 0;
@@ -349,7 +373,7 @@ static void register_unsupported(void)
         EFFECT_PRESET_SAVE, EFFECT_PRESET_SHOW, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
         MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
         CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
-        FEATURE_ENABLE, SHOW_EXTERNAL_UI, OUTPUT_DATA_READY,
+        FEATURE_ENABLE, OUTPUT_DATA_READY,
         NULL
     };
     const char *const *command;
@@ -370,6 +394,8 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
     protocol_add_command("audio_ports %i", audio_ports_cb);
+    protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
+    protocol_add_command("hide_external_ui %i", hide_external_ui_cb);
     protocol_add_command(EFFECT_SET_BPM, set_bpm_cb);
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
@@ -416,6 +442,7 @@ int main(int argc, char **argv)
         {"follow-jack-transport", no_argument, 0, 't'},
         {"channels", required_argument, 0, 'c'},
         {"idle-hold", required_argument, 0, 'i'},
+        {"show-ui", no_argument, 0, 'S'},
         {"version", no_argument, 0, 'V'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -426,7 +453,7 @@ int main(int argc, char **argv)
     int socket_port = SOCKET_DEFAULT_PORT, feedback_port = 0;
     struct sigaction sig;
 
-    while ((opt = getopt_long(argc, argv, "nvp:f:s:tc:i:Vh", long_options, &opt_index)) != -1)
+    while ((opt = getopt_long(argc, argv, "nvp:f:s:tc:i:SVh", long_options, &opt_index)) != -1)
     {
         switch (opt)
         {
@@ -477,6 +504,10 @@ int main(int argc, char **argv)
                 break;
             }
 
+            case 'S':
+                effects_show_ui_at_add(1);
+                break;
+
             case 'V':
                 printf("%s version: %s\n", argv[0], VERSION);
                 exit(EXIT_SUCCESS);
@@ -484,7 +515,7 @@ int main(int argc, char **argv)
 
             case 'h':
                 printf(
-                    "Usage: %s [-vht] [-p <port>] [-f <port>] [-s <dir>] [-c <channels>] [-i <off|us>]\n"
+                    "Usage: %s [-vhtS] [-p <port>] [-f <port>] [-s <dir>] [-c <channels>] [-i <off|us>]\n"
                     "  -v, --verbose                  verbose messages\n"
                     "  -p, --socket-port=<port>       socket port definition\n"
                     "  -f, --feedback-port=<port>     feedback port definition\n"
@@ -496,6 +527,8 @@ int main(int argc, char **argv)
                     "  -i, --idle-hold=<off|us>       what /dev/cpu_dma_latency is held at while a plugin is\n"
                     "                                 active: microseconds (default 10, C1 only; 0 no idle\n"
                     "                                 state) or off; the idle_hold command changes it later\n"
+                    "  -S, --show-ui                  show each plugin's own window at its add (X11);\n"
+                    "                                 show_external_ui and hide_external_ui do it later\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
                     "  -h, --help                     print this help and exit\n"
