@@ -24,6 +24,8 @@ BuildRequires: libasan
 # make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
 BuildRequires: perl-interpreter
 BuildRequires: pipewire-jack-audio-connection-kit-devel
+# a plugin's own window (show_external_ui, -S) over X11; the package then requires the libxcb it links
+BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 # LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add

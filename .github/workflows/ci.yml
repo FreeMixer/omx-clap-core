@@ -93,6 +93,7 @@ jobs:
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
             lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan libabigail \
             python3-numpy python3-lilv \
+            libxcb-devel xorg-x11-server-Xvfb xdotool \
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
@@ -195,6 +196,15 @@ jobs:
             make test-jack-synth
           else
             echo "::warning::test-jack-synth SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # A plugin's own window over clap.gui and X11, in a PipeWire and an Xvfb of their own, the same way (#180).
+      - name: Test a plugin's own window over X11
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-window
+          else
+            echo "::warning::test-jack-window SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # The transport over jack the same way: the host's own and, with -t, the JACK transport followed.
@@ -406,6 +416,8 @@ jobs:
             grep -q 'libmod-host-protocol.so.0' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
+            # the window links libxcb, so the package requires it (#180)
+            grep -q 'libxcb.so.1' requires.txt
           done
           for rpm in rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
@@ -707,6 +719,8 @@ jobs:
           ! grep -q 'not found' ldd.txt
           grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
+          # the window links libxcb, and the package's Depends brought it (#180)
+          grep -q 'libxcb\.so\.1 => /' ldd.txt
 
       - name: The runtime package alone carries the hosting codes' TypeScript modules
         run: |
