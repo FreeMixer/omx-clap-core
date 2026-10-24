@@ -167,6 +167,132 @@ typedef struct omx_clap_plugin_param_contract_ext
 } omx_clap_plugin_param_contract_ext_t;
 
 
+/*
+************************************************************************************************************************
+*           org.openmixer.panel-description/1
+************************************************************************************************************************
+*/
+
+/*
+ * The panel a plugin publishes: its family, its sections in order, each control's parameter, section, widget, label and
+ * visibility rule, the roles its parameters play in the family, the displays drawn over a section and the per-placement
+ * defaults. Units, travels, scales and enumeration labels are the parameters' own and are not restated. omx-plugins'
+ * faces serve it from their include/omx_panel_description.h, which is the ABI: the structures below have its layout
+ * under other names, so a face may include both, and tests/panel_abi_test.c holds them to it, size and offset. The
+ * fingerprint is the lowercase hex SHA-256 of the canonical serialisation omx-plugins' tools/panel-description.mjs writes.
+ *
+ * The host walks five tables, each by count and get, in their published order.
+ */
+
+/** The panel-description extension id. */
+static const char OMX_CLAP_EXT_PANEL_DESCRIPTION[] = "org.openmixer.panel-description/1";
+
+/** A key (a section key, a label key, a role): [a-z][a-z0-9_]*(\.[a-z0-9_]+)*, at most 63 bytes and the NUL. */
+#define OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE 64
+/** A fallback label, CLAP_NAME_SIZE. */
+#define OMX_CLAP_PANEL_DESCRIPTION_NAME_SIZE CLAP_NAME_SIZE
+
+/*
+ * The codes, X(code, name, enumerator): the name is omx-plugins' word for the code (tools/panel-description.mjs), the
+ * enumerator the one omx_panel_description.h gives it after its prefix (OMX_CLAP_PANEL_, OMX_CLAP_FAMILY_,
+ * OMX_CLAP_WIDGET_, OMX_CLAP_DISPLAY_, OMX_CLAP_DISPLAY_FROM_, OMX_CLAP_PLACEMENT_).
+ */
+
+/** The tables, in the order a host walks them. */
+#define OMX_CLAP_PANEL_TABLES(X) \
+    X(0, "sections", SECTIONS) X(1, "controls", CONTROLS) X(2, "roles", ROLES) X(3, "displays", DISPLAYS) \
+    X(4, "placement_defaults", PLACEMENT_DEFAULTS)
+
+/** The families: which house view can draw the plugin and which roles it may bind. Append only. */
+#define OMX_CLAP_PANEL_FAMILIES(X) \
+    X(0, "none", NONE) X(1, "gate", GATE) X(2, "dynamics", DYNAMICS) X(3, "limiter", LIMITER) X(4, "deesser", DEESSER) \
+    X(5, "eq", EQ) X(6, "filter", FILTER) X(7, "drive", DRIVE) X(8, "modulation", MODULATION) X(9, "delay", DELAY) \
+    X(10, "reverb", REVERB) X(11, "pitch", PITCH)
+
+/** The widgets: auto leaves the widget to the host, from the parameter. */
+#define OMX_CLAP_PANEL_WIDGETS(X) \
+    X(0, "auto", AUTO) X(1, "knob", KNOB) X(2, "fader", FADER) X(3, "switch", SWITCH) X(4, "selector", SELECTOR)
+
+/** The displays. Append only. */
+#define OMX_CLAP_PANEL_DISPLAY_KINDS(X) \
+    X(0, "gain_reduction_bar", GAIN_REDUCTION_BAR) X(1, "transfer_curve", TRANSFER_CURVE) X(2, "eq_response", EQ_RESPONSE) \
+    X(3, "meter", METER)
+
+/** Where a display's data comes from. */
+#define OMX_CLAP_PANEL_DISPLAY_SOURCES(X) \
+    X(0, "family", FAMILY) X(1, "meters", METERS) X(2, "gain_adjustment", GAIN_ADJUSTMENT) X(3, "curve", CURVE)
+
+/** Where an instance sits: the clap.track-info/1 flags read as one value. */
+#define OMX_CLAP_PANEL_PLACEMENTS(X) X(0, "insert", INSERT) X(1, "return", RETURN) X(2, "bus", BUS) X(3, "master", MASTER)
+
+/** A section, in the order the panel draws them. */
+typedef struct omx_clap_panel_description_section
+{
+    char key[OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE];  ///< the section's key
+    char label_key[OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE];  ///< the key its label is translated by
+    char label[OMX_CLAP_PANEL_DESCRIPTION_NAME_SIZE];  ///< the fallback text, not fingerprinted
+} omx_clap_panel_description_section_t;
+
+/** A control: one parameter drawn in one section. */
+typedef struct omx_clap_panel_description_control
+{
+    clap_id param_id;  ///< the params id it draws
+    uint32_t section;  ///< an index into the sections
+    uint32_t widget;  ///< an OMX_CLAP_PANEL_WIDGETS code
+    char label_key[OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE];  ///< the key its label is translated by
+    char label[OMX_CLAP_PANEL_DESCRIPTION_NAME_SIZE];  ///< the fallback text
+    clap_id visible_param_id;  ///< the parameter its visibility follows, CLAP_INVALID_ID when always visible
+    uint64_t visible_mask;  ///< bit v set: shown while visible_param_id's value is v
+} omx_clap_panel_description_control_t;
+
+/** A role a parameter plays in the family. */
+typedef struct omx_clap_panel_description_role
+{
+    char role[OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE];  ///< the role's name
+    uint32_t index;  ///< 0 unless the role repeats (an EQ band)
+    clap_id param_id;  ///< the parameter that plays it
+} omx_clap_panel_description_role_t;
+
+/** A display drawn over a section. */
+typedef struct omx_clap_panel_description_display
+{
+    uint32_t kind;  ///< an OMX_CLAP_PANEL_DISPLAY_KINDS code
+    uint32_t section;  ///< an index into the sections
+    uint32_t source;  ///< an OMX_CLAP_PANEL_DISPLAY_SOURCES code
+    uint32_t meter_ids[2];  ///< the clap.meters/1 ids it reads, CLAP_INVALID_ID for none
+    uint32_t curve_index;  ///< the clap.mini-curve-display/3 curve it reads
+    clap_id floor_param_id;  ///< the parameter that sets its floor, CLAP_INVALID_ID for none
+    double floor_db;  ///< its floor when no parameter sets it
+    char label_key[OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE];  ///< the key its label is translated by
+    char label[OMX_CLAP_PANEL_DESCRIPTION_NAME_SIZE];  ///< the fallback text
+} omx_clap_panel_description_display_t;
+
+/** A parameter's come-up value in a placement other than insert. */
+typedef struct omx_clap_panel_description_default
+{
+    uint32_t placement;  ///< an OMX_CLAP_PANEL_PLACEMENTS code, never insert
+    clap_id param_id;  ///< the parameter
+    double value;  ///< its plain value, in the parameter's unit
+} omx_clap_panel_description_default_t;
+
+/** The org.openmixer.panel-description/1 extension a plugin offers. */
+typedef struct omx_clap_plugin_panel_description_ext
+{
+    /** [thread-safe] Lowercase hex SHA-256 of the canonical serialisation, 64 characters and the NUL. */
+    const char *(CLAP_ABI *fingerprint)(const clap_plugin_t *plugin);
+
+    /** [main-thread] An OMX_CLAP_PANEL_FAMILIES code. */
+    uint32_t (CLAP_ABI *family)(const clap_plugin_t *plugin);
+
+    /** [main-thread] The entries of one table (an OMX_CLAP_PANEL_TABLES code); 0 for an unknown table. */
+    uint32_t (CLAP_ABI *count)(const clap_plugin_t *plugin, uint32_t table);
+
+    /** [main-thread] Fills `*out`, the structure of that table, for index < count; false past the end or for an unknown
+     * table. */
+    bool (CLAP_ABI *get)(const clap_plugin_t *plugin, uint32_t table, uint32_t index, void *out);
+} omx_clap_plugin_panel_description_ext_t;
+
+
 #ifdef __cplusplus
 }
 #endif
