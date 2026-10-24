@@ -421,6 +421,12 @@ static void fields_checks(const char *scan, const char *fake, const char *crash,
     status = run(out, "%s --fields clap:%s#x 2>" ERR_FILE, scan, crash);
     CHECK(status == 1 && out[0] == '\0', "a plugin that aborts in its entry takes the child, not the scanner, and leaves no dump (%i)", status);
     CHECK(has(err_text(), "--fields: clap:") && has(g_err, ": crashed with signal 6"), "the reason on stderr: crashed with signal 6");
+    status = run(out, "OMX_CRASH_MODE=hang OMX_CLAP_SCAN_FIELDS_TIMEOUT=1 %s --fields clap:%s#x 2>" ERR_FILE, scan, crash);
+    CHECK(status == 1 && out[0] == '\0', "a plugin that hangs in its entry is ended by the child's timeout, no dump (%i)", status);
+    CHECK(has(err_text(), ": timed out after 1 s"), "the reason on stderr: timed out after 1 s");
+    status = run(out, "OMX_CRASH_MODE=exit0 %s --fields clap:%s#x 2>" ERR_FILE, scan, crash);
+    CHECK(status == 1 && out[0] == '\0', "a plugin that ends its process with status 0 in its entry is no dump (%i)", status);
+    CHECK(has(err_text(), "ended before its dump was whole"), "the reason on stderr: the process ended before its dump was whole");
     if (strcmp(lv2_fixtures, "-") == 0)
         return;
     status = run(out, "LV2_PATH=%s %s --fields lv2:urn:openmixer:test:host-fixture", lv2_fixtures, scan);
