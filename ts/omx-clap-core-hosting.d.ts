@@ -48,7 +48,7 @@ export declare const HOSTING_IDLE_CODES: {
 export declare const HOSTING_WINDOW_CODES: {
   readonly windowNoDisplay: {
     readonly code: "hosting.window.no-display";
-    readonly doc: "no X display to show it on: DISPLAY is unset, or the X server refused the connection; the plugin runs on";
+    readonly doc: "no display to show it on: none is named, or its server refused the connection; the plugin runs on";
   };
   readonly windowNotBuilt: {
     readonly code: "hosting.window.not-built";
@@ -56,7 +56,7 @@ export declare const HOSTING_WINDOW_CODES: {
   };
   readonly windowUnsupported: {
     readonly code: "hosting.window.unsupported";
-    readonly doc: "the plugin has no clap.gui, or its clap.gui offers no X11 window, embedded or floating";
+    readonly doc: "the plugin has no clap.gui, or its clap.gui offers no window API the host shows, embedded or floating";
   };
   readonly windowRefused: {
     readonly code: "hosting.window.refused";

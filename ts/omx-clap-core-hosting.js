@@ -48,7 +48,7 @@ export const HOSTING_IDLE_CODES = {
 export const HOSTING_WINDOW_CODES = {
   "windowNoDisplay": {
     "code": "hosting.window.no-display",
-    "doc": "no X display to show it on: DISPLAY is unset, or the X server refused the connection; the plugin runs on"
+    "doc": "no display to show it on: none is named, or its server refused the connection; the plugin runs on"
   },
   "windowNotBuilt": {
     "code": "hosting.window.not-built",
@@ -56,7 +56,7 @@ export const HOSTING_WINDOW_CODES = {
   },
   "windowUnsupported": {
     "code": "hosting.window.unsupported",
-    "doc": "the plugin has no clap.gui, or its clap.gui offers no X11 window, embedded or floating"
+    "doc": "the plugin has no clap.gui, or its clap.gui offers no window API the host shows, embedded or floating"
   },
   "windowRefused": {
     "code": "hosting.window.refused",
