@@ -42,7 +42,8 @@ funcs() {
         parse_value pj_parse pj_free pj_get pj_get_str pj_set pj_string pj_write write_value put puts_ put_string \
         indent ;;
     state) echo src/preset_file.c :: preset_base64_encode preset_base64_decode ;;
-    manifest) echo src/lv2_locate.c :: name_char plain_local has_prefixed lv2_locate_manifest_names ;;
+    manifest) echo src/lv2_locate.c :: name_char plain_local has_prefixed lv2_locate_manifest_names \
+        lv2_locate_manifest_readings ;;
     *) echo "coverage.sh: no function list for harness '$1'" >&2; exit 2 ;;
     esac
 }

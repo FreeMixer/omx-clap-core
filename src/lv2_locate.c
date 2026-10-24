@@ -77,6 +77,13 @@ static int has_prefixed(const char *text, const char *prefix, size_t prefix_len,
 
 int lv2_locate_manifest_names(const char *text, const char *uri)
 {
+    size_t readings = 0;
+
+    return lv2_locate_manifest_readings(text, uri, &readings);
+}
+
+int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings)
+{
     const size_t uri_len = strlen(uri);
     const char *at;
     char *whole;
@@ -129,7 +136,10 @@ int lv2_locate_manifest_names(const char *text, const char *uri)
         {
             // each such declaration reads the whole text for its name: past the most a manifest is read for, it is a
             // candidate unread, so no manifest costs more than LV2_LOCATE_PREFIXES_MAX readings of it
-            if (++read_again > LV2_LOCATE_PREFIXES_MAX || has_prefixed(text, name, name_len, uri + ns_len))
+            if (++read_again > LV2_LOCATE_PREFIXES_MAX)
+                return 1;
+            ++*readings;
+            if (has_prefixed(text, name, name_len, uri + ns_len))
                 return 1;
         }
         at = ns_end;

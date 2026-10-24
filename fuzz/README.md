@@ -82,7 +82,7 @@ seed with a matching declaration reaches.
 | --- | ---: | ---: | --- |
 | preset | 394 | 387 (98.22%) | `parse_string`'s two `goto bad` once its first scan has found the closing quote; `pj_free(NULL)`; `pj_set`'s allocation failure, a builder only a harness calls |
 | state | 59 | 59 (100%) | |
-| manifest | 85 | 85 (100%) | |
+| manifest | 92 | 92 (100%) | |
 
 ## The mutants
 
@@ -112,7 +112,8 @@ report included, makes it red. The source is restored with `git checkout --` on 
 `fuzz_manifest` found `lv2_locate_manifest_names` reading the whole text again for each declaration of a namespace
 the URI starts with: a manifest that repeats one costs its size squared (a 4 MiB one, 10.7 s at -O3 per lookup).
 Past `LV2_LOCATE_PREFIXES_MAX` such declarations a manifest is now a candidate unread, which the caller opens to know;
-`tests/lv2_locate_test.c` holds it, and the seeds `prefixes-most-read` and `prefixes-past-most-read` stand either side
+`tests/lv2_locate_test.c` holds it by counting the readings (`lv2_locate_manifest_readings`): 16 for a manifest of
+1024 such declarations, where the reader before read it 1024 times. The seeds `prefixes-most-read` and `prefixes-past-most-read` stand either side
 of the bound.
 
 ## Running

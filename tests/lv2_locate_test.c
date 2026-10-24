@@ -21,7 +21,6 @@
 /* Which bundles on an LV2 path the host opens for a URI (src/lv2_locate.c): the manifest's text against each way a URI
  * is spelled in it, then a walk over a path of temporary directories, its order, its stop and its "~/". */
 
-#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,42 +56,35 @@ static void names(void)
     CHECK(lv2_locate_manifest_names("<urn:a:b>", "") == 0, "manifest: an empty URI is named by nothing");
 }
 
-static void on_alarm(int sig)
-{
-    static const char m[] = "FAIL manifest: many declarations of the URI's namespace, still reading after 20 s\n";
-
-    (void)sig;
-    if (write(STDOUT_FILENO, m, sizeof(m) - 1) < 0)
-        _exit(2);
-    _exit(1);
-}
-
-/* A manifest that declares the URI's namespace again and again: each declaration reads the whole text for its name, so
- * one of the largest size read (4 MiB) took minutes, a stall of every lookup on its path. */
+/* A manifest that declares the URI's namespace again and again: each declaration read the whole text for its name, so
+ * one of the largest size read (4 MiB) cost its size squared, a stall of every lookup on its path. The work is counted
+ * in readings of the whole text, never timed: a reader that reads once per declaration reads this one n times. */
 static void many_prefixes(void)
 {
     static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
-    const size_t len = sizeof(line) - 1, n = (4u << 20) / len;
+    const size_t len = sizeof(line) - 1, n = 1024;
     char *text = malloc(n * len + 1);
-    size_t i;
+    size_t i, readings = 0;
     int got;
 
     if (!text)
     {
-        CHECK(0, "manifest: memory for a 4 MiB manifest");
+        CHECK(0, "manifest: memory for a manifest of %zu declarations", n);
         return;
     }
     for (i = 0; i < n; i++)
         memcpy(text + i * len, line, len);
     text[n * len] = '\0';
-    signal(SIGALRM, on_alarm);
-    alarm(20);
-    got = lv2_locate_manifest_names(text, URI);
-    alarm(0);
-    CHECK(got == 1, "manifest: %zu declarations of the URI's namespace and no name: a candidate, read in bounded work", n);
+    got = lv2_locate_manifest_readings(text, URI, &readings);
+    CHECK(got == 1 && readings <= LV2_LOCATE_PREFIXES_MAX,
+          "manifest: %zu declarations of the URI's namespace and no name: a candidate, read %zu times (at most %d)", n,
+          readings, LV2_LOCATE_PREFIXES_MAX);
     text[LV2_LOCATE_PREFIXES_MAX * len] = '\0';
-    CHECK(lv2_locate_manifest_names(text, URI) == 0,
-          "manifest: %d declarations of the URI's namespace and no name: read whole, not a candidate", LV2_LOCATE_PREFIXES_MAX);
+    readings = 0;
+    got = lv2_locate_manifest_readings(text, URI, &readings);
+    CHECK(got == 0 && readings == LV2_LOCATE_PREFIXES_MAX,
+          "manifest: %d declarations of the URI's namespace and no name: read whole for each (%zu times), not a candidate",
+          LV2_LOCATE_PREFIXES_MAX, readings);
     free(text);
 }
 
