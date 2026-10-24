@@ -1,0 +1,66 @@
+name: fuzz
+
+# The libFuzzer harnesses of fuzz/ (fuzz/README.md), on every push and pull request: the preset file reader, the state
+# body it carries and the manifest.ttl the host reads without lilv, each built with clang under AddressSanitizer and
+# UndefinedBehaviorSanitizer and fuzzed for 60 s from its seed corpus; every mutant of fuzz/mutants/ found by its own
+# property; the coverage witness held to its floor; the corpus current; and each harness linked fully static. An input
+# that crashes a harness is uploaded as the fuzz-findings artifact. Only Fedora's toolchain is installed: no package of
+# the FreeMixer channel, so no floor to declare.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz the preset, state and manifest readers
+    runs-on: ubuntu-latest
+    # a backstop: fuzz-run spends 60 s on each harness and fuzz-sabotage runs seeds only, so the job ends well inside it
+    timeout-minutes: 30
+    container:
+      image: fedora:44
+    steps:
+      - name: Install clang, libFuzzer, llvm-cov and the static libc
+        run: |
+          dnf install -y --setopt=install_weak_deps=False --setopt=retries=10 git clang compiler-rt llvm make gawk \
+            diffutils glibc-static
+
+      - uses: actions/checkout@v4
+
+      # fuzz-sabotage applies each mutant with git and restores it with git checkout
+      - name: Let git work in the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build the harnesses (clang, libFuzzer, ASan, UBSan)
+        run: make fuzz
+
+      - name: The seed corpus is what the fixtures give
+        run: make fuzz-corpus-check
+
+      - name: Fuzz each harness for 60 s
+        run: make fuzz-run FUZZ_TIME=60
+
+      # a property no mutant can break checks nothing: each one-line mutant must make its harness abort on a seed, in
+      # that property's own check
+      - name: Find every mutant, each by its own property
+        run: make fuzz-sabotage
+
+      # the seed corpus must keep reaching the reader lines it reaches today (fuzz/coverage-floor.txt) and every
+      # property check of every harness
+      - name: Hold the coverage floor
+        run: make fuzz-coverage
+
+      - name: Each harness linked fully static, over its corpus
+        run: make fuzz-static
+
+      - name: Upload the crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings
+          path: fuzz/findings/
+          if-no-files-found: ignore
