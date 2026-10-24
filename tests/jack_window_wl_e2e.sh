@@ -10,16 +10,21 @@
 # hide_external_ui and a second show work on it as on X11, and remove destroys it. The same plugin with no Wayland
 # window falls to X11; with neither display, or none that answers, the show is refused hosting.window.no-display and
 # the plugin is never asked to create a window; a plugin with no clap.gui is refused hosting.window.unsupported; the
-# audio runs on throughout. Exit 0 only when every step held; each step is printed.
+# audio runs on throughout. Then the host as X11=0 builds it, which links no xcb: the same plugin's Wayland window is
+# shown and mapped by weston, a session with an X display and no compositor is hosting.window.no-display, and a plugin
+# with only an X11 window is hosting.window.unsupported. Exit 0 only when every step held; each step is printed.
 #
-# OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
-# JACK_E2E_PORT:    the socket port (default 5592)
+# OMX_CLAP_HOST:        the binary (default ./omx-clap-host)
+# OMX_CLAP_HOST_NOX11:  the binary built with X11=0 (default build/nox11/omx-clap-host, make test-jack-window-wl's)
+# JACK_E2E_PORT:        the socket port (default 5592)
 
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
+nox11=${OMX_CLAP_HOST_NOX11:-$root/build/nox11/omx-clap-host}
+case $nox11 in /*) ;; *) nox11=$root/$nox11 ;; esac
 port=${JACK_E2E_PORT:-5592}
 gui=$here/fake_gui_wl.clap
 fake=$here/fake.clap
@@ -27,13 +32,13 @@ source=$here/jack_meter_source
 listen=$here/jack_synth_probe
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
-    for f in "$host" "$gui" "$fake" "$source" "$listen"; do
+    for f in "$host" "$nox11" "$gui" "$fake" "$source" "$listen"; do
         [ -e "$f" ] || { echo "missing $f" >&2; exit 2; }
     done
-    for t in weston Xvfb xdotool pipewire pw-link ss; do
+    for t in weston Xvfb xdotool pipewire pw-link ss ldd; do
         command -v "$t" >/dev/null || { echo "missing $t" >&2; exit 2; }
     done
-    JACK_E2E_INSIDE=1 OMX_CLAP_HOST=$host JACK_E2E_PORT=$port \
+    JACK_E2E_INSIDE=1 OMX_CLAP_HOST=$host OMX_CLAP_HOST_NOX11=$nox11 JACK_E2E_PORT=$port \
         exec unshare --user --map-root-user --net --pid --fork --mount-proc "$0" "$@"
 fi
 
@@ -254,6 +259,49 @@ for what in "neither display named" "WAYLAND_DISPLAY=omx-none, no compositor" "W
     expect "quit" "resp 0"
     sleep 0.3
 done
+
+# ---- the host as X11=0 builds it: no xcb, the Wayland window all the same ----
+! ldd "$nox11" | grep -q 'libxcb'; step $? "the X11=0 host links no xcb ($(ldd "$nox11" | grep -c libxcb) libxcb)"
+ldd "$host" | grep -q 'libxcb'; step $? "and the default host does: the two builds differ"
+port=$((port + 1))
+: >"$runtime/gui.log"
+start_host "$runtime/host4.log" env WAYLAND_DISPLAY="$wl_name" DISPLAY="$display" FAKE_GUI_LOG="$runtime/gui.log" "$nox11"
+expect "add clap:$gui#org.omx-clap-host.test.gui 0" "resp 0"
+feed 0
+expect "show_external_ui 0" "resp 0"
+[ "$(logged "create wayland 1")" = 1 ] && [ "$(created)" = 1 ]; step $? "X11=0: the plugin was asked create wayland floating"
+wait_count "wayland frame" 1; step $? "X11=0: and its toplevel drawn by weston"
+mapped "fake gui"; step $? "X11=0: weston maps it, a toplevel of the host's process titled fake gui"
+[ "$(x_connections)" = 0 ]; step $? "X11=0: nothing connected to the X display ($(x_connections))"
+audio_runs 0 "X11=0, with the window open"
+expect "remove 0" "resp 0"
+expect "quit" "resp 0"
+sleep 0.3
+
+# X11=0 and an X display but no Wayland session: Wayland is the one API built, and nothing answers it
+port=$((port + 1))
+: >"$runtime/gui.log"
+start_host "$runtime/host5.log" env -u WAYLAND_DISPLAY DISPLAY="$display" FAKE_GUI_LOG="$runtime/gui.log" "$nox11"
+expect "add clap:$gui#org.omx-clap-host.test.gui 0" "resp 0"
+feed 0
+expect "show_external_ui 0" "resp -404 hosting.window.no-display"
+[ "$(created)" = 0 ]; step $? "X11=0, no Wayland session: the plugin is never asked to create a window"
+audio_runs 0 "X11=0, no Wayland session, after the refusal"
+expect "remove 0" "resp 0"
+expect "quit" "resp 0"
+sleep 0.3
+
+# X11=0, both displays, a plugin with no Wayland window: the X11 window the default host shows is not built
+port=$((port + 1))
+: >"$runtime/gui.log"
+start_host "$runtime/host6.log" env WAYLAND_DISPLAY="$wl_name" DISPLAY="$display" FAKE_GUI_LOG="$runtime/gui.log" \
+    FAKE_GUI_NO_WAYLAND=1 "$nox11"
+expect "add clap:$gui#org.omx-clap-host.test.gui 0" "resp 0"
+expect "show_external_ui 0" "resp -404 hosting.window.unsupported"
+[ "$(created)" = 0 ]; step $? "X11=0, a plugin with only an X11 window: never asked to create one"
+expect "remove 0" "resp 0"
+expect "quit" "resp 0"
+sleep 0.3
 
 if [ "$failures" -eq 0 ]; then
     echo "jack window wayland e2e ok"

@@ -50,10 +50,6 @@ export const HOSTING_WINDOW_CODES = {
     "code": "hosting.window.no-display",
     "doc": "no display to show it on: none is named, or its server refused the connection; the plugin runs on"
   },
-  "windowNotBuilt": {
-    "code": "hosting.window.not-built",
-    "doc": "this omx-clap-host was built without X11 (xcb), so it shows no window"
-  },
   "windowUnsupported": {
     "code": "hosting.window.unsupported",
     "doc": "the plugin has no clap.gui, or its clap.gui offers no window API the host shows, embedded or floating"

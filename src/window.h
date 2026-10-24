@@ -25,7 +25,8 @@
  * it, or lets the plugin open a floating one when that is all it offers. Everything here runs on the control thread:
  * the commands and the idle tick; the plugin's clap.gui calls to the host, which may come from any thread, only leave a
  * request the tick answers.
- * Built without xcb (no OMX_CLAP_HOST_X11), every show answers CLAP_HOST_CODE_WINDOW_NOT_BUILT, on Wayland too.
+ * Wayland needs no library of the host's and is always built; built without xcb (no OMX_CLAP_HOST_X11, or X11=0), a show
+ * tries Wayland alone, so a plugin with only an X11 window is CLAP_HOST_CODE_WINDOW_UNSUPPORTED there.
  */
 
 #ifndef WINDOW_H

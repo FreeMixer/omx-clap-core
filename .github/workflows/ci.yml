@@ -208,7 +208,8 @@ jobs:
           fi
 
       # The same with Wayland first, beside a headless weston of its own: the Wayland window taken when both displays
-      # are there, X11 for a plugin with none, no-display with neither (#329).
+      # are there, X11 for a plugin with none, no-display with neither; and the host as X11=0 builds it, no xcb linked,
+      # still showing the Wayland window (#329).
       - name: Test a plugin's own window over Wayland first
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then

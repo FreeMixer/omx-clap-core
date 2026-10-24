@@ -58,7 +58,6 @@
 /** the idle dimension, what the library answers about its hold of /dev/cpu_dma_latency (#296), and the window dimension, why omx-clap-host shows no plugin window (#180) */
 #define CLAP_HOST_CODE_IDLE_HOLD_REFUSED "hosting.idle.hold-refused"  ///< the device could not be opened for writing (no permission, or no such device): the host runs with no hold
 #define CLAP_HOST_CODE_WINDOW_NO_DISPLAY "hosting.window.no-display"  ///< no display to show it on: none is named, or its server refused the connection; the plugin runs on
-#define CLAP_HOST_CODE_WINDOW_NOT_BUILT "hosting.window.not-built"  ///< this omx-clap-host was built without X11 (xcb), so it shows no window
 #define CLAP_HOST_CODE_WINDOW_UNSUPPORTED "hosting.window.unsupported"  ///< the plugin has no clap.gui, or its clap.gui offers no window API the host shows, embedded or floating
 #define CLAP_HOST_CODE_WINDOW_REFUSED "hosting.window.refused"  ///< the plugin's clap.gui answered false when asked to create, embed or show its window
 
