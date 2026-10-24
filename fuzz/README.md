@@ -72,6 +72,12 @@ lists the functions). `fuzz/coverage-floor.txt` holds the lines each harness cov
 one falls below it. Every `abort()` of a harness, and the statement that guards it, must be reached by a seed too
 (`fuzz/checks.awk`): a check no input reaches is a property nobody tests.
 
+A line counts as covered when any seed runs it, so a branch on a line other seeds reach is one the floor cannot see.
+`fuzz/reach.txt` names such a branch and the seed written for it; the target runs that seed alone and is red, naming
+the branch by file, line and column, when the seed is gone or does not take the branch's true side. It holds the
+manifest's bound: `prefixes-past-most-read` alone must take `++read_again > LV2_LOCATE_PREFIXES_MAX`, a line every
+seed with a matching declaration reaches.
+
 | Harness | Reader lines | Covered | Lines no input reaches |
 | --- | ---: | ---: | --- |
 | preset | 394 | 387 (98.22%) | `parse_string`'s two `goto bad` once its first scan has found the closing quote; `pj_free(NULL)`; `pj_set`'s allocation failure, a builder only a harness calls |

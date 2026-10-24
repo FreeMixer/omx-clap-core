@@ -1074,7 +1074,7 @@ fuzz-coverage: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
 	    { cat $(FUZZ_COV_BUILD)/$$h.log; echo "fuzz-coverage: fuzz_$$h failed on its own corpus"; exit 1; }; \
 	  $(LLVM_PROFDATA) merge -sparse $(FUZZ_COV_BUILD)/$$h.profraw -o $(FUZZ_COV_BUILD)/$$h.profdata; \
 	done
-	@LLVM_COV=$(LLVM_COV) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
+	@LLVM_COV=$(LLVM_COV) LLVM_PROFDATA=$(LLVM_PROFDATA) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
 
 # the same harnesses driven by fuzz/standalone.c instead of libFuzzer and linked fully static, each run over its corpus:
 # the build a verifier that brings its own driver takes. Needs the static libc (glibc-static)
