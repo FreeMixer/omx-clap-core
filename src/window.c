@@ -344,7 +344,8 @@ static void x_requested(struct window *w, uint32_t req) { (void)w; (void)req; }
 
 /* the APIs a show tries, first to last: the first the plugin offers whose display answers is taken. Wayland first, on
  * the operator's ruling of 2026-10-24 (#329): a Wayland session shows a Wayland window, and X11 (through Xwayland there)
- * only for a plugin with none. Built without xcb, Wayland is the one entry */
+ * only for a plugin with none. A plugin that offers X11 embedded but has no set_parent falls to X11 floating when it
+ * offers that. Built without xcb, Wayland is the one entry */
 static const struct window_api g_apis[] = {
     { CLAP_WINDOW_API_WAYLAND, 1, wl_connect, wl_release, &g_wl_open },
 #ifdef OMX_CLAP_HOST_X11

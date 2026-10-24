@@ -160,7 +160,9 @@ make test-lv2
   same on it. The host links no Wayland library and keeps no Wayland
   connection, so a build without xcb (X11=0) shows Wayland windows too, and
   hosting.window.not-built, which nothing answers any more, is gone from the
-  window codes; no export changes (#329).
+  window codes; no export changes. A plugin that offers X11 embedded but
+  has no set_parent is shown floating when it offers that, where it was
+  hosting.window.unsupported (#329).
 
 * Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.18.0-1
 - omx-clap-host shows a plugin's own window, over clap.gui and X11, on
