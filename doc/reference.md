@@ -866,10 +866,10 @@ crashes or hangs (30 s) takes only its own file's entry: each file is
 scanned in a child process and the scan goes on. The exit status is 0 when
 at least one path could be read, 1 when none could.
 
-`omx-clap-scan --fields clap:<path>#<id>` (the id may be left out when the
-file holds one plugin) or `--fields lv2:<uri>` writes the field dump of one
-plugin, the records plugin-hostd's format tables map to a descriptor (its
-`docs/formats.md`, "The field dump"): the line `# omx-clap-scan --fields 1`,
+`omx-clap-scan --fields clap:<path>#<id>` or `--fields lv2:<uri>` writes the
+field dump of one plugin, the records plugin-hostd's format tables map to a
+descriptor (its `docs/formats.md`, "The field dump"): the line
+`# omx-clap-scan --fields 1`,
 the format's version, then one record per field the plugin states,
 `<scope>` TAB `<field>` TAB `<value>`. The scope is `plugin`, `param:<index>`
 (in `get_info` order), `audio_in:<index>`, `audio_out:<index>`,
