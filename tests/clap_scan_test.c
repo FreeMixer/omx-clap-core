@@ -74,6 +74,27 @@ static int run(char *out, const char *format, ...)
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+/* the file name, in the scratch directory, a command's stderr is sent to with 2>, and its text after the run */
+#define ERR_FILE "scan.err"
+static char g_err[65536];
+
+static const char *err_text(void)
+{
+    char path[PATH_MAX + 16];
+    FILE *file;
+    size_t n = 0;
+
+    snprintf(path, sizeof(path), "%s/" ERR_FILE, g_scratch);
+    file = fopen(path, "r");
+    if (file)
+    {
+        n = fread(g_err, 1, sizeof(g_err) - 1, file);
+        fclose(file);
+    }
+    g_err[n] = '\0';
+    return g_err;
+}
+
 static int has(const char *out, const char *text)
 {
     return strstr(out, text) != NULL;
@@ -397,8 +418,9 @@ static void fields_checks(const char *scan, const char *fake, const char *crash,
     status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.synth-mpe", scan, synth);
     CHECK(status == 0 && has(out, "\nnote_in:0\tclap_note_port_info.supported_dialects\tCLAP_NOTE_DIALECT_MIDI_MPE\n") && !has(out, "clap_voice_info"),
           "synth-mpe reads MIDI with MPE and has no voice info (%i)", status);
-    status = run(out, "%s --fields clap:%s#x 2>/dev/null", scan, crash);
+    status = run(out, "%s --fields clap:%s#x 2>" ERR_FILE, scan, crash);
     CHECK(status == 1 && out[0] == '\0', "a plugin that aborts in its entry takes the child, not the scanner, and leaves no dump (%i)", status);
+    CHECK(has(err_text(), "--fields: clap:") && has(g_err, ": crashed with signal 6"), "the reason on stderr: crashed with signal 6");
     if (strcmp(lv2_fixtures, "-") == 0)
         return;
     status = run(out, "LV2_PATH=%s %s --fields lv2:urn:openmixer:test:host-fixture", lv2_fixtures, scan);
