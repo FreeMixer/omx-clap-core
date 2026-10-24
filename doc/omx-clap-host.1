@@ -200,10 +200,14 @@ and
 when its user holds the control, in the plugin's order, the last value of
 each parameter per idle tick.
 .BI "show_external_ui " N
-puts the plugin's own window on the X display
+puts the plugin's own window on the display, over clap.gui, trying in order:
+Wayland floating, on the compositor
+.B WAYLAND_DISPLAY
+names, the plugin's own toplevel (CLAP has no Wayland parent); X11 embedded,
+on the X display
 .B DISPLAY
-names, over clap.gui with the X11 API: set into a window of the host's titled
-with the plugin's name, or floating when that is all the plugin offers. Its
+names, set into a window of the host's titled with the plugin's name; X11
+floating. The first the plugin offers whose display answers is taken. Its
 timers and descriptors run on the host's idle tick.
 .BI "hide_external_ui " N
 takes it off the display and keeps it;
@@ -214,15 +218,16 @@ answers
 .B "resp \-404"
 and a code, and the audio runs on:
 .B hosting.window.no\-display
-(no
+(neither
+.B WAYLAND_DISPLAY
+nor
 .B DISPLAY
-or no X server),
+names a display that answers),
 .B hosting.window.unsupported
-(the plugin offers no X11 window),
+(the plugin offers neither a Wayland nor an X11 window; a host built without
+xcb shows Wayland alone) or
 .B hosting.window.refused
-(the plugin's own call failed) or
-.B hosting.window.not\-built
-(a host built without xcb).
+(the plugin's own call failed).
 .B idle_hold
 answers
 .BI "resp 0 " "target held aggregate active code" :
@@ -380,6 +385,15 @@ The directories searched for the bundle of an LV2 plugin, separated by
 .BR : ;
 unset, ~/.lv2, /usr/local/lib64/lv2, /usr/local/lib/lv2, /usr/lib64/lv2 and
 /usr/lib/lv2.
+.TP
+.B WAYLAND_DISPLAY
+The compositor a plugin's own window goes on first, when the plugin offers a
+Wayland window: a socket name in
+.B XDG_RUNTIME_DIR
+or an absolute path.
+.TP
+.B DISPLAY
+The X display a plugin's own window goes on when no Wayland window is taken.
 .TP
 .B OMX_CLAP_HOST_CORE_DUMPS
 A plugin that aborts or faults takes the host down with it. By default the
