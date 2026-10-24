@@ -91,7 +91,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
-            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan \
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan libabigail \
             python3-numpy python3-lilv \
             dnf5-plugins
 
@@ -158,6 +158,11 @@ jobs:
       # each guard of the resource hints broken in a copy of the sources, the test that holds it red (#323)
       - name: The sabotage of the resource hints' guards
         run: make test-resource-hints-sabotage
+
+      # abi-check.sh's reading of abidiff against a fixture library: a pointee grown reads ok, a function pointer, a
+      # retyped pointer and a reorder each FAIL (#323)
+      - name: The sabotage of the ABI check's report reading
+        run: make test-abi-sabotage
 
       - name: Test what a plugin reports about its parameters under AddressSanitizer
         run: make test-untrusted-asan
