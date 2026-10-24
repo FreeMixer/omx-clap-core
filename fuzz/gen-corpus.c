@@ -229,6 +229,7 @@ static void preset_corpus(void)
         { "escapes", "{\"name\": \"quote \\\" backslash \\\\ slash \\/ \\b\\f\\n\\r\\t e\\u0301 \\u00e9 \\ud83c\\udfb9 "
                      "\\u001f \\u007f \xc3\xa9\", \"alias\": \"tab\\there\"}\n" },
         { "numbers", "[0, -0, 1.5, -2.5e-3, 1E10, 0.1, 123456789012345678, 1e-400, 2.2250738585072014e-308, 17]" },
+        { "escapes-upper-hex", "{\"name\": \"\\u00C9t\\u00E9 \\u20AC \\u20ac \\uD83C\\uDFB9\"}" },
         { "number-alone", "17" },
         { "zero-alone", "0" },
         { "minus-zero-alone", "-0" },
@@ -348,7 +349,8 @@ static void state_corpus(void)
         { "rfc4648-foobar", "Zm9vYmFy" },
         { "unpadded-fo", "Zm8" },
         { "unpadded-f", "Zg" },
-        { "spaced", " Zm9v\tYmFy\n" },
+        { "spaced", " Zm9v\tYmFy" },
+        { "trailing-newline", "Zm9vYmFy\n" },
         { "refuse-letter", "Zm9v!" },
         { "refuse-after-pad", "Zg==Zg==" },
         { "refuse-three-pads", "Zg===" },
@@ -450,7 +452,8 @@ static void manifest_corpus(void)
         { "prefix-cut", "@prefix ex:" },
         { "prefix-at-end", "@prefix" },
         { "namespace-is-uri", "@prefix ex: <urn:example:plugins#gain> .\nex: a lv2:Plugin ." },
-        { "two-prefixes", "@prefix a: <urn:example:other#> .\n@prefix ex: <urn:example:plugins#> .\nex:gain a lv2:Plugin ." },
+        { "local-first", "gain\n@prefix ex: <urn:example:plugins#> .\nex:gain a lv2:Plugin ." },
+        { "two-prefixes","@prefix a: <urn:example:other#> .\n@prefix ex: <urn:example:plugins#> .\nex:gain a lv2:Plugin ." },
     };
     char **bundles, path[1024], name[1024];
     size_t i;
