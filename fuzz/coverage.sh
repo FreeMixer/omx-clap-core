@@ -15,15 +15,25 @@
 # guards it (fuzz/checks.awk), must be executed by at least one seed: a check no seed reaches is a property nobody
 # tests, and the reader's line count cannot see it. Each such check is named by file and line, and turns this red.
 #
-# Usage: LLVM_COV=llvm-cov coverage.sh <cov build dir> <harness>...
+# THE SEED FLOOR. A line counts as covered when any seed runs it, so a branch on a line other seeds reach is invisible
+# to the floor: the seed written to take it can go and the floor holds. fuzz/reach.txt names such a branch and its seed;
+# the seed is run alone and must take the branch's true side, or the branch is named by file, line and column and this
+# turns red.
+#
+# Usage: LLVM_COV=llvm-cov LLVM_PROFDATA=llvm-profdata coverage.sh <cov build dir> <harness>...
 set -eu
 B=$1
 shift
+harnesses="$*"
 LLVM_COV=${LLVM_COV:-llvm-cov}
+LLVM_PROFDATA=${LLVM_PROFDATA:-llvm-profdata}
 FLOOR=fuzz/coverage-floor.txt
+REACH=fuzz/reach.txt
 [ -f "$FLOOR" ] || { echo "coverage.sh: no $FLOOR" >&2; exit 2; }
+[ -f "$REACH" ] || { echo "coverage.sh: no $REACH" >&2; exit 2; }
 low=
 dead=
+unseeded=
 
 # the reader functions each harness covers, its files then `::` then the functions; a static is matched by bare name
 funcs() {
@@ -89,7 +99,48 @@ for h in "$@"; do
     fi
 done
 
+# the seed floor: each branch of fuzz/reach.txt for a harness run here, its seed alone
+echo "== the seed floor ($REACH)"
+grep -v -e '^#' -e '^[[:space:]]*$' "$REACH" | while read -r h seed file cond; do
+    case " $harnesses " in *" $h "*) ;; *) continue ;; esac
+    if [ ! -f "fuzz/corpus/$h/$seed" ]; then
+        echo "  REACH: fuzz/corpus/$h/$seed is gone, and with it the seed of $file: $cond"
+        echo "$h/$seed" >>"$B/reach.red"
+        continue
+    fi
+    # the line and column the condition starts at, the place llvm-cov names its branch by
+    at=$(awk -v c="$cond" 'index($0, c) { n++; at = NR ":" index($0, c) } END { if (n == 1) print at }' "$file")
+    if [ -z "$at" ]; then
+        echo "  REACH: $file holds the condition of $h/$seed not once but none or several times: $cond"
+        echo "$h/$seed" >>"$B/reach.red"
+        continue
+    fi
+    raw=$B/reach-$h-$seed.profraw prof=$B/reach-$h-$seed.profdata
+    rm -f "$raw"
+    LLVM_PROFILE_FILE=$raw "$B/fuzz_$h" "fuzz/corpus/$h/$seed" >"$B/reach-$h-$seed.log" 2>&1 ||
+        { echo "  REACH: fuzz_$h failed on $seed alone (log in $B/reach-$h-$seed.log)"; echo "$h/$seed" >>"$B/reach.red"; continue; }
+    "$LLVM_PROFDATA" merge -sparse "$raw" -o "$prof" ||
+        { echo "  REACH: no profile of $seed alone"; echo "$h/$seed" >>"$B/reach.red"; continue; }
+    # "|  Branch (L:C): [True: N, False: M]"; N is 0 when the seed never takes it
+    taken=$("$LLVM_COV" show -show-branches=count "$B/fuzz_$h" -instr-profile="$prof" "$file" |
+        awk -v at="($at)" '$2 == "Branch" && $3 == at":" { t = $5; sub(/,$/, "", t); print t; exit }')
+    if [ -z "$taken" ]; then
+        echo "  REACH: $file:$at is no branch llvm-cov knows: $cond"
+        echo "$h/$seed" >>"$B/reach.red"
+    elif [ "$taken" = 0 ]; then
+        echo "  REACH: $file:$at $seed does not take it: $cond"
+        echo "$h/$seed" >>"$B/reach.red"
+    else
+        echo "  reach $h/$seed: $file:$at taken $taken times: $cond"
+    fi
+done
+if [ -f "$B/reach.red" ]; then
+    unseeded=$(tr '\n' ' ' <"$B/reach.red" | sed 's/ $//')
+    rm -f "$B/reach.red"
+fi
+
 [ -z "$low" ] || echo "make fuzz-coverage: RED -- below the coverage floor:$low"
 [ -z "$dead" ] || echo "make fuzz-coverage: RED -- harness checks no seed reaches:$dead"
-[ -z "$low$dead" ] || exit 1
-echo "make fuzz-coverage: every harness at or above its coverage floor, every check reached"
+[ -z "$unseeded" ] || echo "make fuzz-coverage: RED -- branches their seed does not take: $unseeded"
+[ -z "$low$dead$unseeded" ] || exit 1
+echo "make fuzz-coverage: every harness at or above its coverage floor, every check and seeded branch reached"
