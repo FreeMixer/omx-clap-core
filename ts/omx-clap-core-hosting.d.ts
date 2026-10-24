@@ -50,10 +50,6 @@ export declare const HOSTING_WINDOW_CODES: {
     readonly code: "hosting.window.no-display";
     readonly doc: "no display to show it on: none is named, or its server refused the connection; the plugin runs on";
   };
-  readonly windowNotBuilt: {
-    readonly code: "hosting.window.not-built";
-    readonly doc: "this omx-clap-host was built without X11 (xcb), so it shows no window";
-  };
   readonly windowUnsupported: {
     readonly code: "hosting.window.unsupported";
     readonly doc: "the plugin has no clap.gui, or its clap.gui offers no window API the host shows, embedded or floating";

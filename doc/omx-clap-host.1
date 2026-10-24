@@ -224,11 +224,10 @@ nor
 .B DISPLAY
 names a display that answers),
 .B hosting.window.unsupported
-(the plugin offers neither a Wayland nor an X11 window),
+(the plugin offers neither a Wayland nor an X11 window; a host built without
+xcb shows Wayland alone) or
 .B hosting.window.refused
-(the plugin's own call failed) or
-.B hosting.window.not\-built
-(a host built without xcb).
+(the plugin's own call failed).
 .B idle_hold
 answers
 .BI "resp 0 " "target held aggregate active code" :

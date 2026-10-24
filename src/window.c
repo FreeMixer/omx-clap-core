@@ -28,6 +28,8 @@
  * resize of the host's window is the plugin's set_size, its close button (WM_DELETE_WINDOW) hides the plugin. The
  * plugin's timers and descriptors, which a plugin's window lives on, are the library's tick (clap.timer-support,
  * clap.posix-fd-support).
+ * Wayland needs no library of the host's, so it is always built; only the X11 entries and the xcb they speak are behind
+ * OMX_CLAP_HOST_X11, which a build without xcb (or X11=0) leaves undefined: its shows try Wayland alone.
  */
 
 #include <stdatomic.h>
@@ -47,7 +49,6 @@
 #include "effects.h"
 #include "window.h"
 
-#ifdef OMX_CLAP_HOST_X11
 /* the size of a window whose plugin names none */
 #define WINDOW_DEFAULT_WIDTH    400u
 #define WINDOW_DEFAULT_HEIGHT   300u
@@ -163,12 +164,7 @@ static const clap_host_gui_t g_host_gui = {
     host_resize_hints_changed, host_request_resize, host_request_show, host_request_hide, host_closed
 };
 
-static xcb_connection_t *g_x;
-static xcb_screen_t *g_screen;
-static xcb_atom_t g_wm_protocols, g_wm_delete, g_net_wm_name, g_utf8_string;
-static uint32_t g_open;             // the X windows made and not yet destroyed: the connection closes at 0
 static uint32_t g_wl_open;          // the Wayland windows made and not yet destroyed
-static int g_x_lost_said;
 
 /* the compositor WAYLAND_DISPLAY names answers a connection: -1 when it is unset or nothing listens. The host speaks no
  * Wayland itself, the plugin opens a connection of its own, so this one is closed at once */
@@ -200,6 +196,13 @@ static int wl_connect(void)
 static void wl_release(void)
 {
 }
+
+#ifdef OMX_CLAP_HOST_X11
+static xcb_connection_t *g_x;
+static xcb_screen_t *g_screen;
+static xcb_atom_t g_wm_protocols, g_wm_delete, g_net_wm_name, g_utf8_string;
+static uint32_t g_open;             // the X windows made and not yet destroyed: the connection closes at 0
+static int g_x_lost_said;
 
 static xcb_atom_t atom(const char *name)
 {
@@ -250,15 +253,6 @@ static void x_release(void)
     }
 }
 
-/* the APIs a show tries, first to last: the first the plugin offers whose display answers is taken. Wayland first, on
- * the operator's ruling of 2026-10-24 (#329): a Wayland session shows a Wayland window, and X11 (through Xwayland there)
- * only for a plugin with none */
-static const struct window_api g_apis[] = {
-    { CLAP_WINDOW_API_WAYLAND, 1, wl_connect, wl_release, &g_wl_open },
-    { CLAP_WINDOW_API_X11, 0, x_connect, x_release, &g_open },
-    { CLAP_WINDOW_API_X11, 1, x_connect, x_release, &g_open },
-};
-
 /* WM_NORMAL_HINTS: a window the plugin cannot resize has its size as both its least and its most */
 static void x_size_hints(const struct window *w)
 {
@@ -296,6 +290,69 @@ static uint32_t x_window_make(const struct window *w, const char *title)
     return xid;
 }
 
+/* the host's window of an embedding plugin, mapped, unmapped or destroyed with the plugin's; nothing for a floating one */
+static void x_map(const struct window *w)
+{
+    if (w->xid)
+        xcb_map_window(g_x, w->xid);
+}
+
+static void x_unmap(const struct window *w)
+{
+    if (w->xid)
+        xcb_unmap_window(g_x, w->xid);
+}
+
+static void x_destroy(const struct window *w)
+{
+    if (w->xid)
+        xcb_destroy_window(g_x, w->xid);
+}
+
+static void x_flush(void)
+{
+    if (g_x)
+        xcb_flush(g_x);
+}
+
+/* the host's window after the plugin's requests: its size hints read again, the size the plugin asked */
+static void x_requested(struct window *w, uint32_t req)
+{
+    if (!w->xid)
+        return;
+    if (req & WINDOW_REQ_HINTS)
+        x_size_hints(w);
+    if (req & WINDOW_REQ_RESIZE)
+    {
+        const uint64_t size = atomic_load_explicit(&w->request_size, memory_order_relaxed);
+
+        w->width = (uint32_t)(size >> 32);
+        w->height = (uint32_t)size;
+        if (!w->resizable)
+            x_size_hints(w);
+        x_resize(w);
+    }
+}
+#else
+/* built without xcb: no window of the host's is ever made, and there is no X connection to serve */
+static void x_map(const struct window *w) { (void)w; }
+static void x_unmap(const struct window *w) { (void)w; }
+static void x_destroy(const struct window *w) { (void)w; }
+static void x_flush(void) { }
+static void x_requested(struct window *w, uint32_t req) { (void)w; (void)req; }
+#endif
+
+/* the APIs a show tries, first to last: the first the plugin offers whose display answers is taken. Wayland first, on
+ * the operator's ruling of 2026-10-24 (#329): a Wayland session shows a Wayland window, and X11 (through Xwayland there)
+ * only for a plugin with none. Built without xcb, Wayland is the one entry */
+static const struct window_api g_apis[] = {
+    { CLAP_WINDOW_API_WAYLAND, 1, wl_connect, wl_release, &g_wl_open },
+#ifdef OMX_CLAP_HOST_X11
+    { CLAP_WINDOW_API_X11, 0, x_connect, x_release, &g_open },
+    { CLAP_WINDOW_API_X11, 1, x_connect, x_release, &g_open },
+#endif
+};
+
 /* the plugin's window and the host's gone; the slot free for the next show */
 static void window_drop(struct window *w, int destroy_gui)
 {
@@ -303,10 +360,8 @@ static void window_drop(struct window *w, int destroy_gui)
 
     if (w->created && destroy_gui)
         w->gui->destroy(in->plugin);
-    if (w->xid)
-        xcb_destroy_window(g_x, w->xid);
-    if (g_x)
-        xcb_flush(g_x);
+    x_destroy(w);
+    x_flush();
     atomic_store_explicit(&w->in, NULL, memory_order_release);
     w->created = 0;
     w->visible = 0;
@@ -327,21 +382,17 @@ static int window_unhide(struct window *w, const char **code)
 
     if (w->visible)
         return 0;
-    if (w->xid)
-        xcb_map_window(g_x, w->xid);
+    x_map(w);
     if (!w->gui->show(in->plugin))
     {
         refused_say(in, "show");
-        if (w->xid)
-            xcb_unmap_window(g_x, w->xid);
-        if (g_x)
-            xcb_flush(g_x);
+        x_unmap(w);
+        x_flush();
         *code = CLAP_HOST_CODE_WINDOW_REFUSED;
         return -1;
     }
     w->visible = 1;
-    if (g_x)
-        xcb_flush(g_x);
+    x_flush();
     return 0;
 }
 
@@ -352,10 +403,8 @@ static void window_conceal(struct window *w)
     if (!w->visible)
         return;
     w->gui->hide(in->plugin);
-    if (w->xid)
-        xcb_unmap_window(g_x, w->xid);
-    if (g_x)
-        xcb_flush(g_x);
+    x_unmap(w);
+    x_flush();
     w->visible = 0;
 }
 
@@ -406,6 +455,40 @@ static const struct window_api *window_api_pick(const clap_plugin_t *plugin, con
     return NULL;
 }
 
+#ifdef OMX_CLAP_HOST_X11
+/* an embedding plugin's window after its create: the scale, the size, the host's window made and set as its parent */
+static int x_embed(struct window *w, struct omx_clap_instance *in, const char *title, const char **code)
+{
+    const clap_plugin_t *plugin = in->plugin;
+    const clap_plugin_gui_t *gui = w->gui;
+    clap_window_t parent;
+    uint32_t width = 0, height = 0;
+
+    if (gui->set_scale)
+        gui->set_scale(plugin, 1.0);
+    w->resizable = gui->can_resize && gui->can_resize(plugin);
+    if (gui->get_size && gui->get_size(plugin, &width, &height) && width > 0 && height > 0)
+    {
+        w->width = width;
+        w->height = height;
+    }
+    w->xid = x_window_make(w, title);
+    x_size_hints(w);
+    // the window exists on the server before the plugin names it as its parent over a connection of its own
+    free(xcb_get_input_focus_reply(g_x, xcb_get_input_focus(g_x), NULL));
+    parent.api = CLAP_WINDOW_API_X11;
+    parent.x11 = w->xid;
+    if (!gui->set_parent(plugin, &parent))
+    {
+        refused_say(in, "set_parent");
+        window_drop(w, 1);
+        *code = CLAP_HOST_CODE_WINDOW_REFUSED;
+        return -1;
+    }
+    return 0;
+}
+#endif
+
 /* a plugin's own window, as clap.gui orders it: create, the scale, the size, the parent (or the title of a floating
  * one), show */
 static int window_make(struct omx_clap_instance *in, const char *title, const char **code)
@@ -441,33 +524,10 @@ static int window_make(struct omx_clap_instance *in, const char *title, const ch
         if (gui->suggest_title)
             gui->suggest_title(plugin, title);
     }
-    else
-    {
-        clap_window_t parent;
-        uint32_t width = 0, height = 0;
-
-        if (gui->set_scale)
-            gui->set_scale(plugin, 1.0);
-        w->resizable = gui->can_resize && gui->can_resize(plugin);
-        if (gui->get_size && gui->get_size(plugin, &width, &height) && width > 0 && height > 0)
-        {
-            w->width = width;
-            w->height = height;
-        }
-        w->xid = x_window_make(w, title);
-        x_size_hints(w);
-        // the window exists on the server before the plugin names it as its parent over a connection of its own
-        free(xcb_get_input_focus_reply(g_x, xcb_get_input_focus(g_x), NULL));
-        parent.api = CLAP_WINDOW_API_X11;
-        parent.x11 = w->xid;
-        if (!gui->set_parent(plugin, &parent))
-        {
-            refused_say(in, "set_parent");
-            window_drop(w, 1);
-            *code = CLAP_HOST_CODE_WINDOW_REFUSED;
-            return -1;
-        }
-    }
+#ifdef OMX_CLAP_HOST_X11
+    else if (x_embed(w, in, title, code) != 0)
+        return -1;
+#endif
     if (window_unhide(w, code) != 0)
     {
         window_drop(w, 1);
@@ -476,6 +536,7 @@ static int window_make(struct omx_clap_instance *in, const char *title, const ch
     return 0;
 }
 
+#ifdef OMX_CLAP_HOST_X11
 /* the host's window resized by its user (or its window manager): the plugin is asked to take the size, as near as it
  * can, or the window goes back to the plugin's own size */
 static void window_configured(struct window *w, uint32_t width, uint32_t height)
@@ -509,10 +570,13 @@ static struct window *window_of_xid(uint32_t xid)
     return NULL;
 }
 
+/* the X events since the last tick, when a connection is open */
 static void x_events(void)
 {
     xcb_generic_event_t *e;
 
+    if (!g_x)
+        return;
     while ((e = xcb_poll_for_event(g_x)))
     {
         const uint8_t type = e->response_type & 0x7f;
@@ -542,6 +606,15 @@ static void x_events(void)
     }
 }
 
+static int x_connected(void)
+{
+    return g_x != NULL;
+}
+#else
+static void x_events(void) { }
+static int x_connected(void) { return 0; }
+#endif
+
 /* what the plugins asked since the last tick */
 static void window_requests(struct window *w)
 {
@@ -559,106 +632,68 @@ static void window_requests(struct window *w)
             window_drop(w, 0);
             return;
         }
-        if (w->xid)
-            xcb_unmap_window(g_x, w->xid);
+        x_unmap(w);
         w->visible = 0;
     }
     if (req & WINDOW_REQ_HINTS)
-    {
         w->resizable = w->gui->can_resize && w->gui->can_resize(in->plugin);
-        if (w->xid)
-            x_size_hints(w);
-    }
-    if ((req & WINDOW_REQ_RESIZE) && w->xid)
-    {
-        const uint64_t size = atomic_load_explicit(&w->request_size, memory_order_relaxed);
-
-        w->width = (uint32_t)(size >> 32);
-        w->height = (uint32_t)size;
-        if (!w->resizable)
-            x_size_hints(w);
-        x_resize(w);
-    }
+    x_requested(w, req);
     if (req & WINDOW_REQ_SHOW)
         (void)window_unhide(w, &code);
     if (req & WINDOW_REQ_HIDE)
         window_conceal(w);
 }
-#endif
 
 void window_init(void)
 {
-#ifdef OMX_CLAP_HOST_X11
     omx_clap_host_offer_gui(&g_host_gui);
-#endif
 }
 
 int window_show(struct omx_clap_instance *in, const char *title, const char **code)
 {
-#ifdef OMX_CLAP_HOST_X11
     struct window *w = window_of(in);
 
     if (w && w->created)
         return window_unhide(w, code);
     return window_make(in, title, code);
-#else
-    (void)in;
-    (void)title;
-    *code = CLAP_HOST_CODE_WINDOW_NOT_BUILT;
-    return -1;
-#endif
 }
 
 int window_hide(struct omx_clap_instance *in)
 {
-#ifdef OMX_CLAP_HOST_X11
     struct window *w = window_of(in);
 
     if (w && w->created)
         window_conceal(w);
-#else
-    (void)in;
-#endif
     return 0;
 }
 
 void window_close(struct omx_clap_instance *in)
 {
-#ifdef OMX_CLAP_HOST_X11
     struct window *w = window_of(in);
 
     if (w && w->created)
         window_drop(w, 1);
-#else
-    (void)in;
-#endif
 }
 
 void window_idle(void)
 {
-#ifdef OMX_CLAP_HOST_X11
     const uint32_t high = atomic_load_explicit(&g_high, memory_order_relaxed);
 
     // a Wayland window's requests (show, hide, closed) are served with no X connection open
-    if (!g_x && !g_wl_open)
+    if (!x_connected() && !g_wl_open)
         return;
-    if (g_x)
-        x_events();
+    x_events();
     for (uint32_t i = 0; i < high; i++)
         if (atomic_load_explicit(&g_windows[i].in, memory_order_relaxed))
             window_requests(&g_windows[i]);
-    if (g_x)
-        xcb_flush(g_x);
-#endif
+    x_flush();
 }
 
 void window_finish(void)
 {
-#ifdef OMX_CLAP_HOST_X11
     const uint32_t high = atomic_load_explicit(&g_high, memory_order_relaxed);
 
     for (uint32_t i = 0; i < high; i++)
         if (atomic_load_explicit(&g_windows[i].in, memory_order_relaxed) && g_windows[i].created)
             window_drop(&g_windows[i], 1);
-#endif
 }

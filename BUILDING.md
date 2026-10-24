@@ -16,11 +16,12 @@ JACK's headers and library come from `pkg-config jack` (the
 pipewire-jack-audio-connection-kit-devel package) or, when that is absent,
 from `JACK_DIR/include` and `JACK_DIR/lib`, the latter also becoming the
 binary's rpath; `JACK_DIR` defaults to `../jack-dev`. A plugin's own window
-(`show_external_ui`, `-S`) needs xcb, found by `pkg-config xcb` (Fedora
-`libxcb-devel`, Debian `libxcb1-dev`); without it, or with `X11=0`, the host
-builds all the same and the command answers `resp -404 hosting.window.not-built`.
-The Wayland window (#329) needs no library in the host: the plugin opens its
-own connection to the compositor.
+(`show_external_ui`, `-S`) over Wayland (#329) needs no library in the host:
+the plugin opens its own connection to the compositor, so every build has it.
+Over X11 it needs xcb, found by `pkg-config xcb` (Fedora `libxcb-devel`, Debian
+`libxcb1-dev`); without it, or with `X11=0`, the host builds all the same and
+shows Wayland windows alone. `make test-jack-window-wl` checks such a build too,
+`build/nox11/omx-clap-host`, the one `X11=0` makes.
 
     make test CLAP_TEST_PLUGIN=<some>.clap
 

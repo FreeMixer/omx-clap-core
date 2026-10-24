@@ -151,7 +151,12 @@ audio runs on:
 | `hosting.window.no-display` | no display the plugin's window can go on: neither `WAYLAND_DISPLAY` nor `DISPLAY` names one that accepts the connection, for any API the plugin offers |
 | `hosting.window.unsupported` | the plugin has no `clap.gui`, or offers neither a Wayland window nor an X11 one, embedded or floating (an LV2 plugin, for now) |
 | `hosting.window.refused` | the plugin answered false to `create`, `set_parent` or `show` |
-| `hosting.window.not-built` | the host was built without xcb (Wayland included) |
+
+Wayland needs no library of the host's, so every build shows a Wayland
+window. A host built without xcb (none found, or `make X11=0`) tries Wayland
+alone: a plugin with only an X11 window is `hosting.window.unsupported` there,
+and one that offers Wayland on a session with no compositor is
+`hosting.window.no-display`.
 
 An instance that does not exist answers `resp -3`. Only the standalone host
 shows a window: the console draws every plugin's panel itself, and

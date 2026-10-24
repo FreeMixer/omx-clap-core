@@ -59,8 +59,8 @@ JACK_CFLAGS = -I$(JACK_DIR)/include
 JACK_LIBS = -L$(JACK_DIR)/lib -ljack -Wl,-rpath,$(abspath $(JACK_DIR)/lib)
 endif
 
-# a plugin's own window (#180): X11 through xcb, found by pkg-config and optional; without it (or with X11=0) the host
-# builds and show_external_ui answers hosting.window.not-built
+# a plugin's own window (#180, #329): Wayland needs nothing of the host's and is always built; X11 through xcb, found by
+# pkg-config and optional; without it (or with X11=0) the host builds and show_external_ui tries Wayland alone
 ifneq ($(X11),0)
 ifeq ($(shell $(PKG_CONFIG) --exists xcb && echo true), true)
 X11_CFLAGS = $(shell $(PKG_CONFIG) --cflags xcb) -DOMX_CLAP_HOST_X11
@@ -193,6 +193,15 @@ src/window.o: src/window.c build/x11-choice
 build/x11-choice: FORCE
 	@mkdir -p build
 	@echo '$(X11_CFLAGS)' | cmp -s - $@ || echo '$(X11_CFLAGS)' > $@
+
+# the host as X11=0 builds it, beside the default one, for the tests (#329): the window object with no X11 define, and
+# no xcb linked
+NOX11_PROG = build/nox11/$(PROG)
+build/nox11/window.o: src/window.c
+	@mkdir -p build/nox11
+	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+$(NOX11_PROG): $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
+	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 lv2/core/%.o: lv2/core/%.c
@@ -677,9 +686,10 @@ test-jack-window: $(PROG) tests/fake_gui.clap tests/fake.clap tests/jack_meter_s
 
 # a plugin's own window over clap.gui and Wayland first (#329), in a PipeWire, a headless weston and an Xvfb of their
 # own: Wayland taken when both displays are there and mapped by weston, X11 for a plugin with no Wayland window,
-# no-display with neither; needs wayland-client, wayland-protocols, weston, Xvfb, xdotool and ss
-test-jack-window-wl: $(PROG) tests/fake_gui_wl.clap tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
-	./tests/jack_window_wl_e2e.sh
+# no-display with neither; and the host as X11=0 builds it, links no xcb and still shows the Wayland window; needs
+# wayland-client, wayland-protocols, weston, Xvfb, xdotool and ss
+test-jack-window-wl: $(PROG) $(NOX11_PROG) tests/fake_gui_wl.clap tests/fake.clap tests/jack_meter_source tests/jack_synth_probe
+	OMX_CLAP_HOST_NOX11=$(NOX11_PROG) ./tests/jack_window_wl_e2e.sh
 
 # an instrument over jack in the same kind of namespace: MIDI into midi_in, the level that comes out, the silence after the note off
 test-jack-synth: $(PROG) tests/fake_synth.clap tests/fake.clap tests/jack_synth_probe
