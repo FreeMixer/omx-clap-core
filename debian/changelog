@@ -1,3 +1,18 @@
+omx-clap-host (0.17.0) unstable; urgency=medium
+
+  * omx_clap_host_resource_hints reads the resource hints a plugin declares about
+    itself (org.openmixer.resource-hints.draft/0, omx-contract 3.1.0's
+    RESOURCE_HINTS), asked once at create: whole or refused by code
+    (hosting.resource-hints.unknown-hint, wrong-unit, out-of-range), a hint whose
+    bit is clear unknown, never zero. omx_clap_resource_hint_word, _unit and
+    _figure give each hint in the contract's words and units. The LV2 adapter
+    reads the same hints from the TTL's omxres properties and offers them through
+    the draft; omx_clap_lv2_resource_hints_why names a refusal. omx-clap-scan
+    --json writes them. ABI 17; the calls are in the version node
+    OMX_CLAP_CORE_0.17. omx-contract 3.1.0 or newer (#323).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 24 Oct 2026 12:55:37 +0200
+
 omx-clap-host (0.16.0) unstable; urgency=medium
 
   * clap_chain.h, a new header of libomx-clap-core: the chain, an ordered list of

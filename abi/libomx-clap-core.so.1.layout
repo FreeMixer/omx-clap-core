@@ -1,4 +1,4 @@
-version 0.16.0
+version 0.17.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -190,7 +190,9 @@ member struct omx_clap_instance configurable_audio_ports 269496 8 const clap_plu
 member struct omx_clap_instance audio_ports_config 269504 8 const clap_plugin_audio_ports_config_t * audio_ports_config
 member struct omx_clap_instance passthrough 269512 4 uint32_t passthrough
 member struct omx_clap_instance idle_held 269516 4 uint32_t idle_held
-size struct omx_clap_instance 269520
+member struct omx_clap_instance resource_hints 269520 48 omx_resource_hints_t resource_hints
+member struct omx_clap_instance resource_hints_why 269568 8 const char * resource_hints_why
+size struct omx_clap_instance 269576
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind

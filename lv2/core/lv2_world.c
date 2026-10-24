@@ -40,6 +40,7 @@
 */
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,6 +60,7 @@
 
 #include "lv2_core_internal.h"
 #include "lv2_ll_midi.h"
+#include "resource_hints.h"
 
 
 /*
@@ -74,7 +76,7 @@
 #define OMX_LILV_FNS(X) \
     X(lilv_world_new) X(lilv_world_free) X(lilv_new_uri) X(lilv_new_file_uri) X(lilv_node_free) \
     X(lilv_node_equals) X(lilv_node_as_uri) X(lilv_node_as_string) X(lilv_node_as_float) X(lilv_node_is_float) \
-    X(lilv_node_is_int) X(lilv_world_load_bundle) X(lilv_world_unload_bundle) X(lilv_world_get_all_plugins) \
+    X(lilv_node_is_int) X(lilv_node_is_literal) X(lilv_node_is_bool) X(lilv_node_as_bool) X(lilv_world_load_bundle) X(lilv_world_unload_bundle) X(lilv_world_get_all_plugins) \
     X(lilv_plugins_get_by_uri) X(lilv_plugins_begin) X(lilv_plugins_next) X(lilv_plugins_is_end) X(lilv_plugins_get) \
     X(lilv_plugin_get_uri) X(lilv_plugin_get_name) X(lilv_plugin_get_bundle_uri) X(lilv_plugin_get_library_uri) \
     X(lilv_plugin_get_num_ports) X(lilv_plugin_get_port_by_index) X(lilv_plugin_get_required_features) \
@@ -1467,6 +1469,82 @@ static const char *read_ports(struct lv2_plugin *p, const LilvPlugin *pl)
     return NULL;
 }
 
+/* the first of a port's roles, in lv2_port_role's order: a control is the next of controls[*k], and takes it */
+static uint16_t port_role(const struct lv2_plugin *p, uint32_t i, uint32_t *k, uint32_t *leg, uint32_t *c)
+{
+    *leg = 0; /* the main legs and the patch/MIDI/time ports return early: their leg is 0, never unset */
+    for (*c = 0; *c < p->main_in.n; (*c)++)
+        if (p->main_in.port[*c] == i)
+            return LV2_ROLE_MAIN_IN;
+    for (*c = 0; *c < p->main_out.n; (*c)++)
+        if (p->main_out.port[*c] == i)
+            return LV2_ROLE_MAIN_OUT;
+    *c = 0;
+    if (p->patch_in >= 0 && !p->patch_in_shared && (uint32_t)p->patch_in == i)
+        return LV2_ROLE_PATCH_IN;
+    if (p->patch_out >= 0 && !p->patch_out_shared && (uint32_t)p->patch_out == i)
+        return LV2_ROLE_PATCH_OUT;
+    if (p->midi_in_port >= 0 && (uint32_t)p->midi_in_port == i)
+        return LV2_ROLE_MIDI_IN;
+    if (p->midi_out_port >= 0 && (uint32_t)p->midi_out_port == i)
+        return LV2_ROLE_MIDI_OUT;
+    if (p->time_port >= 0 && (uint32_t)p->time_port == i)
+        return LV2_ROLE_TIME;
+    for (*leg = 0; *leg < p->n_notify; (*leg)++)
+        if (p->notify_out[*leg] == i)
+            return LV2_ROLE_NOTIFY;
+    for (*leg = 0; *leg < p->n_atom_in; (*leg)++)
+        if (p->atom_in[*leg] == i)
+            return LV2_ROLE_ATOM_IN;
+    for (*leg = 0; *leg < p->n_event_in; (*leg)++)
+        if (p->event_in[*leg] == i)
+            return LV2_ROLE_EVENT_IN;
+    for (*leg = 0; *leg < p->n_event_out; (*leg)++)
+        if (p->event_out[*leg] == i)
+            return LV2_ROLE_EVENT_OUT;
+    for (*leg = 0; *leg < p->n_aux_in; (*leg)++)
+        for (*c = 0; *c < p->aux_in[*leg].n; (*c)++)
+            if (p->aux_in[*leg].port[*c] == i)
+                return LV2_ROLE_AUX_IN;
+    for (*leg = 0; *leg < p->n_aux_out; (*leg)++)
+        for (*c = 0; *c < p->aux_out[*leg].n; (*c)++)
+            if (p->aux_out[*leg].port[*c] == i)
+                return LV2_ROLE_AUX_OUT;
+    *c = 0;
+    for (*leg = 0; *leg < p->n_cv_in; (*leg)++)
+        if (p->cv_in[*leg] == i)
+            return LV2_ROLE_CV_IN;
+    for (*leg = 0; *leg < p->n_cv_out; (*leg)++)
+        if (p->cv_out[*leg] == i)
+            return LV2_ROLE_CV_OUT;
+    *leg = 0;
+    if (p->latency_port >= 0 && (uint32_t)p->latency_port == i)
+        return LV2_ROLE_LATENCY;
+    if (*k < p->n_controls && p->controls[*k].port == i)
+    {
+        *leg = (*k)++;
+        return LV2_ROLE_CONTROL;
+    }
+    return LV2_ROLE_NONE;
+}
+
+/* every port's role, by its index: what an instance connects it to */
+static const char *read_roles(struct lv2_plugin *p)
+{
+    uint32_t i, k, leg, c;
+
+    p->roles = calloc(p->n_ports ? p->n_ports : 1u, sizeof(*p->roles));
+    if (!p->roles)
+        return LV2_CODE_NO_REALISATION;
+    for (i = 0, k = 0; i < p->n_ports; i++)
+    {
+        p->roles[i].role = port_role(p, i, &k, &leg, &c);
+        p->roles[i].leg = leg;
+        p->roles[i].channel = (uint16_t)c;
+    }
+    return NULL;
+}
+
 /* lv2:requiredFeature, and the refusal of one outside the configured list */
 static const char *read_required(struct lv2_plugin *p, const LilvPlugin *pl)
 {
@@ -1551,6 +1629,7 @@ void lv2_plugin_close(struct lv2_plugin *p)
         free(p->texts[k].name);
     }
     free(p->texts);
+    free(p->roles);
     free(p->main_in.name);
     free(p->main_out.name);
     for (i = 0; i < LV2_CORE_AUX_PORTS; i++)    // every slot: a refused open has named some ports, not set the counts
@@ -1571,6 +1650,103 @@ void lv2_plugin_close(struct lv2_plugin *p)
     free(p->bundle_path);
     lv2_bundle_unref(p->bundle);
     free(p);
+}
+
+/* hint `index`'s property: the namespace and its word in lower camel case, as the contract's Turtle names it */
+static void hint_property(uint32_t index, char *out, size_t size)
+{
+    const char *w = resource_hints_table[index].word;
+    size_t n = (size_t)snprintf(out, size, "%s", LV2_CORE_RESOURCE_HINTS_NS);
+
+    for (; *w && n + 1 < size; w++)
+        if (*w == '-' && w[1])
+            out[n++] = (char)(w[1] >= 'a' && w[1] <= 'z' ? w[1] - 'a' + 'A' : w[1]), w++;
+        else
+            out[n++] = *w;
+    out[n] = '\0';
+}
+
+/* the figure of one hint's value in its unit: NULL with `*figure`, or the refusal. A flag is an xsd:boolean; a size, a
+ * count or a time an integer literal (xsd:integer, or the xsd:unsignedLong and xsd:unsignedInt of the contract's ranges,
+ * which lilv reads as text) of decimal digits, never a boolean, a decimal or a resource */
+static const char *hint_figure(const LilvNode *v, uint32_t index, uint64_t *figure)
+{
+    const char *text, *c;
+    unsigned long long n;
+    int digits = 0;
+
+    if (!L.lilv_node_is_literal(v))
+        return LV2_CODE_HINT_WRONG_UNIT;
+    if (resource_hint_max(index) == 1u)
+    {
+        if (!L.lilv_node_is_bool(v))
+            return LV2_CODE_HINT_WRONG_UNIT;
+        *figure = L.lilv_node_as_bool(v) ? 1u : 0u;
+        return NULL;
+    }
+    if (L.lilv_node_is_bool(v) || L.lilv_node_is_float(v))
+        return LV2_CODE_HINT_WRONG_UNIT;
+    text = L.lilv_node_as_string(v);
+    c = text && (*text == '-' || *text == '+') ? text + 1 : text;
+    for (; c && *c >= '0' && *c <= '9'; c++)
+        digits++;
+    if (!text || !digits || *c)
+        return LV2_CODE_HINT_WRONG_UNIT;
+    if (*text == '-')
+    {
+        for (c = text + 1; *c == '0'; c++)
+            ;
+        if (*c)
+            return LV2_CODE_HINT_OUT_OF_RANGE;  // below zero; -0 is 0
+    }
+    errno = 0;
+    n = strtoull(*text == '-' || *text == '+' ? text + 1 : text, NULL, 10);
+    if (errno == ERANGE || n > resource_hint_max(index))
+        return LV2_CODE_HINT_OUT_OF_RANGE;
+    *figure = n;
+    return NULL;
+}
+
+/* The omxres properties of the plugin, whole or refused: a hint it does not state is unknown and its bit clear; one
+ * whose figure is not in its unit or past its member refuses them all with its code. Read from the bundle's data alone,
+ * the binary never opened. lilv answers one value of a property however many literals the data gives it, so a hint
+ * stated twice reads as the one lilv answers: there is no second figure here to refuse it by. */
+static void resource_hints_read(struct lv2_plugin *p, const LilvPlugin *pl)
+{
+    omx_resource_hints_t h;
+    char uri[160];
+    uint32_t i;
+
+    memset(&p->hints, 0, sizeof(p->hints));
+    p->hints_why = NULL;
+    memset(&h, 0, sizeof(h));
+    // refused by the codes of HOSTING_RESOURCE_HINTS_CODES (data/hosting/resource-hints.json)
+    for (i = 0; i < OMX_RESOURCE_HINT_COUNT && !p->hints_why; i++)
+    {
+        LilvNode *pred;
+        LilvNodes *vals;
+        uint64_t figure = 0;
+
+        hint_property(i, uri, sizeof(uri));
+        pred = L.lilv_new_uri(g.world, uri);
+        vals = pred ? L.lilv_plugin_get_value(pl, pred) : NULL;
+        if (pred)
+            L.lilv_node_free(pred);
+        if (!vals)
+            continue;
+        if (nodes_count(vals) != 0u)
+        {
+            p->hints_why = hint_figure(L.lilv_nodes_get(vals, L.lilv_nodes_begin(vals)), i, &figure);
+            if (!p->hints_why)
+            {
+                h.declared |= resource_hints_table[i].bit;
+                resource_hint_set(&h, i, figure);
+            }
+        }
+        L.lilv_nodes_free(vals);
+    }
+    if (!p->hints_why)
+        p->hints = h;
 }
 
 struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, char why[LV2_CORE_WHY_MAX])
@@ -1610,6 +1786,8 @@ struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, c
     if (!refusal)
         refusal = read_ports(p, pl);
     if (!refusal)
+        refusal = read_roles(p);
+    if (!refusal)
         refusal = read_required(p, pl);
     if (refusal)
     {
@@ -1617,6 +1795,7 @@ struct lv2_plugin *lv2_plugin_open(struct lv2_bundle *bundle, const char *uri, c
         lv2_why_set(why, refusal);
         return NULL;
     }
+    resource_hints_read(p, pl);
     lv2_why_set(why, "");
     return p;
 }
