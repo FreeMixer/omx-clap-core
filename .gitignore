@@ -2,6 +2,7 @@
 omx-clap-host
 tests/clap_host_test
 tests/clap_ext_test
+tests/resource_hints_test
 tests/clap_unoffered_test
 tests/idle_hold_test
 tests/clap_chain_test

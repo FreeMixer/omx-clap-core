@@ -51,6 +51,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <omxcontract/omx_vocabulary.h>
+
 #include "clap_host.h"
 #include "clap_meters.h"
 #include "idle_hold.h"
@@ -1291,6 +1293,82 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
     return ret;
 }
 
+/* The hints of RESOURCE_HINTS, by index: bit 1u << index of `declared`, its word and its unit, as omx-contract spells
+ * them (omx_vocabulary.h). omx_resource_hints.h lays the bits and the members out in the same order. */
+static const struct
+{
+    uint32_t bit;
+    const char *word;
+    const char *unit;
+} g_resource_hints[] = {
+    { OMX_RESOURCE_HINT_FOOTPRINT_AT_REST, OMX_RESOURCE_HINTS_FOOTPRINT_AT_REST, OMX_RESOURCE_UNITS_BYTES },
+    { OMX_RESOURCE_HINT_FOOTPRINT_PER_VOICE, OMX_RESOURCE_HINTS_FOOTPRINT_PER_VOICE, OMX_RESOURCE_UNITS_BYTES },
+    { OMX_RESOURCE_HINT_SHARED_LOAD, OMX_RESOURCE_HINTS_SHARED_LOAD, OMX_RESOURCE_UNITS_BYTES },
+    { OMX_RESOURCE_HINT_THREADS_SPAWNED, OMX_RESOURCE_HINTS_THREADS_SPAWNED, OMX_RESOURCE_UNITS_PLAIN_COUNT },
+    { OMX_RESOURCE_HINT_STREAMS_FROM_DISK, OMX_RESOURCE_HINTS_STREAMS_FROM_DISK, OMX_RESOURCE_UNITS_FLAG },
+    { OMX_RESOURCE_HINT_OPENS_SOCKETS, OMX_RESOURCE_HINTS_OPENS_SOCKETS, OMX_RESOURCE_UNITS_FLAG },
+    { OMX_RESOURCE_HINT_ACTIVATE_TIME, OMX_RESOURCE_HINTS_ACTIVATE_TIME, OMX_RESOURCE_UNITS_MS },
+};
+_Static_assert(sizeof(g_resource_hints) / sizeof(g_resource_hints[0]) == OMX_RESOURCE_HINT_COUNT &&
+                   OMX_RESOURCE_HINT_COUNT == OMX_RESOURCE_HINTS_COUNT,
+               "one row per hint of RESOURCE_HINTS");
+_Static_assert(sizeof(bool) == 1, "a flag member is one byte, read as it lies");
+#define RESOURCE_HINTS_ALL      ((1u << OMX_RESOURCE_HINT_COUNT) - 1u)
+
+/* a flag member as the plugin wrote it, its byte read rather than its bool, which only 0 and 1 may be */
+static unsigned flag_byte(const bool *flag)
+{
+    unsigned char byte;
+
+    memcpy(&byte, flag, 1);
+    return byte;
+}
+
+/* At create, on the opening thread: the plugin's org.openmixer.resource-hints.draft/0, whole or refused. No extension,
+ * or a get that answers false, states none. A declaration that sets a bit RESOURCE_HINTS has no hint for, or a declared
+ * flag whose byte is neither 0 nor 1, is refused with its code and reads as none: no hint of it is trusted. A member whose
+ * bit is clear is unknown and kept 0, whatever the plugin left in it. */
+static void resource_hints_read(struct omx_clap_instance *in)
+{
+    const omx_clap_plugin_resource_hints_t *ext = in->plugin->get_extension(in->plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT);
+    omx_resource_hints_t h, *out = &in->resource_hints;
+    uint32_t d;
+
+    memset(out, 0, sizeof(*out));
+    in->resource_hints_why = NULL;
+    memset(&h, 0, sizeof(h));
+    if (!ext || !ext->get || !ext->get(in->plugin, &h))
+        return;
+    // refused by the codes of HOSTING_RESOURCE_HINTS_CODES (data/hosting/resource-hints.json)
+    d = h.declared;
+    if (d & ~RESOURCE_HINTS_ALL)
+    {
+        in->resource_hints_why = OMX_HOSTING_RESOURCE_HINTS_UNKNOWN_HINT;
+        return;
+    }
+    if (((d & OMX_RESOURCE_HINT_STREAMS_FROM_DISK) && flag_byte(&h.streams_from_disk) > 1u) ||
+        ((d & OMX_RESOURCE_HINT_OPENS_SOCKETS) && flag_byte(&h.opens_sockets) > 1u))
+    {
+        in->resource_hints_why = OMX_HOSTING_RESOURCE_HINTS_WRONG_UNIT;
+        return;
+    }
+    out->declared = d;
+    if (d & OMX_RESOURCE_HINT_FOOTPRINT_AT_REST)
+        out->footprint_at_rest = h.footprint_at_rest;
+    if (d & OMX_RESOURCE_HINT_FOOTPRINT_PER_VOICE)
+        out->footprint_per_voice = h.footprint_per_voice;
+    if (d & OMX_RESOURCE_HINT_SHARED_LOAD)
+        out->shared_load = h.shared_load;
+    if (d & OMX_RESOURCE_HINT_THREADS_SPAWNED)
+        out->threads_spawned = h.threads_spawned;
+    if (d & OMX_RESOURCE_HINT_STREAMS_FROM_DISK)
+        out->streams_from_disk = flag_byte(&h.streams_from_disk) == 1u;
+    if (d & OMX_RESOURCE_HINT_OPENS_SOCKETS)
+        out->opens_sockets = flag_byte(&h.opens_sockets) == 1u;
+    if (d & OMX_RESOURCE_HINT_ACTIVATE_TIME)
+        out->activate_time = h.activate_time;
+}
+
 /* Create the plugin of `desc`, init it and read its extensions, with no layout judged. Takes over the caller's reference
  * on `bin`: a failure drops it. */
 static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descriptor_t *desc, struct omx_clap_instance **out)
@@ -1357,6 +1435,7 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
         if (!in->remote_controls)
             in->remote_controls = in->plugin->get_extension(in->plugin, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
     }
+    resource_hints_read(in);
     *out = in;
     return 0;
 }
@@ -2086,6 +2165,62 @@ int omx_clap_host_param_meaning(struct omx_clap_instance *in, clap_id id, struct
     meaning->def = info.default_value;
     meaning->flags = info.flags;
     return 0;
+}
+
+int omx_clap_host_resource_hints(const struct omx_clap_instance *in, omx_resource_hints_t *hints, const char **why)
+{
+    if (hints)
+    {
+        if (in)
+            *hints = in->resource_hints;
+        else
+            memset(hints, 0, sizeof(*hints));
+    }
+    if (why)
+        *why = in ? in->resource_hints_why : NULL;
+    if (!in)
+        return 0;
+    if (in->resource_hints_why)
+        return -1;
+    return in->resource_hints.declared != 0;
+}
+
+const char *omx_clap_resource_hint_word(uint32_t index)
+{
+    return index < OMX_RESOURCE_HINT_COUNT ? g_resource_hints[index].word : NULL;
+}
+
+const char *omx_clap_resource_hint_unit(uint32_t index)
+{
+    return index < OMX_RESOURCE_HINT_COUNT ? g_resource_hints[index].unit : NULL;
+}
+
+int omx_clap_resource_hint_figure(const omx_resource_hints_t *hints, uint32_t index, uint64_t *figure)
+{
+    uint64_t v = 0;
+    int known;
+
+    if (figure)
+        *figure = 0;
+    if (!hints || index >= OMX_RESOURCE_HINT_COUNT)
+        return -1;
+    known = (hints->declared & g_resource_hints[index].bit) != 0;
+    if (!known)
+        return 0;
+    switch (g_resource_hints[index].bit)
+    {
+    case OMX_RESOURCE_HINT_FOOTPRINT_AT_REST: v = hints->footprint_at_rest; break;
+    case OMX_RESOURCE_HINT_FOOTPRINT_PER_VOICE: v = hints->footprint_per_voice; break;
+    case OMX_RESOURCE_HINT_SHARED_LOAD: v = hints->shared_load; break;
+    case OMX_RESOURCE_HINT_THREADS_SPAWNED: v = hints->threads_spawned; break;
+    case OMX_RESOURCE_HINT_STREAMS_FROM_DISK: v = hints->streams_from_disk ? 1u : 0u; break;
+    case OMX_RESOURCE_HINT_OPENS_SOCKETS: v = hints->opens_sockets ? 1u : 0u; break;
+    case OMX_RESOURCE_HINT_ACTIVATE_TIME: v = hints->activate_time; break;
+    default: return -1;
+    }
+    if (figure)
+        *figure = v;
+    return 1;
 }
 
 const char *omx_clap_param_unit_name(uint32_t unit)

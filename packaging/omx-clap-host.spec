@@ -68,7 +68,8 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0)
+# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0), and
+# omxcontract/omx_resource_hints.h, which clap_host.h includes (3.1.0)
 Requires: omx-contract-devel >= 3.1.0
 Requires: pkgconfig
 

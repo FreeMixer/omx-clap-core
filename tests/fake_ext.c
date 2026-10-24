@@ -35,7 +35,10 @@
  *  - saves "plain" through clap.state and "preset", "duplicate" or "project" through clap.state-context, and records
  *    the context of a load;
  *  - records audio-ports-activation.set_active for its auxiliary output, and answers can_activate_while_processing with
- *    `while_processing`; counts its activate calls.
+ *    `while_processing`; counts its activate calls;
+ *  - declares two resource hints through org.openmixer.resource-hints.draft/0, footprint-at-rest (FAKE_EXT_AT_REST
+ *    bytes) and threads-spawned (FAKE_EXT_THREADS), and leaves the five others clear with garbage in their members;
+ *    fake_ext_hints changes what get answers, its byte of streams_from_disk included.
  * Everything it records is in the struct fake_ext_stats returns, for a test that dlsyms it.
  */
 
@@ -44,9 +47,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <clap/clap.h>
+#include <omxcontract/omx_resource_hints.h>
 
 #define ID_EXT              "org.omx-clap-host.test.ext"
 #define FAKE_EXT_TIMER_MS   50u
+#define FAKE_EXT_AT_REST    3145728u    ///< footprint-at-rest, bytes
+#define FAKE_EXT_THREADS    2u          ///< threads-spawned, a count
 
 typedef struct FAKE_EXT_STATS_T {
     uint32_t timer_calls;       ///< on_timer calls
@@ -78,6 +84,26 @@ typedef struct FAKE_EXT_STATS_T {
 } fake_ext_stats_t;
 
 static fake_ext_stats_t g_stats;
+
+/* what org.openmixer.resource-hints.draft/0 answers: `hints` when `answer`, and, when `streams_byte` is not 0, that byte
+ * written over streams_from_disk as it lies, which a bool cannot hold; `offer` 0 offers no extension */
+typedef struct FAKE_EXT_HINTS_T {
+    uint32_t offer;
+    uint32_t answer;
+    uint32_t streams_byte;
+    omx_resource_hints_t hints;
+} fake_ext_hints_t;
+
+static fake_ext_hints_t g_hints = {
+    1u, 1u, 0u,
+    { OMX_RESOURCE_HINT_FOOTPRINT_AT_REST | OMX_RESOURCE_HINT_THREADS_SPAWNED, FAKE_EXT_AT_REST, 999u, 4096u, FAKE_EXT_THREADS,
+      true, true, 77u },
+};
+
+CLAP_EXPORT fake_ext_hints_t *fake_ext_hints(void)
+{
+    return &g_hints;
+}
 static const clap_host_t *g_host;
 static const clap_plugin_t *g_plugin;
 static uint32_t g_tasks;        ///< the bits of the tasks done in this request
@@ -286,6 +312,23 @@ static const clap_plugin_state_t g_state = { state_save, state_load };
 static const clap_plugin_state_context_t g_context = { context_save, context_load };
 static const clap_plugin_audio_ports_activation_t g_activation = { activation_while_processing, activation_set };
 
+static bool hints_get(const clap_plugin_t *plugin, omx_resource_hints_t *hints)
+{
+    (void)plugin;
+    if (!g_hints.answer)
+        return false;
+    *hints = g_hints.hints;
+    if (g_hints.streams_byte)
+    {
+        const unsigned char byte = (unsigned char)g_hints.streams_byte;
+
+        memcpy(&hints->streams_from_disk, &byte, 1);
+    }
+    return true;
+}
+
+static const omx_clap_plugin_resource_hints_t g_resource_hints = { hints_get };
+
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     (void)plugin;
@@ -307,6 +350,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_context;
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS_ACTIVATION))
         return &g_activation;
+    if (!strcmp(id, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT) && g_hints.offer)
+        return &g_resource_hints;
     return NULL;
 }
 

@@ -50,6 +50,7 @@
 
 #include <clap/clap.h>
 #include <math.h>
+#include <omxcontract/omx_resource_hints.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stddef.h>
@@ -81,14 +82,15 @@
  * tick reports, the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
  * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels; 15: the pass-through
  * placement; 16: the CPU idle hold (#296): the configuration's idle_hold_us, the instance's idle_held,
- * omx_clap_host_idle_hold_set and omx_clap_host_idle_hold).
+ * omx_clap_host_idle_hold_set and omx_clap_host_idle_hold; 17: the plugin's resource hints (#323), the instance's
+ * resource_hints and resource_hints_why, omx_clap_host_resource_hints).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               16u
-#define OMX_CLAP_CORE_ABI_OLDEST        16u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               17u
+#define OMX_CLAP_CORE_ABI_OLDEST        17u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -546,6 +548,12 @@ struct omx_clap_instance
     // ABI 16: the CPU idle hold (#296)
     uint32_t idle_held;         ///< 1 while this instance counts in the process's idle hold: set by a completed activate, cleared
                                 ///< by deactivate, which releases its count
+
+    // ABI 17: the plugin's org.openmixer.resource-hints.draft/0 (#323), omx-contract's RESOURCE_HINTS: read once at create
+    // and fixed for the instance's life, so any thread reads them
+    omx_resource_hints_t resource_hints;  ///< the hints as the plugin declared them, each member whose bit of `declared` is
+                                          ///< clear 0 and unknown; declared 0 when it states none or they were refused
+    const char *resource_hints_why;  ///< NULL, or the OMX_HOSTING_RESOURCE_HINTS_ code the declaration was refused by
 };
 
 
@@ -843,6 +851,27 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in
  * or an instance never activated; each output then reads 0, which is never a voice count. Any pointer may be NULL.
  * Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count, uint32_t *capacity, uint64_t *flags);
+
+/** The resource hints the plugin declares about itself (org.openmixer.resource-hints.draft/0, omx-contract's
+ * RESOURCE_HINTS), as its get_extension answered at create: whole or refused. 1 with `*hints` the declaration, its
+ * `declared` the OMX_RESOURCE_HINT_ bits of the hints it states; a member whose bit is clear is unknown, never zero,
+ * and reads 0. 0 when it states none (no extension, a get that answers false, or no bit set): `declared` 0. -1 when the
+ * declaration is refused: `declared` 0 and `*why` the code, OMX_HOSTING_RESOURCE_HINTS_UNKNOWN_HINT for a bit
+ * RESOURCE_HINTS has no hint for, OMX_HOSTING_RESOURCE_HINTS_WRONG_UNIT for a declared flag that is neither 0 nor 1.
+ * `*why` is NULL otherwise. Any pointer may be NULL. Any thread, while the instance is open. */
+OMX_CLAP_EXPORT int omx_clap_host_resource_hints(const struct omx_clap_instance *in, omx_resource_hints_t *hints, const char **why);
+
+/** The word of hint `index` (bit 1u << index of `declared`), as RESOURCE_HINTS spells it ("footprint-at-rest"); NULL
+ * from OMX_RESOURCE_HINT_COUNT on. */
+OMX_CLAP_EXPORT const char *omx_clap_resource_hint_word(uint32_t index);
+
+/** The unit of hint `index`'s figure, a word of RESOURCE_UNITS ("bytes", "count", "flag", "ms"); NULL from
+ * OMX_RESOURCE_HINT_COUNT on. */
+OMX_CLAP_EXPORT const char *omx_clap_resource_hint_unit(uint32_t index);
+
+/** The figure of hint `index` in its unit, a flag 0 or 1: 1 with `*figure` set when `hints` declares it, 0 when it is
+ * unknown (`*figure` 0, never a figure), -1 from OMX_RESOURCE_HINT_COUNT on or with no `hints`. `figure` may be NULL. */
+OMX_CLAP_EXPORT int omx_clap_resource_hint_figure(const omx_resource_hints_t *hints, uint32_t index, uint64_t *figure);
 
 /** state-context's save (clap.state-context): the plugin's state for `context` (CLAP_STATE_CONTEXT_FOR_PRESET, _DUPLICATE
  * or _PROJECT) into `buf`, as omx_clap_host_state_save does; a plugin without the extension saves its plain state for
