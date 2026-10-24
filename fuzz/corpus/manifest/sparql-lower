@@ -1,0 +1,2 @@
+urn:example:plugins#gainprefix ex: <urn:example:plugins#>
+ex:gain a lv2:Plugin .
