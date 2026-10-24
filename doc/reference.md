@@ -116,9 +116,14 @@ The show takes the first of these the plugin offers whose display answers:
 1. Wayland, floating: when `WAYLAND_DISPLAY` names a compositor that accepts a
    connection and the plugin answers true to `is_api_supported("wayland",
    true)`.
-2. X11, embedded: when `DISPLAY` names an X server that accepts the connection
-   and the plugin answers true to `is_api_supported("x11", false)`.
+2. X11, embedded: when `DISPLAY` names an X server that accepts the connection,
+   the plugin answers true to `is_api_supported("x11", false)` and its
+   `clap.gui` has a `set_parent` to embed it with.
 3. X11, floating: the same display, `is_api_supported("x11", true)`.
+
+A plugin that offers X11 embedded but has no `set_parent` is therefore shown
+floating when it offers that too, and is `hosting.window.unsupported` only
+when it does not (before 0.19.0 it was `unsupported` either way).
 
 So a Wayland session shows a Wayland window, and X11 (through Xwayland there)
 only for a plugin that has none; an X11 session, Zynthian's over VNC among
