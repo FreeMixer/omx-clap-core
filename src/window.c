@@ -41,6 +41,7 @@
 #include "effects.h"
 #include "window.h"
 
+#ifdef OMX_CLAP_HOST_X11
 /* the size of a window whose plugin names none */
 #define WINDOW_DEFAULT_WIDTH    400u
 #define WINDOW_DEFAULT_HEIGHT   300u
@@ -141,7 +142,6 @@ static void host_closed(const clap_host_t *host, bool was_destroyed)
         request(w, WINDOW_REQ_CLOSED | (was_destroyed ? WINDOW_REQ_DESTROYED : 0u));
 }
 
-#ifdef OMX_CLAP_HOST_X11
 static const clap_host_gui_t g_host_gui = {
     host_resize_hints_changed, host_request_resize, host_request_show, host_request_hide, host_closed
 };
