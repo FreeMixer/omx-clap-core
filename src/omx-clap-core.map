@@ -186,4 +186,6 @@ OMX_CLAP_CORE_0.21
   global:
     /* a chain's members in a new order, one walk (#104) */
     omx_clap_chain_order;
+    /* a carrier thread on the audio role from its first cycle, named with no lock (#104) */
+    omx_clap_host_name_slot;
 } OMX_CLAP_CORE_0.18;
