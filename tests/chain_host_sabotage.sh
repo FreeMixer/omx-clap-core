@@ -79,6 +79,33 @@ drill() {
     fi
 }
 
+# keep <name> <file> <sed expression> <a line the log must show>: a hold put in a copy of the sources, and make
+# test-chain-host run on it, which must stay GREEN and show that line
+keep() {
+    local name=$1 file=$2 expr=$3 ok=$4 dir log
+    picked "$name" || return 0
+    dir=$root/build/keep-chain-host-$name
+    log=$dir.log
+    rm -rf "$dir"
+    mkdir -p "$dir"
+    cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
+    make -s -C "$dir" clean >/dev/null 2>&1
+    sed -i -e "$expr" "$dir/$file"
+    if cmp -s "$root/$file" "$dir/$file"; then
+        echo "FAIL keep $name: the sed left $file as it was"
+        failures=$((failures + 1))
+        return
+    fi
+    if (cd "$dir" && make -j"$jobs" omx-clap-host && LD_LIBRARY_PATH=$dir make test-chain-host) >"$log" 2>&1 \
+        && grep -q -E "$ok" "$log"; then
+        echo "ok   keep $name: green with the hold: $(grep -m 1 -E "$ok" "$log")"
+    else
+        echo "FAIL keep $name: red with the hold (log $log)"
+        grep -E "^FAIL" "$log" | head -5 | sed 's/^/     /'
+        failures=$((failures + 1))
+    fi
+}
+
 # 1. a member that joins closes its client, so the chain is one node: left open
 arm one-node src/effects.c '/^static int chain_join/,/^}/s/^        jack_client_close(effect->jack_client);$/        (void)0;/' \
     'chain 7 10 11 12: one node'
@@ -145,18 +172,19 @@ arm member-bypass src/effects.c 's/^    omx_clap_host_bypass(g_effects\[effect_i
 
 # 15. the members' walk on JACK's thread and every change of the members are ordered by g_chain_members: the lock gone,
 # ThreadSanitizer sees the walk and the changes race (make test-chain-host-tsan)
-arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/' \
+arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/;s/pthread_mutex_trylock(\&g_chain_members) == 0/1/' \
     'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 
 # 15a .. 15e. the same, one site at a time: g_chain_members gone from one function, every other site kept, each red on
 # its own: the walk on JACK's thread (chain_followers_each), the thread-init callback's own role (jack_thread_init),
-# a joining member's role and the members shifted (chain_insert), the slot freed (chain_end). Three sites the stress
+# both of which try the lock (taken as had, the try gone), a joining member's role and the members shifted
+# (chain_insert), the slot freed (chain_end). Three sites the stress
 # cannot turn red, measured (2026-10-25, 40 rounds): chain_order and chain_extract, which the stress runs every round,
 # write only the members and the count, which are atomics, so ThreadSanitizer sees no race without the lock (what the
 # lock keeps is a walk that never sees the members half shifted, which no sanitizer measures); and ports_relayout,
 # which runs only on a plugin's ports rescan, which no plugin of the stress raises
 lock_site() {
-    arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/" \
+    arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/{s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/;s/pthread_mutex_trylock(\\&g_chain_members) == 0/1/}" \
         'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 }
 for site in chain_followers_each jack_thread_init chain_insert chain_end; do lock_site "$site"; done
@@ -166,6 +194,15 @@ for site in chain_followers_each jack_thread_init chain_insert chain_end; do loc
 # test-chain-host-tsan, the race tests/chain_host_tsan.supp once hid)
 arm role-lock src/effects.c 's/^    effect->gate\.role = \&g_chain_members;$/    (void)0;/' \
     'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
+
+# 17. JACK's thread never waits on the audio role's lock: every add holds g_chain_members from before its client's
+# jack_activate until that client's thread-init callback has returned, polling with a sleep, as a resize holds it across
+# its poll and the plugin's activate. A callback that waits on the lock never returns while it is held, so the add gives
+# up after 10 s and answers -202 (the bound only ends a red run; a callback that does not wait returns at once, so the
+# outcome does not hang on timing); every add answering, and the whole test green, is the callback returning with the
+# lock held
+keep role-hold src/effects.c '/^static void jack_thread_init(void \*arg)$/,/^}$/s/^}$/    atomic_store(\&g_role_hold_returns, 1);\n}/;s/^static void jack_thread_init(void \*arg)$/static _Atomic int g_role_hold_returns;\n\n&/;/^int effects_add(/,/^}$/s/^    if (jack_activate(effect->jack_client) != 0)$/    int held_polls = 0;\n\n    pthread_mutex_lock(\&g_chain_members);\n    atomic_store(\&g_role_hold_returns, 0);\n    if (jack_activate(effect->jack_client) == 0)\n        while (!atomic_load(\&g_role_hold_returns) \&\& held_polls++ < 10000)\n            usleep(1000);\n    pthread_mutex_unlock(\&g_chain_members);\n    if (!atomic_load(\&g_role_hold_returns))\n        fprintf(stderr, "role hold: the thread-init callback did not return with the lock held\\n");\n    if (!atomic_load(\&g_role_hold_returns))/' \
+    '^chain host: 0 failed$'
 
 # the drills: a line JACK (or the library) fails part way. Each must stay green: refused with nothing changed, or
 # answered with every instance kept and the chain its read-back names
