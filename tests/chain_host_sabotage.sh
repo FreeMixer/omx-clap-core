@@ -175,19 +175,21 @@ arm member-bypass src/effects.c 's/^    omx_clap_host_bypass(g_effects\[effect_i
 arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/;s/pthread_mutex_trylock(\&g_chain_members) == 0/1/' \
     'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 
-# 15a .. 15e. the same, one site at a time: g_chain_members gone from one function, every other site kept, each red on
+# 15a .. 15d. the same, one site at a time: g_chain_members gone from one function, every other site kept, each red on
 # its own: the walk on JACK's thread (chain_followers_each), the thread-init callback's own role (jack_thread_init),
 # both of which try the lock (taken as had, the try gone), a joining member's role and the members shifted
-# (chain_insert), the slot freed (chain_end). Three sites the stress
-# cannot turn red, measured (2026-10-25, 40 rounds): chain_order and chain_extract, which the stress runs every round,
-# write only the members and the count, which are atomics, so ThreadSanitizer sees no race without the lock (what the
-# lock keeps is a walk that never sees the members half shifted, which no sanitizer measures); and ports_relayout,
-# which runs only on a plugin's ports rescan, which no plugin of the stress raises
+# (chain_insert). Four sites the stress cannot turn red, measured (2026-10-25, 40 rounds): chain_order and
+# chain_extract, which the stress runs every round, write only the members and the count, which are atomics, so
+# ThreadSanitizer sees no race without the lock (what the lock keeps is a walk that never sees the members half
+# shifted, which no sanitizer measures); ports_relayout, which runs only on a plugin's ports rescan, which no plugin of
+# the stress raises; and chain_end (red while JACK's walk read chain_run before a lock it waited on; green twice, 0
+# races, since the walk reads it under the lock it only tries: what the lock keeps is a walk that loaded chain_run
+# just before chain_end cleared it never reading the slot chain_end then clears, a window of a few loads)
 lock_site() {
     arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/{s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/;s/pthread_mutex_trylock(\\&g_chain_members) == 0/1/}" \
         'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 }
-for site in chain_followers_each jack_thread_init chain_insert chain_end; do lock_site "$site"; done
+for site in chain_followers_each jack_thread_init chain_insert; do lock_site "$site"; done
 
 # 16. the audio role's one lock: the gate's restart and resize without it (the gate given no role lock), so a client's
 # thread-init callback naming its thread races the resize tick reading and giving back the role (make
