@@ -76,6 +76,7 @@ int effects_connect(const char *portA, const char *portB);
 int effects_disconnect(const char *portA, const char *portB);
 int effects_monitor_output(int effect_id, const char *symbol);
 int effects_track_info(int effect_id, const char *name, const char *color, const char *kind);
+int effects_chain(int id, const int *instances, int n);
 int effects_remote_pages(int effect_id);
 int effects_remote_page_get(int effect_id, int page, char *reply, size_t size);
 /* param_info: "resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>" from the plugin's parameter contract */

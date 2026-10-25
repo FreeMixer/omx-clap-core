@@ -51,6 +51,7 @@
 
 #include "effects.h"
 #include "clap_host.h"
+#include "clap_chain.h"
 #include "clap_meters.h"
 #include "cycle_gate.h"
 #include "hosted_stage_limits.h"
@@ -89,12 +90,9 @@
 #define QUEUE_SETTLE_US         50000
 #define RELAYOUT_UNCHANGED_MAX  8       // relayouts in a row with the main layout unchanged before the reports go unanswered
 
-// the one chain of instances whose members run in the head's JACK client (#302, Stage 0), and the frames per channel of
-// the block each member's outputs go to: a longer cycle passes the head's output through the members dry
-#define CHAIN_ENV               "OMX_CLAP_HOST_CHAIN"
-#define CHAIN_MAX               64
-#define CHAIN_FRAMES_MAX        8192u
-#define CHAIN_ALIGN             64u
+// the chains plugin-hostd's chain line declares, each run in its head's JACK client (#104, docs/chain.md); plugin-hostd
+// gives every chain a worker of its own, so a host runs one, and holds this many
+#define CHAINS_MAX              64
 
 // the output the gain adjustment of clap.gain-adjustment-metering answers to
 #define GAIN_ADJUSTMENT_SYMBOL  "gain_adjustment_metering"
@@ -136,17 +134,18 @@ typedef struct LV2_PARAM_T {
     double hold;
 } lv2_param_t;
 
+struct CHAIN_T;
+
 typedef struct EFFECT_T {
     int instance;
     jack_client_t *jack_client;             // a chain member's is its head's, borrowed: the frame clock, the rate, the block
-    /* the chain (OMX_CLAP_HOST_CHAIN): a member's head, NULL for an instance with a client of its own; the next member
-     * after this one, NULL at the chain's tail, published by the control thread once that member is armed and read by the
-     * head's cycle; the block this instance's outputs go to when a member follows it; and a head's gate around the
-     * members' walk, closed to unlink one */
-    struct EFFECT_T *head;
-    struct EFFECT_T *_Atomic next;
-    float *chain_buf;
-    float *chain_out[CLAP_HOST_PORT_CHANNELS];
+    char client_name[REQUESTED_CLIENT_NAME_BUF_SIZE];   // its own client's name as JACK gave it, for a member that leaves
+    /* the chain (docs/chain.md): the one this instance is in, the head too, and its id in the library's chain, NULL
+     * for an instance in a client of its own (the control thread's); the one a head's cycle runs instead of the
+     * instance alone, changed only with chain_gate closed, which the cycle enters around reading it */
+    struct CHAIN_T *chain;
+    uint32_t chain_member;
+    struct CHAIN_T *_Atomic chain_run;
     struct omx_cycle_gate chain_gate;
     jack_port_t *input_ports[CLAP_HOST_PORT_CHANNELS];
     jack_port_t *output_ports[CLAP_HOST_PORT_CHANNELS];
@@ -176,6 +175,7 @@ typedef struct EFFECT_T {
     _Atomic uint32_t midi_out_full;         // messages midi_out had no room for
     struct omx_clap_instance *clap;
     uint32_t latency_published;
+    _Atomic uint32_t latency_run;           // between its client's ports: its own, or as a head the chain's sum
     const clap_plugin_meters_t *meters;
     const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
     _Atomic uint32_t gain_adjustment_bits;  // the float the audio thread published after its last cycle
@@ -191,6 +191,16 @@ typedef struct EFFECT_T {
     struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
     struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
 } effect_t;
+
+/* a chain the chain line declared: the library's chain the head's cycle runs, and its members in order, the head first,
+ * changed by the control thread and read relaxed by the head's buffer-size and thread-init callbacks on JACK's thread */
+typedef struct CHAIN_T {
+    int id;                                 // plugin-hostd's number of the chain; -1 for a free slot
+    struct omx_clap_chain *walk;
+    effect_t *head;
+    effect_t *_Atomic members[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    _Atomic uint32_t count;
+} chain_t;
 
 
 /*
@@ -221,9 +231,8 @@ static int g_idle_hold_said;                 // the refusal, said on stderr once
 static int g_show_ui;                        // -S: every plugin's own window shown at its add (#180)
 /* the control thread's idle ticks, counted by effects_idle */
 static uint32_t g_idle_ticks;
-/* OMX_CLAP_HOST_CHAIN, read at init: the instances of the one chain in order, the head first; empty when unset */
-static int g_chain[CHAIN_MAX];
-static uint32_t g_chain_len;
+/* the chains the chain line declared; a slot whose id is -1 is free (effects_init) */
+static chain_t g_chains[CHAINS_MAX];
 
 
 /*
@@ -316,17 +325,40 @@ static jack_client_t *open_jack_client(int instance, const char *client_name)
     return jack_client;
 }
 
+/* JACK's thread: the members after the head of the chain `effect` heads, into `out`, as the control thread last left
+ * them (relaxed: a member that has just left has a client of its own, whose callbacks do the same for it); 0 for an
+ * instance that heads none */
+static uint32_t chain_followers(const effect_t *effect, effect_t **out)
+{
+    const chain_t *chain = effect ? effect->chain_run : NULL;
+    uint32_t count, i, n = 0;
+
+    if (!chain)
+        return 0;
+    count = atomic_load_explicit(&chain->count, memory_order_relaxed);
+    for (i = 1; i < count && i < OMX_CLAP_CHAIN_MEMBERS_MAX; i++)
+    {
+        effect_t *member = atomic_load_explicit(&chain->members[i], memory_order_relaxed);
+
+        if (member && member->clap)
+            out[n++] = member;
+    }
+    return n;
+}
+
 static void jack_thread_init(void *arg)
 {
     effect_t *effect = arg;
+
+    effect_t *followers[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    uint32_t i, n;
 
     omx_denormals_off();
     if (effect && effect->clap)
         omx_clap_host_set_audio_thread(effect->clap, pthread_self());
     // a chain's members run on its head's thread
-    for (effect = effect ? atomic_load_explicit(&effect->next, memory_order_acquire) : NULL; effect;
-         effect = atomic_load_explicit(&effect->next, memory_order_acquire))
-        omx_clap_host_set_audio_thread(effect->clap, pthread_self());
+    for (i = 0, n = chain_followers(effect, followers); i < n; i++)
+        omx_clap_host_set_audio_thread(followers[i]->clap, pthread_self());
 }
 
 /* audio thread, right after the cycle: get() is [audio-thread] and reads the block process() just ran. A cycle that did
@@ -467,16 +499,25 @@ static void process_gated(effect_t *effect, const float *const *inputs, float *c
         notes_out(effect, nframes);
 }
 
-/* the client's cycle: the instance from its JACK input ports to its output ports, or, when it heads a chain, to its
- * block, then each member in order inside its own gate, from the block before it to its own, the last one to the output
- * ports. A member is unlinked inside the chain's gate: a cycle that finds it closed, or one longer than the blocks,
- * passes the head's output through the members dry */
+/* a chain's member, in the head's cycle: the instance inside its own gate, as its own client's cycle runs it */
+static void chain_stage(void *ctx, const float *const *inputs, float *const *outputs, uint32_t frames)
+{
+    effect_t *effect = ctx;
+
+    process_gated(effect, inputs, outputs, frames, omx_cycle_gate_enter(&effect->gate));
+    omx_cycle_gate_leave(&effect->gate);
+}
+
+/* the client's cycle: the instance from its JACK input ports to its output ports, or, when it heads a chain, the
+ * library's chain between those ports, every member a chain_stage. The chain is read inside the head's chain gate,
+ * which the control thread closes to change it: a cycle that finds it closed runs the head alone, what the chain is
+ * then (a chain of the head alone, before its first member joins and after its last one leaves) */
 static int process(jack_nframes_t nframes, void *arg)
 {
-    effect_t *effect = arg, *member, *next;
+    effect_t *effect = arg;
     const float *inputs[CLAP_HOST_PORT_CHANNELS];
     float *outputs[CLAP_HOST_PORT_CHANNELS];
-    float *const *from;
+    const chain_t *chain;
     uint32_t c;
 
     if (!effect || !effect->clap)
@@ -487,32 +528,10 @@ static int process(jack_nframes_t nframes, void *arg)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
     for (c = 0; c < effect->out_ports; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
-    member = atomic_load_explicit(&effect->next, memory_order_acquire);
-    if (!member || nframes > CHAIN_FRAMES_MAX)
-    {
-        process_gated(effect, inputs, outputs, nframes, omx_cycle_gate_enter(&effect->gate));
-        omx_cycle_gate_leave(&effect->gate);
-        return 0;
-    }
-    process_gated(effect, inputs, effect->chain_out, nframes, omx_cycle_gate_enter(&effect->gate));
-    omx_cycle_gate_leave(&effect->gate);
-    from = effect->chain_out;
-    if (omx_cycle_gate_enter(&effect->chain_gate))
-    {
-        for (member = atomic_load_explicit(&effect->next, memory_order_acquire); member; member = next)
-        {
-            float *const *to;
-
-            next = atomic_load_explicit(&member->next, memory_order_acquire);
-            to = next ? member->chain_out : outputs;
-            process_gated(member, (const float *const *)from, to, nframes, omx_cycle_gate_enter(&member->gate));
-            omx_cycle_gate_leave(&member->gate);
-            from = to;
-        }
-    }
-    if (from != outputs)
-        for (c = 0; c < effect->out_ports; c++)
-            memcpy(outputs[c], from[c], nframes * sizeof(float));
+    if (omx_cycle_gate_enter(&effect->chain_gate) && (chain = atomic_load_explicit(&effect->chain_run, memory_order_relaxed)))
+        omx_clap_chain_process(chain->walk, inputs, outputs, nframes);
+    else
+        chain_stage(effect, inputs, outputs, nframes);
     omx_cycle_gate_leave(&effect->chain_gate);
     return 0;
 }
@@ -523,7 +542,7 @@ static void latency(jack_latency_callback_mode_t mode, void *arg)
     effect_t *effect = arg;
     jack_port_t **from, **to;
     jack_latency_range_t range, total;
-    uint32_t c, from_count, to_count;
+    uint32_t c, from_count, to_count, own;
 
     if (!effect->clap)
         return;
@@ -556,24 +575,26 @@ static void latency(jack_latency_callback_mode_t mode, void *arg)
     if (total.min == UINT32_MAX)
         total.min = 0;
 
-    total.min += effect->latency_published;
-    total.max += effect->latency_published;
-    // a chain's head answers for every member after it too: their latencies add up between its ports
-    for (const effect_t *m = atomic_load_explicit(&effect->next, memory_order_acquire); m;
-         m = atomic_load_explicit(&m->next, memory_order_acquire))
-    {
-        total.min += m->latency_published;
-        total.max += m->latency_published;
-    }
+    // a chain's head answers for every member, itself too: the library's sum of their latencies, between its ports
+    own = atomic_load_explicit(&effect->latency_run, memory_order_relaxed);
+    total.min += own;
+    total.max += own;
     for (c = 0; c < to_count; c++)
         jack_port_set_latency_range(to[c], mode, &total);
 }
 
-/* control thread: the figure the latency callback answers with, and a recompute so the graph asks */
+/* control thread: the figure the latency callback answers with, and a recompute so the graph asks. A chain's member
+ * states it to the chain instead, whose sum the head's ports answer with (chain_latency_changed) */
 static void publish_latency(effect_t *effect)
 {
     effect->latency_published = omx_clap_host_latency(effect->clap);
     fprintf(stderr, "effect_%i: latency %u frames\n", effect->instance, effect->latency_published);
+    if (effect->chain)
+    {
+        omx_clap_chain_member_latency_set(effect->chain->walk, effect->chain_member, effect->latency_published);
+        return;
+    }
+    atomic_store_explicit(&effect->latency_run, effect->latency_published, memory_order_relaxed);
     jack_recompute_total_latencies(effect->jack_client);
 }
 
@@ -647,8 +668,30 @@ static int aux_blocks(effect_t *effect, uint32_t frames)
     return 0;
 }
 
-/* one side's auxiliary ports of the description registered, a JACK port per channel named by layout_port_name, their
- * widths kept: SUCCESS, ERR_MEMORY_ALLOCATION or ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle runs. */
+/* one side's auxiliary ports as aux_register kept them registered on the instance's client, a JACK port per channel
+ * named by layout_port_name: SUCCESS or ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle runs. */
+static int aux_ports_register(effect_t *effect, bool is_input)
+{
+    const uint32_t n = is_input ? effect->aux_in_n : effect->aux_out_n;
+    const uint32_t *widths = is_input ? effect->aux_in_widths : effect->aux_out_widths;
+    jack_port_t **jack = is_input ? effect->aux_in_ports : effect->aux_out_ports;
+    uint32_t p, k, c = 0;
+    char name[LAYOUT_PORT_NAME_SIZE];
+
+    for (p = 0; p < n; p++)
+        for (k = 0; k < widths[p]; k++)
+        {
+            layout_port_name(name, is_input, p, k);
+            jack[c] = jack_port_register(effect->jack_client, name, JACK_DEFAULT_AUDIO_TYPE,
+                                         is_input ? JackPortIsInput : JackPortIsOutput, 0);
+            if (!jack[c++])
+                return ERR_JACK_PORT_REGISTER;
+        }
+    return SUCCESS;
+}
+
+/* one side's auxiliary ports of the description kept, their widths and a JACK port each, then registered
+ * (aux_ports_register): SUCCESS, ERR_MEMORY_ALLOCATION or ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle runs. */
 static int aux_register(effect_t *effect, bool is_input)
 {
     const struct omx_clap_instance *clap = effect->clap;
@@ -656,8 +699,7 @@ static int aux_register(effect_t *effect, bool is_input)
     const struct omx_clap_port *ports = is_input ? clap->aux_in : clap->aux_out;
     jack_port_t **jack;
     uint32_t *widths;
-    uint32_t p, k, c = 0, count = 0;
-    char name[LAYOUT_PORT_NAME_SIZE];
+    uint32_t p, count = 0;
 
     for (p = 0; p < n; p++)
         count += ports[p].channels;
@@ -678,28 +720,12 @@ static int aux_register(effect_t *effect, bool is_input)
     if (!jack || !widths || !(is_input ? effect->aux_in_bufs : effect->aux_out_bufs))
         return ERR_MEMORY_ALLOCATION;
     for (p = 0; p < n; p++)
-    {
-        for (k = 0; k < ports[p].channels; k++)
-        {
-            // a chain member has no port of its own: its cycle reads silence and writes its block (process_gated)
-            if (effect->head)
-            {
-                c++;
-                continue;
-            }
-            layout_port_name(name, is_input, p, k);
-            jack[c] = jack_port_register(effect->jack_client, name, JACK_DEFAULT_AUDIO_TYPE,
-                                         is_input ? JackPortIsInput : JackPortIsOutput, 0);
-            if (!jack[c++])
-                return ERR_JACK_PORT_REGISTER;
-        }
         widths[p] = ports[p].channels;
-    }
     if (is_input)
         effect->aux_in_count = count, effect->aux_in_n = n;
     else
         effect->aux_out_count = count, effect->aux_out_n = n;
-    return SUCCESS;
+    return aux_ports_register(effect, is_input);
 }
 
 /* whether the description's auxiliary ports are still the ones registered at add, port by port and width by width */
@@ -746,12 +772,14 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
 
+    effect_t *followers[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    uint32_t i, n;
+
     if (effect && effect->clap)
         omx_cycle_gate_resize_record(&effect->gate, nframes);
     // a chain's members run at its head's block
-    for (effect = effect ? atomic_load_explicit(&effect->next, memory_order_acquire) : NULL; effect;
-         effect = atomic_load_explicit(&effect->next, memory_order_acquire))
-        omx_cycle_gate_resize_record(&effect->gate, nframes);
+    for (i = 0, n = chain_followers(effect, followers); i < n; i++)
+        omx_cycle_gate_resize_record(&followers[i]->gate, nframes);
     return 0;
 }
 
@@ -788,11 +816,17 @@ static void resize_apply(effect_t *effect)
     }
 }
 
+/* a chain's member other than its head runs in the head's client, which it does not own */
+static int client_borrowed(const effect_t *effect)
+{
+    return effect->chain && effect->chain->head != effect;
+}
+
 static void instance_free(effect_t *effect)
 {
     // the client goes first: no cycle can run the stage while the plugin is stopped and destroyed. A chain member's is
-    // its head's: it was unlinked first (chain_unlink), or the head's client is closed already
-    if (effect->jack_client && !effect->head)
+    // its head's: it left the chain's walk first (chain_drop)
+    if (effect->jack_client && !client_borrowed(effect))
         jack_client_close(effect->jack_client);
     if (effect->clap)
     {
@@ -816,7 +850,6 @@ static void instance_free(effect_t *effect)
     free(effect->lv2_params);
     free(effect->gestures_open);
     free(effect->note_ring_buf);
-    free(effect->chain_buf);
     memset(effect, 0, sizeof(effect_t));
 }
 
@@ -1620,80 +1653,246 @@ static int layout_check(effect_t *effect, const char *pin, const char *id)
     return 0;
 }
 
-/* OMX_CLAP_HOST_CHAIN: the instance numbers of the one chain, ','-separated, the head first; a malformed list, a number
- * out of range or one named twice leaves no chain, said on stderr */
-static void chain_configure(void)
+/* the instance's main ports registered on its client, as many each side as were registered at add: SUCCESS or
+ * ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle runs. */
+static int main_ports_register(effect_t *effect)
 {
-    const char *list = getenv(CHAIN_ENV);
-    char *end;
-    uint32_t i;
-
-    g_chain_len = 0;
-    if (!list || list[0] == '\0')
-        return;
-    while (*list)
-    {
-        long k = strtol(list, &end, 10);
-
-        if (end == list || !INSTANCE_IS_VALID(k) || g_chain_len == CHAIN_MAX || (*end != ',' && *end != '\0'))
-            goto refused;
-        for (i = 0; i < g_chain_len; i++)
-            if (g_chain[i] == k)
-                goto refused;
-        g_chain[g_chain_len++] = (int)k;
-        list = *end ? end + 1 : end;
-    }
-    fprintf(stderr, "chain: %u instances in the client of effect_%d\n", g_chain_len, g_chain[0]);
-    return;
-refused:
-    fprintf(stderr, "chain: %s=%s is not a list of distinct instance numbers; no chain\n", CHAIN_ENV, getenv(CHAIN_ENV));
-    g_chain_len = 0;
-}
-
-/* an instance's place in the chain, -1 when it is in none */
-static int chain_position(int instance)
-{
-    uint32_t i;
-
-    for (i = 0; i < g_chain_len; i++)
-        if (g_chain[i] == instance)
-            return (int)i;
-    return -1;
-}
-
-/* the block an instance's outputs go to when a member follows it: `channels` channels of CHAIN_FRAMES_MAX frames, each
- * aligned as a JACK buffer is (CHAIN_ALIGN), so a plugin whose SIMD path follows its buffers' alignment is handed the
- * alignment a client's port would hand it */
-static int chain_block(effect_t *effect, uint32_t channels)
-{
-    const size_t bytes = (size_t)(channels ? channels : 1) * CHAIN_FRAMES_MAX * sizeof(float);
-    void *block;
+    char port_name[LAYOUT_PORT_NAME_SIZE];
     uint32_t c;
 
-    if (posix_memalign(&block, CHAIN_ALIGN, bytes) != 0)
-        return -1;
-    memset(block, 0, bytes);
-    effect->chain_buf = block;
-    for (c = 0; c < channels; c++)
-        effect->chain_out[c] = effect->chain_buf + (size_t)c * CHAIN_FRAMES_MAX;
+    for (c = 0; c < effect->in_ports; c++)
+    {
+        layout_port_name(port_name, true, LAYOUT_PORT_MAIN, c);
+        effect->input_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
+        if (!effect->input_ports[c])
+            return ERR_JACK_PORT_REGISTER;
+    }
+    for (c = 0; c < effect->out_ports; c++)
+    {
+        layout_port_name(port_name, false, LAYOUT_PORT_MAIN, c);
+        effect->output_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+        if (!effect->output_ports[c])
+            return ERR_JACK_PORT_REGISTER;
+    }
+    return SUCCESS;
+}
+
+/* the callbacks of the instance's own client */
+static void callbacks_set(effect_t *effect)
+{
+    jack_set_thread_init_callback(effect->jack_client, jack_thread_init, effect);
+    jack_set_process_callback(effect->jack_client, process, effect);
+    jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
+    jack_set_latency_callback(effect->jack_client, latency, effect);
+}
+
+/* a client of its own again for an instance that has none, under the name it had: its ports registered as at add, its
+ * callbacks set, the client activated and its latency published. SUCCESS, or the error with the instance freed. */
+static int client_back(effect_t *effect)
+{
+    int error = ERR_JACK_CLIENT_CREATION;
+
+    effect->jack_client = open_jack_client(effect->instance, effect->client_name);
+    if (effect->jack_client)
+    {
+        if ((error = main_ports_register(effect)) == SUCCESS && (error = aux_ports_register(effect, true)) == SUCCESS
+            && (error = aux_ports_register(effect, false)) == SUCCESS)
+        {
+            callbacks_set(effect);
+            error = jack_activate(effect->jack_client) == 0 ? SUCCESS : ERR_JACK_CLIENT_ACTIVATION;
+        }
+    }
+    if (error == SUCCESS)
+    {
+        publish_latency(effect);
+        return SUCCESS;
+    }
+    fprintf(stderr, "effect_%d: no client of its own can be made again (%d); it is removed\n", effect->instance, error);
+    instance_free(effect);
+    return error;
+}
+
+/* control thread: a chain as it stands, on stderr, after every change: the read-back of a chain (docs/chain.md) */
+static void chain_say(const chain_t *chain)
+{
+    struct omx_clap_chain_report report;
+    const uint32_t count = atomic_load_explicit(&chain->count, memory_order_relaxed);
+    uint32_t i;
+
+    omx_clap_chain_report_init(&report);
+    omx_clap_chain_report(chain->walk, &report);
+    fprintf(stderr, "chain %d:", chain->id);
+    for (i = 0; i < count; i++)
+        fprintf(stderr, " effect_%d", atomic_load_explicit(&chain->members[i], memory_order_relaxed)->instance);
+    fprintf(stderr, " in effect_%d's client, latency %u frames\n", chain->head->instance, report.latency);
+}
+
+/* the library's latency_changed, on the control thread: the head's ports answer with the members' new sum */
+static void chain_latency_changed(void *ctx, uint32_t frames)
+{
+    chain_t *chain = ctx;
+
+    atomic_store_explicit(&chain->head->latency_run, frames, memory_order_relaxed);
+    jack_recompute_total_latencies(chain->head->jack_client);
+}
+
+/* `effect` into the walk at `position`, a stage of the host's own (chain_stage), and into the chain's members there:
+ * when this returns the head's next cycle runs it. 0, or the library's refusal, nothing changed. */
+static int chain_insert(chain_t *chain, effect_t *effect, uint32_t position)
+{
+    struct omx_clap_chain_member member;
+    const uint32_t count = atomic_load_explicit(&chain->count, memory_order_relaxed);
+    uint32_t i;
+    int ret;
+
+    omx_clap_chain_member_init(&member);
+    member.process = chain_stage;
+    member.ctx = effect;
+    member.in_channels = effect->in_ports;
+    member.out_channels = effect->out_ports;
+    member.latency = effect->latency_published;
+    effect->chain = chain;
+    ret = omx_clap_chain_add(chain->walk, &member, position, &effect->chain_member);
+    if (ret != OMX_CLAP_CHAIN_OK)
+    {
+        effect->chain = NULL;
+        return ret;
+    }
+    for (i = count; i > position; i--)
+        atomic_store_explicit(&chain->members[i], atomic_load_explicit(&chain->members[i - 1], memory_order_relaxed),
+                              memory_order_relaxed);
+    atomic_store_explicit(&chain->members[position], effect, memory_order_relaxed);
+    atomic_store_explicit(&chain->count, count + 1, memory_order_relaxed);
     return 0;
 }
 
-/* control thread: a member out of its head's chain, inside the chain's gate (the walk under way leaves first), and the
- * head's ports told their latency again */
-static void chain_unlink(effect_t *member)
+/* `effect` out of the walk, the chain closing around it (when the library's call returns no cycle runs it), and out of
+ * the chain's members. Its client is still the head's: the caller gives it one or frees it. */
+static void chain_extract(chain_t *chain, effect_t *effect)
 {
-    effect_t *head = member->head, *prev = head;
+    const uint32_t count = atomic_load_explicit(&chain->count, memory_order_relaxed);
+    uint32_t i, k;
 
-    while (prev && atomic_load_explicit(&prev->next, memory_order_relaxed) != member)
-        prev = atomic_load_explicit(&prev->next, memory_order_relaxed);
-    if (!prev)
-        return;
+    omx_clap_chain_remove(chain->walk, effect->chain_member);
+    for (i = 0, k = 0; i < count; i++)
+    {
+        effect_t *member = atomic_load_explicit(&chain->members[i], memory_order_relaxed);
+
+        if (member != effect)
+            atomic_store_explicit(&chain->members[k++], member, memory_order_relaxed);
+    }
+    atomic_store_explicit(&chain->count, k, memory_order_relaxed);
+    atomic_store_explicit(&chain->members[k], NULL, memory_order_relaxed);
+    effect->chain = NULL;
+}
+
+/* an instance with a client of its own into `chain` at `position`: its client deactivated, which stops its cycles, and
+ * closed, so it is no node of the graph and has no port; then it runs in the head's client, on the head's thread.
+ * SUCCESS, or the error with the instance in a client of its own again or, when that fails too, freed. */
+static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
+{
+    const effect_t *head = chain->head;
+    uint32_t c;
+    int ret;
+
+    if (jack_deactivate(effect->jack_client) != 0)
+        return ERR_JACK_CLIENT_DEACTIVATION;
+    jack_client_close(effect->jack_client);
+    effect->jack_client = head->jack_client;
+    memset(effect->input_ports, 0, sizeof(effect->input_ports));
+    memset(effect->output_ports, 0, sizeof(effect->output_ports));
+    for (c = 0; c < effect->aux_in_count; c++)
+        effect->aux_in_ports[c] = NULL;
+    for (c = 0; c < effect->aux_out_count; c++)
+        effect->aux_out_ports[c] = NULL;
+    if (head->clap->audio_role_held)
+        omx_clap_host_set_audio_thread(effect->clap, head->clap->audio_thread);
+    ret = chain_insert(chain, effect, position);
+    if (ret == 0)
+        return SUCCESS;
+    fprintf(stderr, "chain %d: effect_%d cannot join it (%d)\n", chain->id, effect->instance, ret);
+    effect->jack_client = NULL;
+    return client_back(effect) == SUCCESS ? ERR_INVALID_OPERATION : ERR_JACK_CLIENT_CREATION;
+}
+
+/* a member that is not the head out of `chain` (chain_extract), then in a client of its own again: SUCCESS, or the
+ * error with the instance freed, since it has no client left to run in */
+static int chain_leave(chain_t *chain, effect_t *effect)
+{
+    chain_extract(chain, effect);
+    effect->jack_client = NULL;
+    return client_back(effect);
+}
+
+/* a chain of `head` alone in a free slot: the library's chain made, the head its first member, then run by the head's
+ * cycle, switched with the chain gate closed (a cycle that finds it closed runs the head alone, the same). NULL with
+ * `*error` set when there is no slot or no chain. */
+static chain_t *chain_start(int id, effect_t *head, int *error)
+{
+    struct omx_clap_chain_config config;
+    chain_t *chain = NULL;
+    uint32_t i;
+
+    for (i = 0; i < CHAINS_MAX && !chain; i++)
+        if (g_chains[i].id < 0)
+            chain = &g_chains[i];
+    if (!chain)
+    {
+        fprintf(stderr, "chain %d: this host runs %u chains already\n", id, CHAINS_MAX);
+        *error = ERR_INVALID_OPERATION;
+        return NULL;
+    }
+    omx_clap_chain_config_init(&config);
+    config.channels = head->out_ports;
+    config.latency_changed = chain_latency_changed;
+    config.ctx = chain;
+    chain->head = head;
+    chain->id = id;
+    atomic_store_explicit(&chain->count, 0, memory_order_relaxed);
+    if (omx_clap_chain_create(&config, &chain->walk) != OMX_CLAP_CHAIN_OK || chain_insert(chain, head, 0) != 0)
+    {
+        fprintf(stderr, "chain %d: the library's chain cannot be made for effect_%d\n", id, head->instance);
+        omx_clap_chain_destroy(chain->walk);
+        memset(chain, 0, sizeof(*chain));
+        chain->id = -1;
+        *error = ERR_MEMORY_ALLOCATION;
+        return NULL;
+    }
     omx_cycle_gate_close(&head->chain_gate, CLAP_HOST_ROLE_POLL_US);
-    atomic_store_explicit(&prev->next, atomic_load_explicit(&member->next, memory_order_relaxed), memory_order_release);
-    atomic_store_explicit(&member->next, NULL, memory_order_relaxed);
+    atomic_store_explicit(&head->chain_run, chain, memory_order_relaxed);
     omx_cycle_gate_open(&head->chain_gate);
-    jack_recompute_total_latencies(head->jack_client);
+    return chain;
+}
+
+/* every member but the head back in a client of its own, then the head's cycle runs it alone again (the gate closed
+ * around the switch), its own latency between its ports, and the chain freed */
+static void chain_end(chain_t *chain)
+{
+    effect_t *head = chain->head;
+    uint32_t count;
+
+    while ((count = atomic_load_explicit(&chain->count, memory_order_relaxed)) > 1)
+        chain_leave(chain, atomic_load_explicit(&chain->members[count - 1], memory_order_relaxed));
+    omx_cycle_gate_close(&head->chain_gate, CLAP_HOST_ROLE_POLL_US);
+    atomic_store_explicit(&head->chain_run, NULL, memory_order_relaxed);
+    omx_cycle_gate_open(&head->chain_gate);
+    omx_clap_chain_destroy(chain->walk);
+    head->chain = NULL;
+    fprintf(stderr, "chain %d: ended, effect_%d alone in its client\n", chain->id, head->instance);
+    memset(chain, 0, sizeof(*chain));
+    chain->id = -1;
+    publish_latency(head);
+}
+
+/* a member that is not the head out of its chain and freed: `remove` of it */
+static void chain_drop(effect_t *effect)
+{
+    chain_t *chain = effect->chain;
+
+    chain_extract(chain, effect);
+    effect->jack_client = NULL;
+    instance_free(effect);
+    chain_say(chain);
 }
 
 /*
@@ -1813,13 +2012,16 @@ static void configure_lv2(void)
 
 int effects_init(void)
 {
+    uint32_t i;
+
     if (configure_core() != 0)
     {
         fprintf(stderr, "can't configure the clap core\n");
         return ERR_INSTANCE_INVALID;
     }
+    for (i = 0; i < CHAINS_MAX; i++)
+        g_chains[i].id = -1;
     configure_lv2();
-    chain_configure();
     window_init();
     g_jack_global_client = jack_client_open("omx-clap-host", JackNoStartServer, NULL);
     if (!g_jack_global_client)
@@ -1891,13 +2093,11 @@ static const char *idle_hold_word_of(int32_t target_us, char *buf, size_t size)
 int effects_add(const char *uri, int instance, const char *client_name)
 {
     char path[PATH_MAX];
-    char port_name[LAYOUT_PORT_NAME_SIZE];
     char why[OMX_CLAP_WHY_MAX];
     char pin[PHD_SHA256_HEX_LEN + 1];
     const char *id, *lv2_uri;
-    effect_t *effect, *head = NULL, *prev = NULL;
-    uint32_t c;
-    int error, place;
+    effect_t *effect;
+    int error;
 
     g_add_reason[0] = '\0';
     lv2_uri = lv2_uri_of(uri);
@@ -1914,37 +2114,18 @@ int effects_add(const char *uri, int instance, const char *client_name)
     memcpy(pin, g_layout_pins[instance], sizeof(pin));
     g_layout_pins[instance][0] = '\0';
 
-    // a chain member joins the chain's tail, the instance before it in the list, and runs in its head's client
-    place = chain_position(instance);
-    if (place > 0)
-    {
-        head = &g_effects[g_chain[0]];
-        prev = &g_effects[g_chain[place - 1]];
-        if (!instance_exist(g_chain[0]) || head->head || !instance_exist(g_chain[place - 1])
-            || (prev != head && prev->head != head) || atomic_load_explicit(&prev->next, memory_order_relaxed))
-        {
-            fprintf(stderr, "chain: effect_%d joins after effect_%d, which is not the tail of the chain of effect_%d\n", instance,
-                    g_chain[place - 1], g_chain[0]);
-            return ERR_INVALID_OPERATION;
-        }
-    }
-
     effect = &g_effects[instance];
     memset(effect, 0, sizeof(effect_t));
     effect->instance = instance;
 
-    if (head)
-    {
-        effect->head = head;
-        effect->jack_client = head->jack_client;
-    }
-    else
-        effect->jack_client = open_jack_client(instance, client_name);
+    effect->jack_client = open_jack_client(instance, client_name);
     if (!effect->jack_client)
     {
         fprintf(stderr, "can't get jack client\n");
         return ERR_JACK_CLIENT_CREATION;
     }
+    // the name JACK gave it: a member that leaves a chain opens its client again under it (client_back)
+    snprintf(effect->client_name, sizeof(effect->client_name), "%s", jack_get_client_name(effect->jack_client));
 
     error = lv2_uri ? open_lv2(lv2_uri, effect) : open_clap(path, id, &effect->clap);
     if (error != SUCCESS)
@@ -1979,43 +2160,12 @@ int effects_add(const char *uri, int instance, const char *client_name)
         }
     }
 
-    // a member's main inputs take its tail's outputs and its outputs end on the head's ports; it has no note port
-    if (head && (effect->clap->in_channels == 0 || effect->clap->in_channels != prev->out_ports
-                 || effect->clap->channels != head->out_ports || effect->clap->note_inputs || effect->clap->note_outputs))
-    {
-        fprintf(stderr, "chain: %s (%u in, %u out%s) cannot follow effect_%d (%u out) in the chain of effect_%d (%u out)\n", id,
-                effect->clap->in_channels, effect->clap->channels,
-                effect->clap->note_inputs || effect->clap->note_outputs ? ", notes" : "", prev->instance, prev->out_ports,
-                head->instance, head->out_ports);
-        error = ERR_INVALID_OPERATION;
-        goto error;
-    }
-    for (c = 0; !head && c < effect->clap->in_channels; c++)
-    {
-        layout_port_name(port_name, true, LAYOUT_PORT_MAIN, c);
-        effect->input_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
-        if (!effect->input_ports[c])
-        {
-            error = ERR_JACK_PORT_REGISTER;
-            goto error;
-        }
-    }
     effect->in_ports = effect->clap->in_channels;
-    for (c = 0; !head && c < effect->clap->channels; c++)
-    {
-        layout_port_name(port_name, false, LAYOUT_PORT_MAIN, c);
-        effect->output_ports[c] = jack_port_register(effect->jack_client, port_name, JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
-        if (!effect->output_ports[c])
-        {
-            error = ERR_JACK_PORT_REGISTER;
-            goto error;
-        }
-    }
     effect->out_ports = effect->clap->channels;
-    if ((error = aux_register(effect, true)) != SUCCESS || (error = aux_register(effect, false)) != SUCCESS)
+    if ((error = main_ports_register(effect)) != SUCCESS || (error = aux_register(effect, true)) != SUCCESS
+        || (error = aux_register(effect, false)) != SUCCESS)
         goto error;
-    if (aux_blocks(effect, jack_get_buffer_size(effect->jack_client)) != 0
-        || ((head || (place == 0 && g_chain_len > 1)) && chain_block(effect, effect->out_ports) != 0))
+    if (aux_blocks(effect, jack_get_buffer_size(effect->jack_client)) != 0)
     {
         error = ERR_MEMORY_ALLOCATION;
         goto error;
@@ -2047,13 +2197,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
         }
     }
 
-    if (!head)
-    {
-        jack_set_thread_init_callback(effect->jack_client, jack_thread_init, effect);
-        jack_set_process_callback(effect->jack_client, process, effect);
-        jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
-        jack_set_latency_callback(effect->jack_client, latency, effect);
-    }
+    callbacks_set(effect);
 
     if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
     {
@@ -2067,14 +2211,9 @@ int effects_add(const char *uri, int instance, const char *client_name)
     effect->rate = jack_get_sample_rate(effect->jack_client);
     host_transport_read(&g_transport, &effect->intent);
     omx_clap_host_set_transport(effect->clap, &effect->transport_src);
-    // a member is named the head's audio thread, then armed, then linked after the tail: the head's next cycle runs it
-    if (head && head->clap->audio_role_held)
-        omx_clap_host_set_audio_thread(effect->clap, head->clap->audio_thread);
     omx_clap_host_arm(effect->clap);
 
-    if (head)
-        atomic_store_explicit(&prev->next, effect, memory_order_release);
-    else if (jack_activate(effect->jack_client) != 0)
+    if (jack_activate(effect->jack_client) != 0)
     {
         fprintf(stderr, "can't activate jack_client\n");
         error = ERR_JACK_CLIENT_ACTIVATION;
@@ -2134,29 +2273,131 @@ int effects_remove(int effect_id)
         end = start + 1;
     }
 
+    // every chain's members go first when all go, so that no head's removal gives them a client of their own
+    for (j = 0; effect_id == REMOVE_ALL && j < CHAINS_MAX; j++)
+        while (g_chains[j].id >= 0 && atomic_load_explicit(&g_chains[j].count, memory_order_relaxed) > 1)
+            chain_drop(atomic_load_explicit(&g_chains[j].members[1], memory_order_relaxed));
+
     for (j = start; j < end; j++)
     {
-        effect_t *effect = &g_effects[j], *member, *next;
+        effect_t *effect = &g_effects[j];
 
         if (!instance_exist(j))
             continue;
-        if (effect->head)
+        // a member leaves the walk, the chain closing around it; a head's members each get a client of their own back
+        if (client_borrowed(effect))
         {
-            chain_unlink(effect);
-            instance_free(effect);
+            chain_drop(effect);
             continue;
         }
+        if (effect->chain)
+            chain_end(effect->chain);
         if (jack_deactivate(effect->jack_client) != 0)
             return ERR_JACK_CLIENT_DEACTIVATION;
-        // a head's members go with it: no cycle runs them once its client is deactivated
-        for (member = atomic_load_explicit(&effect->next, memory_order_relaxed); member; member = next)
-        {
-            next = atomic_load_explicit(&member->next, memory_order_relaxed);
-            instance_free(member);
-        }
         instance_free(effect);
     }
 
+    return SUCCESS;
+}
+
+/* chain <chain> <instance> ...: the instances, in this order, one chain run in the first one's client (docs/chain.md).
+ * A chain already running changes in place: the members left out leave first, then each place in order takes its
+ * member, moved in the walk or joining it. A refusal changes nothing. */
+int effects_chain(int id, const int *instances, int n)
+{
+    chain_t *chain = NULL;
+    effect_t *head;
+    uint32_t count;
+    int i, k, error;
+
+    if (id < 0 || n < 1 || n > (int)OMX_CLAP_CHAIN_MEMBERS_MAX)
+        return ERR_INVALID_OPERATION;
+    for (i = 0; i < n; i++)
+        if (!instance_exist(instances[i]))
+        {
+            fprintf(stderr, "chain %d: there is no effect_%d\n", id, instances[i]);
+            return ERR_INSTANCE_NON_EXISTS;
+        }
+    for (k = 0; k < CHAINS_MAX && !chain; k++)
+        if (g_chains[k].id == id)
+            chain = &g_chains[k];
+    head = &g_effects[instances[0]];
+    for (i = 0; i < n; i++)
+    {
+        const effect_t *effect = &g_effects[instances[i]];
+
+        for (k = 0; k < i; k++)
+            if (instances[k] == instances[i])
+            {
+                fprintf(stderr, "chain %d: effect_%d is named twice\n", id, instances[i]);
+                return ERR_INVALID_OPERATION;
+            }
+        if (effect->chain && effect->chain != chain)
+        {
+            fprintf(stderr, "chain %d: effect_%d is in chain %d\n", id, instances[i], effect->chain->id);
+            return ERR_INVALID_OPERATION;
+        }
+        // one width end to end: every member's main input and output as wide as the head's main output
+        if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)
+        {
+            fprintf(stderr, "chain %d: effect_%d (%u in, %u out) is not as wide as effect_%d's output (%u)\n", id, instances[i],
+                    effect->in_ports, effect->out_ports, head->instance, head->out_ports);
+            return ERR_INVALID_OPERATION;
+        }
+        // a note port goes with its client: only the head keeps its own
+        if (i > 0 && (effect->midi_port || effect->midi_out_port))
+        {
+            fprintf(stderr, "chain %d: effect_%d has a note port, which only the chain's first member keeps\n", id,
+                    instances[i]);
+            return ERR_INVALID_OPERATION;
+        }
+    }
+
+    // another head: the chain leaves the old head's client and forms again in the new one's
+    if (chain && chain->head != head)
+    {
+        chain_end(chain);
+        chain = NULL;
+    }
+    if (!chain && !(chain = chain_start(id, head, &error)))
+        return error;
+    // the members the line leaves out leave first, each to a client of its own
+    for (count = atomic_load_explicit(&chain->count, memory_order_relaxed); count > 1; count--)
+    {
+        effect_t *member = atomic_load_explicit(&chain->members[count - 1], memory_order_relaxed);
+
+        for (i = 1; i < n && &g_effects[instances[i]] != member; i++)
+            ;
+        if (i == n)
+            chain_leave(chain, member);
+    }
+    // then each place takes its member: already there, moved there in the walk, or joining at it
+    for (i = 1; i < n; i++)
+    {
+        effect_t *effect = &g_effects[instances[i]];
+
+        if ((uint32_t)i < atomic_load_explicit(&chain->count, memory_order_relaxed)
+            && atomic_load_explicit(&chain->members[i], memory_order_relaxed) == effect)
+            continue;
+        if (effect->chain == chain)
+        {
+            chain_extract(chain, effect);
+            error = SUCCESS;
+            if (chain_insert(chain, effect, (uint32_t)i) != 0)
+            {
+                effect->jack_client = NULL;
+                error = client_back(effect) == SUCCESS ? ERR_INVALID_OPERATION : ERR_JACK_CLIENT_CREATION;
+            }
+        }
+        else
+            error = chain_join(chain, effect, (uint32_t)i);
+        if (error != SUCCESS)
+        {
+            chain_say(chain);
+            return error;
+        }
+    }
+    chain_say(chain);
     return SUCCESS;
 }
 
