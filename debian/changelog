@@ -11,6 +11,20 @@ omx-clap-host (0.20.0) unstable; urgency=medium
 
  -- Pau Aliagas <linuxnow@gmail.com>  Sun, 25 Oct 2026 01:30:00 +0200
 
+omx-clap-host (0.19.1) unstable; urgency=medium
+
+  * lv2_locate reads a manifest in work linear in its size: each declaration
+    of a namespace the plugin URI starts with read the whole text again, so a
+    4 MiB manifest repeating one took 10.7 s per lookup. Past
+    LV2_LOCATE_PREFIXES_MAX (16) such declarations the bundle is a candidate
+    the caller opens to know; tests/lv2_locate_test.c counts the readings
+    (16 for 1024 declarations). libFuzzer harnesses for the preset file, its
+    state body and the manifest (fuzz/, make fuzz, fuzz-run, fuzz-sabotage,
+    fuzz-coverage, fuzz-static), run in CI on every push and pull request
+    (#326).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 25 Oct 2026 01:30:00 +0200
+
 omx-clap-host (0.19.0) unstable; urgency=medium
 
   * show_external_ui tries a Wayland window first: on a session whose

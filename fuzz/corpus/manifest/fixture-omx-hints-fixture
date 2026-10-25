@@ -1,0 +1,15 @@
+urn:omx:test:hints:two# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The resource hints' LV2 face (lv2_hints_fixture.h): two pads, one stating two hints, one none.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:omx:test:hints:two>
+    a lv2:Plugin ;
+    lv2:binary <omx-hints-fixture.so> ;
+    rdfs:seeAlso <omx-hints-fixture.ttl> .
+
+<urn:omx:test:hints:none>
+    a lv2:Plugin ;
+    lv2:binary <omx-hints-fixture.so> ;
+    rdfs:seeAlso <omx-hints-fixture.ttl> .
