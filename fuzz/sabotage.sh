@@ -2,14 +2,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# make fuzz-sabotage: A PROPERTY NO MUTANT CAN BREAK CHECKS NOTHING. fuzz/mutants/<harness>-<property>.patch is a
-# one-line bug in the reader the harness drives, one for each property the harness checks. This applies each, rebuilds
-# the harness, and runs it over every seed of its corpus, one seed at a time, no fuzzing: the corpus alone must find it.
-# A mutant is found when at least one seed makes the harness abort and every seed that does aborts in
-# check_<property> (or a check_<property>_<part>): the innermost check_ function of the stack is that one, and the
-# crash is an abort(), not a sanitizer report. A seed that crashes anywhere else makes the mutant red, since the mutant
-# then breaks a property it does not name. The source is restored with `git checkout --` on every exit path, and the
-# sanitizer build is rebuilt as the tree is at the end.
+# make fuzz-sabotage: A PROPERTY NO MUTANT CAN BREAK CHECKS NOTHING. fuzz/sabotage/<harness>-<property>.patch is a
+# one-line bug in the reader the harness drives, one for each property the harness checks; above its `diff --git` line
+# it names the check it breaks and the seed that shows it, as OSS Verify reads a breakage patch (docs/project-yaml.md,
+# "mutants" there):
+#
+#   Breaks the check of fuzz/fuzz_<harness>.c:<abort line> (<what the bug is>).
+#   Caught by the seed input "<seed>" of fuzz_<harness>.
+#
+# This applies each, rebuilds the harness, and runs it over every seed of its corpus, one seed at a time, no fuzzing:
+# the corpus alone must find it. A mutant is found when the seed it names aborts inside check_<property> (or a
+# check_<property>_<part>), and every seed that fails fails by an abort() in some check_ function (the optimizer merges
+# the abort() calls of a function, so the line is fuzz/records.sh's to prove, in a build that keeps them apart): a bug the harness reads in two ways (a manifest misread is a wrong answer and a broken round trip) may stop
+# a seed in another property first, but a sanitizer report or a crash outside a check makes it red. The source is
+# restored with `git checkout --` on every exit path, and the sanitizer build is rebuilt as the tree is at the end.
 #
 # Usage: FUZZ_BUILD=build/fuzz MAKE=make sabotage.sh
 set -u
@@ -35,13 +41,21 @@ fi
 
 missed=
 n=0
-for p in fuzz/mutants/*.patch; do
+for p in fuzz/sabotage/*.patch; do
     [ -f "$p" ] || continue
     m=$(basename "$p" .patch)
     h=${m%%-*}
     prop=${m#*-}
     fn=check_$(echo "$prop" | tr - _)
     n=$((n + 1))
+    # the check and the seed its header names
+    at=$(sed -n "s|^Breaks the check of \(fuzz/fuzz_$h\.c:[0-9]*\) (.*)\.\$|\1|p" "$p" | head -n 1)
+    named=$(sed -n "s|^Caught by the seed input \"\([^\"]*\)\" of fuzz_$h\.\$|\1|p" "$p" | head -n 1)
+    if [ -z "$at" ] || [ -z "$named" ] || [ ! -f "fuzz/corpus/$h/$named" ]; then
+        echo "$m: the header does not name a check of fuzz/fuzz_$h.c and a seed of fuzz/corpus/$h/"
+        missed="$missed $m"
+        continue
+    fi
     files=$(git apply --numstat "$p" | awk '{ print $3 }')
     if ! git apply "$p"; then
         echo "$m: $p no longer applies"
@@ -60,30 +74,31 @@ for p in fuzz/mutants/*.patch; do
         continue
     fi
     found=0
-    first=
+    own=0
     other=
     for seed in fuzz/corpus/$h/*; do
         log=$OUT/$m.$(basename "$seed").log
         "$B/fuzz_$h" -runs=1 -artifact_prefix="$OUT/$m-" "$seed" >"$log" 2>&1 && { rm -f "$log"; continue; }
         # the innermost check_ function of the stack, and whether the harness aborted
         where=$(grep -m1 -oE ' in check_[a-z_]+' "$log" | sed 's/^ in //')
-        if grep -q 'ERROR: libFuzzer: deadly signal' "$log" && echo "$where" | grep -qE "^$fn(_[a-z]+)*\$"; then
+        if grep -q 'ERROR: libFuzzer: deadly signal' "$log" && [ -n "$where" ]; then
             found=$((found + 1))
-            [ -n "$first" ] || first=$(basename "$seed")
+            echo "$where" | grep -qE "^$fn(_[a-z]+)*\$" && own=$((own + 1))
         else
             other="$other $(basename "$seed")(${where:-$(grep -m1 -E '^SUMMARY: ' "$log")})"
         fi
     done
     restore
-    if [ "$found" -gt 0 ] && [ -z "$other" ]; then
-        echo "$m: found by $found seeds, first $first, every one in $fn"
-    elif [ -n "$other" ]; then
-        echo "$m: seeds that crashed outside $fn:$other"
-        echo "$m: RED -- the mutant breaks a property it does not name (logs in $OUT/)"
+    log=$OUT/$m.$named.log
+    if [ -n "$other" ]; then
+        echo "$m: seeds that failed outside a check:$other"
+        echo "$m: RED -- the mutant is not read as a broken property (logs in $OUT/)"
+        missed="$missed $m"
+    elif [ ! -f "$log" ] || ! grep -m1 -oE ' in check_[a-z_]+' "$log" | grep -qE "^ in $fn(_[a-z]+)*\$"; then
+        echo "$m: RED -- the seed $named does not abort in $fn"
         missed="$missed $m"
     else
-        echo "$m: MUTANT NOT FOUND -- no seed breaks $fn"
-        missed="$missed $m"
+        echo "$m: found by $found seeds, $own in $fn, $named among them"
     fi
 done
 
@@ -91,11 +106,11 @@ done
 $MAKE --no-print-directory fuzz >"$OUT/rebuild.log" 2>&1 || { cat "$OUT/rebuild.log"; exit 1; }
 
 if [ "$n" -eq 0 ]; then
-    echo "make fuzz-sabotage: RED -- no mutant in fuzz/mutants/"
+    echo "make fuzz-sabotage: RED -- no mutant in fuzz/sabotage/"
     exit 1
 fi
 if [ -n "$missed" ]; then
     echo "make fuzz-sabotage: RED --$missed"
     exit 1
 fi
-echo "make fuzz-sabotage: all $n mutants found, each only by its own property"
+echo "make fuzz-sabotage: all $n mutants found, each in the property its header names"

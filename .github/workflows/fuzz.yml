@@ -2,10 +2,10 @@ name: fuzz
 
 # The libFuzzer harnesses of fuzz/ (fuzz/README.md), on every push and pull request: the preset file reader, the state
 # body it carries and the manifest.ttl the host reads without lilv, each built with clang under AddressSanitizer and
-# UndefinedBehaviorSanitizer and fuzzed for 60 s from its seed corpus; every mutant of fuzz/mutants/ found by its own
-# property; the coverage witness held to its floor; the corpus current; and each harness linked fully static. An input
-# that crashes a harness is uploaded as the fuzz-findings artifact. Only Fedora's toolchain is installed: no package of
-# the FreeMixer channel, so no floor to declare.
+# UndefinedBehaviorSanitizer and fuzzed for 60 s from its seed corpus; every mutant of fuzz/sabotage/ found at the check
+# it names; every check's own record met; the coverage witness held to its floor; the corpus current; and each harness
+# linked fully static. An input that crashes a harness is uploaded as the fuzz-findings artifact. Only Fedora's
+# toolchain is installed: no package of the FreeMixer channel, so no floor to declare.
 
 on:
   pull_request:
@@ -44,10 +44,15 @@ jobs:
       - name: Fuzz each harness for 60 s
         run: make fuzz-run FUZZ_TIME=60
 
-      # a property no mutant can break checks nothing: each one-line mutant must make its harness abort on a seed, in
-      # that property's own check
-      - name: Find every mutant, each by its own property
+      # a property no mutant can break checks nothing: each one-line mutant must make its harness abort on the seed it
+      # names, at the check it names
+      - name: Find every mutant, each at its own check
         run: make fuzz-sabotage
+
+      # every check of fuzz/ records the one-line bug it catches and the seed it catches it on, and each record, alone,
+      # makes that check abort on that seed
+      - name: Meet every check's record
+        run: make fuzz-records
 
       # the seed corpus must keep reaching the reader lines it reaches today (fuzz/coverage-floor.txt) and every
       # property check of every harness

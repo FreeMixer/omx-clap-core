@@ -29,6 +29,7 @@ int main(int argc, char **argv)
         }
         do
         {
+            /* not a property: the driver's own allocation failed */
             if (n + 65536 > cap && !(b = realloc(b, cap = (n + 65536) * 2)))
                 abort();
             got = fread(b + n, 1, 65536, f);
@@ -44,6 +45,7 @@ int main(int argc, char **argv)
         {
             uint8_t *exact = malloc(n ? n : 1);
 
+            /* not a property: the driver's own allocation failed */
             if (!exact)
                 abort();
             for (got = 0; got < n; got++)

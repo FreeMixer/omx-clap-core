@@ -240,6 +240,9 @@ static void preset_corpus(void)
         { "no-modified-at", "{\"format\": \"org.openmixer.preset/1\", \"tags\": [\"a\", \"b\"]}" },
         { "whitespace", " \t\r\n{ \"a\" : [ 1 , 2 ] }\r\n\t " },
         { "many-small-containers", "[[1],[2],[3],[4],[5],[6],[7],[8],[9],{\"a\":1},{\"b\":[2]},[[3]]]" },
+        // a file of no strings, to which a save adds the first; a tab the writer escapes as \t, which the file did not
+        { "empty-object", "{}" },
+        { "escape-tab-as-u", "\"tab\\u0009\"" },
         // what it refuses, one input each
         { "refuse-empty", "" },
         { "refuse-blank", " \n\t" },
@@ -351,6 +354,7 @@ static void state_corpus(void)
         { "unpadded-f", "Zg" },
         { "spaced", " Zm9v\tYmFy" },
         { "trailing-newline", "Zm9vYmFy\n" },
+        { "rfc4648-f-newline", "Zg==\n" },
         { "refuse-letter", "Zm9v!" },
         { "refuse-after-pad", "Zg==Zg==" },
         { "refuse-three-pads", "Zg===" },

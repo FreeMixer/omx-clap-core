@@ -1067,7 +1067,8 @@ bench: bench-tools
 # the reader's source, compiled with fuzz/alloc.h forced on it; nothing else. The ordinary build is not touched.
 #   make fuzz                    build every harness
 #   make fuzz-run FUZZ_TIME=60   fuzz each from its seed corpus; red on any crash, the input left in fuzz/findings/
-#   make fuzz-sabotage           each mutant of fuzz/mutants/ must make its harness abort on a seed, in its own property
+#   make fuzz-sabotage           each mutant of fuzz/sabotage/ must make its harness abort at the check it names
+#   make fuzz-records            each check's mutant: and input: record, alone, must make that check abort on that seed
 #   make fuzz-coverage           the coverage witness: llvm-cov over the corpus, held to fuzz/coverage-floor.txt
 #   make fuzz-static             each harness linked fully static with a plain driver, over its corpus
 #   make fuzz-corpus            write fuzz/corpus/ again from the fixtures; fuzz-corpus-check: it is what they give
@@ -1099,6 +1100,10 @@ fuzz-run: fuzz
 
 fuzz-sabotage:
 	FUZZ_BUILD=$(FUZZ_BUILD) MAKE="$(MAKE)" fuzz/sabotage.sh
+
+# each record built plain and native with fuzz/standalone.c, no sanitizer, as OSS Verify's coverage build is
+fuzz-records:
+	FUZZ_BUILD=$(FUZZ_BUILD) FUZZ_CC=$(FUZZ_CC) fuzz/records.sh
 
 # the coverage witness: the same harnesses without sanitizers, instrumented for llvm-cov, each run once over its seed
 # corpus; the llvm-cov and llvm-profdata of FUZZ_CC's own LLVM
@@ -1147,4 +1152,4 @@ fuzz-corpus-check: $(FUZZ_BUILD)/gen-corpus
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
 	$(FUZZ_BUILD)/gen-corpus $$tmp/corpus; diff -r $$tmp/corpus fuzz/corpus; echo "the seed corpus is current"
 
-.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check
+.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-records fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check

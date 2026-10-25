@@ -1,8 +1,11 @@
+Breaks the check of fuzz/fuzz_manifest.c:191 (the URI's copy is twice its size).
+Caught by the seed input "whole" of fuzz_manifest.
+
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
-index 0efd5a3..19fec4f 100644
+index 1d56392..6e17d2e 100644
 --- a/src/lv2_locate.c
 +++ b/src/lv2_locate.c
-@@ -84,7 +84,7 @@ int lv2_locate_manifest_names(const char *text, const char *uri)
+@@ -91,7 +91,7 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
  
      if (uri_len == 0)
          return 0;

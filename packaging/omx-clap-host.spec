@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.20.0
+Version:        0.20.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
@@ -151,6 +151,15 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.1-1
+- The fuzz harnesses read each input by its own grammar, never by the
+  reader they test: the preset file's JSON, the state body's base64 and
+  lv2_locate.h's naming rule, so a reader and writer that share a mistake,
+  or a reader that refuses everything, is found. Every check of fuzz/
+  records the one-line bug it catches and the seed that shows it, and make
+  fuzz-records proves each alone (42 records and the 12 patches of
+  fuzz/sabotage/); the library does not change (#345).
+
 * Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.0-1
 - omx-clap-scan prints the panel a plugin publishes through
   org.openmixer.panel-description/1: --json carries it as "panel" (family,

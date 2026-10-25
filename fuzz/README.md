@@ -31,22 +31,31 @@ What has no harness, and why:
 
 ### The properties
 
-Each harness checks the same four, one `check_` function each:
+Each harness checks the same five, one `check_` function each:
 
-- **no_overread**: the answer is the one the input's own bytes give. The reader is handed the input twice with
-  different bytes past it (a digit and a NUL for the preset file; `*`, which no base64 has, and a NUL past a state
-  text's NUL; a name character and a NUL past the manifest's and the URI's) and must answer the same; a reader that
-  reads past the input sees the difference. The call that follows is handed a copy of exactly the input, so a read past
-  it is also AddressSanitizer's.
+- **no_overread**: the answer is the one the input's own bytes give. The reader is handed the input three times with
+  different bytes past it (two digits and a NUL for the preset file; `AA`, `BA` and a NUL past a state text's NUL;
+  a name character and a NUL past the manifest's and the URI's) and must give one answer, and the same record whenever
+  two of them accept; a reader that reads past the input sees the difference. The call that follows is handed a copy of
+  exactly the input, so a read past it is also AddressSanitizer's.
+- **as_written**: the answer is the one the input's grammar gives, read by the harness itself and never by the reader
+  under test. Each harness's header writes its grammar down: the preset file's JSON (its depth, its `\u` escapes, its
+  lax numbers), the state body's base64 (whitespace skipped, padding allowed), and `src/lv2_locate.h`'s rule for when a
+  manifest names a URI. The reader must refuse what the grammar refuses and accept what it reads, and to the same
+  record: every string's bytes and every number's text and value for a preset, every byte of a state body. A reader and
+  a writer that share one mistake, an escape read and written back the same wrong way or a base64 letter both get wrong,
+  make a round trip that holds; this property does not.
 - **reject_clean**: a refusal leaves no partial state. A refused preset leaves the tree zeroed; a refused state text
   writes no length; every refusal gives back every byte the reader took. The input is read once more with one of the
   allocations its reading took failing (which one, its bytes choose), as when memory runs out: the reader refuses and
   holds nothing, and so does the writer or encoder.
-- **round_trip**: parse, render, parse again gives the same record. A preset written back compact and pretty reads back
-  to the same tree, member order and every number's text included, and writes the same text again; a rewrite that sets
-  `modifiedAt` keeps every other member in its place. A state body encodes to `(len + 2) / 3 * 4` characters that
-  decode to it, and survives a whole preset written and read back. A URI the manifest names, written back whole and at
-  every split as `@prefix`, `PREFIX` and the empty prefix, is named again.
+- **round_trip**: render and parse again gives the same record, and the render is the format's. A preset written back
+  compact and pretty is, byte for byte, the text the harness renders of the tree in the writer's format, and reads back
+  to the same tree, member order and every number's text included; a rewrite that sets `modifiedAt` keeps every other
+  member in its place. A state body encodes to the encoding the harness writes of it, `(len + 2) / 3 * 4` characters
+  that decode to it, and survives a whole preset written and read back. A URI written as a manifest, whole and at every
+  split as `@prefix`, `PREFIX` and the empty prefix, is named; the empty text names nothing; and the same spellings with
+  one more name character after the URI's end get the answer the rule gives.
 - **bounded_alloc**: one input's allocation is bounded by its size. The preset reader holds at most 256 bytes for
   each byte of file and the first slots of the 32 containers that may be open; the decoder `n / 4 * 3 + 3` bytes for
   `n` characters; the manifest reader the URI's length and three.
@@ -84,28 +93,55 @@ seed with a matching declaration reaches.
 | state | 59 | 59 (100%) | |
 | manifest | 92 | 92 (100%) | |
 
+## The records
+
+Every `abort()` of `fuzz/` is a check, and its comment names a bug it catches: a one-line change of the reader and the
+seed that shows it, in the form OSS Verify reads (docs/build-contract.md of oss-verify, "The checks of a fuzz target"):
+
+```
+/* The tree is the one the file spells.
+ * mutant: src/preset_file.c:151 `'\n'` -> `'\r'`
+ * input: escapes */
+if (rc == 0 && want != 0)
+    abort();
+```
+
+A stop after an allocation of the harness's own fails has one line `not a property: <reason>` instead. `make
+fuzz-records` (`fuzz/records.sh`) proves each record alone: the harness, plain and native with `fuzz/standalone.c` for
+its driver, exits 0 on the seed as the tree is; with the change made and the harness built again it exits 134 on the
+seed, at that check's own `abort()`. A check with neither a record nor a `not a property` line, or with lines not of
+that form, makes `make fuzz-records` and `make fuzz-coverage` red (`fuzz/checks.awk`): a check that names no bug it
+catches is a property nobody showed can fail. A record's line is the line of `src/` at the commit it is read at, so a
+change to the reader moves the records it shifts.
+
 ## The mutants
 
-`make fuzz-sabotage` proves each property can find a bug. `fuzz/mutants/<harness>-<property>.patch` is a one-line bug
-in the reader, one for each property of each harness; the target applies it, rebuilds, and runs the harness over every
-seed of its corpus, one at a time, without fuzzing. A mutant is found when a seed makes the harness abort and every
-seed that aborts does so in that property's own `check_` function: a seed that crashes anywhere else, a sanitizer
-report included, makes it red. The source is restored with `git checkout --` on every exit path.
+`make fuzz-sabotage` proves each property can find a bug over the whole corpus. Each
+`fuzz/sabotage/<harness>-<property>.patch` is a one-line bug in the reader, one for each property of each harness but
+as_written, which OSS Verify reads as the breakage patches of `mutants: fuzz/sabotage`; above its `diff --git` line it
+names the check it breaks and the seed that catches it (`Breaks the check of fuzz/fuzz_<harness>.c:<line> (...).` and
+`Caught by the seed input "<seed>" of fuzz_<harness>.`). The target applies each, rebuilds, and runs the harness over
+every seed of its corpus, one at a time, without fuzzing. A mutant is found when the seed its header names aborts in
+that property's own `check_` function, and every seed that fails does so by an `abort()` in a `check_` function: one
+bug the harness reads in two ways may stop a seed in another property first, but a seed that crashes anywhere else, a
+sanitizer report included, makes it red. The source is restored with `git checkout --` on
+every exit path. `make fuzz-records` proves the header's line too: the patch applied alone, the named seed aborts at
+that check's own `abort()`.
 
-| Mutant | The bug | Found by |
+| Mutant | The bug | Named seed |
 | --- | --- | --- |
-| preset-no-overread | a number's leading-zero test peeks one byte past the input | 2 seeds (`zero-alone`, `minus-zero-alone`) |
-| preset-reject-clean | a member that fails is not counted, so not freed with its container | 31 seeds |
+| preset-no-overread | a number's leading-zero test peeks one byte past the input | `zero-alone` |
+| preset-reject-clean | a member that fails is not counted, so not freed with its container | `refuse-array-cut` |
 | preset-round-trip | an escaped character is written again raw after its escape | `escapes` |
-| preset-bounded-alloc | a container's first slots are 512, not 8 | 34 seeds |
+| preset-bounded-alloc | a container's first slots are 512, not 8 | `many-small-containers` |
 | state-no-overread | whitespace skips the character after it too | `trailing-newline` |
-| state-reject-clean | the decoder keeps its buffer on a refusal | 6 seeds |
-| state-round-trip | the encoder writes a letter where one byte's pad goes | 16 seeds |
-| state-bounded-alloc | the decoder's buffer is three bytes a character | 53 seeds |
+| state-reject-clean | the decoder keeps its buffer on a refusal | `refuse-letter` |
+| state-round-trip | the encoder writes a letter where one byte's pad goes | `rfc4648-f` |
+| state-bounded-alloc | the decoder's buffer is three bytes a character | `rfc4648-f` |
 | manifest-no-overread | a prefixed name's end is read one byte late | `name-at-end` |
-| manifest-reject-clean | the URI's copy is never freed | 76 seeds |
-| manifest-round-trip | a SPARQL `PREFIX` is read one byte late | 41 seeds |
-| manifest-bounded-alloc | the URI's copy is twice its size | 76 seeds |
+| manifest-reject-clean | the URI's copy is never freed | `whole` |
+| manifest-round-trip | a SPARQL `PREFIX` is read one byte late | `whole` |
+| manifest-bounded-alloc | the URI's copy is twice its size | `whole` |
 
 ## What the harnesses found
 
@@ -121,7 +157,8 @@ of the bound.
 ```
 make fuzz                    # build every harness into build/fuzz/
 make fuzz-run FUZZ_TIME=60   # fuzz each for 60 s; red on any crash
-make fuzz-sabotage           # every mutant found, each by its own property
+make fuzz-sabotage           # every mutant found, each in the property its header names
+make fuzz-records            # every check's own record, alone, makes that check abort on its seed
 make fuzz-coverage           # the coverage witness and its floors
 make fuzz-static             # each harness linked fully static with a plain driver, over its corpus
 make fuzz-corpus             # write fuzz/corpus/ again from the fixtures
