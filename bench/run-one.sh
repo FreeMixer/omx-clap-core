@@ -15,8 +15,8 @@
 # per plugin, as Zynthian runs its layers; RSS and CPU are the sum over them, RSS empty is 0: no host before an add).
 # clap-series and adapter-series: clap's and adapter's plugins in one client each, linked in series (the noise into the
 # first, each output into the next one's input, the last one recorded); chain-clap and chain-adapter: the same plugins
-# in series in ONE client, OMX_CLAP_HOST_CHAIN (#302). Their plugins.csv rows carry the series' output's first sound and
-# silent blocks, and a chain member, which is no node of its own, no node times.
+# in series in ONE client, declared by the chain line once they are added (#302, #104). Their plugins.csv rows carry
+# the series' output's first sound and silent blocks, and a chain member, which is no node of its own, no node times.
 # BENCH_IDLE_HOLD: the CPU idle hold of the run (bench/lib.sh), recorded with the device's aggregate in runs.csv.
 #
 # Writes <out dir>/plugins.csv and <out dir>/runs.csv rows (appended, no header) and keeps the raw profiler log,
@@ -112,8 +112,18 @@ series_link() {
         prev=$k
     done
 }
+# a chain: every plugin the host took, in order, one chain in the first one's client (docs/chain.md); the pad, n_fx, a
+# client of its own
+chain_declare() {
+    local k line="chain 0"
+    for k in $(seq 0 $((n_fx - 1))); do
+        [ -n "${refused[$k]:-}" ] || line="$line $k"
+    done
+    [ "$(send "$line")" = "resp 0" ]
+}
 if [ "$topology" != parallel ]; then
     t1=$(now_ns)
+    [ "$topology" != chain ] || chain_declare || die "the chain line: $(tail -3 "$raw/host.log")"
     series_link || die "the series: ports"
     link_s=$(ms "$t1" "$(now_ns)")
     for k in "${!add_ms[@]}"; do link_ms[$k]=$link_s; done
