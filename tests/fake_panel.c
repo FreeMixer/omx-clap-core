@@ -26,7 +26,10 @@
  *    controls, threshold a fader in main, mode a switch in detail and knee a knob in detail shown while mode is 1 or 2
  *    (visible_param_id 1, mask 6); one role, threshold; one display, a gain reduction bar over main from meter 7 with a
  *    -24 dB floor; and no placement default, its table empty;
- *  - org.omx-clap-host.test.panel-none serves none.
+ *  - org.omx-clap-host.test.panel-none serves none;
+ *  - org.omx-clap-host.test.panel-hostile serves the same description but counts its controls UINT32_MAX and its roles
+ *    one past OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES, and its get fills a row for any index of those two tables, so a
+ *    host that believes the counts reserves and walks every one.
  */
 
 #include <stdio.h>
@@ -38,6 +41,7 @@
 
 #define ID_PANEL        "org.omx-clap-host.test.panel"
 #define ID_NONE         "org.omx-clap-host.test.panel-none"
+#define ID_HOSTILE      "org.omx-clap-host.test.panel-hostile"
 #define PARAM_COUNT     3u
 #define FINGERPRINT     "5f2c1e0a9b8d7c6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c3d2e"
 
@@ -45,6 +49,7 @@ static const char *const g_features[] = { CLAP_PLUGIN_FEATURE_AUDIO_EFFECT, NULL
 static const clap_plugin_descriptor_t g_descs[] = {
     { CLAP_VERSION_INIT, ID_PANEL, "panel", "omx-clap-host", "", "", "", "0", "", g_features },
     { CLAP_VERSION_INIT, ID_NONE, "panel-none", "omx-clap-host", "", "", "", "0", "", g_features },
+    { CLAP_VERSION_INIT, ID_HOSTILE, "panel-hostile", "omx-clap-host", "", "", "", "0", "", g_features },
 };
 #define DESC_COUNT (sizeof(g_descs) / sizeof(g_descs[0]))
 
@@ -192,6 +197,16 @@ static uint32_t panel_count(const clap_plugin_t *plugin, uint32_t table)
     return table < TABLE_COUNT ? g_tables[table].count : 0;
 }
 
+/* the hostile plugin's counts: its controls and its roles past what a host reads */
+static uint32_t hostile_count(const clap_plugin_t *plugin, uint32_t table)
+{
+    if (table == 1)
+        return UINT32_MAX;
+    if (table == 2)
+        return OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES + 1;
+    return panel_count(plugin, table);
+}
+
 static bool panel_get(const clap_plugin_t *plugin, uint32_t table, uint32_t index, void *out)
 {
     (void)plugin;
@@ -201,10 +216,19 @@ static bool panel_get(const clap_plugin_t *plugin, uint32_t table, uint32_t inde
     return true;
 }
 
+/* any index of the hostile tables is the table's first row */
+static bool hostile_get(const clap_plugin_t *plugin, uint32_t table, uint32_t index, void *out)
+{
+    if (out && (table == 1 || table == 2))
+        index = 0;
+    return panel_get(plugin, table, index, out);
+}
+
 static const clap_plugin_params_t g_params = { params_count, params_get_info, params_get_value, params_value_to_text,
                                                params_text_to_value, params_flush };
 static const clap_plugin_audio_ports_t g_ports = { ports_count, ports_get };
 static const omx_clap_plugin_panel_description_ext_t g_panel = { panel_fingerprint, panel_family, panel_count, panel_get };
+static const omx_clap_plugin_panel_description_ext_t g_hostile = { panel_fingerprint, panel_family, hostile_count, hostile_get };
 
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
@@ -214,6 +238,8 @@ static const void *plugin_get_extension(const clap_plugin_t *plugin, const char 
         return &g_ports;
     if (!strcmp(id, OMX_CLAP_EXT_PANEL_DESCRIPTION) && !strcmp(plugin->desc->id, ID_PANEL))
         return &g_panel;
+    if (!strcmp(id, OMX_CLAP_EXT_PANEL_DESCRIPTION) && !strcmp(plugin->desc->id, ID_HOSTILE))
+        return &g_hostile;
     return NULL;
 }
 

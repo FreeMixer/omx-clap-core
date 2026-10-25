@@ -445,7 +445,8 @@ static void fields_checks(const char *scan, const char *fake, const char *crash,
 }
 
 /* the panel description fake_panel.clap's panel plugin publishes (org.openmixer.panel-description/1), as --json and
- * --fields print it, value by value; its panel-none plugin and every plugin of fake.clap serve none */
+ * --fields print it, value by value; its panel-none plugin and every plugin of fake.clap serve none; its panel-hostile
+ * plugin counts two tables past OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES (4096), which the scan refuses */
 static void panel_checks(const char *scan, const char *fake, const char *panel, char *out)
 {
     int status = run(out, "%s --json %s", scan, panel);
@@ -472,14 +473,24 @@ static void panel_checks(const char *scan, const char *fake, const char *panel, 
                    "\"label\":\"Gain reduction\"}],"),
           "its one display: a gain reduction bar over main from meter 7, a -24 dB floor no parameter sets");
     CHECK(has(out, ",\"placementDefaults\":[]}"), "a table the plugin leaves empty is empty, nothing filled in");
-    CHECK(count(out, "\"panel\":{") == 1 && plugin_has(out, "panel-none", "\"panel\":null"),
+    CHECK(count(out, "\"panel\":{") == 2 && plugin_has(out, "panel-none", "\"panel\":null"),
           "panel-none serves no description: \"panel\":null (%i described)", count(out, "\"panel\":{"));
+    CHECK(plugin_has(out, "panel-hostile", "\"controls\":{\"refused\":\"too-many\",\"count\":4294967295,\"max\":4096},"
+                                           "\"roles\":{\"refused\":\"too-many\",\"count\":4097,\"max\":4096},"),
+          "panel-hostile's controls counted UINT32_MAX and its roles 4097 are refused, each with its count and the maximum");
+    CHECK(plugin_has(out, "panel-hostile", "\"label\":\"Detail\"}],\"controls\":{\"refused\"")
+          && plugin_has(out, "panel-hostile", "},\"displays\":[{\"kind\":\"gain_reduction_bar\",")
+          && plugin_has(out, "panel-hostile", ",\"placementDefaults\":[]}") && !has(out, "out of memory"),
+          "and its sections, displays and placement defaults still print, nothing reported out of memory");
     status = run(out, "%s --json %s", scan, fake);
     CHECK(status == 0 && count(out, "\"panel\":null") == 23, "and none of fake.clap's 23 plugins does (%i null)", count(out, "\"panel\":null"));
     status = run(out, "%s %s", scan, panel);
     CHECK(status == 0 && has(out, "\n    panel dynamics, 2 sections, 3 controls, 1 roles, 1 displays, 0 placement defaults\n")
-          && count(out, "    panel ") == 1,
-          "the listing for a person counts the panel's tables, for the plugin that has one (%i)", status);
+          && count(out, "    panel ") == 2,
+          "the listing for a person counts the panel's tables, for the plugins that have one (%i)", status);
+    CHECK(has(out, "\n    panel dynamics, 2 sections, controls refused (4294967295 past 4096), roles refused (4097 past 4096), "
+                   "1 displays, 0 placement defaults\n"),
+          "and names the tables it refused");
 
     status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.panel", scan, panel);
     CHECK(status == 0 && has(out, "\nplugin\tclap_plugin.get_extension\torg.openmixer.panel-description/1\n"),
@@ -521,6 +532,13 @@ static void panel_checks(const char *scan, const char *fake, const char *panel, 
     CHECK(status == 0 && !has(out, "\npanel\t") && !has(out, "panel-description") && !has(out, "\nsection:") && !has(out, "\ncontrol:"),
           "a plugin that serves none has no panel record (%i)", status);
     CHECK(has(out, "\nparam:2\tclap_param_info.name\tknee\n"), "and its parameters are dumped as before");
+    status = run(out, "%s --fields clap:%s#org.omx-clap-host.test.panel-hostile", scan, panel);
+    CHECK(status == 0 && has(out, "\npanel\tomx_clap_plugin_panel_description.count\tcontrols 4294967295 refused, past 4096\n")
+          && has(out, "\npanel\tomx_clap_plugin_panel_description.count\troles 4097 refused, past 4096\n"),
+          "the dump records each refused table with its count and the maximum (%i)", status);
+    CHECK(!has(out, "\ncontrol:") && !has(out, "\nrole:") && count(out, "\nsection:") == 6 && count(out, "\ndisplay:") == 8,
+          "no entry of a refused table, the other tables whole (%i section, %i display)", count(out, "\nsection:"),
+          count(out, "\ndisplay:"));
 }
 
 int main(int argc, char **argv)
