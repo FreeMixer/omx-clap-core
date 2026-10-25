@@ -175,31 +175,35 @@ arm member-bypass src/effects.c 's/^    omx_clap_host_bypass(g_effects\[effect_i
 arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/;s/pthread_mutex_trylock(\&g_chain_members) == 0/1/' \
     'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 
-# 15a .. 15d. the same, one site at a time: g_chain_members gone from one function, every other site kept, each red on
-# its own: the walk on JACK's thread (chain_followers_each), the thread-init callback's own role (jack_thread_init),
-# both of which try the lock (taken as had, the try gone), a joining member's role and the members shifted
-# (chain_insert). Four sites the stress cannot turn red, measured (2026-10-25, 40 rounds): chain_order and
-# chain_extract, which the stress runs every round, write only the members and the count, which are atomics, so
-# ThreadSanitizer sees no race without the lock (what the lock keeps is a walk that never sees the members half
-# shifted, which no sanitizer measures); ports_relayout, which runs only on a plugin's ports rescan, which no plugin of
-# the stress raises; and chain_end (red while JACK's walk read chain_run before a lock it waited on; green twice, 0
-# races, since the walk reads it under the lock it only tries: what the lock keeps is a walk that loaded chain_run
-# just before chain_end cleared it never reading the slot chain_end then clears, a window of a few loads)
+# 15a. the same, one site: g_chain_members gone from the walk on JACK's thread (chain_followers_each), which tries the
+# lock (taken as had, the try gone), every other site kept. The thread-init callback and the relayout take no lock (no
+# JACK thread writes an audio role: 16, 16b). Four sites the stress cannot turn red, measured (2026-10-25, 40 rounds):
+# chain_order, chain_extract and chain_insert, which the stress runs every round, write only the members and the count,
+# which are atomics, so ThreadSanitizer sees no race without the lock (what the lock keeps is a walk that never sees the
+# members half shifted, which no sanitizer measures; chain_insert was red while it also wrote the joining member's
+# role, green twice, 0 races, since that role reads its head's slot); and chain_end (red while JACK's walk read
+# chain_run before a lock it waited on; green twice, 0 races, since the walk reads it under the lock it only tries:
+# what the lock keeps is a walk that loaded chain_run just before chain_end cleared it never reading the slot chain_end
+# then clears, a window of a few loads)
 lock_site() {
     arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/{s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/;s/pthread_mutex_trylock(\\&g_chain_members) == 0/1/}" \
         'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 }
-for site in chain_followers_each jack_thread_init chain_insert; do lock_site "$site"; done
+for site in chain_followers_each; do lock_site "$site"; done
 
-# 16. the audio role's one lock: the gate's restart and resize without it (the gate given no role lock), so a client's
-# thread-init callback naming its thread races the resize tick reading and giving back the role (make
-# test-chain-host-tsan, the race tests/chain_host_tsan.supp once hid)
-arm role-lock src/effects.c 's/^    effect->gate\.role = \&g_chain_members;$/    (void)0;/' \
-    'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
+# 16. a client's thread on its instance's audio role from its first cycle, named with no lock: the thread-init
+# callback's store into the slot gone, so the plugin runs off the role in its own client (pass says so)
+arm slot src/effects.c '/^static void jack_thread_init(void \*arg)$/,/^}$/s/^    atomic_store_explicit(&effect->thread_named, pthread_self(), memory_order_release);$/    (void)0;/' \
+    'pass ran on the audio role from its first cycle'
 
-# 17. JACK's thread never waits on the audio role's lock: every add holds g_chain_members from before its client's
-# jack_activate until that client's thread-init callback has returned, polling with a sleep, as a resize holds it across
-# its poll and the plugin's activate. A callback that waits on the lock never returns while it is held, so the add gives
+# 16b. and a member on its head's thread: a joining member's role left on its own slot, not its head's, so the head's
+# cycle runs it off the role
+arm member-slot src/effects.c '/^static int chain_insert(/,/^}$/s/^        omx_clap_host_name_slot(effect->clap, &head->thread_named);$/        (void)0;/' \
+    'pass ran on the audio role from its first cycle'
+
+# 17. JACK's thread never waits on g_chain_members: every add holds it from before its client's jack_activate until that
+# client's thread-init callback has returned, polling with a sleep, as a resize holds its lock across its poll
+# and the plugin's activate. A callback that waits on the lock never returns while it is held, so the add gives
 # up after 10 s and answers -202 (the bound only ends a red run; a callback that does not wait returns at once, so the
 # outcome does not hang on timing); every add answering, and the whole test green, is the callback returning with the
 # lock held
