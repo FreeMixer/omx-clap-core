@@ -1,0 +1,15 @@
+$urn:omx:test:hints:wrong-unit-absent# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The resource hints' refusals (lv2_hints_fixture.h): two pads whose omxres properties are malformed on purpose.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:omx:test:hints:wrong-unit>
+    a lv2:Plugin ;
+    lv2:binary <omx-hints-refused.so> ;
+    rdfs:seeAlso <omx-hints-refused.ttl> .
+
+<urn:omx:test:hints:out-of-range>
+    a lv2:Plugin ;
+    lv2:binary <omx-hints-refused.so> ;
+    rdfs:seeAlso <omx-hints-refused.ttl> .

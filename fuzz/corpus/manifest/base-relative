@@ -1,0 +1,2 @@
+urn:example:plugins#gain@base <urn:example:plugins> .
+<#gain> a lv2:Plugin .

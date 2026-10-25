@@ -1,0 +1,13 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..2281781 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -596,7 +596,7 @@ char *preset_base64_encode(const uint8_t *data, size_t len)
+ 
+         *o++ = g_b64[w >> 18];
+         *o++ = g_b64[(w >> 12) & 63];
+-        *o++ = i + 1 < len ? g_b64[(w >> 6) & 63] : '=';
++        *o++ = g_b64[(w >> 6) & 63];
+         *o++ = '=';
+     }
+     *o = '\0';

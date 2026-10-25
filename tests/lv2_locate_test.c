@@ -56,6 +56,38 @@ static void names(void)
     CHECK(lv2_locate_manifest_names("<urn:a:b>", "") == 0, "manifest: an empty URI is named by nothing");
 }
 
+/* A manifest that declares the URI's namespace again and again: each declaration read the whole text for its name, so
+ * one of the largest size read (4 MiB) cost its size squared, a stall of every lookup on its path. The work is counted
+ * in readings of the whole text, never timed: a reader that reads once per declaration reads this one n times. */
+static void many_prefixes(void)
+{
+    static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
+    const size_t len = sizeof(line) - 1, n = 1024;
+    char *text = malloc(n * len + 1);
+    size_t i, readings = 0;
+    int got;
+
+    if (!text)
+    {
+        CHECK(0, "manifest: memory for a manifest of %zu declarations", n);
+        return;
+    }
+    for (i = 0; i < n; i++)
+        memcpy(text + i * len, line, len);
+    text[n * len] = '\0';
+    got = lv2_locate_manifest_readings(text, URI, &readings);
+    CHECK(got == 1 && readings <= LV2_LOCATE_PREFIXES_MAX,
+          "manifest: %zu declarations of the URI's namespace and no name: a candidate, read %zu times (at most %d)", n,
+          readings, LV2_LOCATE_PREFIXES_MAX);
+    text[LV2_LOCATE_PREFIXES_MAX * len] = '\0';
+    readings = 0;
+    got = lv2_locate_manifest_readings(text, URI, &readings);
+    CHECK(got == 0 && readings == LV2_LOCATE_PREFIXES_MAX,
+          "manifest: %d declarations of the URI's namespace and no name: read whole for each (%zu times), not a candidate",
+          LV2_LOCATE_PREFIXES_MAX, readings);
+    free(text);
+}
+
 static void bundle(const char *dir, const char *name, const char *manifest)
 {
     char path[512];
@@ -156,6 +188,7 @@ static void walk(void)
 int main(void)
 {
     names();
+    many_prefixes();
     walk();
     if (g_failures)
     {

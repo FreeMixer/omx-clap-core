@@ -161,6 +161,17 @@ make test-lv2
   structures, held to omx-plugins' omx_panel_description.h by make
   test-panel-abi; no export changes (#337).
 
+* Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.19.1-1
+- lv2_locate reads a manifest in work linear in its size: each declaration
+  of a namespace the plugin URI starts with read the whole text again, so a
+  4 MiB manifest repeating one took 10.7 s per lookup. Past
+  LV2_LOCATE_PREFIXES_MAX (16) such declarations the bundle is a candidate
+  the caller opens to know; tests/lv2_locate_test.c counts the readings
+  (16 for 1024 declarations). libFuzzer harnesses for the preset file, its
+  state body and the manifest (fuzz/, make fuzz, fuzz-run, fuzz-sabotage,
+  fuzz-coverage, fuzz-static), run in CI on every push and pull request
+  (#326).
+
 * Sat Oct 24 2026 Pau Aliagas <linuxnow@gmail.com> - 0.19.0-1
 - show_external_ui tries a Wayland window first: on a session whose
   WAYLAND_DISPLAY names a compositor that answers, a plugin that offers a

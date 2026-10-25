@@ -1,0 +1,13 @@
+diff --git a/src/lv2_locate.c b/src/lv2_locate.c
+index 0efd5a3..bc775c8 100644
+--- a/src/lv2_locate.c
++++ b/src/lv2_locate.c
+@@ -102,7 +102,7 @@ int lv2_locate_manifest_names(const char *text, const char *uri)
+         if (*at == '@' && strncmp(at + 1, "prefix", 6) == 0)
+             p = at + 7;
+         else if (strncasecmp(at, "PREFIX", 6) == 0 && (at == text || isspace((unsigned char)at[-1])))
+-            p = at + 6;
++            p = at + 7;
+         else
+             continue;
+         if (!isspace((unsigned char)*p))

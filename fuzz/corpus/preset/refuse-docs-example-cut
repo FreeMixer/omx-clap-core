@@ -1,0 +1,5 @@
+    {
+      "format": "org.openmixer.preset/2",
+      "plugin": { "id": "<plugin id>", "version": "<descriptor version>", "fingerprint": "omx-layout/1:<sha256>" },
+      "id": "<stable id>", "name": "<display name>",
+      "createdAt": "2026-10-
