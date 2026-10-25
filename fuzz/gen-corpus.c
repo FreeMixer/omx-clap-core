@@ -21,6 +21,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "fuzz.h"
 #include "lv2_locate.h"
 #include "preset_file.h"
 
@@ -180,6 +181,39 @@ static void built_presets(void)
     pj_free(&doc);
 }
 
+/* A preset whose compact text passes the 4096 bytes the writer takes first, so that writing it takes a second
+ * allocation, and whose bytes pick that second one to fail: fuzz_pick of fuzz/fuzz.h, as fuzz_preset picks it. */
+static void compact_second_allocation(void)
+{
+    char notes[6000], *text = NULL;
+    struct pj doc;
+    size_t k;
+
+    memset(notes, 'n', sizeof(notes));
+    pj_object(&doc);
+    put_str(&doc, "format", PRESET_FORMAT_PARAMS);
+    put_str(&doc, "name", "Long notes");
+    for (k = 4500; k < sizeof(notes); k++)
+    {
+        notes[k] = '\0';
+        put_str(&doc, "notes", notes);
+        notes[k] = 'n';
+        free(text);
+        if (!(text = pj_write(&doc, 0)))
+            die("pj_write");
+        if (fuzz_pick((const uint8_t *)text, strlen(text), 2) == 1)
+            break;
+    }
+    if (k == sizeof(notes) || strlen(text) + 1 > 8192)
+    {
+        fprintf(stderr, "fuzz-gen-corpus: no compact text of two allocations picks the second\n");
+        exit(1);
+    }
+    seed_str("preset", "compact-second-allocation", text);
+    free(text);
+    pj_free(&doc);
+}
+
 /* the indented example of docs/presets.md, the first block that opens with "    {" */
 static void docs_example(void)
 {
@@ -300,6 +334,7 @@ static void preset_corpus(void)
     docs_example();
     data_documents();
     built_presets();
+    compact_second_allocation();
 }
 
 /* ---------------------------------------------------------------- state */

@@ -517,7 +517,8 @@ static __attribute__((noinline)) void check_reject_clean(int rc, const struct pj
 }
 
 /* The file again with one of the allocations its reading took failing, as when memory runs out: refused like any
- * refusal. And a tree written with one of the writer's failing: no text, and its buffer given back. */
+ * refusal. And a tree written, pretty and compact, with one of the writer's failing: no text, and its buffer given
+ * back. */
 static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *data, size_t size, size_t took,
                                                                  const struct pj *doc)
 {
@@ -544,6 +545,19 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
     fuzz_alloc_fail(SIZE_MAX);
     /* mutant: src/preset_file.c:465 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
      * input: string-alone */
+    if (text || fuzz_alloc_live() != live)
+        abort();
+    /* The same of a compact write. A text of 4096 bytes or more takes a second allocation, and when that one fails the
+     * first still holds the text up to where it failed: a cut text, not none. */
+    before = fuzz_alloc_count();
+    fuzz_free(pj_write(doc, 0));
+    if (fuzz_alloc_count() == before)
+        return;
+    fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
+    text = pj_write(doc, 0);
+    fuzz_alloc_fail(SIZE_MAX);
+    /* mutant: src/preset_file.c:565 `if (o.failed)` -> `if (o.failed && pretty)`
+     * input: compact-second-allocation */
     if (text || fuzz_alloc_live() != live)
         abort();
 }
