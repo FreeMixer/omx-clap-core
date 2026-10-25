@@ -59,7 +59,7 @@ passes the same cycle dry through its members; the library has no head that owns
 
 ## Changes while the cycles run
 
-Every change is a control-thread call (`omx_clap_chain_add`, `_remove`, `_bypass`, `_member_latency_set`,
+Every change is a control-thread call (`omx_clap_chain_add`, `_remove`, `_order`, `_bypass`, `_member_latency_set`,
 `_refresh`), serialised by a lock the cycle never takes. A change that moves the walk builds the next plan in the
 spare of two, publishes it with one store, and waits, polling, while the cycle's flag is up. The cycle's flag and load
 and the change's store and poll are sequentially consistent, so either the cycle loads the new plan or the change sees
@@ -72,6 +72,13 @@ it, and the cycle after the call returns is bit-identical with a chain built wit
 chain never touches the member again, so the caller may close the instance or free the stage. An instance member is
 stopped or restarted by the caller only after it is bypassed or removed: the chain does not gate a member's
 deactivate.
+
+`omx_clap_chain_order(chain, ids, n)` puts the members in a new order: `ids` names every member once, the first
+first. The new order is ONE published walk, so a move never passes through a walk without the member: a removal and
+an add at the new place publish two, and the cycles between them run without it (`t_move_gap` counts them: with
+cycles of 16 frames spinning on a thread of their own, a third of the cycles of 2000 such moves ran without the moved
+member, and none of 2000 moves by one order). A list that is not every member once is refused, `OMX_CLAP_CHAIN_ERR_ARG`
+or `OMX_CLAP_CHAIN_ERR_NO_MEMBER`, and publishes nothing. The function is in the version node `OMX_CLAP_CORE_0.21`.
 
 ## ABI
 
@@ -95,6 +102,9 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
 - the latency is the members' sum, and is re-reported when a member's latency changes;
 - a bypassed member adds nothing: the output and the latency equal a chain built without it;
 - a removed member: the next cycle equals a chain built without it, bit for bit;
+- a new order: one walk, the next cycle equals the members in series in that order, bit for bit; a list that is not
+  every member once is refused and publishes nothing; a move by one order leaves no cycle without the member, where a
+  removal and an add leave a counted gap;
 - a cycle longer than the blocks passes dry and says so;
 - every structure of the wrong `abi` or `size` is refused with `OMX_CLAP_CHAIN_ERR_ABI`, and nothing is written to it;
 - the cycles on a thread of their own while the control thread bypasses, adds and removes members hundreds of times:
@@ -105,7 +115,7 @@ or printf. `make test-chain-sabotage` (`tests/chain_sabotage.sh`, in CI) breaks 
 sees the test red on the check that names it: a bypassed member left in the walk, a bypassed member's latency counted,
 the sum replaced by the last member's, a change never told, a removal that does not publish the walk again, the long
 cycle's bound one frame short, its dry copy dropped, one block for every member instead of two in turn, the ABI
-refusal waved through, and a change that does not wait for the cycle reading the old plan, which `make
+refusal waved through, a new order never published, a new order published after a walk without a member, and a change that does not wait for the cycle reading the old plan, which `make
 test-chain-tsan` (the test under ThreadSanitizer, in CI) reports as a race in `publish`.
 
 ## omx-clap-host runs the chain line (S2, #104)
