@@ -792,8 +792,13 @@ test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake
 	mkdir -p build && sed -n '/^static void chain_stage/,/^}/p; /^static int process(/,/^}/p; /^static void process_gated/,/^}/p' src/effects.c > build/chain_host_rt.c
 	grep -q 'omx_clap_chain_process' build/chain_host_rt.c && grep -q 'omx_clap_host_run_ports' build/chain_host_rt.c \
 	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/chain_host_rt.c \
-	    && echo "ok   the host's chain cycle (process, chain_stage, process_gated) names no allocator, sleep, lock or printf"
+	    || { echo "FAIL the host's chain cycle names an allocator, sleep, lock or printf, or runs no chain"; false; }
+	@echo "ok   the host's chain cycle (process, chain_stage, process_gated) names no allocator, sleep, lock or printf"
 	./tests/chain_host_e2e.sh
+
+# each guard of the host's chain broken in a copy of the tree, the test seen red on the check that names it
+test-chain-host-sabotage:
+	PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/chain_host_sabotage.sh
 
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
