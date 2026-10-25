@@ -131,6 +131,10 @@ nodes() {
 }
 # a node's ports must be in the graph before it is linked: a closed client's are gone, a new one's come a moment later
 has_ports() { timeout 10 pw-link -o 2>/dev/null | grep -q "^effect_$1:out_2$"; }
+# linked <output> <input>: the graph links the two (pw-link -l: each output, then "  |-> <input>" per link)
+linked() {
+    timeout 10 pw-link -l 2>/dev/null | awk -v a="$1" -v b="$2" '$0 == a { o = 1; next } /^[^ ]/ { o = 0 } o && $NF == b && $1 == "|->" { f = 1 } END { exit !f }'
+}
 wait_nodes() {
     local want=$1
     for _ in $(seq 50); do [ "$(nodes)" = "$want" ] && return 0; sleep 0.1; done
@@ -253,17 +257,49 @@ if [ -n "${CHAIN_HOST_FAULT:-}" ]; then
         line="chain 7 12 10" what="another head, effect_10's own client cannot be stopped" want="effect_10 effect_11 effect_12"
         want_nodes=1 code=-203
         ;;
+    # effect_13, named anew and linked in a client of its own, is stopped, then effect_14's client will not stop:
+    # effect_13 runs again with the links it had
+    stop-links)
+        expect chain "add $pass 13" "resp 13"
+        expect chain "add $pass 14" "resp 14"
+        held="10 11 12 13 14" relinked=13
+        line="chain 7 10 12 13 14" what="effect_14's own client cannot be stopped after effect_13's was" want="effect_10 effect_11 effect_12"
+        want_nodes=3 code=-203
+        ;;
+    # another head: effect_13, named anew and linked in a client of its own, is stopped, then effect_11's client will not
+    # activate: effect_13 runs again with the links it had
+    rehead-activate-links)
+        expect chain "add $pass 13" "resp 13"
+        held="10 11 12 13" relinked=13
+        line="chain 7 12 10 13" what="another head, effect_13's own client stopped, effect_11's cannot be activated"
+        want="effect_10 effect_11 effect_12" want_nodes=2 code=-202
+        ;;
     *)
-        echo "CHAIN_HOST_FAULT=$CHAIN_HOST_FAULT: client, stop, activate, order, rehead-stop, rehead-activate or rehead-head-stop" >&2
+        echo "CHAIN_HOST_FAULT=$CHAIN_HOST_FAULT: client, stop, activate, order, rehead-stop, rehead-activate, rehead-head-stop," \
+            "stop-links or rehead-activate-links" >&2
         exit 2
         ;;
     esac
+    # a member named anew linked in its own client before the line: out_1 and out_2 into effect_30's inputs (the series
+    # host's, which no phase records)
+    if [ -n "${relinked:-}" ]; then
+        for _ in $(seq 50); do has_ports "$relinked" && break; sleep 0.1; done
+        link "effect_$relinked:out_1" effect_30:in_1
+        link "effect_$relinked:out_2" effect_30:in_2
+        linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2
+        step $? "fault $CHAIN_HOST_FAULT: effect_$relinked linked before the line"
+    fi
     reply=$(send chain "$line")
     [ "$reply" = "resp $code" ]; step $? "$line, $what: answers the error, resp $code ($reply)"
     members=$(readback 7 | sed -n 's/^chain 7: \(.*\) in effect_.*$/\1/p')
     [ "$members" = "$want" ]; step $? "fault $CHAIN_HOST_FAULT: the chain runs $members (want $want)"
+    if [ -n "${relinked:-}" ]; then
+        for _ in $(seq 50); do linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2 && break; sleep 0.1; done
+        linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2
+        step $? "fault $CHAIN_HOST_FAULT: effect_$relinked, stopped and run again, has its links again ($(pw-link -l 2>/dev/null | grep -A2 "^effect_$relinked:out_" | tr '\n' ' '))"
+    fi
     case $CHAIN_HOST_FAULT in
-    activate | rehead-activate | rehead-head-stop) ;;
+    activate | rehead-activate | rehead-head-stop | rehead-activate-links) ;;
     *) [ "$(walk_of 7)" = "$walk_before" ]; step $? "fault $CHAIN_HOST_FAULT: refused, no walk published (walk $walk_before, then $(walk_of 7))" ;;
     esac
     wait_nodes "$want_nodes"; step $? "fault $CHAIN_HOST_FAULT: $want_nodes node(s) ($(nodes))"

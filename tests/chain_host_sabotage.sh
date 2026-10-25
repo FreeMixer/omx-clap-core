@@ -179,6 +179,10 @@ drill order src/effects.c '/^static int chain_order/,/^}/s/^    ret = omx_clap_c
 drill rehead-stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client);/' rehead-stop
 drill rehead-activate src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' rehead-activate
 drill rehead-head-stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 10 ? -1 : jack_deactivate(effect->jack_client);/' rehead-head-stop
+# a member named anew, linked in its own client and stopped, then a later step fails: it runs again with its links; a
+# second member named anew not stopped, and, another head, a member left out not activated
+drill stop-links src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 14 ? -1 : jack_deactivate(effect->jack_client);/' stop-links
+drill rehead-activate-links src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' rehead-activate-links
 
 # 11. behind the daemon the chain is one node because this host answers the line: refused instead
 if [ -n "${PLUGIN_HOSTD:-}" ]; then
