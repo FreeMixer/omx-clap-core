@@ -328,10 +328,20 @@ static int named_by_role(const struct omx_clap_instance *in, pthread_t self)
     return is_audio && is_audio(ctx, self);
 }
 
+/* The thread the carrier's slot holds, read whole: the slot and the thread are atomics, no write ever half seen. */
+static int named_by_slot(const struct omx_clap_instance *in, pthread_t self)
+{
+    const _Atomic(pthread_t) *slot = atomic_load_explicit(&in->audio_slot, memory_order_acquire);
+
+    return slot && pthread_equal(self, atomic_load_explicit(slot, memory_order_acquire));
+}
+
 static int on_audio_role(const struct omx_clap_instance *in)
 {
     const pthread_t self = pthread_self();
 
+    if (named_by_slot(in, self))
+        return 1;
     if (!in->audio_role_held)
         return 0;
     return pthread_equal(self, in->audio_thread) || named_by_role(in, self);
@@ -3059,6 +3069,11 @@ void omx_clap_host_publish(struct omx_clap_instance *in, pthread_t rt)
 void omx_clap_host_set_audio_thread(struct omx_clap_instance *in, pthread_t thread)
 {
     omx_clap_host_set_audio_role(in, thread, NULL, NULL);
+}
+
+void omx_clap_host_name_slot(struct omx_clap_instance *in, const _Atomic(pthread_t) *slot)
+{
+    atomic_store_explicit(&in->audio_slot, slot, memory_order_release);
 }
 
 void omx_clap_host_arm(struct omx_clap_instance *in)
