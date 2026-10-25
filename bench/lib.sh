@@ -24,7 +24,7 @@ plugin_names=${PLUGIN_NAMES:-}
 plugin_root=${PLUGIN_ROOT:-}
 # the host a path runs (clap-series and chain-clap are clap's, adapter-series and chain-adapter adapter's) and how its
 # plugins are linked: parallel, each fed the noise and recorded; series, each into the next, the last recorded; chain,
-# the same in one client, OMX_CLAP_HOST_CHAIN naming every plugin (#302)
+# the same in one client, a chain line naming every plugin once they are added (#302, #104)
 case $path in
     clap-series) kind=clap topology=series ;;
     chain-clap) kind=clap topology=chain ;;
@@ -185,11 +185,8 @@ host_start() {
             LV2_PATH=$(dirname "$fakes"):/usr/lib64/lv2:/usr/lib/lv2 "$mod_host" -n -p $port >"$raw/host.log" 2>&1 &
             host_pid=$! ;;
         clap | adapter)
-            # a chain: every plugin of the run, 0 .. n_fx-1, in effect_0's client; the pad, n_fx, a client of its own
-            local chain=
-            [ "$topology" = chain ] && chain=$(seq -s, 0 $((n_fx - 1)))
             # shellcheck disable=SC2046
-            OMX_CLAP_HOST_CHAIN=$chain OMX_BENCH_LV2_BUNDLES=$lv2_bundles "$clap_host" -n $(hold_opt) -p $port >"$raw/host.log" 2>&1 &
+            OMX_BENCH_LV2_BUNDLES=$lv2_bundles "$clap_host" -n $(hold_opt) -p $port >"$raw/host.log" 2>&1 &
             host_pid=$! ;;
         hostd)
             # the daemon, its LV2 worker omx-clap-host through the adapter (the lane's binary, with the hold as its
