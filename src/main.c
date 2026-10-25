@@ -31,6 +31,7 @@
 ************************************************************************************************************************
 */
 
+#include <ctype.h>
 #include <getopt.h>
 #include <signal.h>
 #include <stdint.h>
@@ -45,6 +46,7 @@
 #include "socket.h"
 #include "protocol.h"
 #include "effects.h"
+#include "clap_chain.h"
 #include "quiet_death.h"
 
 
@@ -98,6 +100,7 @@ static const char g_help_msg[] =
     PHD_VERB_REMOTE_PAGES " <instance_number>\n"
     PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
+    PHD_VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
     "audio_ports <instance_number>\n"
     "show_external_ui <instance_number>\n"
     "hide_external_ui <instance_number>\n"
@@ -265,6 +268,39 @@ static void track_info_cb(proto_t *proto)
     protocol_response_int(resp, proto);
 }
 
+/* a word of the chain line: a non-negative decimal number below `limit` */
+static int chain_word(const char *word, long limit, int *out)
+{
+    char *end;
+    long value;
+
+    if (!isdigit((unsigned char)word[0]))
+        return 0;
+    value = strtol(word, &end, 10);
+    if (*end != '\0' || value >= limit)
+        return 0;
+    *out = (int)value;
+    return 1;
+}
+
+/* chain <chain> <instance> [<instance> ...], as plugin-hostd sends it to a worker that runs chains in one client: each
+ * word a number, else -902 */
+static void chain_cb(proto_t *proto)
+{
+    int instances[OMX_CLAP_CHAIN_MEMBERS_MAX], id, n = 0, resp = ERR_INVALID_OPERATION;
+    uint32_t i;
+
+    if (proto->list_count >= 3 && proto->list_count - 2 <= OMX_CLAP_CHAIN_MEMBERS_MAX
+        && chain_word(proto->list[1], INT32_MAX, &id))
+    {
+        for (i = 2; i < proto->list_count && chain_word(proto->list[i], MAX_INSTANCES, &instances[n]); i++)
+            n++;
+        if (i == proto->list_count)
+            resp = effects_chain(id, instances, n);
+    }
+    protocol_response_int(resp, proto);
+}
+
 static void remote_pages_cb(proto_t *proto)
 {
     protocol_response_int(effects_remote_pages(atoi(proto->list[1])), proto);
@@ -393,6 +429,7 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
+    protocol_add_command(PHD_VERB_CHAIN " ...", chain_cb);
     protocol_add_command("audio_ports %i", audio_ports_cb);
     protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
     protocol_add_command("hide_external_ui %i", hide_external_ui_cb);
