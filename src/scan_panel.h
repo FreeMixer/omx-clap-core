@@ -25,12 +25,14 @@ enum scan_panel_table
 #undef SCAN_PANEL_TABLE_CODE
 
 /* One table as the plugin answered it: the entries its get filled, each with its index in the table. An entry the get
- * refuses is left out; a table the plugin has no count or get for is empty. */
+ * refuses is left out; a table the plugin has no count or get for is empty; a table whose count is past
+ * OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES is refused, `refused` its count, and none of its entries is read. */
 struct scan_panel_rows
 {
     void *rows;  ///< `n` structures of the table's type
     uint32_t *index;  ///< each row's index in the plugin's table
     uint32_t n;
+    uint32_t refused;  ///< the count the plugin answered when it is past the maximum, 0 when the table is read
 };
 
 /* The panel description a plugin publishes, as omx-clap-scan prints it: nothing is filled in that the plugin did not

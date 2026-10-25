@@ -191,6 +191,13 @@ static const char OMX_CLAP_EXT_PANEL_DESCRIPTION[] = "org.openmixer.panel-descri
 #define OMX_CLAP_PANEL_DESCRIPTION_KEY_SIZE 64
 /** A fallback label, CLAP_NAME_SIZE. */
 #define OMX_CLAP_PANEL_DESCRIPTION_NAME_SIZE CLAP_NAME_SIZE
+/**
+ * The most entries a host reads from one table. omx-plugins' layout holds a panel to 64 sections and 256 controls, and
+ * the roles, displays and placement defaults follow the controls; 4096 leaves every table room past that and keeps the
+ * rows a host reserves for the count the plugin answers within 1.5 MiB at the largest structure, the section's 384 bytes. A host
+ * refuses a table whose count is past it and reads none of its entries.
+ */
+#define OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES 4096u
 
 /*
  * The codes, X(code, name, enumerator): the name is omx-plugins' word for the code (tools/panel-description.mjs), the
