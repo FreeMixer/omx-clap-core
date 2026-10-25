@@ -162,16 +162,20 @@ make test-lv2
   chain around it. A member with a note or an auxiliary port is refused. A
   line with another head and a remove of the head are all or none: a JACK
   failure part way leaves the chain and every instance as they were, a member
-  stopped on the way running again with its links. An instance's audio role
-  has one lock, so a client's thread-init callback no longer races the resize
-  tick, and JACK's thread never waits on it: a client's first cycle never
-  waits on a plugin's activate.
+  stopped on the way running again with its links. A client's thread-init
+  callback names its thread in one atomic store, takes no lock and writes no
+  audio role, so it never races the resize tick and a client's first cycle
+  runs the plugin on the audio role, never passing dry.
   OMX_CLAP_HOST_CHAIN, the Stage 0 prototype, is gone. make test-chain-host,
   make test-chain-host-tsan, make test-hostd-chain (the crash drill behind
   plugin-hostd 0.7.0) and make test-chain-host-sabotage prove it (#104).
 - libomx-clap-core: omx_clap_chain_order puts a chain's members in a new
   order as one published walk, so a move never runs a cycle without the
   moved member (OMX_CLAP_CORE_0.21, one function added) (#104).
+- libomx-clap-core: omx_clap_host_name_slot names a carrier's thread on the
+  audio role with no lock: the thread the carrier stores in its slot holds the
+  role from that store, and no role the control thread gives back covers it
+  (ABI 18, the instance's audio_slot appended; OMX_CLAP_CORE_0.21) (#104).
 
 * Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.1-1
 - The fuzz harnesses read each input by its own grammar, never by the

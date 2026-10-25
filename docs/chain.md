@@ -224,29 +224,22 @@ quarantined member that is not the head takes none of them, and the chain rejoin
 - `make test-chain-host-tsan` (`tests/chain_host_tsan.sh`): the host and the core under ThreadSanitizer, 40 rounds of
   joins, a move, a member freed and added again, another head and the first one back, while the quantum changes all
   along (each change the head's buffer-size callback walking the members, each new client's thread-init callback
-  naming its thread for its members): no data race in `src/effects.c`, nothing suppressed. An instance's audio role
-  has one lock, `g_chain_members`: the control thread's restart, resize and relayout read and give back the role under
-  it, after `g_reactivate`, and hold it a while: the resize across its wait for the cycle under way and the plugin's
-  stop, deactivate and activate, the restart across the plugin's restart, the relayout across its activate. JACK's
-  thread never waits on it: the thread-init callback (and a head's buffer-size callback walking its members) publishes
-  what it names in atomics and only tries the lock; when it is held the control thread applies the name once it lets
-  it go (`chain_members_reconcile`, after each instance's tick and at each tick's start), so a thread named while one of
-  them has the role saved outlasts the one it gives back, and a client's first cycle never waits on a plugin's activate.
-  While a name waits the client's cycle passes its audio dry and runs no plugin, so no cycle reads a role the control
-  thread is writing. The process callback takes no lock.
-- One race outside `src/effects.c`, in the core, is not fixed here, and no stress turns it red (ThreadSanitizer's
-  reports outside `src/effects.c` are PipeWire's `double lock` in `loop_locked`, none a data race). The audio role's
-  fields, `audio_thread` and `audio_role_held` (`src/clap_host.h:410-411`, plain fields of the public instance), are
-  written by the host under `g_chain_members` (`omx_clap_host_set_audio_role`, `src/clap_host.c:3044-3045`, from the
-  thread-init callback on JACK's thread and from the control thread), and by the core itself on the control thread
-  under no lock: `omx_clap_host_take_role` and `omx_clap_host_release_role` (`:2807-2810`, `:2817-2818`, which
-  `omx_clap_host_bypass`, `omx_clap_host_param_deliver`, `omx_clap_host_activate`, `wait_stopped` and
-  `aux_activation_refresh` call), `omx_clap_host_unpublish` (`:3081`), `omx_clap_host_stop` (`:3095-3096`, `:3100`) and
-  `omx_clap_host_restart` (`:3139-3140`). `on_audio_role` (`:335-337`, the plugin's `thread_check`) reads them under no
-  lock from whichever thread asks. So a thread-init callback that names its thread while a `bypass` or a parameter
-  delivery holds the role races that write, and the release then gives back the saved thread over the named one. The
-  fix is the core's: the role as one atomic word (thread and held), which changes `struct omx_clap_instance`, or the
-  carrier's role lock given to the core, which takes it around every write.
+  naming its thread): no data race anywhere, nothing suppressed (every other report is PipeWire's `double lock` in
+  `loop_locked`). No JACK thread writes an audio role. The thread-init callback names its thread with one atomic store
+  into its instance's slot, `thread_named`, which the core's thread check reads with no lock (ABI 18,
+  `omx_clap_host_name_slot`: the thread a slot holds is on the audio role from that store, whatever the role's
+  `audio_thread` and `audio_role_held` say). The client's own instance reads its own slot; a member reads its head's
+  (`chain_insert`), so a thread the head names later is the members' too. The callback takes no lock and never
+  waits: under PipeWire it runs inside the client's first cycle, and that cycle runs the plugin on the audio role,
+  whatever the control thread holds meanwhile. The role's own fields are the control thread's alone (the restart,
+  resize and relayout give back what they saved, the core's bypass and parameter delivery take it and release it), and
+  the slot is none of them, so nothing they give back covers a named thread. Round three's lock (the thread-init
+  callback trying `g_chain_members` and, when the control thread held it, its client passing dry until the control
+  thread applied the name) let a client lose its first cycles: two clients whose first cycles start together collide on
+  the lock, and `make test-parity-lv2` read the host fixture's two instances 0.33 apart at 96 kHz on 7 runs of 20,
+  every one of them with dry cycles logged (1 to 188), none on the 13 identical runs; 0 of 20 since. A head's
+  buffer-size callback still tries `g_chain_members` to walk its members (a size it cannot record then waits for
+  `chain_members_reconcile`). The process callback takes no lock.
 - `make test-hostd-chain` (`tests/hostd_chain_e2e.sh`, plugin-hostd as the daemon and this host its CLAP worker): the
   daemon's chain of three is one node; the middle member, `tests/fault-14.clap`, crashes the worker on a parameter
   write; it is quarantined into a worker of its own and the other two rejoin in order, one node, their output bit for
@@ -256,15 +249,16 @@ quarantined member that is not the head takes none of them, and the chain rejoin
 - `make test-chain-host-sabotage` (`tests/chain_host_sabotage.sh`) breaks each guard of the host's chain in a copy of
   the tree and sees the test red on the check that names it: among them an allocation in a function the cycle calls
   and one in the core's `omx_clap_chain_process`, a member with an auxiliary port taken, a move's order never
-  published, a member's bypass that reaches the head alone, `g_chain_members` gone from every site and from each of
-  three sites alone (the members' walk, the thread-init callback, a member's join), and the gate given no role lock
-  (each ThreadSanitizer's red). Four sites no stress turns red: `chain_order` and `chain_extract` write only atomics, so
-  a missing lock there is no data race ThreadSanitizer sees (the lock keeps a walk from seeing the members half
-  shifted); `ports_relayout` runs only on a ports rescan, which no plugin of the stress raises; and `chain_end`, red
-  while JACK's walk read `chain_run` before a lock it waited on, green twice (0 races, 40 rounds each) since the walk
-  reads it under the lock it only tries (the lock keeps a walk that loaded `chain_run` just before `chain_end` cleared
-  it from reading the slot `chain_end` then clears, a window of a few loads). Its drills make one JACK call
-  (or the library's order) fail for one instance (a leaving member's client not made, a member named anew not stopped,
+  published, a member's bypass that reaches the head alone, `g_chain_members` gone from every site and from the
+  members' walk alone (each ThreadSanitizer's red), the thread-init callback's store into the slot gone and a joining
+  member left on its own slot (each red on pass, `tests/fake.clap`, saying it ran off the audio role). Four sites no
+  stress turns red: `chain_order`, `chain_extract` and `chain_insert` write only atomics, so a missing lock there is no
+  data race ThreadSanitizer sees (the lock keeps a walk from seeing the members half shifted; `chain_insert` was red
+  while it also wrote the joining member's role, green twice, 0 races, since that role reads its head's slot); and
+  `chain_end`, red while JACK's walk read `chain_run` before a lock it waited on, green twice (0 races, 40 rounds each)
+  since the walk reads it under the lock it only tries (the lock keeps a walk that loaded `chain_run` just before
+  `chain_end` cleared it from reading the slot `chain_end` then clears, a window of a few loads). Its drills make one
+  JACK call (or the library's order) fail for one instance (a leaving member's client not made, a member named anew not stopped,
   a leaving member's client not activated, the order refused; with another head a member named anew not stopped, a
   member left out not activated, the old head not stopped) and stay green: the line answers its code, no instance is
   freed, and the output is the chain the read-back names, bit for bit. Two of them stop a member named anew that is
@@ -272,6 +266,9 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   left out not activated): the member runs again with its links, which `jack_deactivate` drops and the rollback makes
   again. One hold keeps the test green: every add holds `g_chain_members` across its client's `jack_activate` until that
   client's thread-init callback has returned, so a callback that waits on the lock fails the add.
+- `make test-parity-lv2` (`tests/lv2_parity_fixture.sh`) runs the host fixture at 96 kHz `LV2_PARITY_REPEATS` times (10
+  by default), a fresh pair of hosts each time, and wants it IDENTICAL to mod-host every time: a client cycle that
+  passes dry where it should have run the plugin shows only on the runs where JACK's threads collide.
 
 ### What a member costs (r1, 2026-10-25)
 
