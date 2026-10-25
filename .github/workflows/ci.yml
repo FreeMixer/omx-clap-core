@@ -82,8 +82,8 @@ jobs:
   test:
     name: build and test
     runs-on: ubuntu-latest
-    # the chain host's sabotage builds and runs the host once per guard, about ten minutes of it (#104)
-    timeout-minutes: 35
+    # the chain host's sabotage builds and runs the host once per guard and drill, about twenty minutes of it (#104)
+    timeout-minutes: 50
     container:
       image: fedora:44
       # the jack tests run the host in a user, net, pid and mount namespace of its own
@@ -364,6 +364,16 @@ jobs:
             make test-chain-identity
           else
             echo "::warning::test-chain-host and test-chain-identity SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The chain's members walked on JACK's thread while the control thread joins, frees and lets go of members, the
+      # host under ThreadSanitizer: no data race in src/effects.c (#104)
+      - name: Test the host's chain under ThreadSanitizer
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-chain-host-tsan
+          else
+            echo "::warning::test-chain-host-tsan SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # A chain behind plugin-hostd and its crash drill: the middle member aborts, is quarantined, the others rejoin in

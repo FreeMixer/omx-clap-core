@@ -158,10 +158,14 @@ make test-lv2
   each member running as it does in a client of its own (bypass, parameters
   and latency per plugin, the latency summed between the head's ports). A
   line for a running chain changes it in place, a member left out getting a
-  client of its own back; remove of a member closes the chain around it.
+  client of its own back, a move in one walk; remove of a member closes the
+  chain around it. A member with a note or an auxiliary port is refused.
   OMX_CLAP_HOST_CHAIN, the Stage 0 prototype, is gone. make test-chain-host,
-  make test-hostd-chain (the crash drill behind plugin-hostd 0.7.0) and make
-  test-chain-host-sabotage prove it; the library does not change (#104).
+  make test-chain-host-tsan, make test-hostd-chain (the crash drill behind
+  plugin-hostd 0.7.0) and make test-chain-host-sabotage prove it (#104).
+- libomx-clap-core: omx_clap_chain_order puts a chain's members in a new
+  order as one published walk, so a move never runs a cycle without the
+  moved member (OMX_CLAP_CORE_0.21, one function added) (#104).
 
 * Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.1-1
 - The fuzz harnesses read each input by its own grammar, never by the
