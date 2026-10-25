@@ -50,8 +50,9 @@ The tests named below:
 | `tests/clap_ext_test.c` | the host extensions of a full host against `tests/fake_ext.clap`: timers, descriptors, the thread pool, render, the tail, sleep, state-context, audio-ports-activation (`make test-fake`) |
 | `tests/clap_core_test.c` | the core over plugins built into the test: the audio role, the side chain, the meters, the transport (`make test-fake`) |
 | `tests/clap_unoffered_test.c` | the log of ids the host did not offer, from the audio role and the control thread (`make test-fake`) |
-| `tests/clap_scan_test.c` | omx-clap-scan against the fakes and a plugin that crashes (`make test-fake`) |
+| `tests/clap_scan_test.c` | omx-clap-scan against the fakes, `tests/fake_panel.clap`'s published panel among them, and a plugin that crashes (`make test-fake`) |
 | `tests/param_contract_test.c` | the rules of `org.openmixer.param-contract/1` (`tests/param_contract_test.c`, in `make test-fake`) |
+| `tests/panel_abi_test.c` | `org.openmixer.panel-description/1` as `src/omx_clap_ext.h` states it, against omx-plugins-devel's `omx_panel_description.h` (`make test-panel-abi`) |
 | `tests/jack_info_e2e.sh` | omx-clap-host over jack: `track_info`, the remote pages, `param_info` (`make test-jack-info`) |
 | `tests/jack_meters_e2e.sh` | omx-clap-host over jack: the meters as `output_set` lines (`make test-jack-meters`) |
 | `tests/jack_window_e2e.sh` | omx-clap-host over jack and Xvfb: a plugin's own window over `clap.gui` and X11, embedded and floating, its timer and X descriptor on the tick, the refusals by code (`make test-jack-window`) |
@@ -162,6 +163,7 @@ say.
 | `clap.meters/1` | — | supported: every meter declared, read whole at open or not at all; values read off the audio thread (`tests/clap_core_test.c:t_meters`, `make test-jack-meters`) | — | the draft proposed to the CLAP SDK, declared in `src/clap_meters.h` until an SDK ships it (`docs/meters.md`) |
 | `org.openmixer.param-contract/1` | — | supported: read and checked at open and after each `params.rescan`, trusted whole or not at all, the broken rule named (`tests/param_contract_test.c`, `tests/clap_host_test.c:contract_checks`, `tests/clap_host_test.c:mover_checks`, `make test-jack-info`) | — | the vendor extension of `src/omx_clap_ext.h`; the LV2 adapter makes one from the TTL (`lv2/tests/lv2_clap_test.c:t_props`) |
 | `org.openmixer.resource-hints.draft/0` | — | supported: read once at create, whole or refused by code (`hosting.resource-hints.unknown-hint`, `hosting.resource-hints.wrong-unit`); a hint whose bit is clear reads as unknown, never zero (`tests/resource_hints_test.c`, `make test-resource-hints-sabotage`) | — | omx-contract's RESOURCE_HINTS, rendered as `omxcontract/omx_resource_hints.h` (3.1.0); the LV2 adapter makes one from the TTL's `omxres:` properties (`lv2/tests/lv2_clap_test.c:t_hints`) |
+| `org.openmixer.panel-description/1` | — | supported by omx-clap-scan, which reads it and prints the whole description, family, fingerprint and its five tables, in `--json` (`panel`, null when the plugin serves none) and in `--fields` (`tests/clap_scan_test.c:panel_checks`); omx-clap-host and the core do not ask for it | — | omx-plugins' `include/omx_panel_description.h` is the ABI; `src/omx_clap_ext.h` states its layout under other names, held to it by `make test-panel-abi` |
 | `org.openmixer.declaration/1` | — | unsupported: declared in `src/omx_clap_ext.h` for a plugin to serve; nothing in this repository asks for it | — | |
 | `clap.track-info.draft/0` | unsupported: an id older than the headers' | — | 2 | |
 | `clap.voice-info.draft/0` | unsupported: an id older than the headers' | — | 2 | |

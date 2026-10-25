@@ -222,7 +222,8 @@ to the `.so` alone. The library names no jack, no socket and no protocol library
   worker's two included, for a host that reads those names; rendered from the same
   file and committed here, never edited by hand.
 - `omx_clap_ext.h`: the openmixer vendor extension a plugin serves through `get_extension`,
-  `org.openmixer.declaration/1`, as an exact C structure. Header only: the library exports nothing
+  `org.openmixer.declaration/1`, `org.openmixer.param-contract/1` and
+  `org.openmixer.panel-description/1`, as exact C structures. Header only: the library exports nothing
   for it. A plugin's meters are CLAP's own `clap.meters/1` ([docs/meters.md](docs/meters.md)).
 - `clap_meters.h`: `clap.meters/1`, the CLAP meters extension, for an SDK that does not ship it yet.
   A plugin includes this installed copy instead of carrying its own.
@@ -326,6 +327,14 @@ opens the fake plugin with each `FAKE_CONTRACT` arm: whole, at version 2 with
 one rename step, and broken by R1, R2, R4 or R5, each named; and the mover with
 `FAKE_MOVER_CONTRACT`, whose `params.rescan` keeps the contract (`keep`) or
 changes a symbol (`follow`, refused under R3).
+
+`make test-panel-abi` holds `org.openmixer.panel-description/1` as
+`omx_clap_ext.h` states it to omx-plugins' `omx_panel_description.h`, the ABI,
+as omx-plugins-devel installs it (`pkg-config omxplugins`): the id, every code,
+the size and member offsets of each structure, and a row of each table filled
+by omx-plugins' `omx_panel_get` read back member by member. omx-plugins builds
+on this tree, so the header is read from its package, never copied; the target
+fails, naming the package, where it is not installed. CI installs it.
 
 The readers of bytes from disk (the preset file, its state body and the
 `manifest.ttl` `lv2_locate` scans) have libFuzzer harnesses in `fuzz/`, built
