@@ -50,6 +50,7 @@
 #include "clap_host.h"
 #include "layout_pin.h"
 #include "scan_fields.h"
+#include "scan_panel.h"
 
 
 /*
@@ -575,6 +576,176 @@ static void put_resource_hints(FILE *out, const struct omx_clap_instance *instan
         fputc('\n', out);
 }
 
+/* a parameter or meter id of the panel description, null for none */
+static void put_panel_id(FILE *out, uint32_t id)
+{
+    if (id == CLAP_INVALID_ID)
+        fputs("null", out);
+    else
+        fprintf(out, "%u", id);
+}
+
+/* a code of the panel description by omx-plugins' word for it, as its number when the extension names none */
+static void put_panel_code(FILE *out, const char *word, uint32_t code)
+{
+    if (word)
+        fprintf(out, "\"%s\"", word);
+    else
+        fprintf(out, "%u", code);
+}
+
+static void put_panel_text(FILE *out, const char *key, const char *value)
+{
+    fprintf(out, ",\"%s\":", key);
+    put_string(out, value);
+}
+
+/* a table of the panel description opened under its key: its entries' array, or for a table the scan refused the count
+ * the plugin answered and the maximum it is past, in place of the array */
+static void put_panel_open(FILE *out, const struct scan_panel *p, uint32_t table, const char *key)
+{
+    fprintf(out, ",\"%s\":", key);
+    if (p->table[table].refused)
+        fprintf(out, "{\"refused\":\"too-many\",\"count\":%u,\"max\":%u}", p->table[table].refused,
+                OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES);
+    else
+        fputc('[', out);
+}
+
+static void put_panel_close(FILE *out, const struct scan_panel *p, uint32_t table)
+{
+    if (!p->table[table].refused)
+        fputc(']', out);
+}
+
+/* the listing's count of one table, its refusal when the scan refused it */
+static void put_panel_count(FILE *out, const struct scan_panel *p, uint32_t table, const char *name)
+{
+    if (p->table[table].refused)
+        fprintf(out, ", %s refused (%u past %u)", name, p->table[table].refused, OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES);
+    else
+        fprintf(out, ", %u %s", p->table[table].n, name);
+}
+
+/* the panel description the plugin publishes (org.openmixer.panel-description/1), in the extension's shape: its family,
+ * its fingerprint and its five tables, each entry as its get filled it; null when the plugin serves none. The listing for
+ * a person counts the tables. */
+static void put_panel(FILE *out, const struct omx_clap_instance *instance)
+{
+    struct scan_panel p;
+    const int rc = scan_panel_read(instance->plugin, &p);
+    uint32_t i;
+
+    if (!g_json)
+    {
+        if (rc != 1)
+            return;
+        fprintf(out, "    panel %s",
+                p.has_family && scan_panel_family_word(p.family) ? scan_panel_family_word(p.family) : "of no family");
+        put_panel_count(out, &p, SCAN_PANEL_SECTIONS, "sections");
+        put_panel_count(out, &p, SCAN_PANEL_CONTROLS, "controls");
+        put_panel_count(out, &p, SCAN_PANEL_ROLES, "roles");
+        put_panel_count(out, &p, SCAN_PANEL_DISPLAYS, "displays");
+        put_panel_count(out, &p, SCAN_PANEL_PLACEMENT_DEFAULTS, "placement defaults");
+        fputc('\n', out);
+        scan_panel_free(&p);
+        return;
+    }
+    if (rc != 1)
+    {
+        fputs(rc == 0 ? ",\"panel\":null" : ",\"panel\":{\"error\":\"out of memory\"}", out);
+        return;
+    }
+    fputs(",\"panel\":{\"family\":", out);
+    if (p.has_family)
+        put_panel_code(out, scan_panel_family_word(p.family), p.family);
+    else
+        fputs("null", out);
+    fputs(",\"fingerprint\":", out);
+    if (p.has_fingerprint)
+        put_string(out, p.fingerprint);
+    else
+        fputs("null", out);
+    put_panel_open(out, &p, SCAN_PANEL_SECTIONS, "sections");
+    for (i = 0; i < p.table[SCAN_PANEL_SECTIONS].n; i++)
+    {
+        const omx_clap_panel_description_section_t *s = SCAN_PANEL_ROW(&p, SCAN_PANEL_SECTIONS, omx_clap_panel_description_section_t, i);
+
+        fprintf(out, "%s{\"key\":", i ? "," : "");
+        put_string(out, s->key);
+        put_panel_text(out, "labelKey", s->label_key);
+        put_panel_text(out, "label", s->label);
+        fputc('}', out);
+    }
+    put_panel_close(out, &p, SCAN_PANEL_SECTIONS);
+    put_panel_open(out, &p, SCAN_PANEL_CONTROLS, "controls");
+    for (i = 0; i < p.table[SCAN_PANEL_CONTROLS].n; i++)
+    {
+        const omx_clap_panel_description_control_t *c = SCAN_PANEL_ROW(&p, SCAN_PANEL_CONTROLS, omx_clap_panel_description_control_t, i);
+
+        fprintf(out, "%s{\"paramId\":", i ? "," : "");
+        put_panel_id(out, c->param_id);
+        fprintf(out, ",\"section\":%u,\"widget\":", c->section);
+        put_panel_code(out, scan_panel_widget_word(c->widget), c->widget);
+        put_panel_text(out, "labelKey", c->label_key);
+        put_panel_text(out, "label", c->label);
+        fputs(",\"visibleParamId\":", out);
+        put_panel_id(out, c->visible_param_id);
+        fprintf(out, ",\"visibleMask\":\"%llx\"}", (unsigned long long)c->visible_mask);
+    }
+    put_panel_close(out, &p, SCAN_PANEL_CONTROLS);
+    put_panel_open(out, &p, SCAN_PANEL_ROLES, "roles");
+    for (i = 0; i < p.table[SCAN_PANEL_ROLES].n; i++)
+    {
+        const omx_clap_panel_description_role_t *r = SCAN_PANEL_ROW(&p, SCAN_PANEL_ROLES, omx_clap_panel_description_role_t, i);
+
+        fprintf(out, "%s{\"role\":", i ? "," : "");
+        put_string(out, r->role);
+        fprintf(out, ",\"index\":%u,\"paramId\":", r->index);
+        put_panel_id(out, r->param_id);
+        fputc('}', out);
+    }
+    put_panel_close(out, &p, SCAN_PANEL_ROLES);
+    put_panel_open(out, &p, SCAN_PANEL_DISPLAYS, "displays");
+    for (i = 0; i < p.table[SCAN_PANEL_DISPLAYS].n; i++)
+    {
+        const omx_clap_panel_description_display_t *d = SCAN_PANEL_ROW(&p, SCAN_PANEL_DISPLAYS, omx_clap_panel_description_display_t, i);
+
+        fprintf(out, "%s{\"kind\":", i ? "," : "");
+        put_panel_code(out, scan_panel_display_kind_word(d->kind), d->kind);
+        fprintf(out, ",\"section\":%u,\"source\":", d->section);
+        put_panel_code(out, scan_panel_display_source_word(d->source), d->source);
+        fputs(",\"meterIds\":[", out);
+        put_panel_id(out, d->meter_ids[0]);
+        fputc(',', out);
+        put_panel_id(out, d->meter_ids[1]);
+        fprintf(out, "],\"curveIndex\":%u,\"floorParamId\":", d->curve_index);
+        put_panel_id(out, d->floor_param_id);
+        fputs(",\"floorDb\":", out);
+        put_number(out, d->floor_db);
+        put_panel_text(out, "labelKey", d->label_key);
+        put_panel_text(out, "label", d->label);
+        fputc('}', out);
+    }
+    put_panel_close(out, &p, SCAN_PANEL_DISPLAYS);
+    put_panel_open(out, &p, SCAN_PANEL_PLACEMENT_DEFAULTS, "placementDefaults");
+    for (i = 0; i < p.table[SCAN_PANEL_PLACEMENT_DEFAULTS].n; i++)
+    {
+        const omx_clap_panel_description_default_t *d = SCAN_PANEL_ROW(&p, SCAN_PANEL_PLACEMENT_DEFAULTS, omx_clap_panel_description_default_t, i);
+
+        fprintf(out, "%s{\"placement\":", i ? "," : "");
+        put_panel_code(out, scan_panel_placement_word(d->placement), d->placement);
+        fputs(",\"paramId\":", out);
+        put_panel_id(out, d->param_id);
+        fputs(",\"value\":", out);
+        put_number(out, d->value);
+        fputc('}', out);
+    }
+    put_panel_close(out, &p, SCAN_PANEL_PLACEMENT_DEFAULTS);
+    fputc('}', out);
+    scan_panel_free(&p);
+}
+
 /* what a plugin that is only initialised answers; a plugin not yet activated may say 0, so 0 is left out as unknown */
 static void put_latency(FILE *out, const struct omx_clap_instance *instance)
 {
@@ -658,6 +829,7 @@ static void put_plugin(FILE *out, const char *path, struct omx_clap_binary *bina
     put_latency(out, instance);
     put_voice_info(out, instance);
     put_resource_hints(out, instance);
+    put_panel(out, instance);
     if (g_json)
         fputc('}', out);
     omx_clap_host_close(instance);
