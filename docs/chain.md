@@ -225,9 +225,28 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   joins, a move, a member freed and added again, another head and the first one back, while the quantum changes all
   along (each change the head's buffer-size callback walking the members, each new client's thread-init callback
   naming its thread for its members): no data race in `src/effects.c`, nothing suppressed. An instance's audio role
-  has one lock, `g_chain_members`: the thread-init callback names a thread under it, and the control thread's restart,
-  resize and relayout read and give back the role under it (after `g_reactivate`, never across a wait for a cycle), so
-  a thread named while one of them has the role saved is the one it gives back. The process callback takes no lock.
+  has one lock, `g_chain_members`: the control thread's restart, resize and relayout read and give back the role under
+  it, after `g_reactivate`, and hold it a while: the resize across its wait for the cycle under way and the plugin's
+  stop, deactivate and activate, the restart across the plugin's restart, the relayout across its activate. JACK's
+  thread never waits on it: the thread-init callback (and a head's buffer-size callback walking its members) publishes
+  what it names in atomics and only tries the lock; when it is held the control thread applies the name once it lets
+  it go (`chain_members_reconcile`, after each instance's tick and at each tick's start), so a thread named while one of
+  them has the role saved outlasts the one it gives back, and a client's first cycle never waits on a plugin's activate.
+  While a name waits the client's cycle passes its audio dry and runs no plugin, so no cycle reads a role the control
+  thread is writing. The process callback takes no lock.
+- One race outside `src/effects.c`, in the core, is not fixed here, and no stress turns it red (ThreadSanitizer's
+  reports outside `src/effects.c` are PipeWire's `double lock` in `loop_locked`, none a data race). The audio role's
+  fields, `audio_thread` and `audio_role_held` (`src/clap_host.h:410-411`, plain fields of the public instance), are
+  written by the host under `g_chain_members` (`omx_clap_host_set_audio_role`, `src/clap_host.c:3044-3045`, from the
+  thread-init callback on JACK's thread and from the control thread), and by the core itself on the control thread
+  under no lock: `omx_clap_host_take_role` and `omx_clap_host_release_role` (`:2807-2810`, `:2817-2818`, which
+  `omx_clap_host_bypass`, `omx_clap_host_param_deliver`, `omx_clap_host_activate`, `wait_stopped` and
+  `aux_activation_refresh` call), `omx_clap_host_unpublish` (`:3081`), `omx_clap_host_stop` (`:3095-3096`, `:3100`) and
+  `omx_clap_host_restart` (`:3139-3140`). `on_audio_role` (`:335-337`, the plugin's `thread_check`) reads them under no
+  lock from whichever thread asks. So a thread-init callback that names its thread while a `bypass` or a parameter
+  delivery holds the role races that write, and the release then gives back the saved thread over the named one. The
+  fix is the core's: the role as one atomic word (thread and held), which changes `struct omx_clap_instance`, or the
+  carrier's role lock given to the core, which takes it around every write.
 - `make test-hostd-chain` (`tests/hostd_chain_e2e.sh`, plugin-hostd as the daemon and this host its CLAP worker): the
   daemon's chain of three is one node; the middle member, `tests/fault-14.clap`, crashes the worker on a parameter
   write; it is quarantined into a worker of its own and the other two rejoin in order, one node, their output bit for
@@ -245,7 +264,11 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   (or the library's order) fail for one instance (a leaving member's client not made, a member named anew not stopped,
   a leaving member's client not activated, the order refused; with another head a member named anew not stopped, a
   member left out not activated, the old head not stopped) and stay green: the line answers its code, no instance is
-  freed, and the output is the chain the read-back names, bit for bit.
+  freed, and the output is the chain the read-back names, bit for bit. Two of them stop a member named anew that is
+  linked in a client of its own before the failure (a second member named anew not stopped; with another head a member
+  left out not activated): the member runs again with its links, which `jack_deactivate` drops and the rollback makes
+  again. One hold keeps the test green: every add holds `g_chain_members` across its client's `jack_activate` until that
+  client's thread-init callback has returned, so a callback that waits on the lock fails the add.
 
 ### What a member costs (r1, 2026-10-25)
 
