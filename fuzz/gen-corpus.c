@@ -351,6 +351,7 @@ static void state_corpus(void)
         { "unpadded-f", "Zg" },
         { "spaced", " Zm9v\tYmFy" },
         { "trailing-newline", "Zm9vYmFy\n" },
+        { "rfc4648-f-newline", "Zg==\n" },
         { "refuse-letter", "Zm9v!" },
         { "refuse-after-pad", "Zg==Zg==" },
         { "refuse-three-pads", "Zg===" },
