@@ -340,9 +340,10 @@ The readers of bytes from disk (the preset file, its state body and the
 `manifest.ttl` `lv2_locate` scans) have libFuzzer harnesses in `fuzz/`, built
 with clang under AddressSanitizer and UndefinedBehaviorSanitizer: `make fuzz`,
 `make fuzz-run FUZZ_TIME=60`, `make fuzz-sabotage` (each property's mutant found
-by its own check), `make fuzz-coverage` (held to `fuzz/coverage-floor.txt`) and
-`make fuzz-static`. `fuzz/README.md` has the harnesses, their properties and
-their seeds; `.github/workflows/fuzz.yml` runs them all.
+by its own check), `make fuzz-records` (each check's own `mutant:` record makes
+it abort on its seed), `make fuzz-coverage` (held to `fuzz/coverage-floor.txt`)
+and `make fuzz-static`. `fuzz/README.md` has the harnesses, their properties,
+their records and their seeds; `.github/workflows/fuzz.yml` runs them all.
 
 The hosting limits are declared in `data/hosting.json` and the hosting codes in
 `data/hosting/<dimension>.json`, in omx-contract's schema; every hosting code the
