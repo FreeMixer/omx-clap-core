@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_state.c:297 (the encoder writes a letter where one byte's pad goes).
+Caught by the seed input "rfc4648-f" of fuzz_state.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..2281781 100644
 --- a/src/preset_file.c

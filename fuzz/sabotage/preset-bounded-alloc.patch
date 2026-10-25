@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_preset.c:480 (a container's first slots are 512, not 8).
+Caught by the seed input "many-small-containers" of fuzz_preset.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..d2343fe 100644
 --- a/src/preset_file.c

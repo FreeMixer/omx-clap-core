@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_preset.c:566 (an escaped character is written again raw after its escape).
+Caught by the seed input "escapes" of fuzz_preset.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..d95c846 100644
 --- a/src/preset_file.c

@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_state.c:162 (the decoder's buffer is three bytes a character).
+Caught by the seed input "rfc4648-f" of fuzz_state.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..b275d12 100644
 --- a/src/preset_file.c

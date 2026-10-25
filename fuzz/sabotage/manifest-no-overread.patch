@@ -1,5 +1,8 @@
+Breaks the check of fuzz/fuzz_manifest.c:179 (a prefixed name's end is read one byte late).
+Caught by the seed input "name-at-end" of fuzz_manifest.
+
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
-index 0efd5a3..47b43f3 100644
+index 1d56392..80886ee 100644
 --- a/src/lv2_locate.c
 +++ b/src/lv2_locate.c
 @@ -68,7 +68,7 @@ static int has_prefixed(const char *text, const char *prefix, size_t prefix_len,
