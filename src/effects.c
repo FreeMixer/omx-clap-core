@@ -307,7 +307,20 @@ static void sanitize_client_name(char *dst, size_t dst_size, const char *src, si
     dst[n] = '\0';
 }
 
-static jack_client_t *open_jack_client(int instance, const char *client_name)
+/* a client opened under name, and the name it has copied to opened (when not NULL) at the open: the one asked for, or the
+ * one JACK made unique when it says so (JackNameNotUnique, never under JackUseExactName). The name is never read from
+ * the client later: PipeWire's libjack rewrites the client's name on its own thread when the client's node appears,
+ * which can be after jack_client_open returns, so a later jack_get_client_name races that write. */
+static jack_client_t *open_as(const char *name, jack_options_t options, jack_status_t *status, char *opened, size_t opened_size)
+{
+    jack_client_t *jack_client = jack_client_open(name, options, status);
+
+    if (jack_client && opened)
+        snprintf(opened, opened_size, "%s", (*status & JackNameNotUnique) ? jack_get_client_name(jack_client) : name);
+    return jack_client;
+}
+
+static jack_client_t *open_jack_client(int instance, const char *client_name, char *opened, size_t opened_size)
 {
     char effect_name[32];
     char requested_name[REQUESTED_CLIENT_NAME_BUF_SIZE];
@@ -318,14 +331,14 @@ static jack_client_t *open_jack_client(int instance, const char *client_name)
     snprintf(effect_name, sizeof(effect_name), "effect_%i", instance);
 
     if (!client_name || client_name[0] == '\0')
-        return jack_client_open(effect_name, JackNoStartServer, &jack_status);
+        return open_as(effect_name, JackNoStartServer, &jack_status, opened, opened_size);
 
     name_limit = (size_t)jack_client_name_size() - 1;
     sanitize_client_name(requested_name, sizeof(requested_name), client_name, name_limit);
     if (requested_name[0] == '\0')
-        return jack_client_open(effect_name, JackNoStartServer, &jack_status);
+        return open_as(effect_name, JackNoStartServer, &jack_status, opened, opened_size);
 
-    jack_client = jack_client_open(requested_name, JackNoStartServer | JackUseExactName, &jack_status);
+    jack_client = open_as(requested_name, JackNoStartServer | JackUseExactName, &jack_status, opened, opened_size);
     if (!jack_client && (jack_status & JackNameNotUnique))
     {
         char suffixed_name[REQUESTED_CLIENT_NAME_BUF_SIZE];
@@ -340,10 +353,10 @@ static jack_client_t *open_jack_client(int instance, const char *client_name)
         memcpy(suffixed_name, requested_name, keep);
         memcpy(suffixed_name + keep, id_suffix, suffix_len + 1);
 
-        jack_client = jack_client_open(suffixed_name, JackNoStartServer | JackUseExactName, &jack_status);
+        jack_client = open_as(suffixed_name, JackNoStartServer | JackUseExactName, &jack_status, opened, opened_size);
     }
     if (!jack_client)
-        jack_client = jack_client_open(effect_name, JackNoStartServer, &jack_status);
+        jack_client = open_as(effect_name, JackNoStartServer, &jack_status, opened, opened_size);
 
     return jack_client;
 }
@@ -1787,7 +1800,7 @@ static int client_ready(const effect_t *effect, own_client_t *own)
     int error;
 
     memset(own, 0, sizeof(*own));
-    own->client = open_jack_client(effect->instance, effect->client_name);
+    own->client = open_jack_client(effect->instance, effect->client_name, NULL, 0);
     if (!own->client)
         return ERR_JACK_CLIENT_CREATION;
     error = main_ports_register_on(own->client, effect->in_ports, effect->out_ports, own->inputs, own->outputs);
@@ -2575,14 +2588,13 @@ int effects_add(const char *uri, int instance, const char *client_name)
     memset(effect, 0, sizeof(effect_t));
     effect->instance = instance;
 
-    effect->jack_client = open_jack_client(instance, client_name);
+    // with the name JACK gave it: a member that leaves a chain opens its client again under it (client_back)
+    effect->jack_client = open_jack_client(instance, client_name, effect->client_name, sizeof(effect->client_name));
     if (!effect->jack_client)
     {
         fprintf(stderr, "can't get jack client\n");
         return ERR_JACK_CLIENT_CREATION;
     }
-    // the name JACK gave it: a member that leaves a chain opens its client again under it (client_back)
-    snprintf(effect->client_name, sizeof(effect->client_name), "%s", jack_get_client_name(effect->jack_client));
 
     error = lv2_uri ? open_lv2(lv2_uri, effect) : open_clap(path, id, &effect->clap);
     if (error != SUCCESS)
