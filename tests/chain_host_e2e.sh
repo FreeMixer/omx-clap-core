@@ -88,7 +88,7 @@ step 0 "private pipewire on $runtime"
 
 declare -A port=([chain]=5591 [series]=5592) fd=([chain]=3 [series]=4)
 for arm in chain series; do
-    "$OMX_CLAP_HOST" -n -p "${port[$arm]}" >"$runtime/$arm.log" 2>&1 &
+    FAKE_LOG=$runtime/fake.log "$OMX_CLAP_HOST" -n -p "${port[$arm]}" >"$runtime/$arm.log" 2>&1 &
     pids+=($!)
     for _ in $(seq 100); do grep -q ready "$runtime/$arm.log" && break; sleep 0.1; done
     grep -q ready "$runtime/$arm.log"; step $? "$arm host ready"
@@ -520,6 +520,13 @@ expect chain "remove -1" "resp 0"
 expect chain "quit" "resp 0"
 expect series "remove -1" "resp 0"
 grep "^chain 7:" "$runtime/chain.log" | sed 's/^/     /'
+
+# pass (tests/fake.clap) asks its thread-check in every process() and says once when it ran off the audio role: in its
+# own client from that client's first cycle, and as a member on its head's thread, no instance ever did
+ran=$(grep -c -x -F "org.omx-clap-host.test.passthrough process" "$runtime/fake.log" 2>/dev/null)
+off=$(grep -c -x -F "org.omx-clap-host.test.passthrough process off the audio role" "$runtime/fake.log" 2>/dev/null)
+[ "${ran:-0}" -gt 0 ] && [ "${off:-0}" = 0 ]
+step $? "pass ran on the audio role from its first cycle, in its own client and in the chain: ${off:-0} of ${ran:-0} instances off it"
 
 echo "chain host: $failures failed"
 printf 'CHAIN-HOST {"frames":%d,"latency_chain":"%s","latency_series":"%s","failures":%d}\n' "$frames" "$lat_chain" \
