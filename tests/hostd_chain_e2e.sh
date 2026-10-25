@@ -203,6 +203,14 @@ play() {
     wait $feeder_pid
     step $? "$phase: played and recorded ($(grep '^done' "$runtime/$phase.feed" || tail -1 "$runtime/$phase.feed"))"
     exec 7>&-
+    # a recorder that heard nothing makes any bit identity trivial: each must have heard the source
+    local silent=
+    for r in $(seq 0 $((n - 1))); do
+        if ! grep -q " peak_${recs[$r]}=" "$runtime/$phase.feed" || grep -q " peak_${recs[$r]}=0\( \|$\)" "$runtime/$phase.feed"; then
+            silent="$silent ${recs[$r]}"
+        fi
+    done
+    [ -z "$silent" ]; step $? "$phase: every recorder heard the source${silent:+, not:$silent} ($(grep -o ' peak_[a-z]*=[^ ]*' "$runtime/$phase.feed" | tr -d '\n'))"
 }
 same() {
     local out
