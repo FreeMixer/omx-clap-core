@@ -48,7 +48,8 @@ Each harness checks the same five, one `check_` function each:
 - **reject_clean**: a refusal leaves no partial state. A refused preset leaves the tree zeroed; a refused state text
   writes no length; every refusal gives back every byte the reader took. The input is read once more with one of the
   allocations its reading took failing (which one, its bytes choose), as when memory runs out: the reader refuses and
-  holds nothing, and so does the writer or encoder.
+  holds nothing, and so does the writer, pretty and compact, or the encoder. The seed `compact-second-allocation` is a
+  compact text past the writer's first 4096 bytes whose bytes pick the second allocation to fail.
 - **round_trip**: render and parse again gives the same record, and the render is the format's. A preset written back
   compact and pretty is, byte for byte, the text the harness renders of the tree in the writer's format, and reads back
   to the same tree, member order and every number's text included; a rewrite that sets `modifiedAt` keeps every other
