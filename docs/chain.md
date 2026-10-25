@@ -169,26 +169,35 @@ Every change is the library's acknowledged step (`omx_clap_chain_add`, `omx_clap
 `omx_clap_chain_order`): when the call returns, no cycle runs the walk before it. No surviving member is restarted,
 activated again or built again.
 
-- A line for a chain already running whose head is the same: a member it leaves out leaves the walk, then runs in a
-  client of its own (its ports registered again, its client activated); the members it keeps take its order in ONE
-  walk (`omx_clap_chain_order`), so a move never runs a cycle without the moved member nor in an order between the old
-  and the new; a member it names anew closes its client and is added at its place, one walk each, in the line's order.
-  A pure move is one walk; a line that adds k members publishes k walks after the order, each the line's order without
-  the members still to join, so for a cycle or more each the chain runs without them: the order-bank flip
-  (every change of a line in one acknowledged walk) is not what a line that adds members does.
-- A line with another head: the chain leaves the old head's client, every member gets a client of its own, and the
-  chain forms again in the new head's client.
+- A line for a chain already running whose head is the same: a member it leaves out leaves the walk first, one walk
+  each, then runs in a client of its own (its ports registered again, its client activated); each of those walks runs
+  the old order without the members gone so far, an order the line never named. Then the members it keeps take its
+  order in ONE walk (`omx_clap_chain_order`); a member it names anew closes its client and is added at its place, one
+  walk each, in the line's order. A pure move is that one walk, so it never runs a cycle without the moved member nor
+  in an order between the old and the new; a line that also leaves members out runs the old order without them for a
+  cycle or more before the move, and a line that adds k members publishes k walks after the order, each the line's
+  order without the members still to join, so for a cycle or more each the chain runs without them: the order-bank
+  flip (every change of a line in one acknowledged walk) is not what a line that removes or adds members does. A
+  refusal of the order by the library (none of the host's lines is one, its checks come first) leaves the walk in
+  the order it had and the line answers `resp -902`.
+- A line with another head: the members it leaves out, and the new head when it is a member now, get clients of their
+  own; the members it names again move straight from the old walk to the new one; the old head runs alone in its
+  client again, or, when the line names it as a member, joins; the chain forms again in the new head's client.
 - `remove` of a member that is not the head takes it out of the walk, the chain closing around it, then frees it.
   `remove` of the head gives every other member a client of its own and frees the head with its client; plugin-hostd's
   next line forms the chain again.
 
-A refusal changes nothing: every check, and every client of its own that a member leaving the walk goes back to, is
-made before the first change. A JACK failure part way frees no instance plugin-hostd still counts: a client JACK cannot
-make for a member leaving refuses the line with nothing changed; a member named anew whose own client JACK will not
-stop refuses it the same, the ones stopped before it started again; a member whose client JACK will not activate stays
-in the walk, at its end, and the line answers the error. With another head the chain has ended by the time a member
-named anew is stopped, so that refusal leaves the members in clients of their own; and a client of its own that JACK
-then will not activate is removed, as at a `remove` of the head.
+A refusal changes nothing: every check, every client of its own that a member leaving the walk goes back to, and a new
+chain's library chain are made before the first change. A JACK failure part way frees no instance plugin-hostd still
+counts: a client JACK cannot make for a member leaving refuses the line with nothing changed; a member named anew whose
+own client JACK will not stop refuses it the same, the ones stopped before it started again; a member whose client JACK
+will not activate stays in the walk, at its end, and the line answers the error. A line with another head is all or
+none: every client of its own is made, every member named anew stopped and every member leaving moved into its client
+(the last first) before anything else changes, and the old head, when the line names it as a member, is stopped last,
+since a client JACK stops loses its connections. When JACK will not stop one or activate one, every member moved goes
+back to its place in the old walk, the clients stopped run again, and the line answers the error (`resp -203`, `resp
+-202`) with the chain, its order and every instance as they were. A `remove` of the head is the same: when JACK will not
+make or activate a member's client of its own, the members are back in the walk and the remove answers the error.
 
 After every change stderr says the chain as it stands: `chain <chain>: effect_<a> effect_<b> ... in effect_<a>'s
 client, latency <n> frames, walk <w>`, `<w>` the walks the library has published for it (`omx_clap_chain_report`'s
@@ -212,11 +221,13 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   moved (in one walk, the read-back's walk one more), and a new head each give the output of the chain built that way,
   bit for bit; every refusal, a member with an auxiliary port among them, changes nothing. The client's process
   callback and every function of this tree it reaches (`tests/rt_reach.py`) name no allocator, sleep, lock or printf.
-- `make test-chain-host-tsan` (`tests/chain_host_tsan.sh`): the host and the core under ThreadSanitizer, 40 rounds of a
-  join, a member freed, an add and a leave while the quantum changes all along (each change the head's buffer-size
-  callback walking the members): no data race in `src/effects.c`. One race outside the chain is suppressed by name
-  (`tests/chain_host_tsan.supp`): a client's thread-init callback against the resize tick's audio role, a path an
-  add takes on main as well (#104).
+- `make test-chain-host-tsan` (`tests/chain_host_tsan.sh`): the host and the core under ThreadSanitizer, 40 rounds of
+  joins, a move, a member freed and added again, another head and the first one back, while the quantum changes all
+  along (each change the head's buffer-size callback walking the members, each new client's thread-init callback
+  naming its thread for its members): no data race in `src/effects.c`, nothing suppressed. An instance's audio role
+  has one lock, `g_chain_members`: the thread-init callback names a thread under it, and the control thread's restart,
+  resize and relayout read and give back the role under it (after `g_reactivate`, never across a wait for a cycle), so
+  a thread named while one of them has the role saved is the one it gives back. The process callback takes no lock.
 - `make test-hostd-chain` (`tests/hostd_chain_e2e.sh`, plugin-hostd as the daemon and this host its CLAP worker): the
   daemon's chain of three is one node; the middle member, `tests/fault-14.clap`, crashes the worker on a parameter
   write; it is quarantined into a worker of its own and the other two rejoin in order, one node, their output bit for
@@ -224,11 +235,17 @@ quarantined member that is not the head takes none of them, and the chain rejoin
 - `make test-chain-identity` (`tests/chain_identity.sh`): the chain declared by the line against the same plugins one
   client each.
 - `make test-chain-host-sabotage` (`tests/chain_host_sabotage.sh`) breaks each guard of the host's chain in a copy of
-  the tree and sees the test red on the check that names it: among them an allocation in a function the cycle calls,
-  a member with an auxiliary port taken, a move's order never published, a member's bypass that reaches the head alone,
-  and `g_chain_members` gone (ThreadSanitizer's red). Its drills make one JACK call fail for one instance (a leaving
-  member's client not made, a member named anew not stopped, a leaving member's client not activated) and stay green:
-  the line answers the error, no instance is freed, and the output is the chain the read-back names, bit for bit.
+  the tree and sees the test red on the check that names it: among them an allocation in a function the cycle calls
+  and one in the core's `omx_clap_chain_process`, a member with an auxiliary port taken, a move's order never
+  published, a member's bypass that reaches the head alone, `g_chain_members` gone from every site and from each of
+  four sites alone (the members' walk, the thread-init callback, a member's join, the chain's end), and the gate given
+  no role lock (each ThreadSanitizer's red). Three sites no stress turns red: `chain_order` and `chain_extract` write
+  only atomics, so a missing lock there is no data race ThreadSanitizer sees (the lock keeps a walk from seeing the
+  members half shifted), and `ports_relayout` runs only on a ports rescan, which no plugin of the stress raises. Its drills make one JACK call
+  (or the library's order) fail for one instance (a leaving member's client not made, a member named anew not stopped,
+  a leaving member's client not activated, the order refused; with another head a member named anew not stopped, a
+  member left out not activated, the old head not stopped) and stay green: the line answers its code, no instance is
+  freed, and the output is the chain the read-back names, bit for bit.
 
 ### What a member costs (r1, 2026-10-25)
 
