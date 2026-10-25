@@ -2,8 +2,8 @@
 
 `clap_chain.h` installs beside `clap_host.h` under `include/omx-clap-host/`: an ordered list of stages that one audio
 cycle runs in order, each stage's output the next one's input, in the caller's own thread. It is the mechanics of the
-Stage 0 prototype (`OMX_CLAP_HOST_CHAIN` in `src/effects.c`, `docs/bench-chain-2026-10-21.md`) moved into the library,
-so omx-clap-host (S2, #104), an engine's in-process path and plugin-hostd (S3) run one implementation.
+Stage 0 prototype (`docs/bench-chain-2026-10-21.md`) moved into the library, so omx-clap-host (S2, #104, below), an
+engine's in-process path and plugin-hostd (S3) run one implementation.
 
 The chain is generic. It names no trim, fader, strip or bus: a profile that puts stages in a fixed order is its
 caller's. Stage 0 measured what a chain is for: one JACK client and 22 to 40 percent less memory per plugin. It is not
@@ -107,3 +107,87 @@ the sum replaced by the last member's, a change never told, a removal that does 
 cycle's bound one frame short, its dry copy dropped, one block for every member instead of two in turn, the ABI
 refusal waved through, and a change that does not wait for the cycle reading the old plan, which `make
 test-chain-tsan` (the test under ThreadSanitizer, in CI) reports as a race in `publish`.
+
+## omx-clap-host runs the chain line (S2, #104)
+
+plugin-hostd declares a chain with its `chain` verb (plugin-hostd#101, released in 0.7.0) and gives the chain one
+worker. A worker that runs chains in one client, omx-clap-host for the `clap` and `lv2-clap` rows, is sent the same
+line with the members it holds, in order: after the adds of its replay and before the state, the verb ledger and the
+connections, and again without a member after that member's `remove`. omx-clap-host answers it:
+
+    chain <chain> <instance> [<instance> ...]       resp 0
+
+`<chain>` is plugin-hostd's number of the chain; the members are instances an `add` made in this host, in order.
+
+### One client, one node
+
+The members run in ONE JACK client: the client of the first member the line names, the chain's head. The head's main
+input ports are the chain's input and its main output ports the chain's output; its note ports and auxiliary ports
+stay its own. Every other member closes its own client, so it has no port and is no node of the graph: a chain of N
+plugins is one node, beside the host's own client (`omx-clap-host`, the frame clock, no port). A member's auxiliary
+inputs read silence and its auxiliary outputs go nowhere, what an unconnected port of its own client would do. A
+controller connects a chain by its head's ports.
+
+The head's process callback runs the library's chain (`omx_clap_chain_process`). Each member, the head too, is a stage
+of the host's own (`omx_clap_chain_member.process`), not an instance member: the stage runs the instance inside its own
+cycle gate exactly as a client of its own runs it (its note ring, its transport block, its gain adjustment, a restart
+or a relayout shutting the cycles out), so a member's output in the chain is, bit for bit, its output in a client of
+its own. Every member's audio thread is the head's; its block size follows the head's buffer-size callback.
+
+### Per plugin
+
+Bypass, parameters and every instance verb still name one member by its own number, and reach the instance as they do
+in a client of its own. Bypass is the plugin's own (`bypass`, `:bypass`), not the chain's bypass flag: a bypassed
+member keeps the latency it reports, as it does alone. Each member states its own latency to the chain
+(`omx_clap_chain_member_latency_set`) whenever the instance publishes a new one, and the head's ports report the
+chain's sum between them.
+
+### What a line may name
+
+Every member is an instance this host holds, named once and in no other chain of this host, and of the chain's width:
+its main input and its main output as wide as the head's main output. No member but the head has a note port (its
+port would go with its client). Anything else answers `resp -902` with the reason on stderr, or `resp -3` for an
+instance this host does not hold, and changes nothing: the members run one client each, which plugin-hostd takes as no
+failure. A line of one member is a chain of one: the head in its own client, run through the chain.
+
+### Changes while it runs
+
+Every change is the library's acknowledged step (`omx_clap_chain_add`, `omx_clap_chain_remove`): when the call returns,
+no cycle runs the walk before it. No surviving member is restarted, activated again or built again.
+
+- A line for a chain already running whose head is the same: a member it leaves out leaves the walk first, then gets a
+  client of its own back (its ports registered again, its client activated); a member it names anew closes its client
+  and is added at its place; a member it moves is taken out of the walk and added at its new place.
+- A line with another head: the chain leaves the old head's client, every member gets a client of its own, and the
+  chain forms again in the new head's client.
+- `remove` of a member that is not the head takes it out of the walk, the chain closing around it, then frees it.
+  `remove` of the head gives every other member a client of its own and frees the head with its client; plugin-hostd's
+  next line forms the chain again.
+
+After every change stderr says the chain as it stands: `chain <chain>: effect_<a> effect_<b> ... in effect_<a>'s
+client, latency <n> frames`. The protocol has no read-back verb; plugin-hostd's `chain_formed` event and `worker_list`
+are the read-back of a chain.
+
+### A crash
+
+A member that crashes takes the host process down, as any plugin of a shared worker does. The rest is plugin-hostd's:
+the culprit is quarantined into a worker of its own (`instance_quarantined`), the chain's worker is respawned with the
+others in their order, and the replay's `chain` line forms them again in one client (`chain_formed`). plugin-hostd
+records a connection against the instance whose client the port names, so a chain's connections are its head's: a
+quarantined member that is not the head takes none of them, and the chain rejoins connected.
+
+### Proof
+
+- `make test-chain-host` (`tests/chain_host_e2e.sh`, in a PipeWire of its own, the fake plugins of this tree): three
+  instances are three nodes, the line makes them one (`pw-dump`), its output equals the same instances one client each
+  linked in series bit for bit and differs from them in another order; the latency is the sum; a bypass and a parameter
+  still reach one member; a member's removal, a member left out, added and moved, and a new head each give the output
+  of the chain built that way, bit for bit; every refusal changes nothing.
+- `make test-hostd-chain` (`tests/hostd_chain_e2e.sh`, plugin-hostd as the daemon and this host its CLAP worker): the
+  daemon's chain of three is one node; the middle member, `tests/fault-14.clap`, crashes the worker on a parameter
+  write; it is quarantined into a worker of its own and the other two rejoin in order, one node, their output bit for
+  bit the two run one client each in that order.
+- `make test-chain-identity` (`tests/chain_identity.sh`): the chain declared by the line against the same plugins one
+  client each.
+- `make test-chain-host-sabotage` (`tests/chain_host_sabotage.sh`) breaks each guard of the host's chain in a copy of
+  the tree and sees the test red on the check that names it.

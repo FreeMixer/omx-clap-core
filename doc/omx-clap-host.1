@@ -167,7 +167,7 @@ answered with
 .I code
 using mod\-host's codes:
 .BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
-.BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", " audio_ports ", "
+.BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", " chain ", " audio_ports ", "
 .BR show_external_ui ", " hide_external_ui ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " idle_hold ", " note_drops ", " note_out_drops ", "
 .BR note_input ", " note_on ", " note_off ", " all_notes_off ", "
@@ -338,6 +338,21 @@ and
 .B "resp \-511"
 for a plugin that offers no such contract or one that breaks a rule, which
 the log names.
+.BI "chain " "chain N" " [" N ...]
+is plugin\-hostd's: the instances, in this order, run in one JACK client, the
+first one's, whose main input ports are the chain's input and main output
+ports its output; every other member closes its client, so the chain is one
+node of the graph. Each member is called in order inside that client's process
+callback and runs as it does in a client of its own; bypass, parameters and
+every other command still name one member by its number, and the first
+member's ports report the members' latencies summed. A line for a chain
+already running changes its members in place, and a member it leaves out gets
+a client of its own back. Every member must be an instance this host holds,
+named once, in no other chain, its main input and output as wide as the first
+member's main output, and no member but the first may have a note port; else
+.B "resp \-902"
+.RB ( "resp \-3"
+for an instance this host does not hold) and nothing changes.
 Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its
