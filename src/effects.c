@@ -210,6 +210,14 @@ typedef struct {
     jack_port_t *outputs[CLAP_HOST_PORT_CHANNELS];
 } own_client_t;
 
+/* a client of its own a chain line stopped (members_stop): the instance and its main ports' links as they were, pairs of
+ * an output and an input, for members_start to make again, since a client JACK stops loses every link of its ports */
+typedef struct {
+    effect_t *effect;
+    char **links;
+    uint32_t n_links;
+} stopped_t;
+
 
 /*
 ************************************************************************************************************************
@@ -1942,18 +1950,104 @@ static int member_stop(effect_t *effect)
     return jack_deactivate(effect->jack_client);
 }
 
-/* the clients member_stop stopped, stopped[0 .. n), run again, the last first */
-static void members_start(effect_t *const *stopped, uint32_t n)
+/* a stopped client's links given up: run again (members_start) or closed as it joins */
+static void links_forget(stopped_t *stopped)
+{
+    uint32_t k;
+
+    for (k = 0; k < 2 * stopped->n_links; k++)
+        free(stopped->links[k]);
+    free(stopped->links);
+    stopped->links = NULL;
+    stopped->n_links = 0;
+}
+
+/* the links of `effect`'s main ports, as they are before its client stops, into `stopped`: 0, or -1 with none kept when
+ * there is no memory for them */
+static int links_record(effect_t *effect, stopped_t *stopped)
+{
+    jack_port_t *ports[2 * CLAP_HOST_PORT_CHANNELS];
+    uint32_t n_ports = 0, p;
+
+    stopped->effect = effect;
+    stopped->links = NULL;
+    stopped->n_links = 0;
+    for (p = 0; p < effect->in_ports; p++)
+        ports[n_ports++] = effect->input_ports[p];
+    for (p = 0; p < effect->out_ports; p++)
+        ports[n_ports++] = effect->output_ports[p];
+    for (p = 0; p < n_ports; p++)
+    {
+        const char **peers = jack_port_get_all_connections(effect->jack_client, ports[p]);
+        const int output = (jack_port_flags(ports[p]) & JackPortIsOutput) != 0;
+        size_t i;
+
+        for (i = 0; peers && peers[i]; i++)
+        {
+            char **grown = realloc(stopped->links, 2 * (stopped->n_links + 1) * sizeof(*grown));
+
+            if (!grown)
+            {
+                jack_free(peers);
+                links_forget(stopped);
+                return -1;
+            }
+            stopped->links = grown;
+            grown[2 * stopped->n_links] = strdup(output ? jack_port_name(ports[p]) : peers[i]);
+            grown[2 * stopped->n_links + 1] = strdup(output ? peers[i] : jack_port_name(ports[p]));
+            stopped->n_links++;
+            if (!grown[2 * stopped->n_links - 2] || !grown[2 * stopped->n_links - 1])
+            {
+                jack_free(peers);
+                links_forget(stopped);
+                return -1;
+            }
+        }
+        jack_free(peers);
+    }
+    return 0;
+}
+
+/* the clients member_stop stopped, stopped[0 .. n), run again, the last first, each with the links its ports had
+ * (links_record): a client JACK will not run again, or a link it will not make again, said on stderr */
+static void members_start(int id, stopped_t *stopped, uint32_t n)
 {
     while (n > 0)
-        jack_activate(stopped[--n]->jack_client);
+    {
+        stopped_t *again = &stopped[--n];
+        jack_client_t *client = again->effect->jack_client;
+        uint32_t k;
+
+        if (jack_activate(client) != 0)
+            fprintf(stderr, "chain %d: effect_%d's own client cannot be run again; its %u link(s) are lost\n", id,
+                    again->effect->instance, again->n_links);
+        else
+            for (k = 0; k < again->n_links; k++)
+            {
+                const int ret = jack_connect(client, again->links[2 * k], again->links[2 * k + 1]);
+
+                if (ret != 0 && ret != EEXIST)
+                    fprintf(stderr, "chain %d: effect_%d's link %s -> %s cannot be made again (%d)\n", id,
+                            again->effect->instance, again->links[2 * k], again->links[2 * k + 1], ret);
+            }
+        links_forget(again);
+    }
+}
+
+/* the clients member_stop stopped, stopped[0 .. n), kept stopped: their links given up, as the clients close when they
+ * join */
+static void members_keep_stopped(stopped_t *stopped, uint32_t n)
+{
+    while (n > 0)
+        links_forget(&stopped[--n]);
 }
 
 /* the cycles stopped of every instance a chain line names after its head that is in no chain, so runs in a client of
- * its own (`chain`'s head, which a line with another head may name as a member, is chain_rehead's to stop, last).
- * SUCCESS with them in stopped[0 .. *n_stopped); or, when JACK will not stop one, ERR_JACK_CLIENT_DEACTIVATION with
- * the ones stopped before it running again */
-static int members_stop(int id, const chain_t *chain, const int *instances, int n, effect_t **stopped, uint32_t *n_stopped)
+ * its own (`chain`'s head, which a line with another head may name as a member, is chain_rehead's to stop, last), each
+ * one's links recorded first. SUCCESS with them in stopped[0 .. *n_stopped), for members_start or members_keep_stopped;
+ * or, when JACK will not stop one (or its links cannot be recorded), ERR_JACK_CLIENT_DEACTIVATION with the ones stopped
+ * before it running again with their links */
+static int members_stop(int id, const chain_t *chain, const int *instances, int n, stopped_t *stopped, uint32_t *n_stopped)
 {
     int i;
 
@@ -1964,14 +2058,21 @@ static int members_stop(int id, const chain_t *chain, const int *instances, int 
 
         if (chain && effect->chain == chain)
             continue;
-        if (member_stop(effect) != 0)
+        if (links_record(effect, &stopped[*n_stopped]) != 0)
+            fprintf(stderr, "chain %d: effect_%d's links cannot be recorded; its own client is not stopped\n", id, effect->instance);
+        else if (member_stop(effect) != 0)
         {
             fprintf(stderr, "chain %d: effect_%d's own client cannot be stopped\n", id, effect->instance);
-            members_start(stopped, *n_stopped);
-            *n_stopped = 0;
-            return ERR_JACK_CLIENT_DEACTIVATION;
+            links_forget(&stopped[*n_stopped]);
         }
-        stopped[(*n_stopped)++] = effect;
+        else
+        {
+            (*n_stopped)++;
+            continue;
+        }
+        members_start(id, stopped, *n_stopped);
+        *n_stopped = 0;
+        return ERR_JACK_CLIENT_DEACTIVATION;
     }
     return SUCCESS;
 }
@@ -2127,7 +2228,8 @@ static void chain_drop(effect_t *effect)
  * instance as they were. */
 static int chain_rehead(chain_t *chain, int id, effect_t *head, const int *instances, int n)
 {
-    effect_t *out[OMX_CLAP_CHAIN_MEMBERS_MAX], *moving[OMX_CLAP_CHAIN_MEMBERS_MAX], *stopped[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    effect_t *out[OMX_CLAP_CHAIN_MEMBERS_MAX], *moving[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    stopped_t stopped[OMX_CLAP_CHAIN_MEMBERS_MAX];
     own_client_t own[OMX_CLAP_CHAIN_MEMBERS_MAX];
     struct omx_clap_chain *walk = NULL;
     effect_t *const old_head = chain->head;
@@ -2167,7 +2269,8 @@ static int chain_rehead(chain_t *chain, int id, effect_t *head, const int *insta
         return error;
     }
     // the old head's client, which runs the chain and carries its connections, stops last, once nothing after it can fail:
-    // a client JACK stops loses its connections, so it is never stopped to be started again
+    // a client JACK stops loses its connections, so it is never stopped to be started again. The members stopped before
+    // run again with the links they had (members_start)
     error = chain_unload(chain, out, own, n_out, place);
     if (error == SUCCESS && named_old_head && member_stop(old_head) != 0)
     {
@@ -2177,11 +2280,12 @@ static int chain_rehead(chain_t *chain, int id, effect_t *head, const int *insta
     }
     if (error != SUCCESS)
     {
-        members_start(stopped, n_stopped);
+        members_start(id, stopped, n_stopped);
         omx_clap_chain_destroy(walk);
         chain_say(chain);
         return error;
     }
+    members_keep_stopped(stopped, n_stopped);
 
     // from here nothing fails: the old walk keeps its head alone, the head's cycle runs it alone again
     for (j = 0; j < n_moving; j++)
@@ -2627,7 +2731,7 @@ int effects_remove(int effect_id)
 /* chain <chain> <instance> ...: the instances, in this order, one chain run in the first one's client (docs/chain.md).
  * A refusal changes nothing: every check, every client of its own that a member leaving the walk goes back to and a
  * new chain's library chain come before the first change, and a member named anew whose own client JACK will not stop
- * is refused with the ones stopped before it started again. A chain already running with the same head then changes in
+ * is refused with the ones stopped before it started again, with the links they had. A chain already running with the same head then changes in
  * place: the members left out leave the walk, the members kept take the line's order in ONE walk (a move; a refusal of
  * the library keeps the order it had and the line answers ERR_INVALID_OPERATION), the members named anew join at
  * their places, and the members left out run in the clients made for them; one JACK will not activate stays in the
@@ -2637,7 +2741,8 @@ int effects_chain(int id, const int *instances, int n)
     chain_t *chain = NULL, *slot = NULL;
     struct omx_clap_chain *walk = NULL;
     effect_t *head;
-    effect_t *leaving[OMX_CLAP_CHAIN_MEMBERS_MAX], *joining[OMX_CLAP_CHAIN_MEMBERS_MAX], *kept[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    effect_t *leaving[OMX_CLAP_CHAIN_MEMBERS_MAX], *kept[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    stopped_t joining[OMX_CLAP_CHAIN_MEMBERS_MAX];
     own_client_t own[OMX_CLAP_CHAIN_MEMBERS_MAX];
     uint32_t count, j, n_leaving = 0, n_joining = 0, n_kept = 0;
     int i, k, error, ret;
@@ -2732,6 +2837,7 @@ int effects_chain(int id, const int *instances, int n)
             client_drop(&own[--n_leaving]);
         return error;
     }
+    members_keep_stopped(joining, n_joining);
     if (!chain)
     {
         chain = slot;
