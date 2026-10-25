@@ -336,7 +336,9 @@ static jack_client_t *open_jack_client(int instance, const char *client_name)
 /* the chains' members as JACK's thread-init and buffer-size callbacks walk them: the control thread changes a chain's
  * members, and frees a member's instance, holding this; neither callback is the process callback, which never takes
  * it. A member that has just left has a client of its own, whose callbacks do the same for it. The thread-init
- * callback sets its own instance's audio thread under it too, and a member that joins reads its head's there. */
+ * callback sets its own instance's audio thread under it too, and a member that joins reads its head's there. It is the
+ * one lock of every instance's audio role: the restart, the resize (the gate's role lock, callbacks_set) and the
+ * relayout read and write the role under it, after g_reactivate, never across a wait for a cycle. */
 static pthread_mutex_t g_chain_members = PTHREAD_MUTEX_INITIALIZER;
 
 /* JACK's thread: `fn` on each member after the head of the chain `effect` heads, under g_chain_members; nothing for an
@@ -1207,8 +1209,12 @@ static void ports_relayout(effect_t *effect)
         effect->relayout_pending = 0;
         return;
     }
+    // the audio role under g_chain_members, which the thread-init callbacks name a thread under; the thread is read
+    // again after the stop below, when one named since holds the role
+    pthread_mutex_lock(&g_chain_members);
     thread = clap->audio_thread;
     held = clap->audio_role_held;
+    pthread_mutex_unlock(&g_chain_members);
     in_channels = clap->in_channels;
     channels = clap->channels;
     in_kind = clap->main_in.kind;
@@ -1221,9 +1227,17 @@ static void ports_relayout(effect_t *effect)
         return;
     }
     effect->relayout_pending = 0;
+    // from here to the arm the audio role is this thread's to give back, under g_chain_members (lock order: g_reactivate
+    // first); the stop released it, so a role held now is a thread the thread-init callback named since, the newest
+    pthread_mutex_lock(&g_chain_members);
     // a relayout still waiting on its blocks keeps the audio role it saved; every outcome below decides again, and only
     // the short-block one waits again
-    if (effect->pending.set)
+    if (clap->audio_role_held)
+    {
+        thread = clap->audio_thread;
+        held = 1;
+    }
+    else if (effect->pending.set)
     {
         thread = effect->pending.thread;
         held = effect->pending.held;
@@ -1260,6 +1274,7 @@ static void ports_relayout(effect_t *effect)
     unchanged = clap->in_channels == in_channels && clap->channels == channels && clap->main_in.kind == in_kind
                 && clap->main_out.kind == out_kind;
     effect->relayouts_unchanged = unchanged ? effect->relayouts_unchanged + 1 : 0;
+    pthread_mutex_unlock(&g_chain_members);
     omx_cycle_gate_open(&effect->gate);
     pthread_mutex_unlock(&g_reactivate);
 }
@@ -1705,9 +1720,11 @@ static int main_ports_register(effect_t *effect)
                                   effect->output_ports);
 }
 
-/* the callbacks of the instance's own client */
+/* the callbacks of the instance's own client; its thread-init callback names the audio thread under g_chain_members,
+ * which the gate's restart and resize take for the audio role too */
 static void callbacks_set(effect_t *effect)
 {
+    effect->gate.role = &g_chain_members;
     jack_set_thread_init_callback(effect->jack_client, jack_thread_init, effect);
     jack_set_process_callback(effect->jack_client, process, effect);
     jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
