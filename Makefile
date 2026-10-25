@@ -1044,3 +1044,93 @@ BENCH_CRASH ?= 1
 bench: bench-tools
 	BENCH_PATHS="$(BENCH_PATHS)" BENCH_RATES="$(BENCH_RATES)" BENCH_QUANTA="$(BENCH_QUANTA)" BENCH_REPS=$(BENCH_REPS) \
 	    BENCH_SECONDS=$(BENCH_SECONDS) BENCH_IDLE_HOLD=$(BENCH_IDLE_HOLD) BENCH_CRASH=$(BENCH_CRASH) ./bench/bench.sh $(BENCH_OUT)
+
+# ---- the libFuzzer harnesses (fuzz/README.md) ----
+
+# One harness per reader of bytes from disk: the preset file (fuzz_preset), the state body it carries (fuzz_state) and
+# the manifest.ttl the host reads without lilv (fuzz_manifest); clang with libFuzzer, AddressSanitizer and
+# UndefinedBehaviorSanitizer, into build/fuzz/. A harness links its own file, the allocation count (fuzz/alloc.c) and
+# the reader's source, compiled with fuzz/alloc.h forced on it; nothing else. The ordinary build is not touched.
+#   make fuzz                    build every harness
+#   make fuzz-run FUZZ_TIME=60   fuzz each from its seed corpus; red on any crash, the input left in fuzz/findings/
+#   make fuzz-sabotage           each mutant of fuzz/mutants/ must make its harness abort on a seed, in its own property
+#   make fuzz-coverage           the coverage witness: llvm-cov over the corpus, held to fuzz/coverage-floor.txt
+#   make fuzz-static             each harness linked fully static with a plain driver, over its corpus
+#   make fuzz-corpus            write fuzz/corpus/ again from the fixtures; fuzz-corpus-check: it is what they give
+FUZZ_CC        ?= clang
+FUZZ_TIME      ?= 60
+FUZZ_BUILD     := build/fuzz
+FUZZ_HARNESSES := preset state manifest
+FUZZ_SAN       := -fsanitize=address,undefined -fno-sanitize-recover=all
+FUZZ_CFLAGS    := -O1 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror -fno-omit-frame-pointer
+FUZZ_READER_preset   := src/preset_file.c
+FUZZ_READER_state    := src/preset_file.c
+FUZZ_READER_manifest := src/lv2_locate.c
+FUZZ_DEPS      := fuzz/fuzz.h fuzz/alloc.h fuzz/alloc.c src/preset_file.c src/preset_file.h src/lv2_locate.c src/lv2_locate.h
+
+# $(1): the flags of the build; the reader is instrumented for the fuzzer's feedback without linking it
+define fuzz_build
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(1) -fsanitize=fuzzer-no-link -Isrc -include fuzz/alloc.h -c -o $@.reader.o $(FUZZ_READER_$*)
+	$(FUZZ_CC) $(1) -fsanitize=fuzzer -Isrc -Ifuzz -o $@ $< fuzz/alloc.c $@.reader.o -lm
+endef
+
+$(FUZZ_BUILD)/fuzz_%: fuzz/fuzz_%.c $(FUZZ_DEPS)
+	$(call fuzz_build,$(FUZZ_CFLAGS) $(FUZZ_SAN))
+
+fuzz: $(FUZZ_HARNESSES:%=$(FUZZ_BUILD)/fuzz_%)
+
+fuzz-run: fuzz
+	FUZZ_BUILD=$(FUZZ_BUILD) FUZZ_TIME=$(FUZZ_TIME) fuzz/run.sh $(FUZZ_HARNESSES)
+
+fuzz-sabotage:
+	FUZZ_BUILD=$(FUZZ_BUILD) MAKE="$(MAKE)" fuzz/sabotage.sh
+
+# the coverage witness: the same harnesses without sanitizers, instrumented for llvm-cov, each run once over its seed
+# corpus; the llvm-cov and llvm-profdata of FUZZ_CC's own LLVM
+FUZZ_COV_BUILD := $(FUZZ_BUILD)/cov
+FUZZ_COV_FLAGS := -O0 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror -fprofile-instr-generate -fcoverage-mapping
+LLVM_COV       ?= llvm-cov
+LLVM_PROFDATA  ?= llvm-profdata
+
+$(FUZZ_COV_BUILD)/fuzz_%: fuzz/fuzz_%.c $(FUZZ_DEPS)
+	$(call fuzz_build,$(FUZZ_COV_FLAGS))
+
+fuzz-coverage: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
+	@set -e; for h in $(FUZZ_HARNESSES); do \
+	  rm -f $(FUZZ_COV_BUILD)/$$h.profraw; \
+	  LLVM_PROFILE_FILE=$(FUZZ_COV_BUILD)/$$h.profraw $(FUZZ_COV_BUILD)/fuzz_$$h -runs=0 fuzz/corpus/$$h/ \
+	      >$(FUZZ_COV_BUILD)/$$h.log 2>&1 || \
+	    { cat $(FUZZ_COV_BUILD)/$$h.log; echo "fuzz-coverage: fuzz_$$h failed on its own corpus"; exit 1; }; \
+	  $(LLVM_PROFDATA) merge -sparse $(FUZZ_COV_BUILD)/$$h.profraw -o $(FUZZ_COV_BUILD)/$$h.profdata; \
+	done
+	@LLVM_COV=$(LLVM_COV) LLVM_PROFDATA=$(LLVM_PROFDATA) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
+
+# the same harnesses driven by fuzz/standalone.c instead of libFuzzer and linked fully static, each run over its corpus:
+# the build a verifier that brings its own driver takes. Needs the static libc (glibc-static)
+FUZZ_STATIC_BUILD := $(FUZZ_BUILD)/static
+FUZZ_STATIC_FLAGS := -O2 -g -std=gnu99 -D_GNU_SOURCE -Wall -Wextra -Werror
+
+$(FUZZ_STATIC_BUILD)/fuzz_%: fuzz/fuzz_%.c fuzz/standalone.c $(FUZZ_DEPS)
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(FUZZ_STATIC_FLAGS) -Isrc -include fuzz/alloc.h -c -o $@.reader.o $(FUZZ_READER_$*)
+	$(FUZZ_CC) $(FUZZ_STATIC_FLAGS) -static -Isrc -Ifuzz -o $@ $< fuzz/alloc.c fuzz/standalone.c $@.reader.o -lm
+
+fuzz-static: $(FUZZ_HARNESSES:%=$(FUZZ_STATIC_BUILD)/fuzz_%)
+	@set -e; for h in $(FUZZ_HARNESSES); do \
+	  echo "fuzz_$$h, static: $$($(FUZZ_STATIC_BUILD)/fuzz_$$h fuzz/corpus/$$h/*)"; done
+
+# the seed corpus is written from the tree's own fixtures (fuzz/gen-corpus.c), never from a network, and committed
+$(FUZZ_BUILD)/gen-corpus: fuzz/gen-corpus.c src/preset_file.c src/preset_file.h src/lv2_locate.h
+	@mkdir -p $(@D)
+	$(FUZZ_CC) -O1 -g -std=gnu99 -Wall -Wextra -Werror -Isrc -o $@ fuzz/gen-corpus.c src/preset_file.c -lm
+
+fuzz-corpus: $(FUZZ_BUILD)/gen-corpus
+	rm -rf fuzz/corpus
+	$(FUZZ_BUILD)/gen-corpus fuzz/corpus
+
+fuzz-corpus-check: $(FUZZ_BUILD)/gen-corpus
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
+	$(FUZZ_BUILD)/gen-corpus $$tmp/corpus; diff -r $$tmp/corpus fuzz/corpus; echo "the seed corpus is current"
+
+.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check

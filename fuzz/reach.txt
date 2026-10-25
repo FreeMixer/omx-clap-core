@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+#
+# THE SEED FLOOR (fuzz/coverage.sh). A branch a line count cannot see, and the seed that exists to take it:
+#
+#   <harness> <seed> <file> <condition>
+#
+# run alone, fuzz/corpus/<harness>/<seed> must take the true branch of <condition>, the text a condition of <file>
+# starts with, found once in it. A seed gone, a condition gone or a branch the seed no longer takes is red.
+
+# past LV2_LOCATE_PREFIXES_MAX declarations a manifest is a candidate unread; other seeds reach the line, not the branch
+manifest prefixes-past-most-read src/lv2_locate.c ++read_again > LV2_LOCATE_PREFIXES_MAX

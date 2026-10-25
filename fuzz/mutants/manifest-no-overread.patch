@@ -1,0 +1,13 @@
+diff --git a/src/lv2_locate.c b/src/lv2_locate.c
+index 0efd5a3..47b43f3 100644
+--- a/src/lv2_locate.c
++++ b/src/lv2_locate.c
+@@ -68,7 +68,7 @@ static int has_prefixed(const char *text, const char *prefix, size_t prefix_len,
+             continue;
+         if (start > text && (name_char(start[-1]) || start[-1] == '.'))
+             continue;
+-        if (name_char(at[local_len]))
++        if (name_char(at[local_len + 1]))
+             continue;
+         return 1;
+     }

@@ -24,7 +24,9 @@
 * Which bundle on the LV2 path may hold a plugin URI, read from the text of each bundle's manifest.ttl and nothing else:
 * no lilv, no world. A bundle is a candidate when its manifest names the URI whole (<uri>), or as a prefixed name whose
 * prefix it declares (@prefix p: <ns> . and p:local, where ns + local is the URI). The caller opens a candidate to know;
-* a manifest that spells the URI some other way (a relative IRI against @base, an escaped character) is not found.
+* a manifest that spells the URI some other way (a relative IRI against @base, an escaped character) is not found. Each
+* declaration of a namespace the URI starts with is a reading of the whole text for its name; a manifest that makes more
+* than LV2_LOCATE_PREFIXES_MAX of them is a candidate without the rest, so a manifest's cost is linear in its size.
 *
 ************************************************************************************************************************
 */
@@ -37,6 +39,9 @@
 /* the path searched when LV2_PATH is not set, lilv's own default with the 64-bit directories added */
 #define LV2_LOCATE_DEFAULT_PATH "~/.lv2:/usr/local/lib64/lv2:/usr/local/lib/lv2:/usr/lib64/lv2:/usr/lib/lv2"
 
+/* the declarations of a namespace the URI starts with a manifest is read for, at most; one more makes it a candidate */
+#define LV2_LOCATE_PREFIXES_MAX 16
+
 /* Called with each candidate bundle, an absolute directory with no trailing '/', in the order of the path and, inside a
  * directory of it, in name order. A nonzero return ends the walk and is what lv2_locate returns. */
 typedef int (*lv2_locate_fn)(const char *bundle, void *ctx);
@@ -48,5 +53,9 @@ int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx);
 
 /* Whether the text of a manifest names `uri`, as lv2_locate reads it: 1 or 0. */
 int lv2_locate_manifest_names(const char *text, const char *uri);
+
+/* lv2_locate_manifest_names, adding to *readings each reading of the whole text for a prefixed name:
+ * the work a manifest costs, which no manifest makes more than LV2_LOCATE_PREFIXES_MAX of. */
+int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings);
 
 #endif
