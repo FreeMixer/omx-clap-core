@@ -782,19 +782,37 @@ test-identity: $(PROG) tests/jack_identity build/bench/inproc
 
 # a chain of plugins in one JACK client against the same plugins one client each in series, bit for bit, and the latency
 # the chain reports their sum (#302): the fake plugins of this tree; PLUGINS=bench/plugins.tsv for the omx-plugins set
-test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap
+test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap
 	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
 
-# the chain line in one JACK client (#104, docs/chain.md): its cycle, the client's process callback and every member's
-# stage, names nothing that allocates, waits, locks or prints; three instances one node, its output the same instances
-# one client each in series bit for bit, changed while it runs, every refusal changing nothing (tests/chain_host_e2e.sh)
+# the chain line in one JACK client (#104, docs/chain.md): the client's process callback and every function of this
+# tree it reaches (tests/rt_reach.py: chain_stage, process_gated, notes_out, transport_block, publish_gain_adjustment
+# and the header functions they run) names nothing that allocates, waits, locks or prints; three instances one node,
+# its output the same instances one client each in series bit for bit, changed while it runs, every refusal changing
+# nothing (tests/chain_host_e2e.sh)
+RT_CHAIN_FILES = src/effects.c src/cycle_gate.h src/omx_msgring.h src/host_transport.h src/clap_stage.h
+RT_CHAIN_CALLEES = chain_stage process_gated notes_out transport_block publish_gain_adjustment host_transport_read omx_cycle_gate_enter
 test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
-	mkdir -p build && sed -n '/^static void chain_stage/,/^}/p; /^static int process(/,/^}/p; /^static void process_gated/,/^}/p' src/effects.c > build/chain_host_rt.c
+	mkdir -p build && python3 -I tests/rt_reach.py build/chain_host_rt.c process $(RT_CHAIN_FILES)
+	@unreached=; for f in $(RT_CHAIN_CALLEES); do grep -q -E "^# reached: .*\<$$f\>" build/chain_host_rt.c || unreached="$$unreached $$f"; done; \
+	    [ -z "$$unreached" ] || { echo "FAIL the scan of the host's chain cycle does not reach$$unreached"; false; }
 	grep -q 'omx_clap_chain_process' build/chain_host_rt.c && grep -q 'omx_clap_host_run_ports' build/chain_host_rt.c \
 	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/chain_host_rt.c \
 	    || { echo "FAIL the host's chain cycle names an allocator, sleep, lock or printf, or runs no chain"; false; }
-	@echo "ok   the host's chain cycle (process, chain_stage, process_gated) names no allocator, sleep, lock or printf"
+	@echo "ok   the host's chain cycle and every function of this tree it reaches ($$(sed -n 's/^# reached: //p' build/chain_host_rt.c | wc -w)) name no allocator, sleep, lock or printf"
 	./tests/chain_host_e2e.sh
+
+# the chain's members walked by JACK's buffer-size callback while the control thread joins, frees, adds and lets go
+# of members, the host and the core built under ThreadSanitizer: g_chain_members orders every walk against every change,
+# so it reports nothing (tests/chain_host_e2e.sh with CHAIN_HOST_STRESS rounds, the quantum changed all along)
+build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2_LIB) $(PROTOCOL_LIB)
+	mkdir -p build/tsan
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) $(LV2_LIB) \
+	    $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
+
+test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
+	./tests/chain_host_tsan.sh $(abspath build/tsan/omx-clap-host) $(abspath build/tsan)
 
 # each guard of the host's chain broken in a copy of the tree, the test seen red on the check that names it
 test-chain-host-sabotage:

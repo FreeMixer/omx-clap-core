@@ -13,14 +13,18 @@
 # 0, 0.1 by default). Every phase compares the chain's left and right against the series', bit for bit:
 #
 #   1 the line makes three nodes one (pw-dump); the latency is the sum; the other order differs
-#   2 bypass and param_set reach one member each: the chain still equals the series given the same verbs, its level moved
+#   2 bypass and param_set reach one member each: the chain still equals the series given the same verbs, its level moved;
+#     then the bypass of a member that is not the head (2b)
 #   3 a line that leaves pass out: pass back in a client of its own, two nodes
-#   4 a line that adds pass at the end: one node again          5 a line that moves pass to the middle
+#   4 a line that adds pass at the end: one node again          5 a line that moves pass to the middle, in one walk
+#   5b pass at the head, comp moved after gain in one walk: a move the output hears (pass copies, so its own move is
+#     silent), the order before it another output
 #   6 a line with another head: the chain in gain's client       7 remove of a member: the chain closes around it
 #   8 remove of the head: pass in a client of its own; a line of one member
 #
 # and every refusal (a member it does not hold, one named twice, a word that is no number, a member or a head of
-# another width, a member with a note port, a member of another chain) answers its code and changes no node.
+# another width, a member with a note port or an auxiliary port, a member of another chain) answers its code and
+# changes no node.
 # The last line is a CHAIN-HOST json; exit 0 only when every step held.
 #
 # OMX_CLAP_HOST: the binary (default ./omx-clap-host); FRAMES: frames per phase (default 24000)
@@ -108,6 +112,8 @@ pass="clap:$here/fake.clap#org.omx-clap-host.test.passthrough"
 gain="clap:$here/fault-14.clap#org.openmixer.fault.14"
 notes="clap:$here/fake.clap#org.omx-clap-host.test.notes"
 widen="clap:$here/fake.clap#org.omx-clap-host.test.mono-stereo"
+sidechain="clap:$here/fake.clap#org.omx-clap-host.test.sidechain"
+auxout="clap:$here/fake.clap#org.omx-clap-host.test.auxout"
 for k in 0 1 2; do
     set -- "$comp" "$pass" "$gain"
     shift $k
@@ -200,6 +206,88 @@ differ() {
     ! cmp -s "$2" "$3"
     step $? "$1"
 }
+# the walks the library has published for chain $1, out of the last read-back: "chain <n>: ... walk <w>"
+walk_of() { readback "$1" | sed -n 's/.*, walk \([0-9][0-9]*\)$/\1/p'; }
+# the last read-back of chain $1 (a refusal's reason on stderr starts "chain <n>: effect_<m>" as well)
+readback() { grep -E "^chain $1: (effect_[0-9]+ )+in effect_[0-9]+'s client, " "$runtime/chain.log" | tail -1; }
+
+# the drills (CHAIN_HOST_FAULT, tests/chain_host_sabotage.sh: a copy of the tree where one JACK call fails for one
+# instance): a line that fails part way answers the error and frees no instance; one refused changes nothing
+if [ -n "${CHAIN_HOST_FAULT:-}" ]; then
+    expect chain "chain 7 10 11 12" "resp 0"
+    wait_nodes 1; step $? "chain 7 10 11 12: one node ($(nodes))"
+    walk_before=$(walk_of 7)
+    case $CHAIN_HOST_FAULT in
+    client)
+        line="chain 7 10 12" what="effect_11's own client cannot be made" want="effect_10 effect_11 effect_12" want_nodes=1
+        ;;
+    stop)
+        expect chain "add $pass 13" "resp 13"
+        line="chain 7 10 12 13" what="effect_13's own client cannot be stopped" want="effect_10 effect_11 effect_12" want_nodes=2
+        ;;
+    activate)
+        line="chain 7 10 12" what="effect_11's own client cannot be activated" want="effect_10 effect_12 effect_11" want_nodes=1
+        ;;
+    *)
+        echo "CHAIN_HOST_FAULT=$CHAIN_HOST_FAULT: client, stop or activate" >&2
+        exit 2
+        ;;
+    esac
+    reply=$(send chain "$line")
+    [ -n "$reply" ] && [ "$reply" != "resp 0" ]; step $? "$line, $what: answers an error ($reply)"
+    members=$(readback 7 | sed -n 's/^chain 7: \(.*\) in effect_.*$/\1/p')
+    [ "$members" = "$want" ]; step $? "fault $CHAIN_HOST_FAULT: the chain runs $members (want $want)"
+    if [ "$CHAIN_HOST_FAULT" != activate ]; then
+        [ "$(walk_of 7)" = "$walk_before" ]; step $? "fault $CHAIN_HOST_FAULT: refused, no walk published (walk $walk_before, then $(walk_of 7))"
+    fi
+    wait_nodes "$want_nodes"; step $? "fault $CHAIN_HOST_FAULT: $want_nodes node(s) ($(nodes))"
+    reply=$(send chain "param_get 11 0")
+    case $reply in "resp 0 "*) r=0 ;; *) r=1 ;; esac
+    step $r "fault $CHAIN_HOST_FAULT: effect_11 is still an instance of this host: param_get 11 0 -> $reply"
+    # the output is the chain the read-back names, bit for bit
+    if [ "$CHAIN_HOST_FAULT" = activate ]; then series 20 22 21; last=21; else series 20 21 22; last=22; fi
+    play fault chain=10,10 series=20,$last
+    same "fault $CHAIN_HOST_FAULT left: the chain as the read-back names it" "$runtime/fault.chain.l" "$runtime/fault.series.l"
+    same "fault $CHAIN_HOST_FAULT right" "$runtime/fault.chain.r" "$runtime/fault.series.r"
+    unlink_all
+    expect chain "remove -1" "resp 0"
+    expect series "remove -1" "resp 0"
+    echo "chain host: $failures failed"
+    [ "$failures" -eq 0 ]
+    exit
+fi
+
+# the stress (CHAIN_HOST_STRESS rounds, make test-chain-host-tsan): the quantum changed all along, each change the head's
+# buffer-size callback walking its members on JACK's thread, while each round a member joins, is freed by its remove,
+# is added again and the line lets the others go
+if [ -n "${CHAIN_HOST_STRESS:-}" ]; then
+    (
+        q=64
+        while :; do
+            pw-metadata -n settings 0 clock.force-quantum $q >/dev/null 2>&1
+            if [ $q = 64 ]; then q=256; else q=64; fi
+            sleep 0.02
+        done
+    ) &
+    flipper=$!
+    bad=0
+    for k in $(seq "$CHAIN_HOST_STRESS"); do
+        r="$(send chain "chain 7 10 11 12") $(send chain "remove 11") $(send chain "add $pass 11") $(send chain "chain 7 10")"
+        # a host that stops answering stops the rounds: each send would wait out its timeout
+        [ "$r" = "resp 0 resp 0 resp 11 resp 0" ] || { bad=$((bad + 1)); echo "     round $k: $r"; break; }
+    done
+    kill "$flipper" 2>/dev/null
+    wait "$flipper" 2>/dev/null
+    pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1
+    [ "$bad" = 0 ]; step $? "$CHAIN_HOST_STRESS rounds of a join, a member freed, an add and a leave while the quantum changed ($bad off)"
+    expect chain "chain 7 10 11 12" "resp 0"
+    wait_nodes 1; step $? "and then chain 7 10 11 12 is one node ($(nodes))"
+    expect chain "remove -1" "resp 0"
+    expect series "remove -1" "resp 0"
+    echo "chain host: $failures failed"
+    [ "$failures" -eq 0 ]
+    exit
+fi
 
 # 1. the line: three nodes become one, its output the series', the other order not, the latency the sum
 expect chain "chain 7 10 11 12" "resp 0"
@@ -225,13 +313,27 @@ expect chain "chain 7" "resp -902"
 expect chain "add $pass 15" "resp 15"
 expect chain "add $widen 14" "resp 14"
 expect chain "add $notes 13" "resp 13"
+expect chain "add $sidechain 16" "resp 16"
+expect chain "add $auxout 17" "resp 17"
 expect chain "chain 8 15 14" "resp -902"
 expect chain "chain 8 14 15" "resp -902"
 expect chain "chain 8 15 13" "resp -902"
 expect chain "chain 8 15 10" "resp -902"
 expect chain "chain 7 10 11 12 13" "resp -902"
-[ "$(nodes)" = 4 ]; step $? "the refusals changed no node: the chain and three of their own ($(nodes))"
-for i in 13 14 15; do expect chain "remove $i" "resp 0"; done
+# an auxiliary port goes with its client as a note port does: a member's side chain would read silence, its auxiliary
+# output reach nothing, so the line is refused and says why; a head keeps its own
+expect chain "chain 8 15 16" "resp -902"
+grep -q "^chain 8: effect_16 has an auxiliary port" "$runtime/chain.log"
+step $? "a member with a side chain is refused: $(grep "^chain 8: effect_16" "$runtime/chain.log" | tail -1)"
+expect chain "chain 8 15 17" "resp -902"
+grep -q "^chain 8: effect_17 has an auxiliary port" "$runtime/chain.log"
+step $? "a member with an auxiliary output is refused: $(grep "^chain 8: effect_17" "$runtime/chain.log" | tail -1)"
+[ "$(nodes)" = 6 ]; step $? "the refusals changed no node: the chain and five of their own ($(nodes))"
+expect chain "chain 8 16 15" "resp 0"
+wait_nodes 5; step $? "a head with a side chain keeps it: chain 8 16 15 is one node ($(nodes))"
+expect chain "chain 8 16" "resp 0"
+wait_nodes 6; step $? "chain 8 16: 15 in a client of its own again ($(nodes))"
+for i in 13 14 15 16 17; do expect chain "remove $i" "resp 0"; done
 [ "$(nodes)" = 1 ]; step $? "after the refusals: one node ($(nodes))"
 
 # 2. bypass and a parameter reach one member each, the series given the same verbs
@@ -247,6 +349,19 @@ same "p2 right" "$runtime/p2.chain.r" "$runtime/p2.series.r"
 differ "p2: the parameter moved the chain's output" "$runtime/p1.chain.l" "$runtime/p2.chain.l"
 expect chain "bypass 10 0" "resp 0"
 expect series "bypass 20 0" "resp 0"
+unlink_all
+
+# a member that is not the head is bypassed by its own number as well: gain's own bypass, in the chain
+expect chain "bypass 12 1" "resp 0"
+expect series "bypass 22 1" "resp 0"
+sleep 0.3
+series 20 21 22
+play p2b chain=10,10 series=20,22
+same "p2b left: gain, a member, bypassed in both" "$runtime/p2b.chain.l" "$runtime/p2b.series.l"
+same "p2b right" "$runtime/p2b.chain.r" "$runtime/p2b.series.r"
+differ "p2b: the member's bypass moved the chain's output" "$runtime/p2.chain.l" "$runtime/p2b.chain.l"
+expect chain "bypass 12 0" "resp 0"
+expect series "bypass 22 0" "resp 0"
 unlink_all
 
 # 3. pass left out: it leaves the walk and is a node of its own again
@@ -269,13 +384,36 @@ same "p4 left: pass joined at the end" "$runtime/p4.chain.l" "$runtime/p4.series
 same "p4 right" "$runtime/p4.chain.r" "$runtime/p4.series.r"
 unlink_all
 
-# 5. pass moved to the middle, the head the same
+# 5. pass moved to the middle, the head the same: the new order is one walk the library publishes, so no cycle runs
+# without pass or in an order the line never named (docs/chain.md; the read-back's walk counts the walks published)
+walk_before=$(walk_of 7)
 expect chain "chain 7 10 11 12" "resp 0"
+walk_after=$(walk_of 7)
+[ -n "$walk_before" ] && [ -n "$walk_after" ] && [ $((walk_after - walk_before)) = 1 ]
+step $? "the move is one walk: walk ${walk_before:-?} to ${walk_after:-?}"
 [ "$(nodes)" = 1 ]; step $? "chain 7 10 11 12: still one node"
 series 20 21 22
 play p5 chain=10,10 series=20,22
 same "p5 left: pass moved to the middle" "$runtime/p5.chain.l" "$runtime/p5.series.l"
 same "p5 right" "$runtime/p5.chain.r" "$runtime/p5.series.r"
+unlink_all
+
+# 5b. a move the output hears: pass copies its input, so where it stands is silent. With pass at the head, comp moved
+# after gain sees a block ten times quieter, and the chain must equal pass, gain, comp in series, not pass, comp, gain
+expect chain "chain 7 11 10 12" "resp 0"
+for _ in $(seq 50); do has_ports 11 && ! has_ports 10 && break; sleep 0.1; done
+walk_before=$(walk_of 7)
+expect chain "chain 7 11 12 10" "resp 0"
+walk_after=$(walk_of 7)
+[ -n "$walk_before" ] && [ -n "$walk_after" ] && [ $((walk_after - walk_before)) = 1 ]
+step $? "comp moved after gain in one walk: walk ${walk_before:-?} to ${walk_after:-?}"
+wait_nodes 1; step $? "chain 7 11 12 10: one node, pass's ($(nodes))"
+series 21 22 20
+series 31 32 30
+play p5b chain=11,11 series=21,20 other=31,30
+same "p5b left: comp moved after gain" "$runtime/p5b.chain.l" "$runtime/p5b.series.l"
+same "p5b right" "$runtime/p5b.chain.r" "$runtime/p5b.series.r"
+differ "p5b: the order before the move (pass, comp, gain) is another output" "$runtime/p5b.chain.l" "$runtime/p5b.other.l"
 unlink_all
 
 # 6. another head: the chain runs in gain's client
