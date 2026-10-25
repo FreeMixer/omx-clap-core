@@ -257,10 +257,13 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   the tree and sees the test red on the check that names it: among them an allocation in a function the cycle calls
   and one in the core's `omx_clap_chain_process`, a member with an auxiliary port taken, a move's order never
   published, a member's bypass that reaches the head alone, `g_chain_members` gone from every site and from each of
-  four sites alone (the members' walk, the thread-init callback, a member's join, the chain's end), and the gate given
-  no role lock (each ThreadSanitizer's red). Three sites no stress turns red: `chain_order` and `chain_extract` write
-  only atomics, so a missing lock there is no data race ThreadSanitizer sees (the lock keeps a walk from seeing the
-  members half shifted), and `ports_relayout` runs only on a ports rescan, which no plugin of the stress raises. Its drills make one JACK call
+  three sites alone (the members' walk, the thread-init callback, a member's join), and the gate given no role lock
+  (each ThreadSanitizer's red). Four sites no stress turns red: `chain_order` and `chain_extract` write only atomics, so
+  a missing lock there is no data race ThreadSanitizer sees (the lock keeps a walk from seeing the members half
+  shifted); `ports_relayout` runs only on a ports rescan, which no plugin of the stress raises; and `chain_end`, red
+  while JACK's walk read `chain_run` before a lock it waited on, green twice (0 races, 40 rounds each) since the walk
+  reads it under the lock it only tries (the lock keeps a walk that loaded `chain_run` just before `chain_end` cleared
+  it from reading the slot `chain_end` then clears, a window of a few loads). Its drills make one JACK call
   (or the library's order) fail for one instance (a leaving member's client not made, a member named anew not stopped,
   a leaving member's client not activated, the order refused; with another head a member named anew not stopped, a
   member left out not activated, the old head not stopped) and stay green: the line answers its code, no instance is
