@@ -760,9 +760,15 @@ PLUGIN_HOSTD ?= $(PLUGIN_HOSTD_DIR)/plugin-hostd
 test-hostd-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 	$(PHD_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_pin_e2e.sh
 
+# a chain behind plugin-hostd and its crash drill (#104, docs/chain.md): one node; the middle member aborts, is
+# quarantined into a worker of its own, and the other two rejoin in order, their output the two one client each
+test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/fault-14.clap tests/fault-0.clap
+	$(PHD_CHAIN_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_chain_e2e.sh
+
 # what the pin tests read of plugin-hostd's protocol, from its header: a test names no code or verb of its own
 HASH := \#
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE PHD_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED PHD_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
 PHD_DECLARED = $(foreach n,PHD_ERR_PIN_ABSENT PHD_ERR_PIN_BINARY_MISMATCH PHD_ERR_PIN_LAYOUT_MISMATCH PHD_VERB_PIN_EXPECT PHD_VERB_PIN_SET PHD_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE PHD_ERR_NO_PARAM_CONTRACT PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
 
 tests/jack_meter_source: tests/jack_meter_source.c
