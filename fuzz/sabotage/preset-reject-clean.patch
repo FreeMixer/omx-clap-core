@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_preset.c:516 (a member that fails is not counted, so not freed with its container).
+Caught by the seed input "refuse-array-cut" of fuzz_preset.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..0ef9946 100644
 --- a/src/preset_file.c

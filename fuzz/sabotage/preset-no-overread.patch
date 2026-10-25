@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_preset.c:466 (a number's leading-zero test peeks one byte past the input).
+Caught by the seed input "zero-alone" of fuzz_preset.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..570d3ab 100644
 --- a/src/preset_file.c

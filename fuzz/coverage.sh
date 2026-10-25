@@ -13,7 +13,9 @@
 #
 # THE HARNESS FLOOR. Every property check of the harness, each abort() of fuzz/fuzz_<harness>.c and the statement that
 # guards it (fuzz/checks.awk), must be executed by at least one seed: a check no seed reaches is a property nobody
-# tests, and the reader's line count cannot see it. Each such check is named by file and line, and turns this red.
+# tests, and the reader's line count cannot see it. Each such check is named by file and line, and turns this red. So
+# does a check whose comment holds no `mutant:` and `input:` record and no `not a property:` line (fuzz/records.sh
+# proves the records): a check that names no bug it catches is a property nobody showed can fail.
 #
 # THE SEED FLOOR. A line counts as covered when any seed runs it, so a branch on a line other seeds reach is invisible
 # to the floor: the seed written to take it can go and the floor holds. fuzz/reach.txt names such a branch and its seed;
@@ -80,9 +82,14 @@ for h in "$@"; do
     if [ "$nchk" -eq 0 ]; then
         echo "  CHECKS: no property check found in $src"
         dead="$dead $h"
-    elif awk -F: '$4 == "0" { n++ } END { exit !n }' "$B/$h.checks"; then
-        awk -F: '$4 == "0" { t = $0; sub(/^([^:]*:){4}/, "", t)
+    elif awk -F: '$4 == "0" && $5 != "not-a-property" { n++ } END { exit !n }' "$B/$h.checks"; then
+        awk -F: '$4 == "0" && $5 != "not-a-property" { t = $0; sub(/^([^:]*:){5}/, "", t)
             printf "  CHECK: %s:%d no seed reaches (abort at line %d): %s\n", $1, $2, $3, t }' "$B/$h.checks"
+        dead="$dead $h"
+    elif awk -F: '$5 == "NONE" || $5 == "BAD" { n++ } END { exit !n }' "$B/$h.checks"; then
+        awk -F: '$5 == "NONE" || $5 == "BAD" { t = $0; sub(/^([^:]*:){5}/, "", t)
+            printf "  RECORD: %s:%d has no mutant: and input: record and is no stop after a failed allocation" \
+                " (%s): %s\n", $1, $3, $5, t }' "$B/$h.checks"
         dead="$dead $h"
     else
         echo "  checks: all $nchk property checks of $src reached"
@@ -141,7 +148,7 @@ if [ -f "$B/reach.red" ]; then
 fi
 
 [ -z "$low" ] || echo "make fuzz-coverage: RED -- below the coverage floor:$low"
-[ -z "$dead" ] || echo "make fuzz-coverage: RED -- harness checks no seed reaches:$dead"
+[ -z "$dead" ] || echo "make fuzz-coverage: RED -- harness checks no seed reaches, or with no record:$dead"
 [ -z "$unseeded" ] || echo "make fuzz-coverage: RED -- branches their seed does not take: $unseeded"
 [ -z "$low$dead$unseeded" ] || exit 1
 echo "make fuzz-coverage: every harness at or above its coverage floor, every check and seeded branch reached"

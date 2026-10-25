@@ -23,6 +23,7 @@ static inline char *fuzz_copy(const uint8_t *p, size_t n, int terminated, size_t
     const size_t t = terminated ? 1 : 0, end = pad && terminated ? 1 : 0, total = n + t + pad + end;
     char *b = malloc(total ? total : 1);
 
+    /* not a property: the harness's own allocation failed */
     if (!b)
         abort();
     if (n)

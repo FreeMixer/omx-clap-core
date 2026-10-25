@@ -1,3 +1,6 @@
+Breaks the check of fuzz/fuzz_state.c:148 (whitespace skips the character after it too).
+Caught by the seed input "trailing-newline" of fuzz_state.
+
 diff --git a/src/preset_file.c b/src/preset_file.c
 index c4da476..a805dfa 100644
 --- a/src/preset_file.c
