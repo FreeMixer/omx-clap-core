@@ -1,0 +1,60 @@
+urn:openmixer:test:atom-fixture# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The atom fixtures (lv2_atom_fixture.c): two plugins with a binary, and two twins the host must refuse from the TTL alone.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:atom-fixture>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#midi-time>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#object-in>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#notify-many>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-lsp>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-seq-time>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-none>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-patch-time>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-string>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#value-in>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .
+
+<urn:openmixer:test:atom-fixture#ui-many>
+    a lv2:Plugin ;
+    lv2:binary <omx-atom-fixture.so> ;
+    rdfs:seeAlso <omx-atom-fixture.ttl> .

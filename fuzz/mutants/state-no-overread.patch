@@ -1,0 +1,13 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..a805dfa 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -617,7 +617,7 @@ uint8_t *preset_base64_decode(const char *text, size_t *len)
+         const char *at;
+ 
+         if (*text == ' ' || *text == '\n' || *text == '\r' || *text == '\t')
+-            continue;
++            { text++; continue; }
+         if (*text == '=')
+         {
+             pad++;

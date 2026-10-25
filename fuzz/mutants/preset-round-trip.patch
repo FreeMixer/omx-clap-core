@@ -1,0 +1,13 @@
+diff --git a/src/preset_file.c b/src/preset_file.c
+index c4da476..d95c846 100644
+--- a/src/preset_file.c
++++ b/src/preset_file.c
+@@ -505,7 +505,7 @@ static void put_string(struct pj_out *o, const char *s)
+         else
+             snprintf(esc, sizeof(esc), "\\u%04x", c);
+         puts_(o, esc);
+-        run = s + 1;
++        run = s;
+     }
+     put(o, run, (size_t)(s - run));
+     put(o, "\"", 1);

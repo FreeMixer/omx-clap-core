@@ -1,0 +1,131 @@
+#http://lv2plug.in/ns/lv2core#Plugin# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The audio-layout test plugins (lv2_layout_fixture.c) as a bundle of their own: every plugin of the TTL is listed here,
+# as lilv reads only the plugins a manifest names.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:layout-fixture#main-aux>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#two-mono>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-four>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-two>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-group-four>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-two-two>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#four-side>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#mono-stereo>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#two-one>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#bands>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#empty-main>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#sixty-four>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#sixty-five>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#five-one>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#ambi-first>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#ambi-mixed>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture.ttl> .
+
+<urn:openmixer:test:layout-fixture#wide-sixty-five>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four-only>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five-only>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-four-only-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .
+
+<urn:openmixer:test:layout-fixture#cv-sixty-five-only-out>
+    a lv2:Plugin ;
+    lv2:binary <omx-layout-fixture.so> ;
+    rdfs:seeAlso <omx-layout-fixture-wide.ttl> .

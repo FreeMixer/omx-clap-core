@@ -1,0 +1,9 @@
+    {
+      "format": "org.openmixer.preset/2",
+      "plugin": { "id": "<plugin id>", "version": "<descriptor version>", "fingerprint": "omx-layout/1:<sha256>" },
+      "id": "<stable id>", "name": "<display name>",
+      "createdAt": "2026-10-22T21:00:00Z", "modifiedAt": "2026-10-22T21:00:00Z",
+      "carries": "params+state",
+      "params": [ { "symbol": "<symbol>", "unit": "", "value": 0.25 } ],
+      "state": { "encoding": "base64", "context": "preset", "bytes": "<base64>" }
+    }
