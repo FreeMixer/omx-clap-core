@@ -44,11 +44,17 @@ Each harness checks the same five, one `check_` function each:
   manifest names a URI. The reader must refuse what the grammar refuses and accept what it reads, and to the same
   record: every string's bytes and every number's text and value for a preset, every byte of a state body. A reader and
   a writer that share one mistake, an escape read and written back the same wrong way or a base64 letter both get wrong,
-  make a round trip that holds; this property does not.
+  make a round trip that holds; this property does not. A limit of a grammar is the harness's own, never the reader's:
+  arrays and objects of a preset nest 32 deep at most (`JSON_DEPTH_MAX` of `fuzz/fuzz_preset.c`, which
+  `PJ_ALLOC_BOUND` uses too), so a reader whose `PRESET_JSON_DEPTH_MAX` moves refuses `deepest` or reads
+  `refuse-too-deep`; a manifest is read for 16 declarations of a namespace the URI starts with at most (`PREFIXES_MAX`
+  of `fuzz/fuzz_manifest.c`), so a reader whose `LV2_LOCATE_PREFIXES_MAX` moves names the URI in `prefixes-most-read`
+  or turns down `prefixes-past-most-read`. `fuzz/gen-corpus.c` writes those seeds at the same two limits.
 - **reject_clean**: a refusal leaves no partial state. A refused preset leaves the tree zeroed; a refused state text
   writes no length; every refusal gives back every byte the reader took. The input is read once more with one of the
   allocations its reading took failing (which one, its bytes choose), as when memory runs out: the reader refuses and
-  holds nothing, and so does the writer or encoder.
+  holds nothing, and so does the writer, pretty and compact, or the encoder. The seed `compact-second-allocation` is a
+  compact text past the writer's first 4096 bytes whose bytes pick the second allocation to fail.
 - **round_trip**: render and parse again gives the same record, and the render is the format's. A preset written back
   compact and pretty is, byte for byte, the text the harness renders of the tree in the writer's format, and reads back
   to the same tree, member order and every number's text included; a rewrite that sets `modifiedAt` keeps every other

@@ -21,10 +21,16 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "fuzz.h"
 #include "lv2_locate.h"
 #include "preset_file.h"
 
 #define FIXTURES "lv2/tests/fixtures"
+
+/* the limits fuzz/README.md documents, as the harnesses hold them and not as the readers do: the seeds stand at them
+ * whatever the readers' own limits are, so a reader whose limit moves is one its harness sees */
+#define SEED_DEPTH_MAX 32       // JSON_DEPTH_MAX of fuzz/fuzz_preset.c
+#define SEED_PREFIXES_MAX 16    // PREFIXES_MAX of fuzz/fuzz_manifest.c
 
 static const char *g_root;
 
@@ -180,6 +186,39 @@ static void built_presets(void)
     pj_free(&doc);
 }
 
+/* A preset whose compact text passes the 4096 bytes the writer takes first, so that writing it takes a second
+ * allocation, and whose bytes pick that second one to fail: fuzz_pick of fuzz/fuzz.h, as fuzz_preset picks it. */
+static void compact_second_allocation(void)
+{
+    char notes[6000], *text = NULL;
+    struct pj doc;
+    size_t k;
+
+    memset(notes, 'n', sizeof(notes));
+    pj_object(&doc);
+    put_str(&doc, "format", PRESET_FORMAT_PARAMS);
+    put_str(&doc, "name", "Long notes");
+    for (k = 4500; k < sizeof(notes); k++)
+    {
+        notes[k] = '\0';
+        put_str(&doc, "notes", notes);
+        notes[k] = 'n';
+        free(text);
+        if (!(text = pj_write(&doc, 0)))
+            die("pj_write");
+        if (fuzz_pick((const uint8_t *)text, strlen(text), 2) == 1)
+            break;
+    }
+    if (k == sizeof(notes) || strlen(text) + 1 > 8192)
+    {
+        fprintf(stderr, "fuzz-gen-corpus: no compact text of two allocations picks the second\n");
+        exit(1);
+    }
+    seed_str("preset", "compact-second-allocation", text);
+    free(text);
+    pj_free(&doc);
+}
+
 /* the indented example of docs/presets.md, the first block that opens with "    {" */
 static void docs_example(void)
 {
@@ -281,25 +320,26 @@ static void preset_corpus(void)
         { "refuse-close", "[1}" },
         { "refuse-bad-item", "[1, x]" },
     };
-    char deep[2 * PRESET_JSON_DEPTH_MAX + 8];
+    char deep[2 * SEED_DEPTH_MAX + 8];
     size_t i;
 
     for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
         seed_str("preset", cases[i].name, cases[i].text);
     // as deep as a file may nest, and one deeper
-    memset(deep, '[', PRESET_JSON_DEPTH_MAX);
-    deep[PRESET_JSON_DEPTH_MAX] = '1';
-    memset(deep + PRESET_JSON_DEPTH_MAX + 1, ']', PRESET_JSON_DEPTH_MAX);
-    seed("preset", "deepest", deep, 2 * PRESET_JSON_DEPTH_MAX + 1);
-    memset(deep, '[', PRESET_JSON_DEPTH_MAX + 1);
-    deep[PRESET_JSON_DEPTH_MAX + 1] = '1';
-    memset(deep + PRESET_JSON_DEPTH_MAX + 2, ']', PRESET_JSON_DEPTH_MAX + 1);
-    seed("preset", "refuse-too-deep", deep, 2 * PRESET_JSON_DEPTH_MAX + 3);
+    memset(deep, '[', SEED_DEPTH_MAX);
+    deep[SEED_DEPTH_MAX] = '1';
+    memset(deep + SEED_DEPTH_MAX + 1, ']', SEED_DEPTH_MAX);
+    seed("preset", "deepest", deep, 2 * SEED_DEPTH_MAX + 1);
+    memset(deep, '[', SEED_DEPTH_MAX + 1);
+    deep[SEED_DEPTH_MAX + 1] = '1';
+    memset(deep + SEED_DEPTH_MAX + 2, ']', SEED_DEPTH_MAX + 1);
+    seed("preset", "refuse-too-deep", deep, 2 * SEED_DEPTH_MAX + 3);
     // and never closed: every level open at once, the most the reader holds for the fewest bytes
-    seed("preset", "refuse-too-deep-open", deep, PRESET_JSON_DEPTH_MAX + 2);
+    seed("preset", "refuse-too-deep-open", deep, SEED_DEPTH_MAX + 2);
     docs_example();
     data_documents();
     built_presets();
+    compact_second_allocation();
 }
 
 /* ---------------------------------------------------------------- state */
@@ -472,15 +512,15 @@ static void manifest_corpus(void)
     // the URI's namespace declared as often as a manifest is read for, and once more: a candidate unread
     {
         static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
-        char many[(LV2_LOCATE_PREFIXES_MAX + 1) * (sizeof(line) - 1) + 1];
+        char many[(SEED_PREFIXES_MAX + 1) * (sizeof(line) - 1) + 1];
         int k;
 
-        for (k = 0; k <= LV2_LOCATE_PREFIXES_MAX; k++)
+        for (k = 0; k <= SEED_PREFIXES_MAX; k++)
             memcpy(many + k * (sizeof(line) - 1), line, sizeof(line) - 1);
-        many[LV2_LOCATE_PREFIXES_MAX * (sizeof(line) - 1)] = '\0';
+        many[SEED_PREFIXES_MAX * (sizeof(line) - 1)] = '\0';
         seed_names("prefixes-most-read", "urn:example:plugins#gain", many);
-        many[LV2_LOCATE_PREFIXES_MAX * (sizeof(line) - 1)] = line[0];
-        many[(LV2_LOCATE_PREFIXES_MAX + 1) * (sizeof(line) - 1)] = '\0';
+        many[SEED_PREFIXES_MAX * (sizeof(line) - 1)] = line[0];
+        many[(SEED_PREFIXES_MAX + 1) * (sizeof(line) - 1)] = '\0';
         seed_names("prefixes-past-most-read", "urn:example:plugins#gain", many);
     }
     // each fixture bundle's manifest, for its first plugin, for lv2:Plugin through its lv2: prefix, and for a URI it

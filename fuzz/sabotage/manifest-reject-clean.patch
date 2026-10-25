@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_manifest.c:215 (the URI's copy is never freed).
+Breaks the check of fuzz/fuzz_manifest.c:222 (the URI's copy is never freed).
 Caught by the seed input "whole" of fuzz_manifest.
 
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
