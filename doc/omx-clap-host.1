@@ -346,13 +346,22 @@ node of the graph. Each member is called in order inside that client's process
 callback and runs as it does in a client of its own; bypass, parameters and
 every other command still name one member by its number, and the first
 member's ports report the members' latencies summed. A line for a chain
-already running changes its members in place, and a member it leaves out gets
-a client of its own back. Every member must be an instance this host holds,
-named once, in no other chain, its main input and output as wide as the first
-member's main output, and no member but the first may have a note port; else
+already running changes its members in place: a member it leaves out leaves
+the walk and gets a client of its own back, the members it keeps take its
+order in one step, so a move never runs a cycle without the moved member, and
+a member it names anew joins at its place, one step each. A line that adds
+members therefore passes, for a cycle or more each, through the new order
+without the members still to join. Every member must be an instance this host
+holds, named once, in no other chain, its main input and output as wide as the
+first member's main output, and no member but the first may have a note port
+or an auxiliary port (a side chain would read silence); else
 .B "resp \-902"
 .RB ( "resp \-3"
-for an instance this host does not hold) and nothing changes.
+for an instance this host does not hold) and nothing changes. The clients the
+members leaving go back to are made before anything changes, so a client JACK
+cannot make refuses the line with nothing changed; a member that JACK will not
+stop refuses it the same; a member whose client JACK will not activate stays
+in the chain, at its end, and the line answers the error.
 Every other mod\-host command answers
 .BR "resp \-902" .
 The README of the source distribution lists each command with its
