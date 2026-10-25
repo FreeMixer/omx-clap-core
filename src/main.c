@@ -34,6 +34,7 @@
 #include <ctype.h>
 #include <getopt.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,7 +72,11 @@
 ************************************************************************************************************************
 */
 
-static volatile int running;
+/* SIGTERM and SIGINT run term_signal on whichever thread the kernel picks, PipeWire's loop threads among them, and two
+ * signals can run it on two threads at once: running is atomic, and the socket is finished once, by the first of the
+ * signal and quit to get there (finish) */
+static atomic_int running;
+static atomic_flag finished = ATOMIC_FLAG_INIT;
 static volatile int quitting;
 
 static const host_backend_t g_clap_backend = {
@@ -381,20 +386,24 @@ static void quit_cb(proto_t *proto)
     quitting = 1;
 }
 
+// the loop ends and the socket is finished, once
+static void finish(void)
+{
+    atomic_store(&running, 0);
+    if (!atomic_flag_test_and_set(&finished))
+        socket_finish();
+}
+
 static void idle_cb(void)
 {
     effects_idle();
     if (quitting)
-    {
-        running = 0;
-        socket_finish();
-    }
+        finish();
 }
 
 static void term_signal(int sig)
 {
-    running = 0;
-    socket_finish();
+    finish();
 
     return; (void)sig;
 }
@@ -605,6 +614,8 @@ int main(int argc, char **argv)
     if (host_init(socket_port, feedback_port) != 0)
         exit(EXIT_FAILURE);
 
+    // before the handlers, so a signal that comes first ends the loop before it starts
+    atomic_store(&running, 1);
     memset(&sig, 0, sizeof(sig));
     sig.sa_handler = term_signal;
     sig.sa_flags   = SA_RESTART;
@@ -617,10 +628,9 @@ int main(int argc, char **argv)
     printf("omx-clap-host ready!\n");
     fflush(stdout);
 
-    running = 1;
-    while (running) socket_run(0);
+    while (atomic_load(&running)) socket_run(0);
 
-    socket_finish();
+    finish();
     effects_finish();
     protocol_remove_commands();
 
