@@ -191,3 +191,27 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   client each.
 - `make test-chain-host-sabotage` (`tests/chain_host_sabotage.sh`) breaks each guard of the host's chain in a copy of
   the tree and sees the test red on the check that names it.
+
+### What a member costs (r1, 2026-10-25)
+
+`bench/chain-cost.sh`: N instances of `tests/fault-0.clap` (a -20 dB pad) in one omx-clap-host, one client each
+against one chain, a PipeWire of its own at 48000 Hz, quantum 128, forced; three repetitions
+(`docs/chain-cost-2026-10-25.csv`). r1: Intel Core Ultra 9 285K, Linux 7.2.11, PipeWire 1.6.10, a rootless container:
+SCHED_OTHER, no CPU idle hold. The medians of the three:
+
+| N | nodes own / chain | BUSY own, us (sum) | BUSY chain, us | host CPU own, % | host CPU chain, % | RSS own, KiB | RSS chain, KiB |
+|---|---|---|---|---|---|---|---|
+| 1 | 1 / 1 | 2.5 | 3.6 | 2.33 | 2.00 | 7000 | 7216 |
+| 2 | 2 / 1 | 6.5 | 3.3 | 3.55 | 1.78 | 7904 | 7776 |
+| 4 | 4 / 1 | 9.8 | 4.5 | 5.33 | 2.22 | 9420 | 9084 |
+| 8 | 8 / 1 | 12.4 | 8.0 | 8.11 | 1.89 | 13400 | 11688 |
+| 16 | 16 / 1 | 20.6 | 7.9 | 8.77 | 2.00 | 23052 | 18960 |
+
+- A member of a chain adds about 0.3 us to its node's BUSY at quantum 128 ((7.9 - 3.6) / 15), against about 1.2 us
+  of callback time per client of its own ((20.6 - 2.5) / 15). BUSY is pw-top's, noisy here: one repetition of the
+  chain at N=16 read 35.7 us.
+- The host's CPU stays near 2 % of a core whatever the chain's length; one client each it rises with the clients, to
+  a median of 8.1 % at N=8 and 8.8 % at N=16 (single repetitions 3.3 to 13.1 %).
+- A member costs about 780 KiB of RSS ((18960 - 7216) / 15), a client of its own about 1070 KiB.
+- Not measured here: the wake-up of each node and the cycle's end, which need RT scheduling and a held idle state (the
+  rig of #104's table, msi for #302's bench).
