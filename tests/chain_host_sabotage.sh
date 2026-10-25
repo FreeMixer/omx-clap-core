@@ -70,8 +70,8 @@ drill() {
     if (cd "$dir" && make -j"$jobs" omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap \
             tests/fake_compressor.clap tests/fault-14.clap \
             && LD_LIBRARY_PATH=$dir CHAIN_HOST_FAULT=$fault ./tests/chain_host_e2e.sh) >"$log" 2>&1 \
-        && grep -q -E "^ok   .*answers an error" "$log"; then
-        echo "ok   drill $name: $(grep -m 1 -E "^ok   .*answers an error" "$log" | sed 's/^ok   //'), every instance kept"
+        && grep -q -E "^ok   .*answers the error" "$log"; then
+        echo "ok   drill $name: $(grep -m 1 -E "^ok   .*answers the error" "$log" | sed 's/^ok   //'), every instance kept"
     else
         echo "FAIL drill $name: a line JACK fails part way is not answered as it should be (log $log)"
         grep -E "^FAIL" "$log" | head -5 | sed 's/^/     /'
@@ -80,7 +80,7 @@ drill() {
 }
 
 # 1. a member that joins closes its client, so the chain is one node: left open
-arm one-node src/effects.c 's/^    jack_client_close(effect->jack_client);$/    (void)0;/' \
+arm one-node src/effects.c '/^static int chain_join/,/^}/s/^        jack_client_close(effect->jack_client);$/        (void)0;/' \
     'chain 7 10 11 12: one node'
 
 # 2. the head's cycle runs the chain: the head alone instead
@@ -92,7 +92,7 @@ arm latency-sum src/effects.c '/^static void chain_latency_changed/,/^}/s/^    a
     'p1: the latency to the last output'
 
 # 4. a member the line leaves out leaves the walk: kept in it
-arm left-out src/effects.c 's/^        if (chain->head == head \&\& i < n)$/        if (chain->head == head)/' \
+arm left-out src/effects.c '/^int effects_chain/,/^}/s/^        if (i < n)$/        if (1)/' \
     'chain 7 10 12: two nodes'
 
 # 5. a member that leaves gets a client of its own back: the client made for it never taken
@@ -105,9 +105,10 @@ arm head-remove src/effects.c 's/^        if (effect->chain)$/        if (0)/' \
 
 # 7. one width end to end, checked before anything changes: not checked. A member of another width is still refused by
 # the library's own guard (OMX_CLAP_CHAIN_ERR_WIDTH) when it would join, so the host's check shows on a head of
-# another width, which the library refuses only once the chain is being made, answering another code
+# another width, which the library refuses only once the chain has formed and the member would join, answering the
+# same code: the chain formed is what shows
 arm width src/effects.c 's/if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)/if (0)/' \
-    'chain 8 14 15 -> '
+    'the refusals formed no chain 8'
 
 # 8. a note port only on the head: a member with one taken
 arm note-port src/effects.c 's/if (i > 0 \&\& (effect->midi_port || effect->midi_out_port))/if (0)/' \
@@ -125,12 +126,17 @@ arm rt-print src/effects.c '/^static void chain_stage/,/^}/s/^    effect_t \*eff
 arm rt-callee src/effects.c '/^static void transport_block/,/^}/s/^    struct omx_clap_transport rec;$/&\n\n    free(malloc(1));/' \
     "the host's chain cycle names an allocator"
 
+# 10c. and nothing the core runs for it either: an allocation in omx_clap_chain_process, the library's walk the head's
+# cycle runs (src/clap_chain.c, which the scan reads with clap_host.c, clap_host.h and hosted_stage.h)
+arm rt-core src/clap_chain.c '/^int omx_clap_chain_process/,/^}/s/^    uint32_t s;$/&\n\n    free(malloc(1));/' \
+    "the host's chain cycle names an allocator"
+
 # 12. a member with an auxiliary port is refused as a member with a note port is: taken
 arm aux-port src/effects.c 's/if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))/if (0)/' \
     'a member with a side chain is refused'
 
 # 13. a move takes the line's order: the kept members' order never published, the walk left in the old one
-arm move src/effects.c 's/^    if (j < n_kept \&\& (error = chain_order(chain, kept, n_kept)) != 0)$/    if (0)/' \
+arm move src/effects.c 's/^    if (j < n_kept \&\& (ret = chain_order(chain, kept, n_kept)) != 0)$/    if (0)/' \
     'p5b left: comp moved after gain'
 
 # 14. a member's own bypass reaches it in the chain: a bypass that reaches a chain's head alone
@@ -142,11 +148,37 @@ arm member-bypass src/effects.c 's/^    omx_clap_host_bypass(g_effects\[effect_i
 arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/' \
     'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
 
-# the drills: a line JACK fails part way. Each must stay green: refused with nothing changed, or answered with every
-# instance kept and the chain its read-back names
+# 15a .. 15e. the same, one site at a time: g_chain_members gone from one function, every other site kept, each red on
+# its own: the walk on JACK's thread (chain_followers_each), the thread-init callback's own role (jack_thread_init),
+# a joining member's role and the members shifted (chain_insert), the slot freed (chain_end). Three sites the stress
+# cannot turn red, measured (2026-10-25, 40 rounds): chain_order and chain_extract, which the stress runs every round,
+# write only the members and the count, which are atomics, so ThreadSanitizer sees no race without the lock (what the
+# lock keeps is a walk that never sees the members half shifted, which no sanitizer measures); and ports_relayout,
+# which runs only on a plugin's ports rescan, which no plugin of the stress raises
+lock_site() {
+    arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/" \
+        'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
+}
+for site in chain_followers_each jack_thread_init chain_insert chain_end; do lock_site "$site"; done
+
+# 16. the audio role's one lock: the gate's restart and resize without it (the gate given no role lock), so a client's
+# thread-init callback naming its thread races the resize tick reading and giving back the role (make
+# test-chain-host-tsan, the race tests/chain_host_tsan.supp once hid)
+arm role-lock src/effects.c 's/^    effect->gate\.role = \&g_chain_members;$/    (void)0;/' \
+    'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
+
+# the drills: a line JACK (or the library) fails part way. Each must stay green: refused with nothing changed, or
+# answered with every instance kept and the chain its read-back names
 drill client src/effects.c '/^static jack_client_t \*open_jack_client/,/^}/s/^    size_t name_limit;$/&\n    static int opened[MAX_INSTANCES];\n\n    if (instance == 11 \&\& opened[instance]++)\n        return NULL;/' client
 drill stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client);/' stop
 drill activate src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' activate
+# the library refuses a move's order: the line answers it, the walk in the order it had
+drill order src/effects.c '/^static int chain_order/,/^}/s/^    ret = omx_clap_chain_order(chain->walk, ids, n);$/    ret = n ? OMX_CLAP_CHAIN_ERR_ARG : omx_clap_chain_order(chain->walk, ids, n);/' order
+# another head: a member named anew not stopped; a member left out not activated after the new head's client was; the
+# old head, named as a member, not stopped once the others are in their clients
+drill rehead-stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client);/' rehead-stop
+drill rehead-activate src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' rehead-activate
+drill rehead-head-stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 10 ? -1 : jack_deactivate(effect->jack_client);/' rehead-head-stop
 
 # 11. behind the daemon the chain is one node because this host answers the line: refused instead
 if [ -n "${PLUGIN_HOSTD:-}" ]; then

@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# rt_reach.py — the text of every function the roots reach, for the real-time scan of the host's chain cycle (#104,
-# make test-chain-host): each function the given C files define (src/effects.c, and the static inline functions of the
-# headers it runs on the audio thread) is found by its definition at the start of a line and its body to the closing
+# rt_reach.py: the text of every function the roots reach, for the real-time scan of the host's chain cycle (#104,
+# make test-chain-host): each function the given C files define (src/effects.c, the core's src/clap_host.c and
+# src/clap_chain.c, and the static inline functions of the headers they run on the audio thread) is found by its definition at the start of a line and its body to the closing
 # brace at the start of a line; a call is a name followed by "(" in a body. From the roots, every function so defined
-# that a reached body calls is reached too, each once. A function no given file defines (the core's, JACK's) is named
-# on the "# outside:" line, not followed.
+# that a reached body calls is reached too, each once; a call of a name a given file #defines as another name alone
+# (clap_stage.h's omx_clap_* words for hosted_stage.h's functions) is a call of that one. A function no given file
+# defines (JACK's, libc's, omx-dsp's) is named on the "# outside:" line, not followed.
 #
 #   rt_reach.py <out> <root>[,<root>...] <file.c|file.h> ...
 #
@@ -18,6 +19,8 @@ import re, sys
 # a function's head: a type and a name at the start of a line, then its parameters, on that line or the next ones
 DEF = re.compile(r'^(?!typedef\b)[A-Za-z_][\w \t\*]*?\b([A-Za-z_]\w*)\s*\(')
 CALL = re.compile(r'\b([A-Za-z_]\w*)\s*\(')
+# a name that is another's: "#define omx_clap_queue_pending omx_hosted_queue_pending", a call of it is a call of that
+ALIAS = re.compile(r'^#\s*define\s+([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:$|//|/\*)')
 KEYWORDS = {'if', 'for', 'while', 'switch', 'return', 'sizeof', 'case', 'do', 'else', '_Alignof', '__atomic_load_n',
             '__atomic_store_n', '__typeof__', 'defined'}
 
@@ -45,16 +48,28 @@ def functions(path):
     return found
 
 
+def aliases(path):
+    """name -> the name it is defined as, for every one-name #define in `path`"""
+    found = {}
+    for line in open(path, encoding='utf-8', errors='replace'):
+        m = ALIAS.match(line)
+        if m:
+            found.setdefault(m.group(1), m.group(2))
+    return found
+
+
 def main(argv):
     if len(argv) < 4:
         print(__doc__ or 'usage: rt_reach.py <out> <root>[,<root>...] <file> ...', file=sys.stderr)
         return 2
     out, roots, files = argv[1], argv[2].split(','), argv[3:]
-    defined, where = {}, {}
+    defined, where, alias = {}, {}, {}
     for f in files:
         for name, body in functions(f).items():
             if name not in defined:
                 defined[name], where[name] = body, f
+        for name, other in aliases(f).items():
+            alias.setdefault(name, other)
     missing = [r for r in roots if r not in defined]
     if missing:
         print('rt_reach.py: no file defines ' + ', '.join(missing), file=sys.stderr)
@@ -70,6 +85,7 @@ def main(argv):
         for call in CALL.findall(body):
             if call in KEYWORDS:
                 continue
+            call = alias.get(call, call) if call not in defined else call
             if call in defined:
                 if call not in reached:
                     todo.append(call)

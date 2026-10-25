@@ -786,19 +786,21 @@ test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/
 	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
 
 # the chain line in one JACK client (#104, docs/chain.md): the client's process callback and every function of this
-# tree it reaches (tests/rt_reach.py: chain_stage, process_gated, notes_out, transport_block, publish_gain_adjustment
-# and the header functions they run) names nothing that allocates, waits, locks or prints; three instances one node,
-# its output the same instances one client each in series bit for bit, changed while it runs, every refusal changing
-# nothing (tests/chain_host_e2e.sh)
-RT_CHAIN_FILES = src/effects.c src/cycle_gate.h src/omx_msgring.h src/host_transport.h src/clap_stage.h
-RT_CHAIN_CALLEES = chain_stage process_gated notes_out transport_block publish_gain_adjustment host_transport_read omx_cycle_gate_enter
+# tree it reaches (tests/rt_reach.py: chain_stage, process_gated, notes_out, transport_block, publish_gain_adjustment,
+# the header functions they run, and the core's: omx_clap_chain_process, omx_clap_host_run_ports, the note and stage
+# functions of clap_host.c and hosted_stage.h) names nothing that allocates, waits, locks or prints; three instances
+# one node, its output the same instances one client each in series bit for bit, changed while it runs, every refusal
+# changing nothing (tests/chain_host_e2e.sh)
+RT_CHAIN_FILES = src/effects.c src/cycle_gate.h src/omx_msgring.h src/host_transport.h src/clap_stage.h \
+    src/clap_host.c src/clap_host.h src/clap_chain.c src/hosted_stage.h
+RT_CHAIN_CALLEES = chain_stage process_gated notes_out transport_block publish_gain_adjustment host_transport_read omx_cycle_gate_enter \
+    omx_clap_chain_process omx_clap_host_run_ports omx_clap_host_notes_out omx_clap_host_note_in
 test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
 	mkdir -p build && python3 -I tests/rt_reach.py build/chain_host_rt.c process $(RT_CHAIN_FILES)
 	@unreached=; for f in $(RT_CHAIN_CALLEES); do grep -q -E "^# reached: .*\<$$f\>" build/chain_host_rt.c || unreached="$$unreached $$f"; done; \
 	    [ -z "$$unreached" ] || { echo "FAIL the scan of the host's chain cycle does not reach$$unreached"; false; }
-	grep -q 'omx_clap_chain_process' build/chain_host_rt.c && grep -q 'omx_clap_host_run_ports' build/chain_host_rt.c \
-	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/chain_host_rt.c \
-	    || { echo "FAIL the host's chain cycle names an allocator, sleep, lock or printf, or runs no chain"; false; }
+	! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/chain_host_rt.c \
+	    || { echo "FAIL the host's chain cycle names an allocator, sleep, lock or printf"; false; }
 	@echo "ok   the host's chain cycle and every function of this tree it reaches ($$(sed -n 's/^# reached: //p' build/chain_host_rt.c | wc -w)) name no allocator, sleep, lock or printf"
 	./tests/chain_host_e2e.sh
 

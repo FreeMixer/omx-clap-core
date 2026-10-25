@@ -1,9 +1,0 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
-# ThreadSanitizer's suppressions for make test-chain-host-tsan (#104): what it reports that is not the chain's.
-#
-# A client's thread-init callback sets its instance's audio thread (jack_thread_init) while the control thread's resize
-# tick reads, then gives back, the instance's audio role under g_reactivate (omx_cycle_gate_resize). Any client
-# activated while a block size is pending takes that path, an add as well as a member leaving a chain (an add takes it
-# on main too, not run there under this stress): a race of its own, named on omx-clap-core#104 from the review of
-# PR 348, not the chain's members walk this target observes.
-race:^omx_cycle_gate_resize$
