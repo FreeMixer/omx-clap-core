@@ -193,7 +193,8 @@ typedef struct EFFECT_T {
 } effect_t;
 
 /* a chain the chain line declared: the library's chain the head's cycle runs, and its members in order, the head first,
- * changed by the control thread and read relaxed by the head's buffer-size and thread-init callbacks on JACK's thread */
+ * changed by the control thread and read by the head's buffer-size and thread-init callbacks on JACK's thread, both
+ * under g_chain_members */
 typedef struct CHAIN_T {
     int id;                                 // plugin-hostd's number of the chain; -1 for a free slot
     struct omx_clap_chain *walk;
@@ -325,40 +326,47 @@ static jack_client_t *open_jack_client(int instance, const char *client_name)
     return jack_client;
 }
 
-/* JACK's thread: the members after the head of the chain `effect` heads, into `out`, as the control thread last left
- * them (relaxed: a member that has just left has a client of its own, whose callbacks do the same for it); 0 for an
+/* the chains' members as JACK's thread-init and buffer-size callbacks walk them: the control thread changes a chain's
+ * members, and frees a member's instance, holding this; neither callback is the process callback, which never takes
+ * it. A member that has just left has a client of its own, whose callbacks do the same for it. */
+static pthread_mutex_t g_chain_members = PTHREAD_MUTEX_INITIALIZER;
+
+/* JACK's thread: `fn` on each member after the head of the chain `effect` heads, under g_chain_members; nothing for an
  * instance that heads none */
-static uint32_t chain_followers(const effect_t *effect, effect_t **out)
+static void chain_followers_each(const effect_t *effect, void (*fn)(effect_t *member, void *arg), void *arg)
 {
-    const chain_t *chain = effect ? effect->chain_run : NULL;
-    uint32_t count, i, n = 0;
+    const chain_t *chain = effect ? atomic_load_explicit(&effect->chain_run, memory_order_relaxed) : NULL;
+    uint32_t count, i;
 
     if (!chain)
-        return 0;
+        return;
+    pthread_mutex_lock(&g_chain_members);
     count = atomic_load_explicit(&chain->count, memory_order_relaxed);
     for (i = 1; i < count && i < OMX_CLAP_CHAIN_MEMBERS_MAX; i++)
     {
         effect_t *member = atomic_load_explicit(&chain->members[i], memory_order_relaxed);
 
         if (member && member->clap)
-            out[n++] = member;
+            fn(member, arg);
     }
-    return n;
+    pthread_mutex_unlock(&g_chain_members);
+}
+
+static void follower_thread(effect_t *member, void *arg)
+{
+    omx_clap_host_set_audio_thread(member->clap, *(const pthread_t *)arg);
 }
 
 static void jack_thread_init(void *arg)
 {
     effect_t *effect = arg;
-
-    effect_t *followers[OMX_CLAP_CHAIN_MEMBERS_MAX];
-    uint32_t i, n;
+    const pthread_t self = pthread_self();
 
     omx_denormals_off();
     if (effect && effect->clap)
-        omx_clap_host_set_audio_thread(effect->clap, pthread_self());
+        omx_clap_host_set_audio_thread(effect->clap, self);
     // a chain's members run on its head's thread
-    for (i = 0, n = chain_followers(effect, followers); i < n; i++)
-        omx_clap_host_set_audio_thread(followers[i]->clap, pthread_self());
+    chain_followers_each(effect, follower_thread, (void *)&self);
 }
 
 /* audio thread, right after the cycle: get() is [audio-thread] and reads the block process() just ran. A cycle that did
@@ -765,6 +773,11 @@ static int aux_reblock(void *ctx, uint32_t nframes)
     return aux_blocks(ctx, nframes);
 }
 
+static void follower_resize(effect_t *member, void *arg)
+{
+    omx_cycle_gate_resize_record(&member->gate, *(const jack_nframes_t *)arg);
+}
+
 /* JACK's thread, its process cycle stopped while this runs: the new size recorded for the control thread's next tick
  * (resize_apply), and nothing of the plugin done here, since a deactivate and an activate are main-thread calls. Until
  * the tick applies it the cycles pass dry (process_gated): the instance is still activated for the old size. */
@@ -772,14 +785,10 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
 
-    effect_t *followers[OMX_CLAP_CHAIN_MEMBERS_MAX];
-    uint32_t i, n;
-
     if (effect && effect->clap)
         omx_cycle_gate_resize_record(&effect->gate, nframes);
     // a chain's members run at its head's block
-    for (i = 0, n = chain_followers(effect, followers); i < n; i++)
-        omx_cycle_gate_resize_record(&followers[i]->gate, nframes);
+    chain_followers_each(effect, follower_resize, &nframes);
     return 0;
 }
 
@@ -1758,11 +1767,13 @@ static int chain_insert(chain_t *chain, effect_t *effect, uint32_t position)
         effect->chain = NULL;
         return ret;
     }
+    pthread_mutex_lock(&g_chain_members);
     for (i = count; i > position; i--)
         atomic_store_explicit(&chain->members[i], atomic_load_explicit(&chain->members[i - 1], memory_order_relaxed),
                               memory_order_relaxed);
     atomic_store_explicit(&chain->members[position], effect, memory_order_relaxed);
     atomic_store_explicit(&chain->count, count + 1, memory_order_relaxed);
+    pthread_mutex_unlock(&g_chain_members);
     return 0;
 }
 
@@ -1774,6 +1785,7 @@ static void chain_extract(chain_t *chain, effect_t *effect)
     uint32_t i, k;
 
     omx_clap_chain_remove(chain->walk, effect->chain_member);
+    pthread_mutex_lock(&g_chain_members);
     for (i = 0, k = 0; i < count; i++)
     {
         effect_t *member = atomic_load_explicit(&chain->members[i], memory_order_relaxed);
@@ -1783,6 +1795,7 @@ static void chain_extract(chain_t *chain, effect_t *effect)
     }
     atomic_store_explicit(&chain->count, k, memory_order_relaxed);
     atomic_store_explicit(&chain->members[k], NULL, memory_order_relaxed);
+    pthread_mutex_unlock(&g_chain_members);
     effect->chain = NULL;
 }
 
@@ -1879,8 +1892,10 @@ static void chain_end(chain_t *chain)
     omx_clap_chain_destroy(chain->walk);
     head->chain = NULL;
     fprintf(stderr, "chain %d: ended, effect_%d alone in its client\n", chain->id, head->instance);
+    pthread_mutex_lock(&g_chain_members);
     memset(chain, 0, sizeof(*chain));
     chain->id = -1;
+    pthread_mutex_unlock(&g_chain_members);
     publish_latency(head);
 }
 
