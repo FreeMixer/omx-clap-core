@@ -877,7 +877,12 @@ instance that is initialised, read and destroyed without being activated:
   is the hex string the canonical serialisation writes (`"6"`: shown while
   `visibleParamId`'s value is 1 or 2). Nothing is filled in: a table the
   plugin leaves empty or cannot count is `[]`, an entry its `get` refuses is
-  left out, a family or fingerprint it has no function for is `null`.
+  left out, a family or fingerprint it has no function for is `null`. A
+  table the plugin counts past `OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES`
+  (4096, `src/omx_clap_ext.h`) is refused before anything is reserved for
+  it and none of its entries is read: in place of its array it is
+  `{"refused":"too-many","count":<the plugin's count>,"max":4096}`, and the
+  other tables print as they are.
   `"panel":null` when the plugin serves no description. The text form is one
   line counting the tables, none without a description.
 
@@ -955,7 +960,9 @@ the entry's index in the plugin's table; each field is the member as
 `OMX_CLAP_WIDGET_FADER`, `omx_clap_panel_display.meter_ids[0]`), a code its
 number when the header names none. An id that is no parameter or meter is
 not stated, and a control's `visible_mask`, in hex, only with the
-`visible_param_id` it applies to. A plugin that serves no description has no
+`visible_param_id` it applies to. A table refused for its count is one
+record, `panel` `omx_clap_plugin_panel_description.count`
+`<table> <count> refused, past 4096`, and none of its entries. A plugin that serves no description has no
 panel record (`tests/clap_scan_test.c`, `panel_checks`).
 
 

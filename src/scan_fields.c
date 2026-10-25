@@ -593,13 +593,18 @@ static void record_id(const char *scope, const char *field, uint32_t id)
         record_number(scope, field, id);
 }
 
+/* each table by omx-plugins' word for it */
+#define PANEL_TABLE_WORD(code, name, id) [code] = name,
+static const char *const g_panel_tables[SCAN_PANEL_TABLE_COUNT] = { OMX_CLAP_PANEL_TABLES(PANEL_TABLE_WORD) };
+#undef PANEL_TABLE_WORD
+
 /* the panel description the plugin publishes (org.openmixer.panel-description/1): the family and the fingerprint under
  * panel, each table's entry under <table>:<index in the plugin's table>, its fields as omx_panel_description.h names them;
  * no record when the plugin serves none */
 static void clap_panel(const struct omx_clap_instance *in)
 {
     struct scan_panel p;
-    char scope[48], hex[24];
+    char scope[48], hex[24], refusal[80];
     uint32_t i;
 
     if (scan_panel_read(in->plugin, &p) != 1)
@@ -608,6 +613,14 @@ static void clap_panel(const struct omx_clap_instance *in)
         record_code("panel", "omx_clap_plugin_panel_description.family", scan_panel_family_enum(p.family), p.family);
     if (p.has_fingerprint)
         record_text("panel", "omx_clap_plugin_panel_description.fingerprint", p.fingerprint);
+    // a table refused for its count: the table, the count the plugin answered and the maximum, and no entry of it
+    for (i = 0; i < SCAN_PANEL_TABLE_COUNT; i++)
+        if (p.table[i].refused)
+        {
+            snprintf(refusal, sizeof(refusal), "%s %u refused, past %u", g_panel_tables[i], p.table[i].refused,
+                     OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES);
+            record("panel", "omx_clap_plugin_panel_description.count", refusal);
+        }
     for (i = 0; i < p.table[SCAN_PANEL_SECTIONS].n; i++)
     {
         const omx_clap_panel_description_section_t *s = SCAN_PANEL_ROW(&p, SCAN_PANEL_SECTIONS, omx_clap_panel_description_section_t, i);

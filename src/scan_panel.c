@@ -8,7 +8,8 @@
 /* The panel description a plugin publishes (org.openmixer.panel-description/1), read once for omx-clap-scan's listing
  * and its field dump: the family and the fingerprint as the plugin answers them, and each of the five tables walked by
  * count and get in its published order. Nothing is filled in: a table the plugin cannot count is empty, an entry its get
- * refuses is left out, and every text is cut at its field's end. */
+ * refuses is left out, and every text is cut at its field's end. A table counted past
+ * OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES is refused whole and the other tables are still read. */
 
 #include <stdlib.h>
 #include <string.h>
@@ -85,6 +86,12 @@ static int read_table(const clap_plugin_t *plugin, const omx_clap_plugin_panel_d
 
     if (count == 0)
         return 0;
+    // the count is the plugin's: past the maximum the table is refused before anything is reserved for it
+    if (count > OMX_CLAP_PANEL_DESCRIPTION_MAX_ENTRIES)
+    {
+        out->refused = count;
+        return 0;
+    }
     rows = malloc((size_t)count * size);
     out->index = malloc((size_t)count * sizeof(uint32_t));
     if (!rows || !out->index)
