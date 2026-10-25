@@ -10,9 +10,12 @@ omx-clap-host (0.21.0) unstable; urgency=medium
     one walk; remove of a member closes the chain around it. A member
     with a note or an auxiliary port is refused. A line with another
     head and a remove of the head are all or none: a JACK failure part
-    way leaves the chain and every instance as they were. An instance's
+    way leaves the chain and every instance as they were, a member
+    stopped on the way running again with its links. An instance's
     audio role has one lock, so a client's thread-init callback no
-    longer races the resize tick. OMX_CLAP_HOST_CHAIN,
+    longer races the resize tick, and JACK's thread never waits on it:
+    a client's first cycle never waits on a plugin's activate.
+    OMX_CLAP_HOST_CHAIN,
     the Stage 0 prototype, is gone. make test-chain-host, make test-
     chain-host-tsan, make test-hostd-chain (the crash drill behind
     plugin-hostd 0.7.0) and make test-chain-host-sabotage prove it
