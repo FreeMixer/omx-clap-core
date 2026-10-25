@@ -389,9 +389,9 @@ static void follower_resize(effect_t *member, void *arg)
     omx_cycle_gate_resize_record(&member->gate, *(const jack_nframes_t *)arg);
 }
 
-/* under g_chain_members: what JACK's thread named for `effect` and has not applied, applied: its audio thread, set for it
- * and for its chain's members, which run on its head's thread; its block size, recorded for its chain's members, which
- * run at its head's block */
+/* under g_chain_members: what JACK's thread named for `effect` and has not applied, applied: its audio thread, set for
+ * it and for its chain's members, which run on its head's thread; its block size, recorded for its chain's members,
+ * which run at its head's block */
 static void named_apply(effect_t *effect)
 {
     jack_nframes_t nframes;
@@ -2122,7 +2122,8 @@ static void members_keep_stopped(stopped_t *stopped, uint32_t n)
  * one's links recorded first. SUCCESS with them in stopped[0 .. *n_stopped), for members_start or members_keep_stopped;
  * or, when JACK will not stop one (or its links cannot be recorded), ERR_JACK_CLIENT_DEACTIVATION with the ones stopped
  * before it running again with their links */
-static int members_stop(int id, const chain_t *chain, const int *instances, int n, stopped_t *stopped, uint32_t *n_stopped)
+static int members_stop(int id, const chain_t *chain, const int *instances, int n, stopped_t *stopped,
+                        uint32_t *n_stopped)
 {
     int i;
 
@@ -2134,7 +2135,8 @@ static int members_stop(int id, const chain_t *chain, const int *instances, int 
         if (chain && effect->chain == chain)
             continue;
         if (links_record(effect, &stopped[*n_stopped]) != 0)
-            fprintf(stderr, "chain %d: effect_%d's links cannot be recorded; its own client is not stopped\n", id, effect->instance);
+            fprintf(stderr, "chain %d: effect_%d's links cannot be recorded; its own client is not stopped\n", id,
+                    effect->instance);
         else if (member_stop(effect) != 0)
         {
             fprintf(stderr, "chain %d: effect_%d's own client cannot be stopped\n", id, effect->instance);
@@ -2806,11 +2808,12 @@ int effects_remove(int effect_id)
 /* chain <chain> <instance> ...: the instances, in this order, one chain run in the first one's client (docs/chain.md).
  * A refusal changes nothing: every check, every client of its own that a member leaving the walk goes back to and a
  * new chain's library chain come before the first change, and a member named anew whose own client JACK will not stop
- * is refused with the ones stopped before it started again, with the links they had. A chain already running with the same head then changes in
- * place: the members left out leave the walk, the members kept take the line's order in ONE walk (a move; a refusal of
- * the library keeps the order it had and the line answers ERR_INVALID_OPERATION), the members named anew join at
- * their places, and the members left out run in the clients made for them; one JACK will not activate stays in the
- * walk, at its end, and the line answers the error. A line with another head is chain_rehead's: all of it or none. */
+ * is refused with the ones stopped before it started again, with the links they had. A chain already running with the
+ * same head then changes in place: the members left out leave the walk, the members kept take the line's order in ONE
+ * walk (a move; a refusal of the library keeps the order it had and the line answers ERR_INVALID_OPERATION), the
+ * members named anew join at their places, and the members left out run in the clients made for them; one JACK will
+ * not activate stays in the walk, at its end, and the line answers the error. A line with another head is
+ * chain_rehead's: all of it or none. */
 int effects_chain(int id, const int *instances, int n)
 {
     chain_t *chain = NULL, *slot = NULL;
