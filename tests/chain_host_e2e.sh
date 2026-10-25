@@ -194,7 +194,7 @@ same() {
     local what=$1 a=$2 b=$3 out
     out=$(cmp "$a" "$b" 2>&1)
     [ -z "$out" ]
-    step $? "$what: $(($(stat -c %s "$a") / 4)) samples bit-identical${out:+ ($out)}"
+    step $? "$what: $(($(stat -c %s "$a") / 4)) samples ${out:+NOT }bit-identical${out:+ ($out)}"
 }
 differ() {
     ! cmp -s "$2" "$3"

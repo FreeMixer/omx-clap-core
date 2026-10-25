@@ -208,7 +208,7 @@ same() {
     local out
     out=$(cmp "$2" "$3" 2>&1)
     [ -z "$out" ]
-    step $? "$1: $(($(stat -c %s "$2") / 4)) samples bit-identical${out:+ ($out)}"
+    step $? "$1: $(($(stat -c %s "$2") / 4)) samples ${out:+NOT }bit-identical${out:+ ($out)}"
 }
 
 series 20 21 22
