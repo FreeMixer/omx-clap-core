@@ -3,11 +3,12 @@
 #
 # The chain's members under ThreadSanitizer (#104, make test-chain-host-tsan): tests/chain_host_e2e.sh's stress
 # (CHAIN_HOST_STRESS rounds, the quantum changed all along, each change the head's buffer-size callback walking its
-# members on JACK's thread while the control thread joins, frees, adds and lets go of members) on the host and the
-# core built under ThreadSanitizer. g_chain_members orders every walk against every change, so no data race is
-# reported whose accesses run in src/effects.c. Reports that are not this host's (PipeWire's own loop, whose recursive
-# mutex reads as a double lock and whose queues it does not see ordered) are counted and left aside; a race this target
-# does not observe is suppressed by name in tests/chain_host_tsan.supp.
+# members on JACK's thread while the control thread joins, moves, frees, adds and lets go of members and gives the
+# chain another head, whose new client's thread-init callback names its thread for the members) on the host and the
+# core built under ThreadSanitizer. g_chain_members orders every walk against every change and is the audio role's one
+# lock, so no data race is reported whose accesses run in src/effects.c. Reports that are not this host's (PipeWire's
+# own loop, whose recursive mutex reads as a double lock and whose queues it does not see ordered) are counted and left
+# aside; nothing is suppressed.
 #
 #   chain_host_tsan.sh <the host built under ThreadSanitizer> <report directory>
 #
@@ -21,7 +22,7 @@ dir=${2:?usage: chain_host_tsan.sh <host> <report dir>}
 
 mkdir -p "$dir"
 rm -f "$dir"/report.*
-TSAN_OPTIONS="halt_on_error=0 log_path=$dir/report suppressions=$here/chain_host_tsan.supp" OMX_CLAP_HOST=$host \
+TSAN_OPTIONS="halt_on_error=0 log_path=$dir/report" OMX_CLAP_HOST=$host \
     CHAIN_HOST_STRESS=${CHAIN_HOST_STRESS:-40} "$here/chain_host_e2e.sh"
 e2e=$?
 

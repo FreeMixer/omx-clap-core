@@ -217,33 +217,61 @@ if [ -n "${CHAIN_HOST_FAULT:-}" ]; then
     expect chain "chain 7 10 11 12" "resp 0"
     wait_nodes 1; step $? "chain 7 10 11 12: one node ($(nodes))"
     walk_before=$(walk_of 7)
+    held="10 11 12"
     case $CHAIN_HOST_FAULT in
     client)
-        line="chain 7 10 12" what="effect_11's own client cannot be made" want="effect_10 effect_11 effect_12" want_nodes=1
+        line="chain 7 10 12" what="effect_11's own client cannot be made" want="effect_10 effect_11 effect_12" want_nodes=1 code=-201
         ;;
     stop)
         expect chain "add $pass 13" "resp 13"
-        line="chain 7 10 12 13" what="effect_13's own client cannot be stopped" want="effect_10 effect_11 effect_12" want_nodes=2
+        held="10 11 12 13"
+        line="chain 7 10 12 13" what="effect_13's own client cannot be stopped" want="effect_10 effect_11 effect_12" want_nodes=2 code=-203
         ;;
     activate)
-        line="chain 7 10 12" what="effect_11's own client cannot be activated" want="effect_10 effect_12 effect_11" want_nodes=1
+        line="chain 7 10 12" what="effect_11's own client cannot be activated" want="effect_10 effect_12 effect_11" want_nodes=1 code=-202
+        ;;
+    # the library refuses the line's order (a pure move): the walk keeps the order it had, the line answers the refusal
+    order)
+        line="chain 7 10 12 11" what="the library refuses the order" want="effect_10 effect_11 effect_12" want_nodes=1 code=-902
+        ;;
+    # another head: effect_13's client will not stop, after everything else is ready, before anything changes
+    rehead-stop)
+        expect chain "add $pass 13" "resp 13"
+        held="10 11 12 13"
+        line="chain 7 12 10 13" what="another head, effect_13's own client cannot be stopped" want="effect_10 effect_11 effect_12"
+        want_nodes=2 code=-203
+        ;;
+    # another head: effect_12, the new head, gets its client of its own first (the last member first), then effect_11's,
+    # left out, will not activate: both go back to their places in the old walk
+    rehead-activate)
+        line="chain 7 12 10" what="another head, effect_11's own client cannot be activated" want="effect_10 effect_11 effect_12"
+        want_nodes=1 code=-202
+        ;;
+    # another head: effect_12 and effect_11 are in clients of their own when effect_10, the old head named as a member,
+    # will not stop, last: both go back to their places in the old walk, which effect_10's client still runs
+    rehead-head-stop)
+        line="chain 7 12 10" what="another head, effect_10's own client cannot be stopped" want="effect_10 effect_11 effect_12"
+        want_nodes=1 code=-203
         ;;
     *)
-        echo "CHAIN_HOST_FAULT=$CHAIN_HOST_FAULT: client, stop or activate" >&2
+        echo "CHAIN_HOST_FAULT=$CHAIN_HOST_FAULT: client, stop, activate, order, rehead-stop, rehead-activate or rehead-head-stop" >&2
         exit 2
         ;;
     esac
     reply=$(send chain "$line")
-    [ -n "$reply" ] && [ "$reply" != "resp 0" ]; step $? "$line, $what: answers an error ($reply)"
+    [ "$reply" = "resp $code" ]; step $? "$line, $what: answers the error, resp $code ($reply)"
     members=$(readback 7 | sed -n 's/^chain 7: \(.*\) in effect_.*$/\1/p')
     [ "$members" = "$want" ]; step $? "fault $CHAIN_HOST_FAULT: the chain runs $members (want $want)"
-    if [ "$CHAIN_HOST_FAULT" != activate ]; then
-        [ "$(walk_of 7)" = "$walk_before" ]; step $? "fault $CHAIN_HOST_FAULT: refused, no walk published (walk $walk_before, then $(walk_of 7))"
-    fi
+    case $CHAIN_HOST_FAULT in
+    activate | rehead-activate | rehead-head-stop) ;;
+    *) [ "$(walk_of 7)" = "$walk_before" ]; step $? "fault $CHAIN_HOST_FAULT: refused, no walk published (walk $walk_before, then $(walk_of 7))" ;;
+    esac
     wait_nodes "$want_nodes"; step $? "fault $CHAIN_HOST_FAULT: $want_nodes node(s) ($(nodes))"
-    reply=$(send chain "param_get 11 0")
-    case $reply in "resp 0 "*) r=0 ;; *) r=1 ;; esac
-    step $r "fault $CHAIN_HOST_FAULT: effect_11 is still an instance of this host: param_get 11 0 -> $reply"
+    for e in $held; do
+        reply=$(send chain "param_get $e 0")
+        case $reply in "resp 0 "*) r=0 ;; *) r=1 ;; esac
+        step $r "fault $CHAIN_HOST_FAULT: effect_$e is still an instance of this host: param_get $e 0 -> $reply"
+    done
     # the output is the chain the read-back names, bit for bit
     if [ "$CHAIN_HOST_FAULT" = activate ]; then series 20 22 21; last=21; else series 20 21 22; last=22; fi
     play fault chain=10,10 series=20,$last
@@ -258,8 +286,10 @@ if [ -n "${CHAIN_HOST_FAULT:-}" ]; then
 fi
 
 # the stress (CHAIN_HOST_STRESS rounds, make test-chain-host-tsan): the quantum changed all along, each change the head's
-# buffer-size callback walking its members on JACK's thread, while each round a member joins, is freed by its remove,
-# is added again and the line lets the others go
+# buffer-size callback walking its members on JACK's thread, while each round members join, two move (one walk), one is
+# freed by its remove and added again, the chain takes another head (effect_12, a member, gets a client of its own
+# whose thread-init callback names its thread for the members while their resize may be pending) and then its first
+# head back, alone
 if [ -n "${CHAIN_HOST_STRESS:-}" ]; then
     (
         q=64
@@ -272,14 +302,15 @@ if [ -n "${CHAIN_HOST_STRESS:-}" ]; then
     flipper=$!
     bad=0
     for k in $(seq "$CHAIN_HOST_STRESS"); do
-        r="$(send chain "chain 7 10 11 12") $(send chain "remove 11") $(send chain "add $pass 11") $(send chain "chain 7 10")"
+        r="$(send chain "chain 7 10 11 12") $(send chain "chain 7 10 12 11") $(send chain "remove 11") $(send chain "add $pass 11")"
+        r="$r $(send chain "chain 7 12 10") $(send chain "chain 7 10")"
         # a host that stops answering stops the rounds: each send would wait out its timeout
-        [ "$r" = "resp 0 resp 0 resp 11 resp 0" ] || { bad=$((bad + 1)); echo "     round $k: $r"; break; }
+        [ "$r" = "resp 0 resp 0 resp 0 resp 11 resp 0 resp 0" ] || { bad=$((bad + 1)); echo "     round $k: $r"; break; }
     done
     kill "$flipper" 2>/dev/null
     wait "$flipper" 2>/dev/null
     pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1
-    [ "$bad" = 0 ]; step $? "$CHAIN_HOST_STRESS rounds of a join, a member freed, an add and a leave while the quantum changed ($bad off)"
+    [ "$bad" = 0 ]; step $? "$CHAIN_HOST_STRESS rounds of joins, a move, a member freed and added, another head and the first back while the quantum changed ($bad off)"
     expect chain "chain 7 10 11 12" "resp 0"
     wait_nodes 1; step $? "and then chain 7 10 11 12 is one node ($(nodes))"
     expect chain "remove -1" "resp 0"
@@ -329,6 +360,9 @@ expect chain "chain 8 15 17" "resp -902"
 grep -q "^chain 8: effect_17 has an auxiliary port" "$runtime/chain.log"
 step $? "a member with an auxiliary output is refused: $(grep "^chain 8: effect_17" "$runtime/chain.log" | tail -1)"
 [ "$(nodes)" = 6 ]; step $? "the refusals changed no node: the chain and five of their own ($(nodes))"
+# a refusal forms nothing: no read-back of chain 8 (a head of another width refused only when its member would join
+# answers the same code, but has formed the chain first)
+[ -z "$(readback 8)" ]; step $? "the refusals formed no chain 8 ($(readback 8))"
 expect chain "chain 8 16 15" "resp 0"
 wait_nodes 5; step $? "a head with a side chain keeps it: chain 8 16 15 is one node ($(nodes))"
 expect chain "chain 8 16" "resp 0"
