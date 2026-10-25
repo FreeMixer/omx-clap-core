@@ -174,8 +174,8 @@ activated again or built again.
   walk (`omx_clap_chain_order`), so a move never runs a cycle without the moved member nor in an order between the old
   and the new; a member it names anew closes its client and is added at its place, one walk each, in the line's order.
   A pure move is one walk; a line that adds k members publishes k walks after the order, each the line's order without
-  the members still to join, so for a cycle or more each the chain runs without them: the order-bank flip of
-  openmixer#2114 (every change of a line in one acknowledged walk) is not what a line that adds members does.
+  the members still to join, so for a cycle or more each the chain runs without them: the order-bank flip
+  (every change of a line in one acknowledged walk) is not what a line that adds members does.
 - A line with another head: the chain leaves the old head's client, every member gets a client of its own, and the
   chain forms again in the new head's client.
 - `remove` of a member that is not the head takes it out of the walk, the chain closing around it, then frees it.
