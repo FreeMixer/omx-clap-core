@@ -619,6 +619,11 @@ static void round_trip_rewrite(const struct pj *doc, struct pj *copy)
      * input: no-modified-at */
     if (strcmp(back.keys[at], REWRITTEN) != 0 || back.kids[at].type != PJ_STRING)
         abort();
+    /* The member set holds the value that the rewrite set.
+     * mutant: src/preset_file.c:380 `*old = *val;` -> `old->type = val->type;`
+     * input: docs-presets-example */
+    if (strcmp(back.kids[at].str, "2026-10-25T00:00:00Z") != 0)
+        abort();
     fuzz_free(saved);
     pj_free(&back);
 }
