@@ -48,11 +48,10 @@ struct omx_cycle_gate {
     _Atomic uint32_t closed;    ///< the control thread shut the cycles out
     _Atomic uint32_t in_cycle;  ///< a cycle is inside the gate
     _Atomic uint32_t resize_to; ///< a block size the carrier changed to, for the control thread's next tick; 0: none
-    /** the lock the carrier names the instance's audio thread under from a thread of its own (omx-clap-host's JACK
-     * thread-init callback): the restart and the resize read and write the audio role holding it, the resize across
-     * its wait for the cycle under way and the plugin's stop, deactivate and activate, the restart across the plugin's
-     * restart. A carrier's own thread therefore only tries it and leaves a thread it names meanwhile for the control
-     * thread to set once it is let go, which so outlasts the role they give back. NULL: no such thread. */
+    /** the lock a carrier writes the instance's audio role under from a thread of its own: the restart and the resize
+     * read and write the role holding it, the resize across its wait for the cycle under way and the plugin's stop,
+     * deactivate and activate, the restart across the plugin's restart. NULL: no such thread. omx-clap-host gives none:
+     * its JACK thread names itself in the core's slot (omx_clap_host_name_slot) and writes no role. */
     pthread_mutex_t *role;
 };
 
