@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_manifest.c:179 (a prefixed name's end is read one byte late).
+Breaks the check of fuzz/fuzz_manifest.c:184 (a prefixed name's end is read one byte late).
 Caught by the seed input "name-at-end" of fuzz_manifest.
 
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c

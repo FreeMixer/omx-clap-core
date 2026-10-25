@@ -28,7 +28,7 @@
  * holds p:local as a whole token: not after a name character or '.', not before a name character. A name character is
  * one a Turtle prefixed name continues with: a letter, a digit, '_', '-', ':', '%', '\\' or a byte from 0x80. The first
  * '>' after "<" ends a namespace, the next declaration is looked for after it, and a "<" with no '>' after it ends the
- * reading. A manifest with more than LV2_LOCATE_PREFIXES_MAX declarations of such a namespace is a candidate unread.
+ * reading. A manifest with more than PREFIXES_MAX (16) declarations of such a namespace is a candidate unread.
  */
 
 #include <ctype.h>
@@ -44,6 +44,11 @@
 #define MANIFEST_MAX ((size_t)4 << 20)
 
 #define NAMES_ALLOC_BOUND(uri_len) ((size_t)(uri_len) + 3u)
+
+/* How many declarations of a namespace the URI starts with a manifest is read for: the 16 of fuzz/README.md, the
+ * harness's own and not the reader's LV2_LOCATE_PREFIXES_MAX, so that a reader whose limit moves names what the rule
+ * does not. */
+#define PREFIXES_MAX 16
 
 /* ---------------------------------------------------------------- the rule, read by the harness */
 
@@ -156,7 +161,7 @@ static int expected(const char *text, const char *uri)
         ns_len = (size_t)(close - ns);
         if (ns_len < n && strncmp(uri, ns, ns_len) == 0 && plain(uri + ns_len))
         {
-            if (++declared > LV2_LOCATE_PREFIXES_MAX)
+            if (++declared > PREFIXES_MAX)
                 return 1;
             if (ex_token(text, name, name_len, uri + ns_len))
                 return 1;
@@ -202,7 +207,9 @@ static __attribute__((noinline)) void check_as_written(const char *text, const c
         abort();
     /* A manifest that does not name it is not: "ex:gain2" is not "ex:gain".
      * mutant: src/lv2_locate.c:71 `name_char(at[local_len])` -> `0`
-     * input: longer-local */
+     * input: longer-local
+     * mutant: src/lv2_locate.h:43 `16` -> `15`
+     * input: prefixes-most-read */
     if (named && !want)
         abort();
 }

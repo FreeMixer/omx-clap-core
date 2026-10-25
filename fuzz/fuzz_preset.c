@@ -24,7 +24,7 @@
  *   bounded_alloc  for a file of n bytes the reader holds at most PJ_ALLOC_BOUND(n) bytes at once.
  *
  * The grammar, as the reader reads a file: one JSON value (RFC 8259) and whitespace around it, with three differences.
- * Arrays and objects nest PRESET_JSON_DEPTH_MAX deep at most. A string holds no \u0000, and a \u escape of a surrogate
+ * Arrays and objects nest JSON_DEPTH_MAX (32) deep at most. A string holds no \u0000, and a \u escape of a surrogate
  * is a pair, high then low. A number is an optional '-' and a digit, a 0 not followed by another digit, then the
  * longest run of digits, '.', 'e', 'E', '+' and '-', which strtod reads whole to a finite value: "1." and "1.e5" are
  * numbers. A number's text is that run, its value what strtod reads.
@@ -43,13 +43,17 @@
 #include "fuzz.h"
 #include "preset_file.h"
 
+/* How deep the grammar lets arrays and objects nest: the 32 of fuzz/README.md, the harness's own and not the reader's
+ * PRESET_JSON_DEPTH_MAX, so that a reader whose limit moves refuses or reads what the grammar does not. */
+#define JSON_DEPTH_MAX 32
+
 /* An item costs its container at most two slots (the slots double), and the first item eight; each slot is a struct pj
  * and, in an object, a key pointer. A container that is closed and followed by another item takes at least four bytes
  * of file; arrays nested deep around one digit, repeated, cost about 220 bytes of tree for each. The containers still
- * open take one byte each, and there are PRESET_JSON_DEPTH_MAX of them at most: their first eight slots are the
+ * open take one byte each, and there are JSON_DEPTH_MAX of them at most: their first eight slots are the
  * constant. */
 #define PJ_SLOT (sizeof(struct pj) + sizeof(char *))
-#define PJ_ALLOC_BOUND(n) (256u * (size_t)(n) + PRESET_JSON_DEPTH_MAX * 8u * PJ_SLOT + 4096u)
+#define PJ_ALLOC_BOUND(n) (256u * (size_t)(n) + JSON_DEPTH_MAX * 8u * PJ_SLOT + 4096u)
 
 /* the member a save rewrites */
 #define REWRITTEN "modifiedAt"
@@ -234,7 +238,7 @@ static int ex_items(struct ex *in, const struct pj *v)
     const char close = object ? '}' : ']';
     size_t n = 0;
 
-    if (++in->depth > PRESET_JSON_DEPTH_MAX)
+    if (++in->depth > JSON_DEPTH_MAX)
         return -1;
     if (v && v->type != (object ? PJ_OBJECT : PJ_ARRAY))
     {
@@ -486,7 +490,9 @@ static __attribute__((noinline)) void check_as_written(const uint8_t *data, size
 
     /* The reader refuses a file the grammar reads, or reads one it refuses.
      * mutant: src/preset_file.c:155 `cp == 0` -> `cp == 1`
-     * input: refuse-u0000 */
+     * input: refuse-u0000
+     * mutant: src/preset_file.h:63 `32` -> `31`
+     * input: deepest */
     if ((rc == 0) != (want >= 0))
         abort();
     /* The tree is the one the file spells. A reader that reads an escape wrong and a writer that writes it back the
@@ -517,7 +523,8 @@ static __attribute__((noinline)) void check_reject_clean(int rc, const struct pj
 }
 
 /* The file again with one of the allocations its reading took failing, as when memory runs out: refused like any
- * refusal. And a tree written with one of the writer's failing: no text, and its buffer given back. */
+ * refusal. And a tree written, pretty and compact, with one of the writer's failing: no text, and its buffer given
+ * back. */
 static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *data, size_t size, size_t took,
                                                                  const struct pj *doc)
 {
@@ -544,6 +551,19 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
     fuzz_alloc_fail(SIZE_MAX);
     /* mutant: src/preset_file.c:465 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
      * input: string-alone */
+    if (text || fuzz_alloc_live() != live)
+        abort();
+    /* The same of a compact write. A text of 4096 bytes or more takes a second allocation, and when that one fails the
+     * first still holds the text up to where it failed: a cut text, not none. */
+    before = fuzz_alloc_count();
+    fuzz_free(pj_write(doc, 0));
+    if (fuzz_alloc_count() == before)
+        return;
+    fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
+    text = pj_write(doc, 0);
+    fuzz_alloc_fail(SIZE_MAX);
+    /* mutant: src/preset_file.c:565 `if (o.failed)` -> `if (o.failed && pretty)`
+     * input: compact-second-allocation */
     if (text || fuzz_alloc_live() != live)
         abort();
 }
@@ -618,6 +638,11 @@ static void round_trip_rewrite(const struct pj *doc, struct pj *copy)
      * mutant: src/preset_file.c:384 `strdup(key)` -> `strdup("x")`
      * input: no-modified-at */
     if (strcmp(back.keys[at], REWRITTEN) != 0 || back.kids[at].type != PJ_STRING)
+        abort();
+    /* The member set holds the value that the rewrite set.
+     * mutant: src/preset_file.c:380 `*old = *val;` -> `old->type = val->type;`
+     * input: docs-presets-example */
+    if (strcmp(back.kids[at].str, "2026-10-25T00:00:00Z") != 0)
         abort();
     fuzz_free(saved);
     pj_free(&back);
