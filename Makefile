@@ -779,6 +779,16 @@ test-identity: $(PROG) tests/jack_identity build/bench/inproc
 test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap
 	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
 
+# the chain line in one JACK client (#104, docs/chain.md): its cycle, the client's process callback and every member's
+# stage, names nothing that allocates, waits, locks or prints; three instances one node, its output the same instances
+# one client each in series bit for bit, changed while it runs, every refusal changing nothing (tests/chain_host_e2e.sh)
+test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
+	mkdir -p build && sed -n '/^static void chain_stage/,/^}/p; /^static int process(/,/^}/p; /^static void process_gated/,/^}/p' src/effects.c > build/chain_host_rt.c
+	grep -q 'omx_clap_chain_process' build/chain_host_rt.c && grep -q 'omx_clap_host_run_ports' build/chain_host_rt.c \
+	    && ! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/chain_host_rt.c \
+	    && echo "ok   the host's chain cycle (process, chain_stage, process_gated) names no allocator, sleep, lock or printf"
+	./tests/chain_host_e2e.sh
+
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
 
