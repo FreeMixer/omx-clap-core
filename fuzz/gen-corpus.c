@@ -27,6 +27,10 @@
 
 #define FIXTURES "lv2/tests/fixtures"
 
+/* the limits fuzz/README.md documents, as the harnesses hold them and not as the readers do: the seeds stand at them
+ * whatever the readers' own limits are, so a reader whose limit moves is one its harness sees */
+#define SEED_DEPTH_MAX 32       // JSON_DEPTH_MAX of fuzz/fuzz_preset.c
+
 static const char *g_root;
 
 static void die(const char *what)
@@ -315,22 +319,22 @@ static void preset_corpus(void)
         { "refuse-close", "[1}" },
         { "refuse-bad-item", "[1, x]" },
     };
-    char deep[2 * PRESET_JSON_DEPTH_MAX + 8];
+    char deep[2 * SEED_DEPTH_MAX + 8];
     size_t i;
 
     for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
         seed_str("preset", cases[i].name, cases[i].text);
     // as deep as a file may nest, and one deeper
-    memset(deep, '[', PRESET_JSON_DEPTH_MAX);
-    deep[PRESET_JSON_DEPTH_MAX] = '1';
-    memset(deep + PRESET_JSON_DEPTH_MAX + 1, ']', PRESET_JSON_DEPTH_MAX);
-    seed("preset", "deepest", deep, 2 * PRESET_JSON_DEPTH_MAX + 1);
-    memset(deep, '[', PRESET_JSON_DEPTH_MAX + 1);
-    deep[PRESET_JSON_DEPTH_MAX + 1] = '1';
-    memset(deep + PRESET_JSON_DEPTH_MAX + 2, ']', PRESET_JSON_DEPTH_MAX + 1);
-    seed("preset", "refuse-too-deep", deep, 2 * PRESET_JSON_DEPTH_MAX + 3);
+    memset(deep, '[', SEED_DEPTH_MAX);
+    deep[SEED_DEPTH_MAX] = '1';
+    memset(deep + SEED_DEPTH_MAX + 1, ']', SEED_DEPTH_MAX);
+    seed("preset", "deepest", deep, 2 * SEED_DEPTH_MAX + 1);
+    memset(deep, '[', SEED_DEPTH_MAX + 1);
+    deep[SEED_DEPTH_MAX + 1] = '1';
+    memset(deep + SEED_DEPTH_MAX + 2, ']', SEED_DEPTH_MAX + 1);
+    seed("preset", "refuse-too-deep", deep, 2 * SEED_DEPTH_MAX + 3);
     // and never closed: every level open at once, the most the reader holds for the fewest bytes
-    seed("preset", "refuse-too-deep-open", deep, PRESET_JSON_DEPTH_MAX + 2);
+    seed("preset", "refuse-too-deep-open", deep, SEED_DEPTH_MAX + 2);
     docs_example();
     data_documents();
     built_presets();
