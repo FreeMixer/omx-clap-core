@@ -168,6 +168,12 @@ typedef struct EFFECT_T {
     uint32_t relayout_tick;                 // the idle tick of the last relayout
     uint32_t relayouts_unchanged;           // relayouts on consecutive ticks that found the main layout unchanged
     struct omx_cycle_gate gate;             // the cycles shut out of the instance while a restart or relayout deactivates it
+    /* what JACK's thread named while g_chain_members was held, which it never waits on: the audio thread its thread-init
+     * callback named, and the block size a head's buffer-size callback could not walk its members with (0: none), for
+     * the control thread to apply under the lock (chain_members_reconcile) */
+    _Atomic(pthread_t) thread_named;
+    _Atomic uint32_t thread_named_set;
+    _Atomic uint32_t resize_named;
     jack_port_t *midi_port;
     struct omx_msgring note_ring;           // control thread -> audio thread: the note verbs' MIDI messages
     void *note_ring_buf;                    // its NOTE_RING_BYTES, NULL for a plugin that takes no notes
@@ -346,19 +352,23 @@ static jack_client_t *open_jack_client(int instance, const char *client_name)
  * it. A member that has just left has a client of its own, whose callbacks do the same for it. The thread-init
  * callback sets its own instance's audio thread under it too, and a member that joins reads its head's there. It is the
  * one lock of every instance's audio role: the restart, the resize (the gate's role lock, callbacks_set) and the
- * relayout read and write the role under it, after g_reactivate, never across a wait for a cycle. */
+ * relayout read and write the role under it, after g_reactivate; the resize and the restart hold it across the wait for
+ * the cycle under way and the plugin's stop, deactivate and activate, the relayout across the activate. JACK's thread
+ * never waits on it: each callback tries it, and what it names while the control thread holds it (thread_named,
+ * resize_named) the control thread applies once it has let it go (chain_members_reconcile). */
 static pthread_mutex_t g_chain_members = PTHREAD_MUTEX_INITIALIZER;
+// an instance's thread_named or resize_named waits for chain_members_reconcile
+static _Atomic uint32_t g_named_pending;
 
-/* JACK's thread: `fn` on each member after the head of the chain `effect` heads, under g_chain_members; nothing for an
- * instance that heads none */
-static void chain_followers_each(const effect_t *effect, void (*fn)(effect_t *member, void *arg), void *arg)
+/* under g_chain_members: `fn` on each member after the head of the chain `effect` heads; nothing for an instance that
+ * heads none */
+static void chain_followers_walk(const effect_t *effect, void (*fn)(effect_t *member, void *arg), void *arg)
 {
-    const chain_t *chain = effect ? atomic_load_explicit(&effect->chain_run, memory_order_relaxed) : NULL;
+    const chain_t *chain = atomic_load_explicit(&effect->chain_run, memory_order_relaxed);
     uint32_t count, i;
 
     if (!chain)
         return;
-    pthread_mutex_lock(&g_chain_members);
     count = atomic_load_explicit(&chain->count, memory_order_relaxed);
     for (i = 1; i < count && i < OMX_CLAP_CHAIN_MEMBERS_MAX; i++)
     {
@@ -367,7 +377,6 @@ static void chain_followers_each(const effect_t *effect, void (*fn)(effect_t *me
         if (member && member->clap)
             fn(member, arg);
     }
-    pthread_mutex_unlock(&g_chain_members);
 }
 
 static void follower_thread(effect_t *member, void *arg)
@@ -375,19 +384,82 @@ static void follower_thread(effect_t *member, void *arg)
     omx_clap_host_set_audio_thread(member->clap, *(const pthread_t *)arg);
 }
 
+static void follower_resize(effect_t *member, void *arg)
+{
+    omx_cycle_gate_resize_record(&member->gate, *(const jack_nframes_t *)arg);
+}
+
+/* under g_chain_members: what JACK's thread named for `effect` and has not applied, applied: its audio thread, set for it
+ * and for its chain's members, which run on its head's thread; its block size, recorded for its chain's members, which
+ * run at its head's block */
+static void named_apply(effect_t *effect)
+{
+    jack_nframes_t nframes;
+
+    if (atomic_load_explicit(&effect->thread_named_set, memory_order_acquire))
+    {
+        const pthread_t thread = atomic_load_explicit(&effect->thread_named, memory_order_relaxed);
+
+        if (effect->clap)
+            omx_clap_host_set_audio_thread(effect->clap, thread);
+        chain_followers_walk(effect, follower_thread, (void *)&thread);
+        // the client's cycles pass dry until here (process): none reads the role while this thread writes it
+        atomic_store_explicit(&effect->thread_named_set, 0u, memory_order_release);
+    }
+    nframes = atomic_exchange_explicit(&effect->resize_named, 0u, memory_order_acquire);
+    if (nframes)
+        chain_followers_walk(effect, follower_resize, &nframes);
+}
+
+/* the control thread, each tick and after each instance's restart, resize and relayout: what JACK's threads named while
+ * g_chain_members was held, applied under it. A name published after the flag is taken sets it again, for the next. */
+static void chain_members_reconcile(void)
+{
+    int i;
+
+    if (!atomic_exchange(&g_named_pending, 0u))
+        return;
+    pthread_mutex_lock(&g_chain_members);
+    for (i = 0; i < MAX_INSTANCES; i++)
+        named_apply(&g_effects[i]);
+    pthread_mutex_unlock(&g_chain_members);
+}
+
+/* JACK's thread, its buffer-size callback: the chain's members, when `effect` heads one, run at its block. The size is
+ * published first and the members walked under g_chain_members when it is free; when it is not, the control thread
+ * walks them (chain_members_reconcile) */
+static void chain_followers_each(effect_t *effect, jack_nframes_t nframes)
+{
+    if (!effect || !atomic_load_explicit(&effect->chain_run, memory_order_relaxed))
+        return;
+    atomic_store_explicit(&effect->resize_named, nframes, memory_order_release);
+    atomic_store(&g_named_pending, 1u);
+    if (pthread_mutex_trylock(&g_chain_members) == 0)
+    {
+        named_apply(effect);
+        pthread_mutex_unlock(&g_chain_members);
+    }
+}
+
+/* JACK's thread, before its first cycle: its own instance's audio thread, and its chain's members' when it heads one,
+ * published first and set under g_chain_members when it is free; when it is not, the control thread sets it once it has
+ * let it go (chain_members_reconcile), so the first cycle never waits on a plugin's activate the control thread holds
+ * the lock across. A member that joins a chain reads its head's thread under the lock (chain_insert). */
 static void jack_thread_init(void *arg)
 {
     effect_t *effect = arg;
-    const pthread_t self = pthread_self();
 
     omx_denormals_off();
-    // under g_chain_members: a member that joins a chain reads its head's thread there (chain_insert)
-    pthread_mutex_lock(&g_chain_members);
-    if (effect && effect->clap)
-        omx_clap_host_set_audio_thread(effect->clap, self);
-    pthread_mutex_unlock(&g_chain_members);
-    // a chain's members run on its head's thread
-    chain_followers_each(effect, follower_thread, (void *)&self);
+    if (!effect)
+        return;
+    atomic_store_explicit(&effect->thread_named, pthread_self(), memory_order_relaxed);
+    atomic_store_explicit(&effect->thread_named_set, 1u, memory_order_release);
+    atomic_store(&g_named_pending, 1u);
+    if (pthread_mutex_trylock(&g_chain_members) == 0)
+    {
+        named_apply(effect);
+        pthread_mutex_unlock(&g_chain_members);
+    }
 }
 
 /* audio thread, right after the cycle: get() is [audio-thread] and reads the block process() just ran. A cycle that did
@@ -557,6 +629,13 @@ static int process(jack_nframes_t nframes, void *arg)
         inputs[c] = jack_port_get_buffer(effect->input_ports[c], nframes);
     for (c = 0; c < effect->out_ports; c++)
         outputs[c] = jack_port_get_buffer(effect->output_ports[c], nframes);
+    // a thread the thread-init callback named and has not set, the lock held: the control thread writes the audio role
+    // of the instance and its chain's members (named_apply), so no plugin is run and the audio passes dry until it has
+    if (atomic_load_explicit(&effect->thread_named_set, memory_order_acquire))
+    {
+        process_gated(effect, inputs, outputs, nframes, 0);
+        return 0;
+    }
     if (omx_cycle_gate_enter(&effect->chain_gate) && (chain = atomic_load_explicit(&effect->chain_run, memory_order_relaxed)))
         omx_clap_chain_process(chain->walk, inputs, outputs, nframes);
     else
@@ -794,11 +873,6 @@ static int aux_reblock(void *ctx, uint32_t nframes)
     return aux_blocks(ctx, nframes);
 }
 
-static void follower_resize(effect_t *member, void *arg)
-{
-    omx_cycle_gate_resize_record(&member->gate, *(const jack_nframes_t *)arg);
-}
-
 /* JACK's thread, its process cycle stopped while this runs: the new size recorded for the control thread's next tick
  * (resize_apply), and nothing of the plugin done here, since a deactivate and an activate are main-thread calls. Until
  * the tick applies it the cycles pass dry (process_gated): the instance is still activated for the old size. */
@@ -809,7 +883,7 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
     if (effect && effect->clap)
         omx_cycle_gate_resize_record(&effect->gate, nframes);
     // a chain's members run at its head's block
-    chain_followers_each(effect, follower_resize, &nframes);
+    chain_followers_each(effect, nframes);
     return 0;
 }
 
@@ -1728,8 +1802,9 @@ static int main_ports_register(effect_t *effect)
                                   effect->output_ports);
 }
 
-/* the callbacks of the instance's own client; its thread-init callback names the audio thread under g_chain_members,
- * which the gate's restart and resize take for the audio role too */
+/* the callbacks of the instance's own client; its thread-init callback names the audio thread under g_chain_members
+ * when it is free (else the control thread does, jack_thread_init), which the gate's restart and resize take for the
+ * audio role too */
 static void callbacks_set(effect_t *effect)
 {
     effect->gate.role = &g_chain_members;
@@ -3229,6 +3304,8 @@ void effects_idle(void)
     int i;
 
     g_idle_ticks++;
+    // a member's block size its head's callback left to this thread is recorded before the member's tick reads it
+    chain_members_reconcile();
     for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)
     {
         effect_t *effect = &g_effects[i];
@@ -3237,6 +3314,8 @@ void effects_idle(void)
             continue;
         clap_idle(effect);
         ports_relayout(effect);
+        // a thread JACK named while the restart, the resize or the relayout held the role is set as soon as it is let go
+        chain_members_reconcile();
         if (omx_clap_host_remote_controls_changed(effect->clap))
         {
             char line[64];
