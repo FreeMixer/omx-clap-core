@@ -47,7 +47,9 @@ Each harness checks the same five, one `check_` function each:
   make a round trip that holds; this property does not. A limit of a grammar is the harness's own, never the reader's:
   arrays and objects of a preset nest 32 deep at most (`JSON_DEPTH_MAX` of `fuzz/fuzz_preset.c`, which
   `PJ_ALLOC_BOUND` uses too), so a reader whose `PRESET_JSON_DEPTH_MAX` moves refuses `deepest` or reads
-  `refuse-too-deep`.
+  `refuse-too-deep`; a manifest is read for 16 declarations of a namespace the URI starts with at most (`PREFIXES_MAX`
+  of `fuzz/fuzz_manifest.c`), so a reader whose `LV2_LOCATE_PREFIXES_MAX` moves names the URI in `prefixes-most-read`
+  or turns down `prefixes-past-most-read`. `fuzz/gen-corpus.c` writes those seeds at the same two limits.
 - **reject_clean**: a refusal leaves no partial state. A refused preset leaves the tree zeroed; a refused state text
   writes no length; every refusal gives back every byte the reader took. The input is read once more with one of the
   allocations its reading took failing (which one, its bytes choose), as when memory runs out: the reader refuses and

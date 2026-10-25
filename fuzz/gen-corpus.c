@@ -30,6 +30,7 @@
 /* the limits fuzz/README.md documents, as the harnesses hold them and not as the readers do: the seeds stand at them
  * whatever the readers' own limits are, so a reader whose limit moves is one its harness sees */
 #define SEED_DEPTH_MAX 32       // JSON_DEPTH_MAX of fuzz/fuzz_preset.c
+#define SEED_PREFIXES_MAX 16    // PREFIXES_MAX of fuzz/fuzz_manifest.c
 
 static const char *g_root;
 
@@ -511,15 +512,15 @@ static void manifest_corpus(void)
     // the URI's namespace declared as often as a manifest is read for, and once more: a candidate unread
     {
         static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
-        char many[(LV2_LOCATE_PREFIXES_MAX + 1) * (sizeof(line) - 1) + 1];
+        char many[(SEED_PREFIXES_MAX + 1) * (sizeof(line) - 1) + 1];
         int k;
 
-        for (k = 0; k <= LV2_LOCATE_PREFIXES_MAX; k++)
+        for (k = 0; k <= SEED_PREFIXES_MAX; k++)
             memcpy(many + k * (sizeof(line) - 1), line, sizeof(line) - 1);
-        many[LV2_LOCATE_PREFIXES_MAX * (sizeof(line) - 1)] = '\0';
+        many[SEED_PREFIXES_MAX * (sizeof(line) - 1)] = '\0';
         seed_names("prefixes-most-read", "urn:example:plugins#gain", many);
-        many[LV2_LOCATE_PREFIXES_MAX * (sizeof(line) - 1)] = line[0];
-        many[(LV2_LOCATE_PREFIXES_MAX + 1) * (sizeof(line) - 1)] = '\0';
+        many[SEED_PREFIXES_MAX * (sizeof(line) - 1)] = line[0];
+        many[(SEED_PREFIXES_MAX + 1) * (sizeof(line) - 1)] = '\0';
         seed_names("prefixes-past-most-read", "urn:example:plugins#gain", many);
     }
     // each fixture bundle's manifest, for its first plugin, for lv2:Plugin through its lv2: prefix, and for a URI it

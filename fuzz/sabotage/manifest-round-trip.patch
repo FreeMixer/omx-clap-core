@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_manifest.c:234 (a SPARQL PREFIX is read one byte late).
+Breaks the check of fuzz/fuzz_manifest.c:241 (a SPARQL PREFIX is read one byte late).
 Caught by the seed input "whole" of fuzz_manifest.
 
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
