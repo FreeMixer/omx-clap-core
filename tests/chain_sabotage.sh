@@ -91,6 +91,14 @@ arm abi-refusal 's/return abi >= OMX_CLAP_CHAIN_ABI_OLDEST/return 1 || abi >= OM
 arm publish-wait '/^static void publish/,/^}/{/while (atomic_load(&chain->in_cycle) != 0u)/d; /usleep(CLAP_HOST_UNPUBLISH_POLL_US);/d}' \
     'data race .* in publish' clap_chain_tsan
 
+# 11. a new order is published: never, the cycles run the old one
+arm order-publish '/^int omx_clap_chain_order/,/^}/s/^    publish(chain);$/    (void)0;/' \
+    'the chain is the members in series in that order'
+
+# 12. a new order is one walk: the walk without the last member published first, as a removal and an add would
+arm order-one-walk '/^int omx_clap_chain_order/,/^}/s/^    memcpy(chain->slot, slot, n \* sizeof(slot\[0\]));$/    chain->count--;\n    publish(chain);\n    chain->count++;\n&/' \
+    'a move by one order: [1-9][0-9]* of'
+
 if [ "$failures" -ne 0 ]; then
     echo "FAIL chain sabotage: $failures arm(s) did not hold"
     exit 1

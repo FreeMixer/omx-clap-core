@@ -889,6 +889,136 @@ static void t_concurrent(void)
     set_free(&a);
 }
 
+/* a new order in one walk: refused when it is not every member once, the chain as it was; else the cycle after it runs
+ * the members in that order, bit for bit as the members in series in it */
+static void t_order(void)
+{
+    // the compressor cuts a block by its level, so the gain before it and after it are two outputs
+    static const struct spec g3[] = { { K_GAIN, 3.0f }, { K_DELAY, 10 }, { K_COMP, 0 } };
+    static const uint32_t order[3] = { 2, 0, 1 };
+    struct set a, b;
+    struct io io;
+    struct omx_clap_chain *chain;
+    uint32_t ids[3], bad[3], k, rev, matched = 0;
+    struct omx_clap_chain_member_info info;
+
+    io_new(&io);
+    set_new(&a, g3, 3, 0);
+    chain = chain_of(&a, 0, ids, NULL);
+    rev = report_of(chain).revision;
+    bad[0] = ids[0], bad[1] = ids[0], bad[2] = ids[1];
+    CHECK(omx_clap_chain_order(chain, bad, 3) == OMX_CLAP_CHAIN_ERR_ARG, "an order naming a member twice is refused");
+    bad[1] = 999;
+    CHECK(omx_clap_chain_order(chain, bad, 3) == OMX_CLAP_CHAIN_ERR_NO_MEMBER, "an order naming an id the chain never gave is no member");
+    CHECK(omx_clap_chain_order(chain, ids, 2) == OMX_CLAP_CHAIN_ERR_ARG && omx_clap_chain_order(NULL, ids, 3) == OMX_CLAP_CHAIN_ERR_ARG
+          && omx_clap_chain_order(chain, NULL, 3) == OMX_CLAP_CHAIN_ERR_ARG, "an order of another count, a NULL chain or list, is refused");
+    omx_clap_chain_member_info_init(&info);
+    CHECK(report_of(chain).revision == rev && omx_clap_chain_member_info(chain, 0, &info) == OMX_CLAP_CHAIN_OK && info.id == ids[0],
+          "and the refusals published nothing: revision %u, the first member id %u", report_of(chain).revision, info.id);
+
+    // fresh members of the same kinds in series in the new order, fed the same blocks from the first
+    {
+        const struct spec g3_ordered[] = { g3[order[0]], g3[order[1]], g3[order[2]] };
+
+        set_new(&b, g3_ordered, 3, 0);
+    }
+    bad[0] = ids[order[0]], bad[1] = ids[order[1]], bad[2] = ids[order[2]];
+    CHECK(omx_clap_chain_order(chain, bad, 3) == OMX_CLAP_CHAIN_OK, "the compressor, the gain, the delay: the order taken");
+    CHECK(report_of(chain).revision == rev + 1u, "in one walk: revision %u to %u", rev, report_of(chain).revision);
+    for (k = 0; k < SIZES; k++)
+    {
+        input_block(io.in, g_sizes[k], k);
+        omx_clap_chain_process(chain, (const float *const *)io.in, io.a, g_sizes[k]);
+        series(&b, (const float *const *)io.in, io.b, g_sizes[k]);
+        matched += same(io.a, io.b, g_sizes[k]);
+    }
+    CHECK(matched == SIZES, "from the cycle after it the chain is the members in series in that order, bit for bit: %u of %u blocks", matched,
+          (unsigned)SIZES);
+    omx_clap_chain_member_info_init(&info);
+    CHECK(omx_clap_chain_member_info(chain, 0, &info) == OMX_CLAP_CHAIN_OK && info.id == ids[2] && info.position == 0,
+          "the member at position 0 is the compressor: id %u", info.id);
+    omx_clap_chain_destroy(chain);
+    set_free(&a);
+    set_free(&b);
+    io_free(&io);
+}
+
+/* a member moved while the cycles run on a thread of their own: x2, x3 and x5 multiply to 30 in any order, so a cycle
+ * whose walk misses a member answers 6, 10 or 15. A move made of a removal and an add publishes the walk without the
+ * member in between: its cycles are counted, the gap a move made that way leaves. A move by omx_clap_chain_order is one
+ * walk: no cycle misses the member. */
+struct gap
+{
+    struct omx_clap_chain *chain;
+    _Atomic int stop;
+    _Atomic uint32_t blocks, short_walk;
+};
+
+static void *gap_thread(void *arg)
+{
+    struct gap *g = arg;
+    static float in_l[16], in_r[16], out_l[16], out_r[16];
+    const float *in[CH] = { in_l, in_r };
+    float *out[CH] = { out_l, out_r };
+    uint32_t i;
+
+    for (i = 0; i < 16; i++)
+        in_l[i] = in_r[i] = 1.0f;
+    while (!atomic_load(&g->stop))
+    {
+        omx_clap_chain_process(g->chain, in, out, 16);
+        if (out_l[0] != 30.0f || out_r[15] != 30.0f)
+            atomic_fetch_add(&g->short_walk, 1u);
+        atomic_fetch_add(&g->blocks, 1u);
+    }
+    return NULL;
+}
+
+static void t_move_gap(void)
+{
+    static const struct spec g3[] = { { K_GAIN, 2.0f }, { K_GAIN, 3.0f }, { K_GAIN, 5.0f } };
+    struct set a;
+    struct gap g;
+    struct omx_clap_chain_member d;
+    pthread_t thread;
+    uint32_t ids[3], order[3], i, moves = 0, by_pair, by_order, blocks_pair, blocks_order;
+
+    memset(&g, 0, sizeof(g));
+    set_new(&a, g3, 3, 0);
+    g.chain = chain_of(&a, 0, ids, NULL);
+    pthread_create(&thread, NULL, gap_thread, &g);
+    // the x5 moved from the end to the front and back, 2000 times, each by a removal and an add at its new place
+    for (i = 0; i < 2000; i++)
+    {
+        member_desc(&a.m[2], &d);
+        moves += omx_clap_chain_remove(g.chain, ids[2]) == OMX_CLAP_CHAIN_OK
+                 && omx_clap_chain_add(g.chain, &d, i & 1u ? OMX_CLAP_CHAIN_END : 0u, &ids[2]) == OMX_CLAP_CHAIN_OK;
+        usleep(20);
+    }
+    by_pair = atomic_load(&g.short_walk);
+    blocks_pair = atomic_load(&g.blocks);
+    // and the same 2000 moves by one order each
+    for (i = 0; i < 2000; i++)
+    {
+        if (i & 1u)
+            order[0] = ids[0], order[1] = ids[1], order[2] = ids[2];
+        else
+            order[0] = ids[2], order[1] = ids[0], order[2] = ids[1];
+        moves += omx_clap_chain_order(g.chain, order, 3) == OMX_CLAP_CHAIN_OK;
+        usleep(20);
+    }
+    atomic_store(&g.stop, 1);
+    pthread_join(thread, NULL);
+    by_order = atomic_load(&g.short_walk) - by_pair;
+    blocks_order = atomic_load(&g.blocks) - blocks_pair;
+    CHECK(moves == 4000, "4000 moves while the cycles ran (%u)", moves);
+    // the measure's own check: it sees the gap a removal and an add leave, or a zero below proves nothing
+    CHECK(by_pair > 0, "a move by a removal and an add: %u of %u cycles ran without the member", by_pair, blocks_pair);
+    CHECK(by_order == 0 && blocks_order > 0, "a move by one order: %u of %u cycles ran without the member", by_order, blocks_order);
+    omx_clap_chain_destroy(g.chain);
+    set_free(&a);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -909,6 +1039,8 @@ int main(int argc, char **argv)
     t_abi();
     t_refusals();
     t_concurrent();
+    t_order();
+    t_move_gap();
     CHECK(omx_clap_host_binaries_open() == 0, "every binary closed (%u open)", omx_clap_host_binaries_open());
     if (g_failures)
     {
