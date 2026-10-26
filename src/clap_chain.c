@@ -322,6 +322,41 @@ int omx_clap_chain_remove(struct omx_clap_chain *chain, uint32_t id)
     return OMX_CLAP_CHAIN_OK;
 }
 
+int omx_clap_chain_order(struct omx_clap_chain *chain, const uint32_t *ids, uint32_t n)
+{
+    struct chain_slot slot[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    uint32_t taken[OMX_CLAP_CHAIN_MEMBERS_MAX];
+    uint32_t i, frames;
+    int k, tell;
+
+    if (!chain || (!ids && n))
+        return OMX_CLAP_CHAIN_ERR_ARG;
+    pthread_mutex_lock(&chain->lock);
+    if (n != chain->count)
+    {
+        pthread_mutex_unlock(&chain->lock);
+        return OMX_CLAP_CHAIN_ERR_ARG;
+    }
+    // the new order built aside, every id one member's and none twice, before the members change at all
+    memset(taken, 0, sizeof(taken));
+    for (i = 0; i < n; i++)
+    {
+        k = slot_find(chain, ids[i]);
+        if (k < 0 || taken[k])
+        {
+            pthread_mutex_unlock(&chain->lock);
+            return k < 0 ? OMX_CLAP_CHAIN_ERR_NO_MEMBER : OMX_CLAP_CHAIN_ERR_ARG;
+        }
+        taken[k] = 1;
+        slot[i] = chain->slot[k];
+    }
+    memcpy(chain->slot, slot, n * sizeof(slot[0]));
+    publish(chain);
+    tell = latency_update(chain, &frames);
+    unlock_and_tell(chain, tell, frames);
+    return OMX_CLAP_CHAIN_OK;
+}
+
 int omx_clap_chain_bypass(struct omx_clap_chain *chain, uint32_t id, int bypass)
 {
     uint32_t frames;

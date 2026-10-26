@@ -760,9 +760,15 @@ PLUGIN_HOSTD ?= $(PLUGIN_HOSTD_DIR)/plugin-hostd
 test-hostd-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 	$(PHD_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_pin_e2e.sh
 
+# a chain behind plugin-hostd and its crash drill (#104, docs/chain.md): one node; the middle member aborts, is
+# quarantined into a worker of its own, and the other two rejoin in order, their output the two one client each
+test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/fault-14.clap tests/fault-0.clap
+	$(PHD_CHAIN_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_chain_e2e.sh
+
 # what the pin tests read of plugin-hostd's protocol, from its header: a test names no code or verb of its own
 HASH := \#
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE PHD_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED PHD_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
 PHD_DECLARED = $(foreach n,PHD_ERR_PIN_ABSENT PHD_ERR_PIN_BINARY_MISMATCH PHD_ERR_PIN_LAYOUT_MISMATCH PHD_VERB_PIN_EXPECT PHD_VERB_PIN_SET PHD_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE PHD_ERR_NO_PARAM_CONTRACT PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
 
 tests/jack_meter_source: tests/jack_meter_source.c
@@ -776,8 +782,43 @@ test-identity: $(PROG) tests/jack_identity build/bench/inproc
 
 # a chain of plugins in one JACK client against the same plugins one client each in series, bit for bit, and the latency
 # the chain reports their sum (#302): the fake plugins of this tree; PLUGINS=bench/plugins.tsv for the omx-plugins set
-test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap
+test-chain-identity: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap
 	PLUGINS=$${PLUGINS:-tests/chain_fixture.tsv} ./tests/chain_identity.sh
+
+# the chain line in one JACK client (#104, docs/chain.md): the client's process callback and every function of this
+# tree it reaches (tests/rt_reach.py: chain_stage, process_gated, notes_out, transport_block, publish_gain_adjustment,
+# the header functions they run, and the core's: omx_clap_chain_process, omx_clap_host_run_ports, the note and stage
+# functions of clap_host.c and hosted_stage.h) names nothing that allocates, waits, locks or prints; three instances
+# one node, its output the same instances one client each in series bit for bit, changed while it runs, every refusal
+# changing nothing (tests/chain_host_e2e.sh)
+RT_CHAIN_FILES = src/effects.c src/cycle_gate.h src/omx_msgring.h src/host_transport.h src/clap_stage.h \
+    src/clap_host.c src/clap_host.h src/clap_chain.c src/hosted_stage.h
+RT_CHAIN_CALLEES = chain_stage process_gated notes_out transport_block publish_gain_adjustment host_transport_read omx_cycle_gate_enter \
+    omx_clap_chain_process omx_clap_host_run_ports omx_clap_host_notes_out omx_clap_host_note_in
+test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
+	mkdir -p build && python3 -I tests/rt_reach.py build/chain_host_rt.c process $(RT_CHAIN_FILES)
+	@unreached=; for f in $(RT_CHAIN_CALLEES); do grep -q -E "^# reached: .*\<$$f\>" build/chain_host_rt.c || unreached="$$unreached $$f"; done; \
+	    [ -z "$$unreached" ] || { echo "FAIL the scan of the host's chain cycle does not reach$$unreached"; false; }
+	! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/chain_host_rt.c \
+	    || { echo "FAIL the host's chain cycle names an allocator, sleep, lock or printf"; false; }
+	@echo "ok   the host's chain cycle and every function of this tree it reaches ($$(sed -n 's/^# reached: //p' build/chain_host_rt.c | wc -w)) name no allocator, sleep, lock or printf"
+	./tests/chain_host_e2e.sh
+
+# the chain's members walked by JACK's buffer-size callback while the control thread joins, frees, adds and lets go
+# of members, the host and the core built under ThreadSanitizer: g_chain_members orders every walk against every change,
+# so it reports nothing (tests/chain_host_e2e.sh with CHAIN_HOST_STRESS rounds, the quantum changed all along)
+build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2_LIB) $(PROTOCOL_LIB)
+	mkdir -p build/tsan
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) $(LV2_LIB) \
+	    $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
+
+test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
+	./tests/chain_host_tsan.sh $(abspath build/tsan/omx-clap-host) $(abspath build/tsan)
+
+# each guard of the host's chain broken in a copy of the tree, the test seen red on the check that names it
+test-chain-host-sabotage:
+	PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/chain_host_sabotage.sh
 
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm

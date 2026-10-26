@@ -82,7 +82,8 @@ jobs:
   test:
     name: build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # the chain host's sabotage builds and runs the host once per guard and drill, about twenty minutes of it (#104)
+    timeout-minutes: 50
     container:
       image: fedora:44
       # the jack tests run the host in a user, net, pid and mount namespace of its own
@@ -91,7 +92,7 @@ jobs:
       - name: Install the build tools
         run: |
           dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
-            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils iproute util-linux procps-ng libasan libubsan libtsan libabigail \
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils jq iproute util-linux procps-ng libasan libubsan libtsan libabigail \
             python3-numpy python3-lilv \
             libxcb-devel xorg-x11-server-Xvfb xdotool wayland-devel wayland-protocols-devel weston \
             dnf5-plugins
@@ -352,6 +353,46 @@ jobs:
             make test-hostd-pin PLUGIN_HOSTD=/tmp/plugin-hostd/plugin-hostd
           else
             echo "::warning::test-hostd-pin SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The chain line in one JACK client over jack: three instances one node (pw-dump), the output bit for bit the same
+      # instances one client each in eight configurations, every refusal changing nothing (#104)
+      - name: Test the chain line over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-chain-host
+            make test-chain-identity
+          else
+            echo "::warning::test-chain-host and test-chain-identity SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # The chain's members walked on JACK's thread while the control thread joins, frees and lets go of members, the
+      # host under ThreadSanitizer: no data race in src/effects.c (#104)
+      - name: Test the host's chain under ThreadSanitizer
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-chain-host-tsan
+          else
+            echo "::warning::test-chain-host-tsan SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # A chain behind plugin-hostd and its crash drill: the middle member aborts, is quarantined, the others rejoin in
+      # order, bit for bit (#104)
+      - name: Test a chain's crash drill behind plugin-hostd
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-hostd-chain PLUGIN_HOSTD=/tmp/plugin-hostd/plugin-hostd
+          else
+            echo "::warning::test-hostd-chain SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # each guard of the host's chain broken in a copy of the sources, the chain tests red on it (#104)
+      - name: The sabotage of the host's chain guards
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-chain-host-sabotage PLUGIN_HOSTD=/tmp/plugin-hostd/plugin-hostd
+          else
+            echo "::warning::test-chain-host-sabotage SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       - name: Name what this job does not run

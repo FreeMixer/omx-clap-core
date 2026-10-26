@@ -83,14 +83,15 @@
  * omx_clap_host_request_layout asks, and the stage's count of bound auxiliary output channels; 15: the pass-through
  * placement; 16: the CPU idle hold (#296): the configuration's idle_hold_us, the instance's idle_held,
  * omx_clap_host_idle_hold_set and omx_clap_host_idle_hold; 17: the plugin's resource hints (#323), the instance's
- * resource_hints and resource_hints_why, omx_clap_host_resource_hints).
+ * resource_hints and resource_hints_why, omx_clap_host_resource_hints; 18: the audio role's named slot (#104), the
+ * instance's audio_slot, omx_clap_host_name_slot).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               17u
-#define OMX_CLAP_CORE_ABI_OLDEST        17u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
+#define OMX_CLAP_CORE_ABI               18u
+#define OMX_CLAP_CORE_ABI_OLDEST        18u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
 /** The most meters of clap.meters/1 an instance reads; a plugin declaring more has none in process (docs/meters.md). */
@@ -554,6 +555,10 @@ struct omx_clap_instance
     omx_resource_hints_t resource_hints;  ///< the hints as the plugin declared them, each member whose bit of `declared` is
                                           ///< clear 0 and unknown; declared 0 when it states none or they were refused
     const char *resource_hints_why;  ///< NULL, or the OMX_HOSTING_RESOURCE_HINTS_ code the declaration was refused by
+
+    // ABI 18: the audio role's named slot (#104), a thread the carrier's own thread names wait-free
+    // (omx_clap_host_name_slot)
+    const _Atomic(pthread_t) *_Atomic audio_slot;  ///< the carrier's slot, NULL for none: the thread it holds has the role
 };
 
 
@@ -664,6 +669,13 @@ OMX_CLAP_EXPORT void omx_clap_host_set_audio_thread(struct omx_clap_instance *in
 OMX_CLAP_EXPORT void omx_clap_host_publish_role(struct omx_clap_instance *in, pthread_t rt, omx_clap_audio_role_fn is_audio, void *ctx);
 /** The audio role of omx_clap_host_publish_role, set on a published instance. */
 OMX_CLAP_EXPORT void omx_clap_host_set_audio_role(struct omx_clap_instance *in, pthread_t thread, omx_clap_audio_role_fn is_audio, void *ctx);
+/** A carrier thread known only once it runs (JACK's thread-init callback), named with no lock and no wait: the thread
+ * `*slot` holds is on the audio role from the store that puts it there, whatever the role's thread and held flag say,
+ * and its first cycle runs the plugin. The carrier's thread stores itself there (an atomic store, from any thread, at
+ * any time); this library only reads it, and never writes the role's own fields from it, so the restart's saved role
+ * never races it. The slot outlives the instance or is cleared first (NULL: none, the instance's start). Control
+ * thread, before the carrier's cycles start or with them shut out of the instance. */
+OMX_CLAP_EXPORT void omx_clap_host_name_slot(struct omx_clap_instance *in, const _Atomic(pthread_t) *slot);
 /** Arm the published instance: its stage starts to run the plugin on the next cycle. */
 OMX_CLAP_EXPORT void omx_clap_host_arm(struct omx_clap_instance *in);
 
