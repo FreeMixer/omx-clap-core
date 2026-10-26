@@ -385,7 +385,7 @@ messages no dialect of the plugin carries, since the instance was added.
 Nothing is allocated or locked on the audio thread.
 
 A controller that is not a jack client plays an instrument through the
-socket with plugin-hostd's note verbs. `note_input <N>` answers
+socket with the note verbs it shares with plugin-hostd (`data/verbs.json`). `note_input <N>` answers
 `resp 0 midi_in` for an instance that takes notes and `resp 0 -` for one
 that takes none. `note_on <N> <channel> <key> <velocity>`,
 `note_off <N> <channel> <key> <velocity>` and `all_notes_off <N>` (controller
@@ -969,21 +969,22 @@ panel record (`tests/clap_scan_test.c`, `panel_checks`).
 Layout pin
 ----------
 
-`pin_expect <N> omx-layout/1:<sha256>` is plugin-hostd's: the daemon sends it
+`pin_expect <N> omx-layout/1:<sha256>` is declared in `data/verbs.json`; plugin-hostd sends it
 just before the `add` of instance `N` with the layout pin of the plugin. That
 `add` computes the plugin's layout after `init()` and before `activate()`,
 every parameter `params.get_info()` gives in the `omx-layout/1` serialisation of
 plugin-hostd's `pin.h`, and when it differs destroys the instance and answers
-`resp -510` (`PHD_ERR_PIN_LAYOUT_MISMATCH`): the plugin is never activated and
+`resp -510` (`reply.host.pin-layout-mismatch`): the plugin is never activated and
 processes nothing. A pin is spent by the `add` it was sent for. A scheme the
-host does not know answers `resp -508` (`PHD_ERR_PIN_ABSENT`) and pins nothing.
+host does not know answers `resp -508` (`reply.host.pin-absent`) and pins nothing.
 
 
 Strip and controls
 ------------------
 
-`track_info`, `remote_pages`, `remote_page_get` and `param_info` are plugin-hostd's
-(`include/plugin-hostd/protocol.h`), answered from the plugin:
+`track_info`, `remote_pages`, `remote_page_get` and `param_info` are verbs
+omx-clap-host shares with plugin-hostd, declared in `data/verbs.json` (rendered
+as `omx_clap_core_host_verbs.h`), answered from the plugin:
 
 - `track_info <N> <name> <color> [kind]` stores the strip's name (`""` for none),
   colour (`#RRGGBB`, or `-` for none) and kind, then calls the plugin's
@@ -1009,7 +1010,7 @@ Strip and controls
   one rule (an id with no entry, two entries with one symbol, a malformed
   symbol, unit, scale or step, a fingerprint that is not the one the host
   computes, a malformed migration step), answers `resp -511`
-  (`PHD_ERR_NO_PARAM_CONTRACT`) for every parameter, and the host's log names
+  (`reply.host.no-param-contract`) for every parameter, and the host's log names
   the broken rule once (`<plugin id>: the parameter contract is not trusted:
   R4 ...`). An id `param_set` would refuse (a read-only parameter, the
   plugin's own bypass, an unknown id, `:bypass`) answers `resp -103`. An LV2
