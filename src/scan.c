@@ -233,6 +233,82 @@ static void put_features(FILE *out, const char *const *features)
         fputc(']', out);
 }
 
+/* the most whole values of an enum parameter's range that are asked for a label */
+#define MAX_ENUM_LABELS 1024u
+
+/* an enum parameter's labels, the plugin's value_to_text at every whole value of its range: "labels":[{"value":v,
+ * "label":"text"}], a value the plugin gives no text for left out, a range open or wider than MAX_ENUM_LABELS empty */
+static void put_enum_labels(FILE *out, const struct omx_clap_instance *instance, const clap_param_info_t *info)
+{
+    const clap_plugin_params_t *params = instance->params;
+    int first = 1;
+    double v;
+
+    fputs(",\"labels\":[", out);
+    if (params->value_to_text && isfinite(info->min_value) && isfinite(info->max_value) &&
+        info->max_value - info->min_value < MAX_ENUM_LABELS)
+    {
+        for (v = ceil(info->min_value); v <= info->max_value; v += 1.0)
+        {
+            char text[CLAP_NAME_SIZE];
+
+            memset(text, 0, sizeof(text));
+            if (!params->value_to_text(instance->plugin, info->id, v, text, sizeof(text)))
+                continue;
+            text[sizeof(text) - 1] = '\0';
+            fprintf(out, "%s{\"value\":", first ? "" : ",");
+            put_number(out, v);
+            fputs(",\"label\":", out);
+            put_string(out, text);
+            fputc('}', out);
+            first = 0;
+        }
+    }
+    fputc(']', out);
+}
+
+/* the plugin's remote-control pages, JSON only: "remote_controls":[{"id","section","name","params":[eight ids, an empty
+ * slot null],"forPreset"}], empty for a plugin without the extension */
+static void put_remote_controls(FILE *out, const struct omx_clap_instance *instance)
+{
+    const clap_plugin_t *p = instance->plugin;
+    const clap_plugin_remote_controls_t *rc = p->get_extension(p, CLAP_EXT_REMOTE_CONTROLS);
+    uint32_t count, i, k;
+    int first = 1;
+
+    if (!rc)
+        rc = p->get_extension(p, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
+    count = rc ? rc->count(p) : 0;
+    fputs("\"remote_controls\":[", out);
+    for (i = 0; i < count; i++)
+    {
+        clap_remote_controls_page_t page;
+
+        memset(&page, 0, sizeof(page));
+        if (!rc->get(p, i, &page))
+            continue;
+        page.section_name[sizeof(page.section_name) - 1] = '\0';
+        page.page_name[sizeof(page.page_name) - 1] = '\0';
+        fprintf(out, "%s{\"id\":%u,\"section\":", first ? "" : ",", page.page_id);
+        put_string(out, page.section_name);
+        fputs(",\"name\":", out);
+        put_string(out, page.page_name);
+        fputs(",\"params\":[", out);
+        for (k = 0; k < CLAP_REMOTE_CONTROLS_COUNT; k++)
+        {
+            if (k)
+                fputc(',', out);
+            if (page.param_ids[k] == CLAP_INVALID_ID)
+                fputs("null", out);
+            else
+                fprintf(out, "%u", page.param_ids[k]);
+        }
+        fprintf(out, "],\"forPreset\":%s}", page.is_for_preset ? "true" : "false");
+        first = 0;
+    }
+    fputc(']', out);
+}
+
 static void put_params(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_params_t *params = instance->params;
@@ -264,6 +340,8 @@ static void put_params(FILE *out, const struct omx_clap_instance *instance)
             put_number(out, info.default_value);
             fputs(",\"flags\":", out);
             put_flags(out, info.flags);
+            if (info.flags & CLAP_PARAM_IS_ENUM)
+                put_enum_labels(out, instance, &info);
             fputc('}', out);
         }
         else
@@ -820,7 +898,11 @@ static void put_plugin(FILE *out, const char *path, struct omx_clap_binary *bina
         fputc(',', out);
     put_params(out, instance);
     if (g_json)
+    {
         fputc(',', out);
+        put_remote_controls(out, instance);
+        fputc(',', out);
+    }
     put_audio_ports(out, instance, accepted);
     if (g_json)
         fputc(',', out);
