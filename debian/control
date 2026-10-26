@@ -22,13 +22,15 @@ Package: omx-clap-host
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Recommends: liblilv-0-0
-Description: use CLAP plugins on a JACK rig, driven like mod-host
- omx-clap-host brings CLAP plugins, the modern open plugin format, into a
- live JACK or PipeWire rig. Each plugin runs as a JACK client with its own
- ports, and an instrument gets a MIDI input as well. Anything that already
- controls mod-host can control it over the same socket with the same
- commands. LV2 plugins run in it too, by their URI, through its LV2 to CLAP
- adapter, which loads lilv when the first one is added.
+Description: use CLAP and LV2 plugins on a JACK rig, driven like mod-host
+ omx-clap-host hosts CLAP and LV2 plugins in a live JACK or PipeWire rig.
+ Each plugin runs as a JACK client with its own ports, and an instrument
+ gets a MIDI input as well. Anything that already controls mod-host can
+ control it over the same socket with the same commands. An LV2 plugin,
+ added by its URI, runs natively: a real LV2 instance loaded through lilv,
+ with no emulation and no wrapper process. The LV2 adapter linked into the
+ host maps the host interface, presenting the plugin's ports and controls
+ as CLAP ports and parameters, and loads lilv when the first one is added.
  .
  It comes with omx-clap-scan, which lists what is in a CLAP bundle and
  survives a plugin that crashes while loading.
@@ -87,10 +89,13 @@ Section: libdevel
 Architecture: any
 Multi-Arch: same
 Depends: libomx-clap-core-dev (= ${binary:Version}), clap-headers, pkgconf, ${misc:Depends}
-Description: run LV2 plugins in a CLAP host, as a library to link
- libomx-clap-lv2 lets a program that hosts CLAP plugins run LV2 plugins too:
- it presents one LV2 plugin as one CLAP plugin, with its controls as CLAP
- parameters, its latency, its own background worker and its default
- settings. It is a static library with its header and pkg-config file, and
- it loads lilv when the first LV2 bundle is opened, so a program that never
- opens one never needs lilv.
+Description: LV2 adapter of omx-clap-host, as a static library to link
+ libomx-clap-lv2 is the LV2 adapter omx-clap-host links in, for a program of
+ your own that hosts plugins on libomx-clap-core: it loads an LV2 plugin
+ through lilv as a real LV2 instance and maps the host interface, presenting
+ the plugin's ports and controls as CLAP ports and parameters, with its
+ latency, its own background worker and its default settings. It is a
+ static library with its header and pkg-config file, linked at build time,
+ and it loads lilv when the first LV2 bundle is opened, so a program that
+ never opens one never needs lilv. LV2 at run time is omx-clap-host with
+ liblilv-0-0, which plugin-hostd also runs as the worker of an LV2 plugin.
