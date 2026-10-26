@@ -123,6 +123,9 @@
         "reply": "resp <count>",
         "codes": [
           {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
             "ref": "HOST_REPLY_CODES.instanceNonExists"
           }
         ],
