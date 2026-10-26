@@ -102,7 +102,8 @@ static int ex_token(const char *text, const char *prefix, size_t prefix_len, con
     {
         const char *s = text + i;
 
-        if (memcmp(s, prefix, prefix_len) != 0 || s[prefix_len] != ':'
+        /* the ':' first, and the prefix holds none, so a ':' in its place turns the name down unread */
+        if (s[prefix_len] != ':' || memrchr(s, ':', prefix_len) || memcmp(s, prefix, prefix_len) != 0
             || memcmp(s + prefix_len + 1, local, local_len) != 0)
             continue;
         if ((i > 0 && (ex_name_char(s[-1]) || s[-1] == '.')) || ex_name_char(s[prefix_len + 1 + local_len]))
