@@ -1,11 +1,11 @@
-Breaks the check of fuzz/fuzz_manifest.c:242 (a SPARQL PREFIX is read one byte late).
+Breaks the check of fuzz/fuzz_manifest.c:250 (a SPARQL PREFIX is read one byte late).
 Caught by the seed input "whole" of fuzz_manifest.
 
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
-index 1d56392..5562d7b 100644
+index 5b7ac67..66f8cc2 100644
 --- a/src/lv2_locate.c
 +++ b/src/lv2_locate.c
-@@ -109,7 +109,7 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
+@@ -130,7 +130,7 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
          if (*at == '@' && strncmp(at + 1, "prefix", 6) == 0)
              p = at + 7;
          else if (strncasecmp(at, "PREFIX", 6) == 0 && (at == text || isspace((unsigned char)at[-1])))

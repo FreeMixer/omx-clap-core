@@ -1,11 +1,11 @@
-Breaks the check of fuzz/fuzz_manifest.c:223 (the URI's copy is never freed).
+Breaks the check of fuzz/fuzz_manifest.c:231 (the URI's copy is never freed).
 Caught by the seed input "whole" of fuzz_manifest.
 
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
-index 1d56392..41a0bec 100644
+index 5b7ac67..4dee3f8 100644
 --- a/src/lv2_locate.c
 +++ b/src/lv2_locate.c
-@@ -96,7 +96,6 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
+@@ -117,7 +117,6 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
          return 0;
      snprintf(whole, uri_len + 3, "<%s>", uri);
      found = strstr(text, whole) != NULL;
