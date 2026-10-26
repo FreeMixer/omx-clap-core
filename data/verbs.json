@@ -111,6 +111,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -131,6 +134,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -151,6 +157,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -177,6 +186,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -221,6 +233,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.notesByJack"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -250,6 +265,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -279,6 +297,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
@@ -308,6 +329,9 @@
           },
           {
             "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
           }
         ],
         "implementedBy": {
