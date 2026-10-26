@@ -98,12 +98,14 @@ jobs:
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
-      # its install script data/ (the hosting codes) installs with, from the FreeMixer channel; mod-host, the LV2 identity test's reference arm;
+      # its install script data/ (the hosting codes) installs with, from the OpenMixer channel; mod-host, the LV2 identity test's reference arm;
       # and omx-plugins-devel, whose omx_panel_description.h is the ABI test-panel-abi holds src/omx_clap_ext.h to
-      - name: Install omx-dsp-devel, omx-contract-devel, mod-host and omx-plugins-devel from the FreeMixer channel
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      - name: Install omx-dsp-devel, omx-contract-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
           dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' mod-host omx-plugins-devel
           pkg-config --modversion omxdsp
           pkg-config --atleast-version=3.3.0 omx-contract
@@ -440,9 +442,9 @@ jobs:
 
       - uses: FreeMixer/.github/.github/actions/mod-host-rpms@v1
 
-      # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, come from the FreeMixer channel
-      - name: Add the FreeMixer channel
-        run: dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
+      # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, come from the OpenMixer channel
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
@@ -675,15 +677,9 @@ jobs:
 
       - uses: FreeMixer/.github/.github/actions/deb-deps@v1
 
-      # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the FreeMixer channel
-      - name: Add the FreeMixer channel
-        run: |
-          set -euo pipefail
-          apt-get install -y --no-install-recommends curl
-          install -d /etc/apt/keyrings
-          curl -fsSL -o /etc/apt/keyrings/freemixer.asc https://freemixer.github.io/deb/freemixer.asc
-          echo "deb [signed-by=/etc/apt/keyrings/freemixer.asc] https://freemixer.github.io/deb/debian/${{ matrix.suite }} ./" > /etc/apt/sources.list.d/freemixer.list
-          apt-get update -qq
+      # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the OpenMixer channel
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
