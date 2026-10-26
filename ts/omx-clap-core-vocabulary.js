@@ -360,3 +360,110 @@ export const HOSTING_WORKER_CODES = {
     "code": "hosting.worker.nonconforming"
   }
 };
+
+/**
+ * The refusals the verbs of this package answer, by the number of resp <n>: mod-host's own numbers (mod-host.h) and the ones a worker answers past them.
+ * @see data/verbs.json
+ */
+export const HOST_REPLY_CODES = {
+  "instanceInvalid": {
+    "code": "reply.host.instance-invalid",
+    "resp": -1,
+    "doc": "mod-host's ERR_INSTANCE_INVALID: an instance number outside the host's table"
+  },
+  "instanceNonExists": {
+    "code": "reply.host.instance-non-exists",
+    "resp": -3,
+    "doc": "mod-host's ERR_INSTANCE_NON_EXISTS: an instance no add made"
+  },
+  "paramSymbolInvalid": {
+    "code": "reply.host.param-symbol-invalid",
+    "resp": -103,
+    "doc": "mod-host's ERR_LV2_INVALID_PARAM_SYMBOL: a symbol that is not a parameter param_set takes, the plugin's own bypass included"
+  },
+  "memoryAllocation": {
+    "code": "reply.host.memory-allocation",
+    "resp": -901,
+    "doc": "mod-host's ERR_MEMORY_ALLOCATION: the reply could not be built"
+  },
+  "invalidOperation": {
+    "code": "reply.host.invalid-operation",
+    "resp": -902,
+    "doc": "mod-host's ERR_INVALID_OPERATION: a word outside the verb's grammar, or a verb the host refuses on purpose"
+  },
+  "pinAbsent": {
+    "code": "reply.host.pin-absent",
+    "resp": -508,
+    "doc": "a layout pin in a scheme this host does not know, refused as no pin at all"
+  },
+  "pinLayoutMismatch": {
+    "code": "reply.host.pin-layout-mismatch",
+    "resp": -510,
+    "doc": "the add of an instance whose layout after init is not the one pin_expect named: the plugin is not activated"
+  },
+  "noParamContract": {
+    "code": "reply.host.no-param-contract",
+    "resp": -511,
+    "doc": "the host holds no checked unit and scale for this parameter: the controller falls back to the layout the scan gives"
+  },
+  "noNoteInput": {
+    "code": "reply.host.no-note-input",
+    "resp": -513,
+    "doc": "the instance's plugin takes no notes"
+  },
+  "notesByJack": {
+    "code": "reply.host.notes-by-jack",
+    "resp": -514,
+    "doc": "the instance's worker takes no notes on its socket (mod-host): the plugin is played through its jack MIDI input"
+  },
+  "noteQueueFull": {
+    "code": "reply.host.note-queue-full",
+    "resp": -517,
+    "doc": "the worker has no room for the line's notes before its next block: nothing of it is kept, and the line may be sent again"
+  }
+};
+
+/**
+ * The kind of strip, the last word of track_info; a line without it is an input channel.
+ * @see data/verbs.json
+ */
+export const HOST_TRACK_KINDS = {
+  "bus": {
+    "word": "bus"
+  },
+  "return": {
+    "word": "return"
+  },
+  "master": {
+    "word": "master"
+  }
+};
+
+/**
+ * The lines a host writes on its feedback port for these verbs, each followed by the instance number.
+ * @see data/verbs.json
+ */
+export const HOST_EVENTS = {
+  "remotePagesChanged": {
+    "word": "remote_pages_changed",
+    "doc": "the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again"
+  }
+};
+
+/**
+ * The words of HOST_TRACK_KINDS, in their declared order.
+ * @see data/verbs.json
+ */
+export const HOST_TRACK_KINDS_WORDS = [
+  "bus",
+  "return",
+  "master"
+];
+
+/**
+ * The words of HOST_EVENTS, in their declared order.
+ * @see data/verbs.json
+ */
+export const HOST_EVENTS_WORDS = [
+  "remote_pages_changed"
+];

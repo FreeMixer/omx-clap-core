@@ -40,13 +40,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <plugin-hostd/protocol.h>
-
 #include "mod-host.h"
 #include "host-dispatch.h"
 #include "socket.h"
 #include "protocol.h"
 #include "effects.h"
+#include "host_verbs.h"
 #include "clap_chain.h"
 #include "quiet_death.h"
 
@@ -64,6 +63,8 @@
 #endif
 #define VERSION         OMX_CLAP_VERSION
 #define IDLE_INTERVAL_MS 20
+/* plugin-hostd's chain line, which its package declares (FreeMixer/plugin-hostd#131) */
+#define VERB_CHAIN      "chain"
 
 
 /*
@@ -100,24 +101,24 @@ static const char g_help_msg[] =
     "param_set <instance_number> <param_id> <param_value>\n"
     "param_get <instance_number> <param_id>\n"
     "monitor_output <instance_number> <output_symbol>\n"
-    PHD_VERB_PIN_EXPECT " <instance_number> <scheme>" PHD_PIN_SCHEME_SEPARATOR "<sha256>\n"
-    PHD_VERB_TRACK_INFO " <instance_number> <name> <#RRGGBB|" PHD_NO_COLOR "> [bus|return|master]\n"
-    PHD_VERB_REMOTE_PAGES " <instance_number>\n"
-    PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
-    PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
-    PHD_VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
-    "audio_ports <instance_number>\n"
+    OMX_VERB_PIN_EXPECT " <instance_number> <scheme>:<sha256>\n"
+    OMX_VERB_TRACK_INFO " <instance_number> <name> <#RRGGBB|" HOST_WORD_NONE "> [bus|return|master]\n"
+    OMX_VERB_REMOTE_PAGES " <instance_number>\n"
+    OMX_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
+    OMX_VERB_PARAM_INFO " <instance_number> <param_id>\n"
+    VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
+    OMX_VERB_AUDIO_PORTS " <instance_number>\n"
     "show_external_ui <instance_number>\n"
-    "hide_external_ui <instance_number>\n"
+    OMX_VERB_HIDE_EXTERNAL_UI " <instance_number>\n"
     "preset_load <instance_number> <preset_file>\n"
     "state_save <dir>\n"
     "state_load <dir>\n"
     "connect <origin_port> <destination_port>\n"
     "disconnect <origin_port> <destination_port>\n"
     "cpu_load\n"
-    "idle_hold [off|<microseconds>]\n"
-    "note_drops <instance_number>\n"
-    "note_out_drops <instance_number>\n"
+    OMX_VERB_IDLE_HOLD " [off|<microseconds>]\n"
+    OMX_VERB_NOTE_DROPS " <instance_number>\n"
+    OMX_VERB_NOTE_OUT_DROPS " <instance_number>\n"
     "set_bpm <beats_per_minute>\n"
     "set_bpb <beats_per_bar>\n"
     "transport <rolling> <beats_per_bar> <beats_per_minute>\n"
@@ -219,7 +220,7 @@ static void note_drops_cb(proto_t *proto)
 static void note_input_cb(proto_t *proto)
 {
     char reply[64];
-    int resp = phd_note_valid(proto->list, (int)proto->list_count) ? effects_note_input(atoi(proto->list[1]), reply, sizeof(reply))
+    int resp = host_note_valid(proto->list, (int)proto->list_count) ? effects_note_input(atoi(proto->list[1]), reply, sizeof(reply))
                                                                   : ERR_INVALID_OPERATION;
 
     if (resp == SUCCESS)
@@ -228,18 +229,18 @@ static void note_input_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
-/* note_on, note_off and all_notes_off as plugin-hostd declares them: each word in its range, else -902 */
+/* note_on, note_off and all_notes_off as data/verbs.json declares them: each word in its range, else -902 */
 static void note_cb(proto_t *proto)
 {
     uint8_t messages[16][3];
     uint32_t count = 0, c;
 
-    if (!phd_note_valid(proto->list, (int)proto->list_count))
+    if (!host_note_valid(proto->list, (int)proto->list_count))
     {
         protocol_response_int(ERR_INVALID_OPERATION, proto);
         return;
     }
-    if (!strcmp(proto->list[0], PHD_VERB_ALL_NOTES_OFF))
+    if (!strcmp(proto->list[0], OMX_VERB_ALL_NOTES_OFF))
     {
         for (c = 0; c < 16; c++)
         {
@@ -250,7 +251,7 @@ static void note_cb(proto_t *proto)
     }
     else
     {
-        messages[0][0] = (uint8_t)((strcmp(proto->list[0], PHD_VERB_NOTE_ON) ? 0x80 : 0x90) | atoi(proto->list[2]));
+        messages[0][0] = (uint8_t)((strcmp(proto->list[0], OMX_VERB_NOTE_ON) ? 0x80 : 0x90) | atoi(proto->list[2]));
         messages[0][1] = (uint8_t)atoi(proto->list[3]);
         messages[0][2] = (uint8_t)atoi(proto->list[4]);
         count = 1;
@@ -267,7 +268,7 @@ static void track_info_cb(proto_t *proto)
 {
     int resp = ERR_INVALID_OPERATION;
 
-    if (phd_track_info_valid(proto->list, (int)proto->list_count))
+    if (host_track_info_valid(proto->list, (int)proto->list_count))
         resp = effects_track_info(atoi(proto->list[1]), proto->list[2], proto->list[3],
                                   proto->list_count > 4 ? proto->list[4] : NULL);
     protocol_response_int(resp, proto);
@@ -433,28 +434,28 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(EFFECT_ADD, add_cb);
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
-    protocol_add_command(PHD_VERB_PIN_EXPECT " %i %s", pin_expect_cb);
-    protocol_add_command(PHD_VERB_TRACK_INFO_FMT, track_info_cb);
-    protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
-    protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
-    protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
-    protocol_add_command(PHD_VERB_CHAIN " ...", chain_cb);
-    protocol_add_command("audio_ports %i", audio_ports_cb);
+    protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
+    protocol_add_command(OMX_VERB_TRACK_INFO_FMT, track_info_cb);
+    protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
+    protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
+    protocol_add_command(OMX_VERB_PARAM_INFO_FMT, param_info_cb);
+    protocol_add_command(VERB_CHAIN " ...", chain_cb);
+    protocol_add_command(OMX_VERB_AUDIO_PORTS_FMT, audio_ports_cb);
     protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
-    protocol_add_command("hide_external_ui %i", hide_external_ui_cb);
+    protocol_add_command(OMX_VERB_HIDE_EXTERNAL_UI_FMT, hide_external_ui_cb);
     protocol_add_command(EFFECT_SET_BPM, set_bpm_cb);
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
     protocol_add_command(TRANSPORT_SYNC, transport_sync_cb);
     register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
-    protocol_add_command("idle_hold ...", idle_hold_cb);
-    protocol_add_command("note_drops %i", note_drops_cb);
-    protocol_add_command(PHD_VERB_NOTE_INPUT_FMT, note_input_cb);
-    protocol_add_command(PHD_VERB_NOTE_ON_FMT, note_cb);
-    protocol_add_command(PHD_VERB_NOTE_OFF_FMT, note_cb);
-    protocol_add_command(PHD_VERB_ALL_NOTES_OFF_FMT, note_cb);
-    protocol_add_command("note_out_drops %i", note_out_drops_cb);
+    protocol_add_command(OMX_VERB_IDLE_HOLD_FMT, idle_hold_cb);
+    protocol_add_command(OMX_VERB_NOTE_DROPS_FMT, note_drops_cb);
+    protocol_add_command(OMX_VERB_NOTE_INPUT_FMT, note_input_cb);
+    protocol_add_command(OMX_VERB_NOTE_ON_FMT, note_cb);
+    protocol_add_command(OMX_VERB_NOTE_OFF_FMT, note_cb);
+    protocol_add_command(OMX_VERB_ALL_NOTES_OFF_FMT, note_cb);
+    protocol_add_command(OMX_VERB_NOTE_OUT_DROPS_FMT, note_out_drops_cb);
     protocol_add_command(HELP, help_cb);
     protocol_add_command(QUIT, quit_cb);
 
