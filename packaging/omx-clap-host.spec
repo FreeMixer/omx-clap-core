@@ -152,7 +152,7 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
-* Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.21.0-1
+* Mon Oct 26 2026 Pau Aliagas <linuxnow@gmail.com> - 0.21.0-1
 - omx-clap-host runs plugin-hostd's chain line in one JACK client: chain
   <chain> <instance> ... makes the instances, in order, one chain in the
   first one's client through the library's chain, one node of the graph,
@@ -177,6 +177,10 @@ make test-lv2
   audio role with no lock: the thread the carrier stores in its slot holds the
   role from that store, and no role the control thread gives back covers it
   (ABI 18, the instance's audio_slot appended; OMX_CLAP_CORE_0.21) (#104).
+- The fuzz harnesses hold the readers to limits of their own: the preset
+  grammar's depth of 32 and the manifest rule's 16 declarations, a compact
+  write whose allocation fails giving no text and a rewritten member holding
+  the value its rewrite set; the library does not change (#345).
 
 * Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.1-1
 - The fuzz harnesses read each input by its own grammar, never by the
