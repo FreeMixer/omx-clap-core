@@ -498,6 +498,8 @@ static void manifest_corpus(void)
         { "namespace-is-uri", "@prefix ex: <urn:example:plugins#gain> .\nex: a lv2:Plugin ." },
         { "local-first", "gain\n@prefix ex: <urn:example:plugins#> .\nex:gain a lv2:Plugin ." },
         { "two-prefixes","@prefix a: <urn:example:other#> .\n@prefix ex: <urn:example:plugins#> .\nex:gain a lv2:Plugin ." },
+        { "other-prefix-name", "@prefix ex: <urn:example:plugins#> .\nzx:gain a lv2:Plugin ." },
+        { "next-name-close", "@prefix ex: <urn:example:plugins#> .\nzex:gain ex:gain a lv2:Plugin ." },
     };
     char **bundles, path[1024], name[1024];
     size_t i;
@@ -509,6 +511,10 @@ static void manifest_corpus(void)
     // a URI whose local name a prefixed name cannot spell unescaped
     seed_names("local-dot-last", "urn:example:plugins#gain.", "@prefix ex: <urn:example:plugins#> .\nex:gain. a lv2:Plugin .");
     seed_names("local-escaped", "urn:example:plugins#ga%in", "@prefix ex: <urn:example:plugins#> .\nex:ga%in a lv2:Plugin .");
+    // a local name of ':' alone: the name starts one byte into a local name not taken, and overlaps it
+    seed_names("colon-local", "u:::", "@prefix p: <u:> .\nx p::: a lv2:Plugin .");
+    // a local name that repeats its letter, the repeat in a prefix, and the name after the ':' that ends it
+    seed_names("repeat-then-name", "urn:example:plugins#aa", "@prefix aaa: <urn:example:plugins#> .\n aaa:aa a lv2:Plugin .");
     // the URI's namespace declared as often as a manifest is read for, and once more: a candidate unread
     {
         static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
@@ -522,6 +528,44 @@ static void manifest_corpus(void)
         many[SEED_PREFIXES_MAX * (sizeof(line) - 1)] = line[0];
         many[(SEED_PREFIXES_MAX + 1) * (sizeof(line) - 1)] = '\0';
         seed_names("prefixes-past-most-read", "urn:example:plugins#gain", many);
+    }
+    // a long prefix, then its letters again and the local name after each of many ':': past the first, the prefix is
+    // compared at none
+    {
+        enum { P = 64, NAMES = 64 };
+        static const char head[] = "@prefix ", decl[] = ": <urn:example:plugins#> .\n", name[] = ":gain";
+        char text[sizeof(head) - 1 + P + sizeof(decl) - 1 + P - 1 + NAMES * (sizeof(name) - 1) + 1];
+        size_t n = 0, k;
+
+        memcpy(text + n, head, sizeof(head) - 1);
+        n += sizeof(head) - 1;
+        memset(text + n, 'a', P);
+        n += P;
+        memcpy(text + n, decl, sizeof(decl) - 1);
+        n += sizeof(decl) - 1;
+        memset(text + n, 'a', P - 1);
+        n += P - 1;
+        for (k = 0; k < NAMES; k++)
+        {
+            memcpy(text + n, name, sizeof(name) - 1);
+            n += sizeof(name) - 1;
+        }
+        text[n] = '\0';
+        seed_names("long-prefix", "urn:example:plugins#gain", text);
+    }
+    // a local name of one letter many times, and a manifest of that letter: the search passes the run of them at once
+    {
+        enum { LOCAL = 64, N = 256 };
+        static const char ns[] = "urn:example:plugins#", decl[] = "@prefix ex: <urn:example:plugins#> .\n";
+        char uri[sizeof(ns) + LOCAL], text[sizeof(decl) + N];
+
+        memcpy(uri, ns, sizeof(ns) - 1);
+        memset(uri + sizeof(ns) - 1, 'a', LOCAL);
+        uri[sizeof(ns) - 1 + LOCAL] = '\0';
+        memcpy(text, decl, sizeof(decl) - 1);
+        memset(text + sizeof(decl) - 1, 'a', N);
+        text[sizeof(decl) - 1 + N] = '\0';
+        seed_names("repeated-local", uri, text);
     }
     // each fixture bundle's manifest, for its first plugin, for lv2:Plugin through its lv2: prefix, and for a URI it
     // does not name

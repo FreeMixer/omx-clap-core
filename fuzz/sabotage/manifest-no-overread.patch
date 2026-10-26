@@ -2,15 +2,15 @@ Breaks the check of fuzz/fuzz_manifest.c:185 (a prefixed name's end is read one 
 Caught by the seed input "name-at-end" of fuzz_manifest.
 
 diff --git a/src/lv2_locate.c b/src/lv2_locate.c
-index 1d56392..80886ee 100644
+index 5b7ac67..dff4dfa 100644
 --- a/src/lv2_locate.c
 +++ b/src/lv2_locate.c
-@@ -68,7 +68,7 @@ static int has_prefixed(const char *text, const char *prefix, size_t prefix_len,
-             continue;
-         if (start > text && (name_char(start[-1]) || start[-1] == '.'))
-             continue;
--        if (name_char(at[local_len]))
-+        if (name_char(at[local_len + 1]))
-             continue;
-         return 1;
-     }
+@@ -86,7 +86,7 @@ static int has_prefixed(const char *text, const char *prefix, size_t prefix_len,
+             start = at - 1 - prefix_len;
+             n += prefix_len;
+             if (strncmp(start, prefix, prefix_len) == 0 && !(start > text && (name_char(start[-1]) || start[-1] == '.'))
+-                && !name_char(at[local_len]))
++                && !name_char(at[local_len + 1]))
+                 break;
+         }
+         end = at += local_len;
