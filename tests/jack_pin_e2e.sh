@@ -12,7 +12,8 @@
 #
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
 # JACK_E2E_PORT:    the socket port (default 5564)
-# PHD_*:            what plugin-hostd's headers declare, read from them by make test-jack-pin
+# HOST_*, OMX_VERB_*: what data/verbs.json declares, read from src/host_verbs.h by make test-jack-pin
+# PHD_PIN_LAYOUT_SCHEME: the scheme plugin-hostd's pin.h declares
 
 set -u
 
@@ -25,8 +26,8 @@ layout_pin=$here/clap_layout_pin
 id=org.omx-clap-host.test.passthrough
 uri="clap:$fake#$id"
 
-: "${PHD_ERR_PIN_ABSENT:?}" "${PHD_ERR_PIN_LAYOUT_MISMATCH:?}" "${PHD_VERB_PIN_EXPECT:?}" "${PHD_PIN_LAYOUT_SCHEME:?}"
-expect_verb=$PHD_VERB_PIN_EXPECT
+: "${HOST_REPLY_PIN_ABSENT:?}" "${HOST_REPLY_PIN_LAYOUT_MISMATCH:?}" "${OMX_VERB_PIN_EXPECT:?}" "${PHD_PIN_LAYOUT_SCHEME:?}"
+expect_verb=$OMX_VERB_PIN_EXPECT
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     for f in "$host" "$fake" "$layout_pin"; do
@@ -127,14 +128,14 @@ in_graph 0; step $? "effect_0 is in the graph"
 # (d) a pin for another instance leaves this one alone, and waits for its own add, which spends it
 expect "$expect_verb 2 $other" "resp 0"
 expect "add $uri 1" "resp 1"
-expect "add $uri 2" "resp $PHD_ERR_PIN_LAYOUT_MISMATCH"
+expect "add $uri 2" "resp $HOST_REPLY_PIN_LAYOUT_MISMATCH"
 expect "add $uri 2" "resp 2"
 
 # (c) a scheme this host does not know is refused and pins nothing; a token outside the grammar too
-expect "$expect_verb 3 $wrong_scheme" "resp $PHD_ERR_PIN_ABSENT"
+expect "$expect_verb 3 $wrong_scheme" "resp $HOST_REPLY_PIN_ABSENT"
 expect "$expect_verb 3 omx-layout/1:0123" "resp -902"
 expect "$expect_verb 3 $pin" "resp 0"
-expect "$expect_verb 3 $wrong_scheme" "resp $PHD_ERR_PIN_ABSENT"
+expect "$expect_verb 3 $wrong_scheme" "resp $HOST_REPLY_PIN_ABSENT"
 expect "add $uri 3" "resp 3"
 expect "$expect_verb -1 $pin" "resp -1"
 expect "$expect_verb 10000 $pin" "resp -1"
@@ -154,7 +155,7 @@ stop_host
 # (b) the same binary with another default: destroyed after init, never activated, nothing processed, not in the graph
 start_host 32
 expect "$expect_verb 0 $pin" "resp 0"
-expect "add $uri 0" "resp $PHD_ERR_PIN_LAYOUT_MISMATCH"
+expect "add $uri 0" "resp $HOST_REPLY_PIN_LAYOUT_MISMATCH"
 sleep 0.5
 [ "$(logged init)" -eq 1 ] && [ "$(logged destroy)" -eq 1 ]
 step $? "the refused instance was created and destroyed ($(logged init) init, $(logged destroy) destroy)"

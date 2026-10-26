@@ -27,7 +27,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <plugin-hostd/protocol.h>
 
 #include "layout_pin.h"
 #include "omx_clap_raw.h"
@@ -65,7 +64,7 @@ int main(int argc, char **argv)
     if (bytes)
         ret = layout_pin_write(plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), print_sink, stdout, NULL);
     else if ((ret = layout_pin_write(plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), NULL, NULL, hex)) == 0)
-        printf("%s%s%s\n", PHD_PIN_LAYOUT_SCHEME, PHD_PIN_SCHEME_SEPARATOR, hex);
+        printf("%s:%s\n", PHD_PIN_LAYOUT_SCHEME, hex);
     plugin->destroy(plugin);
     omx_clap_raw_close(&raw);
     return ret == 0 ? 0 : 1;

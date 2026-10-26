@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/omx_clap_core_host_verbs.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
 CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
@@ -741,12 +741,12 @@ test-jack-meters: $(PROG) tests/fake_compressor.clap tests/fake.clap tests/jack_
 # layout pinning over jack in the same kind of namespace: pin_expect before add, a layout that matches loads, one that
 # differs is destroyed before activate with nothing processed, a scheme this host does not know is refused
 test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
-	$(PHD_DECLARED) ./tests/jack_pin_e2e.sh
+	$(HOST_PIN_DECLARED) ./tests/jack_pin_e2e.sh
 
 # track_info, remote pages and param_info over jack in the same kind of namespace: what the plugin's clap.track-info
 # reads, its two remote pages, remote_pages_changed on the feedback socket, every call on the thread that ran init
 test-jack-info: $(PROG) tests/fake.clap
-	$(PHD_DECLARED) ./tests/jack_info_e2e.sh
+	$(HOST_INFO_DECLARED) ./tests/jack_info_e2e.sh
 
 # a plugin that moves its own parameter over jack in the same kind of namespace: param_gesture and param_set on the
 # feedback port, in order, and the values read again when there were more than the ring holds
@@ -767,8 +767,13 @@ test-hostd-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/fault-14.clap tests/fault-0.clap
 	$(PHD_CHAIN_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_chain_e2e.sh
 
-# what the pin tests read of plugin-hostd's protocol, from its header: a test names no code or verb of its own
+# what the tests read of the verbs data/verbs.json declares, from the header over its renders (src/host_verbs.h) and
+# the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
 HASH := \#
+host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+HOST_PIN_DECLARED = $(foreach n,HOST_REPLY_PIN_ABSENT HOST_REPLY_PIN_LAYOUT_MISMATCH OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
+HOST_INFO_DECLARED = $(foreach n,HOST_REPLY_NO_PARAM_CONTRACT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
+# what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE PHD_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED PHD_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
 PHD_DECLARED = $(foreach n,PHD_ERR_PIN_ABSENT PHD_ERR_PIN_BINARY_MISMATCH PHD_ERR_PIN_LAYOUT_MISMATCH PHD_VERB_PIN_EXPECT PHD_VERB_PIN_SET PHD_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE PHD_ERR_NO_PARAM_CONTRACT PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')

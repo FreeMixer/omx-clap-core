@@ -47,7 +47,6 @@
 #include <jack/midiport.h>
 #include <clap/ext/draft/gain-adjustment-metering.h>
 #include <clap/factory/preset-discovery.h>
-#include <plugin-hostd/protocol.h>
 
 #include "effects.h"
 #include "clap_host.h"
@@ -56,6 +55,7 @@
 #include "cycle_gate.h"
 #include "hosted_stage_limits.h"
 #include "host_transport.h"
+#include "host_verbs.h"
 #include "layout_pin.h"
 #include "omx_clap_core_vocabulary.h"
 #include "lv2_locate.h"
@@ -2607,7 +2607,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
     }
     if (layout_check(effect, pin, id) != 0)
     {
-        error = PHD_ERR_PIN_LAYOUT_MISMATCH;
+        error = HOST_REPLY_PIN_LAYOUT_MISMATCH;
         goto error;
     }
     if (outputs_build(effect) != 0)
@@ -2719,7 +2719,7 @@ int effects_pin_expect(int instance, const char *layout)
     if (strcmp(scheme, PHD_PIN_LAYOUT_SCHEME) != 0)
     {
         fprintf(stderr, "instance %d: layout pin scheme %s is not %s\n", instance, scheme, PHD_PIN_LAYOUT_SCHEME);
-        return PHD_ERR_PIN_ABSENT;
+        return HOST_REPLY_PIN_ABSENT;
     }
     memcpy(g_layout_pins[instance], hex, sizeof(hex));
     return SUCCESS;
@@ -3120,18 +3120,12 @@ int effects_note_drops(int effect_id, char *reply, size_t size)
     return SUCCESS;
 }
 
-/* plugin-hostd's code for a note verb its worker had no room to queue; declared by plugin-hostd 0.5 (FreeMixer/plugin-hostd#91),
- * the same number here until that header is the floor */
-#ifndef PHD_ERR_NOTE_QUEUE_FULL
-#define PHD_ERR_NOTE_QUEUE_FULL (-517)
-#endif
-
 /* note_input: "resp 0 midi_in" for an instance that takes notes, "resp 0 -" for one that takes none */
 int effects_note_input(int effect_id, char *reply, size_t size)
 {
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    snprintf(reply, size, "resp 0 %s", g_effects[effect_id].note_ring_buf ? MIDI_PORT_NAME : PHD_NO_NOTE_INPUT);
+    snprintf(reply, size, "resp 0 %s", g_effects[effect_id].note_ring_buf ? MIDI_PORT_NAME : HOST_WORD_NONE);
     return SUCCESS;
 }
 
@@ -3146,9 +3140,9 @@ int effects_note(int effect_id, const uint8_t (*messages)[3], uint32_t count)
         return ERR_INSTANCE_NON_EXISTS;
     effect = &g_effects[effect_id];
     if (!effect->note_ring_buf)
-        return PHD_ERR_NO_NOTE_INPUT;
+        return HOST_REPLY_NO_NOTE_INPUT;
     if (NOTE_RING_BYTES - omx_msgring_used(&effect->note_ring) < count * omx_msgring_record_bytes(3) + omx_msgring_record_bytes(3))
-        return PHD_ERR_NOTE_QUEUE_FULL;     // the audio thread has not drained the ring: no room, nothing queued
+        return HOST_REPLY_NOTE_QUEUE_FULL;     // the audio thread has not drained the ring: no room, nothing queued
     for (i = 0; i < count; i++)
         omx_msgring_push(&effect->note_ring, messages[i], 3);
     return SUCCESS;
@@ -3303,7 +3297,7 @@ void effects_idle(void)
         {
             char line[64];
 
-            snprintf(line, sizeof(line), PHD_EVENT_REMOTE_PAGES_CHANGED_FMT, effect->instance);
+            snprintf(line, sizeof(line), HOST_EVENT_REMOTE_PAGES_CHANGED_FMT, effect->instance);
             socket_send_feedback(line);
         }
         if (omx_clap_host_latency(effect->clap) != effect->latency_published)
@@ -3336,20 +3330,19 @@ int effects_hide_ui(int effect_id)
     return window_hide(g_effects[effect_id].clap) == 0 ? SUCCESS : ERR_EXTERNAL_UI_UNAVAILABLE;
 }
 
-/* the CLAP flag of a strip kind of PHD_TRACK_KINDS, 0 for an input channel */
-#define TRACK_KIND_FLAG_BUS     CLAP_TRACK_INFO_IS_FOR_BUS
-#define TRACK_KIND_FLAG_RETURN  CLAP_TRACK_INFO_IS_FOR_RETURN_TRACK
-#define TRACK_KIND_FLAG_MASTER  CLAP_TRACK_INFO_IS_FOR_MASTER
-
+/* the CLAP flag of a strip kind, in the order of HOST_TRACK_KINDS; 0 for an input channel */
 static uint64_t track_kind_flag(const char *kind)
 {
-#define X(id, name) if (kind && !strcmp(kind, name)) return TRACK_KIND_FLAG_##id;
-    PHD_TRACK_KINDS(X)
-#undef X
-    return 0;
+    static const uint64_t flags[OMX_HOST_TRACK_KINDS_COUNT] = {
+        CLAP_TRACK_INFO_IS_FOR_BUS, CLAP_TRACK_INFO_IS_FOR_RETURN_TRACK, CLAP_TRACK_INFO_IS_FOR_MASTER,
+    };
+    const int n = host_track_kind(kind);
+
+    _Static_assert(OMX_HOST_TRACK_KINDS_COUNT == 3, "a CLAP flag for each word of HOST_TRACK_KINDS");
+    return n > 0 ? flags[n - 1] : 0;
 }
 
-/* track_info: the words already checked against the grammar (phd_track_info_valid) */
+/* track_info: the words already checked against the grammar (host_track_info_valid) */
 int effects_track_info(int effect_id, const char *name, const char *color, const char *kind)
 {
     clap_color_t rgb;
@@ -3357,7 +3350,7 @@ int effects_track_info(int effect_id, const char *name, const char *color, const
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
-    if (strcmp(color, PHD_NO_COLOR) != 0)
+    if (strcmp(color, HOST_WORD_NONE) != 0)
     {
         value = strtoul(color + 1, NULL, 16);
         rgb.alpha = 255;
@@ -3366,7 +3359,7 @@ int effects_track_info(int effect_id, const char *name, const char *color, const
         rgb.blue = (uint8_t)value;
     }
     if (omx_clap_host_track_info_set(g_effects[effect_id].clap, name,
-                                     strcmp(color, PHD_NO_COLOR) ? &rgb : NULL, track_kind_flag(kind)) != 0)
+                                     strcmp(color, HOST_WORD_NONE) ? &rgb : NULL, track_kind_flag(kind)) != 0)
         return ERR_INVALID_OPERATION;
     return SUCCESS;
 }
@@ -3383,13 +3376,13 @@ int effects_remote_pages(int effect_id)
 }
 
 /* a name a plugin reports as one quoted word: a byte below 0x20 a space, cut at the last whole UTF-8 character within
- * PHD_STRING_MAX bytes, '"' written \" and a backslash \\ */
+ * HOST_STRING_MAX bytes, '"' written \" and a backslash \\ */
 static void quoted(char *out, size_t size, const char *name)
 {
-    char clean[PHD_STRING_MAX + 1];
+    char clean[HOST_STRING_MAX + 1];
     size_t n = 0, o = 0;
 
-    for (; name[n] && n < PHD_STRING_MAX; n++)
+    for (; name[n] && n < HOST_STRING_MAX; n++)
         clean[n] = (unsigned char)name[n] < 0x20 ? ' ' : name[n];
     if (name[n])
         while (n > 0 && ((unsigned char)name[n] & 0xc0) == 0x80)
@@ -3406,13 +3399,13 @@ static void quoted(char *out, size_t size, const char *name)
     out[o] = '\0';
 }
 
-/* remote_page_get: the page's reply into `reply`; a slot is the id param_set takes, PHD_EMPTY_SLOT for an empty one,
+/* remote_page_get: the page's reply into `reply`; a slot is the id param_set takes, HOST_WORD_NONE for an empty one,
  * an id params does not list, and an id param_set would refuse */
 int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
 {
     struct omx_clap_instance *clap;
     clap_remote_controls_page_t info;
-    char section[2 * PHD_STRING_MAX + 3], name[2 * PHD_STRING_MAX + 3];
+    char section[2 * HOST_STRING_MAX + 3], name[2 * HOST_STRING_MAX + 3];
     size_t used;
     int i;
 
@@ -3428,12 +3421,12 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
     quoted(section, sizeof(section), info.section_name);
     quoted(name, sizeof(name), info.page_name);
     used = snprintf(reply, size, "resp 0 %u %s %s", info.page_id, section, name);
-    for (i = 0; i < PHD_REMOTE_PAGE_SLOTS && used < size; i++)
+    for (i = 0; i < HOST_REMOTE_PAGE_SLOTS && used < size; i++)
     {
         const clap_id id = info.param_ids[i];
 
         if (id == CLAP_INVALID_ID || !omx_clap_host_param_is_row(clap, id))
-            used += snprintf(reply + used, size - used, " %s", PHD_EMPTY_SLOT);
+            used += snprintf(reply + used, size - used, " %s", HOST_WORD_NONE);
         else
             used += snprintf(reply + used, size - used, " %u", id);
     }
@@ -3458,7 +3451,7 @@ int effects_param_info(int effect_id, const char *symbol, char *reply, size_t si
     if (omx_clap_host_param_meaning(g_effects[effect_id].clap, id, &m) != 0
         || omx_clap_param_number(m.min, min, sizeof(min)) < 0 || omx_clap_param_number(m.max, max, sizeof(max)) < 0
         || omx_clap_param_number(m.def, def, sizeof(def)) < 0 || omx_clap_param_number(m.step, step, sizeof(step)) < 0)
-        return PHD_ERR_NO_PARAM_CONTRACT;
+        return HOST_REPLY_NO_PARAM_CONTRACT;
     used = snprintf(reply, size, "resp 0 %s %s %s %s %s %s %s", omx_clap_param_unit_name(m.unit),
                     omx_clap_param_scale_name(m.scale), min, max, def, step, m.symbol);
     return used > 0 && (size_t)used < size ? SUCCESS : ERR_INVALID_OPERATION;
