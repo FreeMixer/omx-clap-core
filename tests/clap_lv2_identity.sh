@@ -42,6 +42,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 if [ -n "${IDENTITY_FIXTURE:-}" ]; then
     arms=${IDENTITY_ARMS:-modhost lv2 inproc}
@@ -180,8 +181,8 @@ fi
 send() {
     local arm=$1 cmd=$2 reply
     case $arm in
-        modhost) printf '%s\0' "$cmd" >&3; IFS= read -r -d '' -t 5 reply <&3;;
-        clap|lv2) printf '%s\0' "$cmd" >&4; IFS= read -r -d '' -t 5 reply <&4;;
+        modhost) reply=$(protocol_send 3 5 "$cmd");;
+        clap|lv2) reply=$(protocol_send 4 5 "$cmd");;
         inproc) echo "$cmd" >&6; IFS= read -r -t 5 reply <&7;;
     esac
     echo "$reply"

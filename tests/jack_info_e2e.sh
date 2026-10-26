@@ -15,6 +15,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5566}
@@ -71,8 +72,7 @@ feedback=$runtime/feedback.log
 : >"$log"
 FAKE_LOG=$log "$host" -n -p "$port" -f "$fbport" >"$runtime/host.log" 2>&1 &
 pids+=($!)
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host.log"
+protocol_wait_ready "$runtime/host.log"
 step $? "omx-clap-host ready on port $port, feedback on $fbport"
 exec 3<>"/dev/tcp/127.0.0.1/$port"
 exec 4<>"/dev/tcp/127.0.0.1/$fbport"
@@ -80,11 +80,7 @@ exec 4<>"/dev/tcp/127.0.0.1/$fbport"
 while IFS= read -r -d '' line <&4; do echo "$line" >>"$feedback"; done &
 pids+=($!)
 
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")
@@ -155,8 +151,7 @@ contract_host() {
     port=$((port + 2))
     FAKE_CONTRACT=$1 "$host" -n -p "$port" -f "$((port + 1))" >"$runtime/host-$1.log" 2>&1 &
     pids+=($!)
-    for _ in $(seq 50); do grep -q "ready!" "$runtime/host-$1.log" && break; sleep 0.1; done
-    grep -q "ready!" "$runtime/host-$1.log"
+    protocol_wait_ready "$runtime/host-$1.log"
     step $? "omx-clap-host with FAKE_CONTRACT=$1 ready on port $port"
     exec 3<>"/dev/tcp/127.0.0.1/$port"
     exec 4<>"/dev/tcp/127.0.0.1/$((port + 1))"

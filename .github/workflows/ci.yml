@@ -126,6 +126,7 @@ jobs:
           make -C /tmp/plugin-hostd install_protocol PREFIX=/opt/plugin-hostd
           make -C /tmp/plugin-hostd plugin-hostd
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
       - name: Build
@@ -346,6 +347,10 @@ jobs:
       # cell naming a test that exists, each rule broken once and seen red (tests/clap_doc_check.sh)
       - name: Test the CLAP compatibility page against the headers
         run: make test-clap-doc-check
+
+      # no test or bench writes its own send: they source plugin-hostd-tests' lib/protocol.sh (tests/protocol_client_check.sh)
+      - name: Test that no script carries its own protocol client
+        run: make test-protocol-client
 
       # the two clean-root consumer steps below build core_link_test by hand: they must build and run what test-core does
       - name: Test the consumer steps against test-core

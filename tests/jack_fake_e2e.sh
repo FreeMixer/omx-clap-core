@@ -14,6 +14,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5572}
@@ -72,16 +73,11 @@ step 0 "private pipewire on $runtime"
 "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pids+=($!)
 host_pid=$!
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host.log"
+protocol_wait_ready "$runtime/host.log"
 step $? "omx-clap-host ready on port $port"
 
 exec 3<>"/dev/tcp/127.0.0.1/$port"
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")
@@ -158,8 +154,7 @@ port=$((port + 1))
 FAKE_RESCAN_ON_DEACTIVATE=1 FAKE_LOG=$runtime/fake.log "$host" -n -p "$port" >"$runtime/host2.log" 2>&1 &
 pids+=($!)
 host_pid=$!
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host2.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host2.log"; step $? "omx-clap-host ready on port $port, its plugins rescanning in every deactivate"
+protocol_wait_ready "$runtime/host2.log"; step $? "omx-clap-host ready on port $port, its plugins rescanning in every deactivate"
 exec 3>&-
 exec 3<>"/dev/tcp/127.0.0.1/$port"
 selected() { grep -c -x -F "org.omx-clap-host.test.configs select 2" "$runtime/fake.log" 2>/dev/null; }

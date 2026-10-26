@@ -18,6 +18,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 daemon=${PLUGIN_HOSTD:-}
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
@@ -92,11 +93,7 @@ require_pins 1
 pin_mode $PHD_PIN_MODE_STRICT
 EOF
 
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 10 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=10
 expect() {
     local reply
     reply=$(send "$1")

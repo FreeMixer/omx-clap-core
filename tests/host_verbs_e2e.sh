@@ -20,6 +20,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${HOST_VERBS_PORT:-5574}
@@ -54,8 +55,7 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 
 FAKE_CONTRACT=good "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pid=$!
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host.log" || { echo "omx-clap-host did not come up" >&2; cat "$runtime/host.log" >&2; exit 2; }
+protocol_wait_ready "$runtime/host.log" || { echo "omx-clap-host did not come up" >&2; cat "$runtime/host.log" >&2; exit 2; }
 
 python3 -I "$here/host_verbs_check.py" --port "$port" --contract-path "$OMX_CONTRACT_PATH" \
     --registration "$registration" --header "$(dirname "$registration")/omx_clap_core_host_verbs.h" \

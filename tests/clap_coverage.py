@@ -48,6 +48,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.environ.get('PLUGIN_HOSTD_TESTS_LIB') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'plugin-hostd', 'tests', 'lib'))
+import plugin_hostd_client  # noqa: E402  plugin-hostd-tests' lib/plugin_hostd_client.py
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SABOTAGE = os.environ.get('CLAP_COVERAGE_SABOTAGE', '')
@@ -235,25 +238,11 @@ class Host:
                 pass
 
     def send(self, line):
-        """(reply, None), or (None, 'closed' | 'timeout' | 'oserror')"""
-        try:
-            self.s.sendall(line.encode() + b'\0')
-            buf, deadline = b'', time.time() + self.timeout
-            while not buf.endswith(b'\0'):
-                left = deadline - time.time()
-                if left <= 0:
-                    return None, 'timeout'
-                self.s.settimeout(left)
-                d = self.s.recv(4096)
-                if not d:
-                    return None, 'closed'
-                buf += d
+        """(reply, None), or (None, 'closed' | 'timeout' | 'oserror <why>')"""
+        reply, err = plugin_hostd_client.Client(self.s).try_send(line, self.timeout)
+        if err is None:
             self.drain()
-            return buf[:-1].decode(errors='replace'), None
-        except socket.timeout:
-            return None, 'timeout'
-        except OSError:
-            return None, 'oserror'
+        return reply, err
 
     def log_size(self):
         self.log.flush()
