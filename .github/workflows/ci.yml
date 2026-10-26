@@ -866,7 +866,7 @@ jobs:
       publish: false
 
   # A commit message is published like a file. A pull request's own commits must carry no
-  # AI-attribution line (tools/ai-trace-commit-check.sh); what is already on the base is not read.
+  # AI-attribution line (the ai-trace-check action of FreeMixer/.github); what is already on the base is not read.
   ai-trace:
     name: commit messages carry no AI attribution
     if: github.event_name == 'pull_request'
@@ -877,7 +877,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: The checker catches a fixture and goes blind when its patterns are removed
-        run: tools/ai-trace-commit-check.sh --selftest
-      - name: Scan the commits of the pull request
-        run: tools/ai-trace-commit-check.sh origin/${{ github.event.pull_request.base.ref }}..HEAD
+      # @main until FreeMixer/.github moves v1 past the action
+      - uses: FreeMixer/.github/.github/actions/ai-trace-check@main
+        with:
+          base-ref: ${{ github.event.pull_request.base.ref }}

@@ -1,5 +1,5 @@
 {
- "$comment": "SPDX-License-Identifier: GPL-3.0-or-later. The AI-attribution patterns (Python re, flags IGNORECASE|MULTILINE) read by ai-trace-commit-check.sh. Edit here only.",
+ "$comment": "Single source of the AI-trace patterns (Python re, flags IGNORECASE|MULTILINE). Read by ai-trace-sweep.sh and ai-trace-commit-check.sh. Edit here only. A trailer-shaped pattern that eats the rest of its line is anchored at the line start, so prose quoting a trailer keeps its text.",
  "markers": [
   {
    "name": "robot-footer",
@@ -7,7 +7,7 @@
   },
   {
    "name": "generated-footer",
-   "pattern": "(?:🤖[^\\S\\r\\n]*)?Generated[^\\S\\r\\n]+(?:with|by)[^\\S\\r\\n]+\\[?Claude[^\\S\\r\\n]+Code\\]?(?:\\([^)\\s]*\\))?"
+   "pattern": "(?:🤖[^\\S\\r\\n]*)?(?:Generated|Made)[^\\S\\r\\n]+(?:with|by)[^\\S\\r\\n]+\\[?Claude(?:[^\\S\\r\\n]+Code)?\\]?(?:\\([^)\\s]*\\))?"
   },
   {
    "name": "co-authored-by",
@@ -16,6 +16,14 @@
   {
    "name": "ai-co-author",
    "pattern": "Co-Authored-By:[^\\S\\r\\n]*(?:Anthropic|OpenAI|ChatGPT|Copilot|Gemini|Codex|Cursor|Aider|Devin)\\b[^\\r\\n<`]*(?:<[^>\\r\\n]*>)?"
+  },
+  {
+   "name": "ai-co-author-model",
+   "pattern": "^[^\\S\\r\\n]*Co-Authored-By:[^\\S\\r\\n]*(?:GitHub[^\\S\\r\\n]+Copilot|Opus|Sonnet|Haiku|Fable|GPT)\\b[^\\r\\n<`]*(?:<[^>\\r\\n]*>)?"
+  },
+  {
+   "name": "ai-assisted-by",
+   "pattern": "^[^\\S\\r\\n]*(?:Assisted|Generated)-By:[^\\S\\r\\n]*(?:Claude|Anthropic|OpenAI|ChatGPT|(?:GitHub[^\\S\\r\\n]+)?Copilot|Gemini|Codex|Cursor|Aider|Devin|Opus|Sonnet|Haiku|Fable|GPT)\\b[^\\r\\n<`]*(?:<[^>\\r\\n]*>)?"
   },
   {
    "name": "anthropic-noreply",
