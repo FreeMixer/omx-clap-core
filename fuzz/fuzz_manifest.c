@@ -179,7 +179,7 @@ static __attribute__((noinline)) void check_no_overread(const uint8_t *uri, size
     char *ua = fuzz_copy(uri, un, 1, FUZZ_PAD, 'a'), *ta = fuzz_copy(text, tn, 1, FUZZ_PAD, 'a');
     char *ub = fuzz_copy(uri, un, 1, FUZZ_PAD, '\0'), *tb = fuzz_copy(text, tn, 1, FUZZ_PAD, '\0');
 
-    /* mutant: src/lv2_locate.c:71 `at[local_len]` -> `at[local_len + 1]`
+    /* mutant: src/lv2_locate.c:89 `at[local_len]` -> `at[local_len + 1]`
      * input: name-at-end */
     if (lv2_locate_manifest_names(ta, ua) != lv2_locate_manifest_names(tb, ub))
         abort();
@@ -191,7 +191,7 @@ static __attribute__((noinline)) void check_no_overread(const uint8_t *uri, size
 
 static __attribute__((noinline)) void check_bounded_alloc(size_t held, size_t uri_len)
 {
-    /* mutant: src/lv2_locate.c:94 `malloc(uri_len + 3)` -> `malloc(uri_len * 2 + 3)`
+    /* mutant: src/lv2_locate.c:115 `malloc(uri_len + 3)` -> `malloc(uri_len * 2 + 3)`
      * input: whole */
     if (held > NAMES_ALLOC_BOUND(uri_len))
         abort();
@@ -202,13 +202,21 @@ static __attribute__((noinline)) void check_as_written(const char *text, const c
     const int want = expected(text, uri);
 
     /* A manifest that names the URI is a candidate.
-     * mutant: src/lv2_locate.c:98 `found = strstr(text, whole) != NULL;` -> `found = 0;`
-     * input: whole */
+     * mutant: src/lv2_locate.c:119 `found = strstr(text, whole) != NULL;` -> `found = 0;`
+     * input: whole
+     * mutant: src/lv2_locate.c:71 `next[-1] != ':'` -> `1`
+     * input: colon-local
+     * mutant: src/lv2_locate.c:76 `strstr(p, local)` -> `strstr(p + local_len, local)`
+     * input: repeat-then-name
+     * mutant: src/lv2_locate.c:92 `end = at += local_len;` -> `end = at += 2 * local_len + 1;`
+     * input: next-name-close */
     if (want && !named)
         abort();
     /* A manifest that does not name it is not: "ex:gain2" is not "ex:gain".
-     * mutant: src/lv2_locate.c:71 `name_char(at[local_len])` -> `0`
+     * mutant: src/lv2_locate.c:89 `!name_char(at[local_len])` -> `1`
      * input: longer-local
+     * mutant: src/lv2_locate.c:88 `strncmp(start, prefix, prefix_len) == 0` -> `1`
+     * input: other-prefix-name
      * mutant: src/lv2_locate.h:43 `16` -> `15`
      * input: prefixes-most-read */
     if (named && !want)
@@ -217,7 +225,7 @@ static __attribute__((noinline)) void check_as_written(const char *text, const c
 
 static __attribute__((noinline)) void check_reject_clean(size_t live_before)
 {
-    /* mutant: src/lv2_locate.c:99 `free(whole);` -> ``
+    /* mutant: src/lv2_locate.c:120 `free(whole);` -> ``
      * input: whole */
     if (fuzz_alloc_live() != live_before)
         abort();
@@ -236,7 +244,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const char *tex
 
 static void must_name(const char *text, const char *uri)
 {
-    /* mutant: src/lv2_locate.c:112 `p = at + 6;` -> `p = at + 7;`
+    /* mutant: src/lv2_locate.c:133 `p = at + 6;` -> `p = at + 7;`
      * input: whole */
     if (lv2_locate_manifest_names(text, uri) != 1)
         abort();
@@ -245,7 +253,7 @@ static void must_name(const char *text, const char *uri)
 static void as_ruled(const char *text, const char *uri)
 {
     /* One more name character after the URI's end is another name, and what the reader answers is the rule's.
-     * mutant: src/lv2_locate.c:71 `name_char(at[local_len])` -> `0`
+     * mutant: src/lv2_locate.c:89 `!name_char(at[local_len])` -> `1`
      * input: whole */
     if (lv2_locate_manifest_names(text, uri) != expected(text, uri))
         abort();
@@ -258,7 +266,7 @@ static __attribute__((noinline)) void check_round_trip(const char *uri)
     size_t k;
 
     /* The empty text names nothing.
-     * mutant: src/lv2_locate.c:147 `return 0;` -> `return 1;`
+     * mutant: src/lv2_locate.c:168 `return 0;` -> `return 1;`
      * input: whole */
     if (lv2_locate_manifest_names("", uri) != 0)
         abort();
