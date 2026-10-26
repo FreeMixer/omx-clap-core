@@ -32,6 +32,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 plugins=${PLUGINS:-$root/bench/plugins.tsv}
 kind=${CHAIN_KIND:-clap}
@@ -139,12 +140,7 @@ start_host() {
     grep -q ready "$runtime/$arm.log"; step $? "$arm host ready"
     eval "exec ${fd[$arm]}<>/dev/tcp/127.0.0.1/${port[$arm]}"
 }
-send() {
-    local reply
-    printf '%s\0' "$2" >&"${fd[$1]}"
-    IFS= read -r -d '' -t 30 reply <&"${fd[$1]}"
-    echo "$reply"
-}
+send() { protocol_send "${fd[$1]}" 30 "$2"; }
 expect() {
     local reply
     reply=$(send "$1" "$2")

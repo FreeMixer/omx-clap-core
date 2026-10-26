@@ -24,6 +24,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 daemon=${PLUGIN_HOSTD:-}
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
@@ -108,12 +109,7 @@ for _ in $(seq 100); do grep -q ready "$runtime/ref.log" && break; sleep 0.1; do
 grep -q ready "$runtime/ref.log"; step $? "the references' host ready"
 exec 5<>"/dev/tcp/127.0.0.1/$refport"
 
-send() {
-    local reply
-    printf '%s\0' "$2" >&"$1"
-    IFS= read -r -d '' -t 30 reply <&"$1"
-    echo "$reply"
-}
+send() { protocol_send "$1" 30 "$2"; }
 expect() {
     local reply
     reply=$(send "$1" "$2")
