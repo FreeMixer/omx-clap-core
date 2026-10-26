@@ -314,7 +314,9 @@ the sequence re-check out of the read and expects torn records.
 `make test-chain` runs `tests/clap_chain_test.c`, the chain by value over the fake plugins
 and stages of its own: its output equals its members in series bit for bit, the latency is
 their sum and re-reported, a bypassed or removed member equals a chain built without it, a
-cycle longer than 8192 frames passes dry, a structure of another ABI or size is refused.
+new order is one walk (a move by one order leaves no cycle without the member, where a
+removal and an add leave a counted gap), a cycle longer than 8192 frames passes dry, a
+structure of another ABI or size is refused.
 `make test-fake` includes it. `make test-chain-tsan` runs it under ThreadSanitizer and `make
 test-chain-sabotage` breaks each guard in a copy of the tree and expects it red (CI runs both).
 

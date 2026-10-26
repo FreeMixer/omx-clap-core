@@ -8,7 +8,8 @@
 #   series   one client per plugin, effect_0 .. effect_<N-1>, each output linked to the next one's input
 #   control  the same again, effect_200 .. : two arms that do not differ, so a plugin that is not deterministic
 #            between two instances of itself shows here and is not taken for the chain's difference
-#   chain    OMX_CLAP_HOST_CHAIN=100,101,..: one client, effect_100, the members in its cycle
+#   chain    effect_100 .., declared one chain by "chain 100 100 101 .." after the adds (docs/chain.md): one client,
+#            effect_100's, the members in its cycle
 #
 # then control against series and chain against series, every pair cmp-equal or the first differing sample said, and
 # the latency each arm's last output reports to the graph equal. With CHAIN_KIND=lv2 the plugins are added by their
@@ -127,17 +128,15 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
 
-# the arms: their port, first instance and fd; the chain arm's host has OMX_CLAP_HOST_CHAIN
+# the arms: their port, first instance and fd
 declare -A port=([series]=5581 [control]=5582 [chain]=5583 [narrow]=5584) base=([series]=0 [control]=200 [chain]=100 [narrow]=300)
 declare -A fd=([series]=3 [control]=4 [chain]=5 [narrow]=6)
-chain_list() { local k list=; for k in $(seq 0 $((n - 1))); do list=$list${list:+,}$(($1 + k)); done; echo "$list"; }
 start_host() {
-    local arm=$1 world=$2 env=()
-    case $arm in chain | narrow) env=(OMX_CLAP_HOST_CHAIN="$(chain_list "${base[$arm]}")") ;; esac
-    env "${env[@]}" LV2_PATH="$world" "$OMX_CLAP_HOST" -n -p "${port[$arm]}" >"$runtime/$arm.log" 2>&1 &
+    local arm=$1 world=$2
+    LV2_PATH="$world" "$OMX_CLAP_HOST" -n -p "${port[$arm]}" >"$runtime/$arm.log" 2>&1 &
     pids+=($!)
     for _ in $(seq 100); do grep -q ready "$runtime/$arm.log" && break; sleep 0.1; done
-    grep -q ready "$runtime/$arm.log"; step $? "$arm host ready${env:+ (${env[*]})}"
+    grep -q ready "$runtime/$arm.log"; step $? "$arm host ready"
     eval "exec ${fd[$arm]}<>/dev/tcp/127.0.0.1/${port[$arm]}"
 }
 send() {
@@ -173,6 +172,8 @@ for arm in chain series control; do
         expect "$arm" "${adds[$k]} $i" "resp $i"
     done
 done
+# the chain arm's instances one chain, in order, as plugin-hostd's line declares it
+expect chain "chain ${base[chain]} $(seq -s ' ' "${base[chain]}" $((${base[chain]} + n - 1)))" "resp 0"
 
 if [ "$kind" = lv2 ]; then
     # the chain in a world of the first plugin's bundle alone, as plugin-hostd narrows a worker's LV2_PATH

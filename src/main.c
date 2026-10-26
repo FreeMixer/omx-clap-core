@@ -31,8 +31,10 @@
 ************************************************************************************************************************
 */
 
+#include <ctype.h>
 #include <getopt.h>
 #include <signal.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +47,7 @@
 #include "socket.h"
 #include "protocol.h"
 #include "effects.h"
+#include "clap_chain.h"
 #include "quiet_death.h"
 
 
@@ -69,7 +72,11 @@
 ************************************************************************************************************************
 */
 
-static volatile int running;
+/* SIGTERM and SIGINT run term_signal on whichever thread the kernel picks, PipeWire's loop threads among them, and two
+ * signals can run it on two threads at once: running is atomic, and the socket is finished once, by the first of the
+ * signal and quit to get there (finish) */
+static atomic_int running;
+static atomic_flag finished = ATOMIC_FLAG_INIT;
 static volatile int quitting;
 
 static const host_backend_t g_clap_backend = {
@@ -98,6 +105,7 @@ static const char g_help_msg[] =
     PHD_VERB_REMOTE_PAGES " <instance_number>\n"
     PHD_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     PHD_VERB_PARAM_INFO " <instance_number> <param_id>\n"
+    PHD_VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
     "audio_ports <instance_number>\n"
     "show_external_ui <instance_number>\n"
     "hide_external_ui <instance_number>\n"
@@ -265,6 +273,39 @@ static void track_info_cb(proto_t *proto)
     protocol_response_int(resp, proto);
 }
 
+/* a word of the chain line: a non-negative decimal number below `limit` */
+static int chain_word(const char *word, long limit, int *out)
+{
+    char *end;
+    long value;
+
+    if (!isdigit((unsigned char)word[0]))
+        return 0;
+    value = strtol(word, &end, 10);
+    if (*end != '\0' || value >= limit)
+        return 0;
+    *out = (int)value;
+    return 1;
+}
+
+/* chain <chain> <instance> [<instance> ...], as plugin-hostd sends it to a worker that runs chains in one client: each
+ * word a number, else -902 */
+static void chain_cb(proto_t *proto)
+{
+    int instances[OMX_CLAP_CHAIN_MEMBERS_MAX], id, n = 0, resp = ERR_INVALID_OPERATION;
+    uint32_t i;
+
+    if (proto->list_count >= 3 && proto->list_count - 2 <= OMX_CLAP_CHAIN_MEMBERS_MAX
+        && chain_word(proto->list[1], INT32_MAX, &id))
+    {
+        for (i = 2; i < proto->list_count && chain_word(proto->list[i], MAX_INSTANCES, &instances[n]); i++)
+            n++;
+        if (i == proto->list_count)
+            resp = effects_chain(id, instances, n);
+    }
+    protocol_response_int(resp, proto);
+}
+
 static void remote_pages_cb(proto_t *proto)
 {
     protocol_response_int(effects_remote_pages(atoi(proto->list[1])), proto);
@@ -345,20 +386,24 @@ static void quit_cb(proto_t *proto)
     quitting = 1;
 }
 
+// the loop ends and the socket is finished, once
+static void finish(void)
+{
+    atomic_store(&running, 0);
+    if (!atomic_flag_test_and_set(&finished))
+        socket_finish();
+}
+
 static void idle_cb(void)
 {
     effects_idle();
     if (quitting)
-    {
-        running = 0;
-        socket_finish();
-    }
+        finish();
 }
 
 static void term_signal(int sig)
 {
-    running = 0;
-    socket_finish();
+    finish();
 
     return; (void)sig;
 }
@@ -393,6 +438,7 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(PHD_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(PHD_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(PHD_VERB_PARAM_INFO_FMT, param_info_cb);
+    protocol_add_command(PHD_VERB_CHAIN " ...", chain_cb);
     protocol_add_command("audio_ports %i", audio_ports_cb);
     protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
     protocol_add_command("hide_external_ui %i", hide_external_ui_cb);
@@ -568,6 +614,8 @@ int main(int argc, char **argv)
     if (host_init(socket_port, feedback_port) != 0)
         exit(EXIT_FAILURE);
 
+    // before the handlers, so a signal that comes first ends the loop before it starts
+    atomic_store(&running, 1);
     memset(&sig, 0, sizeof(sig));
     sig.sa_handler = term_signal;
     sig.sa_flags   = SA_RESTART;
@@ -580,10 +628,9 @@ int main(int argc, char **argv)
     printf("omx-clap-host ready!\n");
     fflush(stdout);
 
-    running = 1;
-    while (running) socket_run(0);
+    while (atomic_load(&running)) socket_run(0);
 
-    socket_finish();
+    finish();
     effects_finish();
     protocol_remove_commands();
 

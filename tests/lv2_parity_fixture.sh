@@ -5,8 +5,9 @@
 # tests/lv2_parity.py end to end on this tree's fixture bundles (build/lv2): the host fixture (a latency it reports
 # after its first activate), the worker-gain fixture (a worker) and the midi-echo synth (MIDI in, no audio in),
 # through mod-host and through this tree's omx-clap-host at 48 and 96 kHz. Every one must come out IDENTICAL. Then the
-# same run with LV2_PARITY_SABOTAGE=offset (the adapter's recordings one sample late, in a copy) must come out with
-# no IDENTICAL at all. Exit 0 only when both held. Needs mod-host (MOD_HOST, default mod-host on PATH).
+# host fixture at 96 kHz LV2_PARITY_REPEATS times (default 10), IDENTICAL every time. Last, the first run again with
+# LV2_PARITY_SABOTAGE=offset (the adapter's recordings one sample late, in a copy) must come out with no IDENTICAL at
+# all. Exit 0 only when all three held. Needs mod-host (MOD_HOST, default mod-host on PATH).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
@@ -32,6 +33,21 @@ pass "$out/real"
 t "three fixtures at two rates, six measurements" "[ \$(tail -n +2 '$out/real/parity.tsv' | wc -l) = 6 ]"
 t "every measurement IDENTICAL ($(classes "$out/real"))" "! tail -n +2 '$out/real/parity.tsv' | cut -f3 | grep -vqx IDENTICAL"
 t "none of them silent" "! tail -n +2 '$out/real/parity.tsv' | cut -f4 | grep -qx silent"
+# the host fixture at 96 kHz again and again, each run a fresh pair of hosts: IDENTICAL every time. A client cycle that
+# passes dry before its instance's audio role is named (#104: 7 runs of 20 on fecd7d7, its two instances 0.33 apart)
+# differs from mod-host's only on the runs where JACK's threads collide, so one run alone is no proof
+repeats=${LV2_PARITY_REPEATS:-10}
+repeat_bad=0
+for i in $(seq 1 "$repeats"); do
+    d=$out/repeat.$i
+    LV2_PATH=$root/build/lv2 python3 "$here/lv2_parity.py" probe --uris urn:openmixer:test:host-fixture --out "$d" >/dev/null \
+        && python3 "$here/lv2_parity.py" run --out "$d" --rates 96000 --lv2-path "$root/build/lv2" \
+               --omx-clap-host "$root/omx-clap-host" --mod-host "$mod_host" --keep none >"$d/run.log" 2>&1 \
+        && python3 "$here/lv2_parity.py" classify --out "$d" >/dev/null
+    c=$(tail -n +2 "$d/parity.tsv" 2>/dev/null | cut -f3,5)
+    [ "${c%%	*}" = IDENTICAL ] || { repeat_bad=$((repeat_bad + 1)); echo "     repeat $i: ${c:-no measurement}"; }
+done
+t "the host fixture at 96000, $repeats runs: every one IDENTICAL ($repeat_bad not)" "[ $repeat_bad = 0 ]"
 pass "$out/sabotage" offset
 t "sabotage (the adapter one sample late): no IDENTICAL ($(classes "$out/sabotage"))" \
   "[ \$(tail -n +2 '$out/sabotage/parity.tsv' | wc -l) = 6 ] && ! tail -n +2 '$out/sabotage/parity.tsv' | cut -f3 | grep -qx IDENTICAL"

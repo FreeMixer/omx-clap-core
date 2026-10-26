@@ -179,3 +179,13 @@ OMX_CLAP_CORE_0.18
     /* the caller's clap.gui, offered to the plugins (#180) */
     omx_clap_host_offer_gui;
 } OMX_CLAP_CORE_0.17;
+
+/* added after 0.20.1: the 0.18 node is frozen */
+OMX_CLAP_CORE_0.21
+{
+  global:
+    /* a chain's members in a new order, one walk (#104) */
+    omx_clap_chain_order;
+    /* a carrier thread on the audio role from its first cycle, named with no lock (#104) */
+    omx_clap_host_name_slot;
+} OMX_CLAP_CORE_0.18;

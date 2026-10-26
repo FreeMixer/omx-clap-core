@@ -553,6 +553,111 @@ static void role_checks(const char *path)
     omx_clap_host_close(instance);
 }
 
+/* a carrier thread that names itself in a slot (omx-clap-host's JACK thread-init callback) and then runs cycles: each
+ * cycle's run counted, and the thread's own thread-check asked after it */
+struct slot_carrier
+{
+    struct omx_clap_instance *instance;
+    _Atomic(pthread_t) *slot;
+    uint32_t cycles;
+    _Atomic int named, go;      // it stored itself; the test lets its cycles start
+    int on_role_named;          // its thread-check right after the store, before any cycle
+    uint32_t first_runs;        // the stage's runs after its first cycle
+    uint32_t processed;         // the cycles that ran the plugin
+    uint32_t on_role;           // the cycles after which it was on the audio role
+};
+
+static void *slot_carrier_run(void *arg)
+{
+    struct slot_carrier *c = arg;
+    const clap_host_thread_check_t *check = c->instance->host.get_extension(&c->instance->host, CLAP_EXT_THREAD_CHECK);
+    float in_l[BLOCK] = { 0 }, in_r[BLOCK] = { 0 }, out_l[BLOCK], out_r[BLOCK];
+    const float *inputs[2] = { in_l, in_r };
+    float *outputs[2] = { out_l, out_r };
+    uint32_t b;
+
+    atomic_store_explicit(c->slot, pthread_self(), memory_order_release);
+    c->on_role_named = check->is_audio_thread(&c->instance->host);
+    atomic_store(&c->named, 1);
+    while (!atomic_load(&c->go))
+        usleep(100);
+    for (b = 0; b < c->cycles; b++)
+    {
+        const uint32_t runs = atomic_load(&c->instance->stage.h.runs);
+
+        omx_clap_run_io(&c->instance->stage, inputs, outputs, BLOCK);
+        c->processed += atomic_load(&c->instance->stage.h.runs) != runs;
+        c->on_role += check->is_audio_thread(&c->instance->host) ? 1u : 0u;
+        if (b == 0)
+            c->first_runs = atomic_load(&c->instance->stage.h.runs);
+    }
+    return NULL;
+}
+
+/* start a carrier on `slot` for `cycles`; `hold`: the control thread holds the audio role (a bypass's, a parameter
+ * delivery's) while the carrier names itself, and gives back what it saved before the carrier's cycles start */
+static void slot_carrier_go(struct slot_carrier *c, struct omx_clap_instance *instance, _Atomic(pthread_t) *slot,
+                            uint32_t cycles, int hold)
+{
+    struct omx_clap_role role;
+    pthread_t t;
+
+    memset(c, 0, sizeof(*c));
+    c->instance = instance;
+    c->slot = slot;
+    c->cycles = cycles;
+    if (hold)
+        omx_clap_host_take_role(instance, &role);
+    pthread_create(&t, NULL, slot_carrier_run, c);
+    while (!atomic_load(&c->named))
+        usleep(100);
+    if (hold)
+        omx_clap_host_release_role(instance, &role, role.state);
+    atomic_store(&c->go, 1);
+    pthread_join(t, NULL);
+}
+
+/* the audio role named in a carrier's slot, wait-free: the plugin runs on the role from the carrier's first cycle, every
+ * cycle processed and counted from that one, with nothing else naming the thread (no set_audio_thread, no lock); and a
+ * thread named while the control thread holds the role keeps it after the control thread gives back what it saved,
+ * which a write to the role's own fields would lose */
+static void slot_checks(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct slot_carrier c;
+    _Atomic(pthread_t) slot = (pthread_t)0;
+    const uint32_t cycles = 64;
+
+    CHECK(open_ok(path, FAKE_PASSTHROUGH, &instance), "open %s for the named slot", FAKE_PASSTHROUGH);
+    if (!instance)
+        return;
+    CHECK(activate(instance), "activate for the named slot");
+    omx_clap_host_name_slot(instance, &slot);
+    omx_clap_host_arm(instance);
+    CHECK(atomic_load(&instance->stage.h.runs) == 0 && !instance->audio_role_held, "armed, no cycle yet, no thread named");
+
+    slot_carrier_go(&c, instance, &slot, cycles, 0);
+    CHECK(c.on_role_named, "the store alone puts the carrier on the audio role, before its first cycle");
+    CHECK(c.first_runs == 1, "its first cycle runs the plugin: %u run after it", c.first_runs);
+    CHECK(c.processed == cycles && c.on_role == cycles,
+          "every cycle from the first processed on the audio role: %u of %u processed, %u on the role", c.processed, cycles,
+          c.on_role);
+
+    // another thread named while the control thread holds the role: the role given back keeps it
+    slot_carrier_go(&c, instance, &slot, cycles, 1);
+    CHECK(c.on_role_named, "a thread named while the control thread holds the role is on it at once");
+    CHECK(c.processed == cycles && c.on_role == cycles,
+          "after the role is given back it processes every cycle on the role: %u of %u processed, %u on the role",
+          c.processed, cycles, c.on_role);
+
+    // the slot cleared: the role names that thread no more
+    omx_clap_host_name_slot(instance, NULL);
+    slot_carrier_go(&c, instance, &slot, 1, 0);
+    CHECK(!c.on_role_named && c.on_role == 0, "the slot cleared, the thread is off the role (%d, %u)", c.on_role_named, c.on_role);
+    CHECK(atomic_load(&instance->thread_violations) == 0, "%u thread-check violations", atomic_load(&instance->thread_violations));
+    omx_clap_host_close(instance);
+}
+
 /* the configuration is the isolated host's: nothing is clamped, nothing scanned, nothing warmed up */
 static void configuration_checks(const char *path)
 {
@@ -1550,6 +1655,7 @@ static void fake_plugin_checks(const char *path)
     }
 
     role_checks(path);
+    slot_checks(path);
 
     CHECK(open_ok(path, FAKE_PASSTHROUGH, &instance), "open %s for the guard pages", FAKE_PASSTHROUGH);
     if (instance)

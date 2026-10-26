@@ -28,7 +28,8 @@
 * A member is an instance the library hosts (struct omx_clap_instance, run by omx_clap_host_run_ports) or a stage of
 * the caller's own (a process function and its context). Each has a bypass flag (a bypassed member is not run, copied
 * or counted), its latency and its channel layout; the chain's latency is the sum of its non-bypassed members', and
-* re-reported on every change. omx_clap_chain_remove takes a member out and the chain closes around it.
+* re-reported on every change. omx_clap_chain_remove takes a member out and the chain closes around it;
+* omx_clap_chain_order puts the members in a new order in one walk.
 *
 * The chain is generic: it names no trim, fader, strip or bus. It is not a latency win (docs/bench-chain-2026-10-21.md):
 * it saves a JACK client and memory per plugin.
@@ -140,7 +141,7 @@ struct omx_clap_chain_report
     uint32_t members;           ///< the members, bypassed or not
     uint32_t running;           ///< the members a cycle runs: the non-bypassed ones
     uint32_t latency;           ///< the sum of the non-bypassed members' latencies, in frames
-    uint32_t revision;          ///< the walks published since create: one per add, removal and bypass change
+    uint32_t revision;          ///< the walks published since create: one per add, removal, order and bypass change
     uint64_t passed;            ///< the cycles longer than OMX_CLAP_CHAIN_FRAMES_MAX, passed dry
 };
 
@@ -184,6 +185,12 @@ OMX_CLAP_EXPORT int omx_clap_chain_add(struct omx_clap_chain *chain, const struc
 /** Take member `id` out: the member before it hands its output to the member after it. When this returns no cycle
  * reads the member, and the chain never touches it again: the caller may close or free it. */
 OMX_CLAP_EXPORT int omx_clap_chain_remove(struct omx_clap_chain *chain, uint32_t id);
+
+/** The members in a new order: `ids` names every member once, the first first, `n` the member count. One walk is
+ * published, so no cycle runs a member twice, misses one or runs part of the old order: when this returns the cycles
+ * run the members in this order. A list that is not every member once is refused, OMX_CLAP_CHAIN_ERR_ARG (an id twice,
+ * `n` another count) or OMX_CLAP_CHAIN_ERR_NO_MEMBER (an id the chain does not hold), the chain as it was. */
+OMX_CLAP_EXPORT int omx_clap_chain_order(struct omx_clap_chain *chain, const uint32_t *ids, uint32_t n);
 
 /** Bypass member `id` (`bypass` nonzero) or run it again (0). A bypassed member is not run, copied or counted in the
  * latency. When this returns the cycles run the new walk. */
