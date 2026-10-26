@@ -29,8 +29,13 @@ omx-clap-host (0.21.0) unstable; urgency=medium
     its slot holds the role from that store, and no role the control
     thread gives back covers it (ABI 18, the instance's audio_slot
     appended; OMX_CLAP_CORE_0.21) (#104).
+  * The fuzz harnesses hold the readers to limits of their own: the
+    preset grammar's depth of 32 and the manifest rule's 16
+    declarations, a compact write whose allocation fails giving no text
+    and a rewritten member holding the value its rewrite set; the
+    library does not change (#345).
 
- -- Pau Aliagas <linuxnow@gmail.com>  Sun, 25 Oct 2026 18:00:00 +0200
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 26 Oct 2026 12:00:00 +0100
 
 omx-clap-host (0.20.1) unstable; urgency=medium
 
