@@ -21,8 +21,10 @@ BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
 BuildRequires: libasan
-# make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh)
+# make test-fake reads the sources for hand-typed hosting codes with perl (tests/hosting-codes-check.sh) and for
+# hand-typed verbs with python (tests/host-verbs-check.sh)
 BuildRequires: perl-interpreter
+BuildRequires: python3
 BuildRequires: pipewire-jack-audio-connection-kit-devel
 # a plugin's own window (show_external_ui, -S) over X11; the package then requires the libxcb it links
 BuildRequires: pkgconfig(xcb)
