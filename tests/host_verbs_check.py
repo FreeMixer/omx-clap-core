@@ -19,8 +19,8 @@ with a line built for its declared format from this file's EXAMPLES:
   unsupported  a well-formed line is answered with the verb's invalidOperation code (-902).
 
 And the reverse: every protocol_add_command of the registration table names its line by an OMX_VERB_<VERB>_FMT of the
-header, by a mod-host macro, or by the word of a verb another package declares (or AWAITING names while its package is
-not installed); the declared verbs this table registers equal the verbs this package declares for omx-clap-host. A
+header, by a mod-host macro, or by the word of a verb another package declares (or AWAITING names until a package
+declares it); the declared verbs this table registers equal the verbs this package declares for omx-clap-host. A
 registered verb with no declaration, a declared one with no handler, a verb whose answer is not its declaration's, and
 a declared verb with no example are each a failure. Exit 0 held; 1 a failure; 2 usage or no declaration.
 """
@@ -33,7 +33,8 @@ import sys
 
 HOST = 'omx-clap-host'
 OWNER = 'omx-clap-core'
-# a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131)
+# a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
+# once any installed package declares it, the socket checks it as declared
 AWAITING = {'chain': 'plugin-hostd'}
 
 # per verb: the words after the verb of a well-formed line, and malformed lines with the code each must answer.
@@ -225,9 +226,10 @@ def main():
             registered.add(word)
             step(word in mine, 'registered %s is a verb %s declares for %s' % (text, OWNER, HOST))
         elif kind == 'typed':
-            ok = word not in mine and (word in declared_elsewhere or (word in AWAITING and AWAITING[word] not in packages(o.contract_path)))
-            step(ok, 'registered %s: %s' % (text, 'its declaration is %s\'s' % (AWAITING.get(word) or 'another package')
-                                             if ok else 'a verb with no declaration, or a declared one typed by hand'))
+            ok = word not in mine and (word in declared_elsewhere or word in AWAITING)
+            whose = 'another package\'s' if word in declared_elsewhere else '%s\'s, not installed yet' % AWAITING.get(word)
+            step(ok, 'registered %s: %s' % (text, 'its declaration is ' + whose if ok
+                                             else 'a verb with no declaration, or a declared one typed by hand'))
         elif kind == 'unknown':
             step(False, 'registered %s, which the header does not define' % text)
     step(registered == mine, 'the declared verbs the host registers are the ones %s declares: missing %s, extra %s'
