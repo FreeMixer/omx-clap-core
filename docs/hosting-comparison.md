@@ -187,7 +187,35 @@ against 9. The difference sits in four areas jalv does not have: the CLAP contra
 (236), a rate change (157), and the part of state/presets beyond jalv's (522 − 177 = 345). Together that is 1151 NLOC,
 which covers most of the 1678-line code gap.
 
-## 4. Verdict
+## 4. Coverage, by the admission probe
+
+The same question put to all three hosts on one set: of the LV2 plugins installed on the desk, how many does the host
+instantiate and activate on a live graph? The set is the 979 URIs lilv listed on the desk on 2026-10-20 (Fedora 44,
+after the operator's removals of that day and the ams-lv2 install). The probe is the coverage kit's: a private user,
+net, pid and mount namespace with its own PipeWire (48 kHz, null sink), one URI at a time, 10 s per reply, the desk
+graph checked untouched before and after each arm. Hosted means admitted, instantiated and activated; it is not an
+audio-identity or parity claim (that is `tests/lv2_parity.py`).
+
+| host | version | hosted | not hosted |
+|---|---|---|---|
+| ours | omx-clap-core main 9972e16 (2026-10-20) | 979 of 979 | none (978 in the batch; `ir` hangs beside a GLib-criticals neighbour there and hosts 3 of 3 alone) |
+| mod-host | 0.10.6 f14a230-11 (2026-10-26) | 975 of 979 | drumkv1 (SIGABRT), samplv1 and synthv1 (the host died on `add`), zynadd (`resp -102`) |
+| jalv | 1.8.0 (2026-10-26) | 977 of 979 | zynadd (`Mandatory port "midi_in" has unknown type`: the `llext:MidiPort` our reader realises since #292), synthv1 (SIGABRT at instantiate, alone too) |
+
+How each arm asks: ours and mod-host take `add <uri> <n>` then `remove <n>` on the host's socket, a fresh host every 20
+plugins and after any crash; jalv takes one `jalv -n <name> <uri>` per URI, headless with stdin held open, and counts the
+plugin hosted when its node appears on the namespace's graph (every one did within 0.4 s). jalv 1.8.0 does not leave on
+stdin EOF, SIGINT or SIGTERM in that namespace, so the probe ends it with SIGKILL after the verdict; that is noted per
+row and is not a hosting fault.
+
+Two things the table says beyond the counts. The v1 family (drumkv1, samplv1, synthv1) crashes or kills mod-host and
+jalv and runs under ours. And mod-host's earlier figure, 915 of 975 on the previous day's set, is the same binary: 55
+of its 56 refusals were plugins removed from the desk on 2026-10-20 (52 ll-plugins bundles among them), and the one that
+remains in the set is zynadd.
+
+Raw rows, logs and the jalv probe are kept with the coverage evidence of 2026-10-20 and 2026-10-26.
+
+## 5. Verdict
 
 **Similar in the end, not overcomplicated.** All three hosts make the same lilv calls in the same order: instantiate,
 connect, a worker of two rings and a thread, then state through `lilv_state_*`. Ours is smaller and simpler than
