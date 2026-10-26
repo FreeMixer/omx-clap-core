@@ -7,10 +7,11 @@ The protocol is mod-host's `libmod-host-protocol.so.0`, linked as a shared
 library: from `pkg-config mod-host-protocol` when it is installed
 (mod-host's `make install-lib`, or the mod-host-protocol-devel package),
 otherwise from `MOD_HOST_DIR`, a mod-host tree where the library is built
-if missing and whose path becomes the binary's rpath. The layout pin's verb,
-its error codes and its serialisation are plugin-hostd's headers
-`plugin-hostd/protocol.h` and `plugin-hostd/pin.h`: from `pkg-config plugin-hostd`
-(the plugin-hostd-devel package) or from `PLUGIN_HOSTD_DIR/include`. The CLAP
+if missing and whose path becomes the binary's rpath. The layout pin's
+serialisation is plugin-hostd's header `plugin-hostd/pin.h`: from `pkg-config
+plugin-hostd` (the plugin-hostd-devel package) or from
+`PLUGIN_HOSTD_DIR/include`. The verbs the host answers past mod-host's are this
+tree's own, declared in `data/verbs.json` (below). The CLAP
 headers come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 JACK's headers and library come from `pkg-config jack` (the
 pipewire-jack-audio-connection-kit-devel package) or, when that is absent,
@@ -280,7 +281,9 @@ What a host differs in is a configuration, set once per process with
 
 The packages are `omx-clap-core` and `omx-clap-core-devel` (RPM), `libomx-clap-core1`
 and `libomx-clap-core-dev` (deb), built from the same tag as omx-clap-host, which
-depends on the library.
+depends on the library. Both require `omx-clap-core-contract` (RPM noarch, deb
+`Architecture: all`) at their own version: the files `make install` puts into
+omx-contract's contract directory, which a program reads at run time.
 
 The version rule: a field is only ever appended to a structure and a function only
 added, and that is a new minor (`0.1.0` to `0.2.0`, the soname unchanged); a field or a
@@ -359,7 +362,30 @@ requires each to fail. `make install` puts them into omx-contract's contract
 directory, `$(pkg-config --variable=contractdir omx-contract)/3/omx-clap-core/`
 (the codes under `hosting/`),
 with a `MANIFEST.json` naming this version, using the install script
-omx-contract-devel 3.0.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s).
+omx-contract-devel 3.3.0 ships (or `OMX_CONTRACT_DIR=<checkout>`'s); the
+packages ship them in `omx-clap-core-contract`.
+
+The verbs omx-clap-host answers past mod-host's are declared in
+`data/verbs.json`, a `verbs` item of omx-contract's schema (3.3.0): the ones it
+shares with plugin-hostd (`track_info`, `remote_pages`, `remote_page_get`,
+`param_info`, `pin_expect`, `note_input`, `note_on`, `note_off`,
+`all_notes_off`) and its own (`audio_ports`, `hide_external_ui`, `idle_hold`,
+`note_drops`, `note_out_drops`), each with its format, its reply, the refusal
+codes it answers (`HOST_REPLY_CODES`) and what each host owes it. Their render,
+`src/omx_clap_core_host_verbs.h`, installs with the core headers: a verb is
+`OMX_VERB_<VERB>` and `OMX_VERB_<VERB>_FMT`, its refusals'
+numbers `OMX_VERB_<VERB>_CODES_INIT`, and `omx_clap_core_host_verbs()` the table
+of what each host owes each verb. `src/host_verbs.h` holds the grammar over it.
+`make test-codes` runs `tests/host-verbs-check.sh`, which fails on a verb's word
+or format typed in `src/` or `lv2/` and on a `HOST_REPLY_*` number that is not
+the declared one, with its `--self-test`. `make test-host-verbs` installs the
+package into `build/verbs-contract` (or reads `OMX_CONTRACT_PATH`) and drives
+the host: each verb declared `required` answers a well-formed line with the
+declared reply and each malformed one with the declared code, an `unsupported`
+one answers `-902`, and the verbs the host registers are the declared ones.
+`make test-host-verbs-sabotage` changes a format and what the host owes a verb
+in a copy of the declarations, deletes a handler and registers an undeclared
+verb in a copy of the sources, and requires each to go red.
 The two rendered headers install with the other core headers under
 `include/omx-clap-host/`, and the TypeScript module under
 `share/omx-clap-core/ts/`, which `pkg-config --variable=tsdir omx-clap-core`
