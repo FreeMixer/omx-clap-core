@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.22.0
+Version:        0.22.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Mon Oct 26 2026 Pau Aliagas <linuxnow@gmail.com> - 0.22.1-1
+- remote_pages declares -902 beside -3: a line missing its instance is
+  answered with -902 by plugin-hostd, and the shared declaration names every
+  code either host answers.
+
 * Mon Oct 26 2026 Pau Aliagas <linuxnow@gmail.com> - 0.22.0-1
 - The verbs omx-clap-host shares with plugin-hostd (track_info,
   remote_pages, remote_page_get, param_info, pin_expect, note_input,
