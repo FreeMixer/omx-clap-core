@@ -2607,7 +2607,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
     }
     if (layout_check(effect, pin, id) != 0)
     {
-        error = HOST_REPLY_PIN_LAYOUT_MISMATCH;
+        error = OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP;
         goto error;
     }
     if (outputs_build(effect) != 0)
@@ -2719,7 +2719,7 @@ int effects_pin_expect(int instance, const char *layout)
     if (strcmp(scheme, PHD_PIN_LAYOUT_SCHEME) != 0)
     {
         fprintf(stderr, "instance %d: layout pin scheme %s is not %s\n", instance, scheme, PHD_PIN_LAYOUT_SCHEME);
-        return HOST_REPLY_PIN_ABSENT;
+        return OMX_REPLY_HOST_PIN_ABSENT_RESP;
     }
     memcpy(g_layout_pins[instance], hex, sizeof(hex));
     return SUCCESS;
@@ -3140,9 +3140,9 @@ int effects_note(int effect_id, const uint8_t (*messages)[3], uint32_t count)
         return ERR_INSTANCE_NON_EXISTS;
     effect = &g_effects[effect_id];
     if (!effect->note_ring_buf)
-        return HOST_REPLY_NO_NOTE_INPUT;
+        return OMX_REPLY_HOST_NO_NOTE_INPUT_RESP;
     if (NOTE_RING_BYTES - omx_msgring_used(&effect->note_ring) < count * omx_msgring_record_bytes(3) + omx_msgring_record_bytes(3))
-        return HOST_REPLY_NOTE_QUEUE_FULL;     // the audio thread has not drained the ring: no room, nothing queued
+        return OMX_REPLY_HOST_NOTE_QUEUE_FULL_RESP;     // the audio thread has not drained the ring: no room, nothing queued
     for (i = 0; i < count; i++)
         omx_msgring_push(&effect->note_ring, messages[i], 3);
     return SUCCESS;
@@ -3451,7 +3451,7 @@ int effects_param_info(int effect_id, const char *symbol, char *reply, size_t si
     if (omx_clap_host_param_meaning(g_effects[effect_id].clap, id, &m) != 0
         || omx_clap_param_number(m.min, min, sizeof(min)) < 0 || omx_clap_param_number(m.max, max, sizeof(max)) < 0
         || omx_clap_param_number(m.def, def, sizeof(def)) < 0 || omx_clap_param_number(m.step, step, sizeof(step)) < 0)
-        return HOST_REPLY_NO_PARAM_CONTRACT;
+        return OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP;
     used = snprintf(reply, size, "resp 0 %s %s %s %s %s %s %s", omx_clap_param_unit_name(m.unit),
                     omx_clap_param_scale_name(m.scale), min, max, def, step, m.symbol);
     return used > 0 && (size_t)used < size ? SUCCESS : ERR_INVALID_OPERATION;
