@@ -56,6 +56,10 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import parity_harness as harness  # noqa: E402
+from parity_harness import read_tsv, status_of, write_tsv  # noqa: E402
+
 TOL = 1e-6
 SUBNORMAL = 1.1754944e-38
 QUANTUM = 128
@@ -344,20 +348,6 @@ def _where(m, rate):
 # ---------------------------------------------------------------- probe
 
 
-def read_tsv(path):
-    with open(path) as f:
-        lines = [l.rstrip('\n') for l in f if l.strip()]
-    head = lines[0].split('\t')
-    return [dict(zip(head, l.split('\t'))) for l in lines[1:]]
-
-
-def write_tsv(path, rows, cols):
-    with open(path, 'w') as f:
-        f.write('\t'.join(cols) + '\n')
-        for r in rows:
-            f.write('\t'.join(str(r.get(c, '')).replace('\t', ' ').replace('\n', ' ') for c in cols) + '\n')
-
-
 def lilv_facts(uris):
     """Per URI what the coverage table does not say: presets, a latency port, sidechains, the worker, the name."""
     try:
@@ -520,11 +510,11 @@ def cmd_probe(a):
         chosen = [dict(e, stratum='given' if a.uris else 'all') for e in keep]
     else:
         chosen = stratify(keep, a.sample, a.seed)
-    write_tsv(os.path.join(a.out, 'plugins.tsv'), chosen, PLAN_COLS)
-    write_tsv(os.path.join(a.out, 'skipped.tsv'), skipped, PLAN_COLS + ['cause'])
+    write_tsv(os.path.join(a.out, 'plugins.tsv'), PLAN_COLS, chosen)
+    write_tsv(os.path.join(a.out, 'skipped.tsv'), PLAN_COLS + ['cause'], skipped)
     if not a.uris:
         cov, mo = coverage_of(rows, keep, skipped)
-        write_tsv(os.path.join(a.out, 'modhost-only.tsv'), mo, MODHOST_ONLY_COLS)
+        write_tsv(os.path.join(a.out, 'modhost-only.tsv'), MODHOST_ONLY_COLS, mo)
         with open(os.path.join(a.out, 'coverage.json'), 'w') as f:
             json.dump(dict(cov, table=os.path.abspath(a.coverage)), f, indent=1)
     by = {}
@@ -538,81 +528,12 @@ def cmd_probe(a):
 # ---------------------------------------------------------------- run (inside the namespace)
 
 
-class Host:
+class Host(harness.Host):
     """A fresh mod-host or omx-clap-host, its command socket; probe.py's handling of crashes and hangs."""
 
     def __init__(self, kind, argv0, port, logdir, tag, env):
-        self.kind, self.port = kind, port
-        self.log = open(os.path.join(logdir, f'{tag}.{kind}.log'), 'w+')
-        self.p = subprocess.Popen([argv0, '-n', '-p', str(port)], env=env, stdout=self.log,
-                                  stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True)
-        self.s = None
-
-    def connect(self, timeout=15):
-        dl = time.time() + timeout
-        while True:
-            try:
-                self.s = socket.create_connection(('127.0.0.1', self.port), timeout=1)
-                return True
-            except OSError:
-                if self.p.poll() is not None or time.time() > dl:
-                    return False
-                time.sleep(0.05)
-
-    def send(self, line, timeout):
-        try:
-            self.s.sendall(line.encode() + b'\0')
-            buf = b''
-            dl = time.time() + timeout
-            while not buf.endswith(b'\0'):
-                self.s.settimeout(max(0.05, dl - time.time()))
-                d = self.s.recv(4096)
-                if not d:
-                    return None, 'closed'
-                buf += d
-            return buf[:-1].decode(errors='replace'), None
-        except socket.timeout:
-            return None, 'timeout'
-        except OSError as e:
-            return None, f'oserror {e}'
-
-    def alive(self):
-        return self.p.poll() is None
-
-    def status(self):
-        rc = self.p.poll()
-        return f'signal {-rc}' if rc is not None and rc < 0 else f'exit {rc}'
-
-    def cpu_ns(self):
-        total = 0
-        try:
-            for t in os.listdir(f'/proc/{self.p.pid}/task'):
-                try:
-                    with open(f'/proc/{self.p.pid}/task/{t}/schedstat') as f:
-                        total += int(f.read().split()[0])
-                except OSError:
-                    pass
-        except OSError:
-            pass
-        return total
-
-    def logtext(self):
-        self.log.flush()
-        self.log.seek(0)
-        return self.log.read()
-
-    def kill(self):
-        try:
-            os.killpg(self.p.pid, signal.SIGKILL)
-        except OSError:
-            pass
-        try:
-            self.p.wait(5)
-        except Exception:
-            pass
-        if self.s:
-            self.s.close()
-        self.log.close()
+        super().__init__([argv0, '-n', '-p', str(port)], port, env, os.path.join(logdir, f'{tag}.{kind}.log'))
+        self.kind = kind
 
 
 NAMES = {'mod': 'mod-host', 'omx': 'omx-clap-host'}
@@ -627,24 +548,13 @@ def mem_available_gib():
 
 
 def start_pipewire(rt, rate, quantum):
-    os.makedirs(os.path.join(rt, 'etc/pipewire/pipewire.conf.d'), exist_ok=True)
-    with open(os.path.join(rt, 'etc/pipewire/pipewire.conf.d/parity.conf'), 'w') as f:
-        f.write('context.properties = {\n'
-                f'  default.clock.rate = {rate}\n  default.clock.allowed-rates = [ {rate} ]\n'
-                f'  default.clock.quantum = {quantum}\n  default.clock.min-quantum = {quantum}\n'
-                f'  default.clock.max-quantum = {quantum}\n'
-                '  # no driver but the feeder\'s clock: nothing runs until it triggers a cycle\n'
-                '  factory.dummy-driver = false\n  factory.freewheel-driver = false\n}\n')
-    env = dict(os.environ, XDG_RUNTIME_DIR=rt, PIPEWIRE_RUNTIME_DIR=rt, XDG_CONFIG_HOME=os.path.join(rt, 'etc'))
-    for k in ('DBUS_SESSION_BUS_ADDRESS', 'PIPEWIRE_REMOTE', 'JACK_DEFAULT_SERVER', 'PULSE_SERVER'):
-        env.pop(k, None)
-    log = open(os.path.join(rt, 'pipewire.log'), 'w')
-    p = subprocess.Popen(['pipewire'], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    for _ in range(100):
-        if os.path.exists(os.path.join(rt, 'pipewire-0')):
-            return p, env
-        time.sleep(0.05)
-    raise SystemExit('pipewire did not come up: ' + open(os.path.join(rt, 'pipewire.log')).read())
+    conf = ('context.properties = {\n'
+            f'  default.clock.rate = {rate}\n  default.clock.allowed-rates = [ {rate} ]\n'
+            f'  default.clock.quantum = {quantum}\n  default.clock.min-quantum = {quantum}\n'
+            f'  default.clock.max-quantum = {quantum}\n'
+            '  # no driver but the feeder\'s clock: nothing runs until it triggers a cycle\n'
+            '  factory.dummy-driver = false\n  factory.freewheel-driver = false\n}\n')
+    return harness.start_pipewire(rt, 'parity.conf', conf, 'run')
 
 
 class Lines:
@@ -931,22 +841,7 @@ def run_plugin(e, rate, a, env, work, logdir, n):
 
 
 def inside_run(a):
-    if os.getpid() != 1:
-        raise SystemExit('run: not pid 1 of a private namespace, refusing')
-    subprocess.run(['ip', 'link', 'set', 'lo', 'up'], check=False)
-    # a tmpfs of the namespace's own, seen nowhere else and gone with it, for the PipeWire runtime dirs (a socket path
-    # must fit in 108 bytes) and a plugin's recordings until they are compared. It goes over the user's own runtime
-    # dir, where the live PipeWire's socket is: a filesystem socket is not netns-scoped, so the environment alone
-    # would keep a host or a plugin that hard-codes the path out. Without one (a container), over a short dir of its
-    # own under /tmp, so that /tmp itself (the caller's results may be there) stays visible
-    outer = os.environ.get('LV2_PARITY_OUTER_RUNTIME', '')
-    base = outer if outer and os.path.isdir(outer) else tempfile.mkdtemp(prefix='lvp.', dir='/tmp')
-    subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=512m,mode=0700', 'lv2-parity', base], check=True)
-    if not os.path.ismount(base):
-        raise SystemExit(f'run: no tmpfs over {base}, refusing')
-    for sock in ('pipewire-0', 'pipewire-0-manager', 'pulse/native'):
-        if os.path.exists(os.path.join(base, sock)):
-            raise SystemExit(f'run: the live {sock} is still reachable at {base}, refusing')
+    base = harness.private_runtime('run', 'LV2_PARITY_OUTER_RUNTIME', 'lv2-parity', '512m', 'lvp.', '/tmp')
     a.rt_base = base
     plugins = read_tsv(a.plugins)
     if a.limit:
@@ -1027,10 +922,7 @@ def cmd_run(a):
     if os.environ.get('LV2_PARITY_INSIDE') == '1':
         return inside_run(a)
     write_meta(a)
-    argv = ['unshare', '--user', '--map-root-user', '--net', '--pid', '--fork', '--mount-proc',
-            sys.executable, os.path.abspath(__file__)] + sys.argv[1:]
-    outer = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
-    return subprocess.call(argv, env=dict(os.environ, LV2_PARITY_INSIDE='1', LV2_PARITY_OUTER_RUNTIME=outer))
+    return harness.reenter_namespace(__file__, sys.argv[1:], 'LV2_PARITY_INSIDE', 'LV2_PARITY_OUTER_RUNTIME')
 
 
 # ---------------------------------------------------------------- classify and report
@@ -1067,7 +959,7 @@ def row_of(rec):
 def cmd_classify(a):
     rows = [row_of(r) for r in load_raw(a.out)]
     skipped = os.path.join(a.out, 'skipped.tsv')
-    write_tsv(os.path.join(a.out, 'parity.tsv'), rows, ROW_COLS)
+    write_tsv(os.path.join(a.out, 'parity.tsv'), ROW_COLS, rows)
     counts = {}
     for r in rows:
         counts[r['class']] = counts.get(r['class'], 0) + 1
@@ -1261,7 +1153,7 @@ def cmd_report(a):
         crow = read_tsv(a.coverage)
         keep, sk2 = plan(crow, lilv_facts([r['uri'] for r in crow if r.get('bucket') == 'both']))
         cov, mo = coverage_of(crow, keep, sk2)
-        write_tsv(os.path.join(a.out, 'modhost-only.tsv'), mo, MODHOST_ONLY_COLS)
+        write_tsv(os.path.join(a.out, 'modhost-only.tsv'), MODHOST_ONLY_COLS, mo)
         with open(cp, 'w') as f:
             json.dump(dict(cov, table=os.path.abspath(a.coverage)), f, indent=1)
     if os.path.exists(cp):
@@ -1385,7 +1277,7 @@ def self_test():
     t('a MIDI-count row whose audio is random per instance: the audio verdict NONDETERMINISTIC', audio_verdict(r)[0] == 'NONDETERMINISTIC')
     # the known causes, from a file of fake rows
     kf = os.path.join(tempfile.mkdtemp(), 'known.tsv')
-    write_tsv(kf, [dict(uri='urn:known', cause='plugin reads uninitialised memory (valgrind-confirmable)', evidence='fixture')], ['uri', 'cause', 'evidence'])
+    write_tsv(kf, ['uri', 'cause', 'evidence'], [dict(uri='urn:known', cause='plugin reads uninitialised memory (valgrind-confirmable)', evidence='fixture')])
     global KNOWN_FILE
     saved, KNOWN_FILE = KNOWN_FILE, kf
     _KNOWN.clear()
@@ -1427,7 +1319,7 @@ def self_test():
                          ext_data='state#interface' if i % 5 == 0 else ('worker#interface' if i % 11 == 0 else ''),
                          req_features=''))
     with tempfile.TemporaryDirectory() as d:
-        write_tsv(os.path.join(d, 'cov.tsv'), rows, cols)
+        write_tsv(os.path.join(d, 'cov.tsv'), cols, rows)
         keep, skipped = plan(read_tsv(os.path.join(d, 'cov.tsv')), {})
         t('probe keeps only bucket=both', all(int(k['uri'].split(':')[-1]) % 10 for k in keep + skipped))
         t('probe skips more than two audio inputs under #92', any('4 audio inputs' in s['cause'] for s in skipped)
@@ -1453,7 +1345,7 @@ def self_test():
             f.writelines(json.dumps(r) + '\n' for r in recs[:2])
         with open(os.path.join(out, 'raw', '96000.jsonl'), 'w') as f:
             f.writelines(json.dumps(r) + '\n' for r in recs[2:])
-        write_tsv(os.path.join(d, 'cov2.tsv'), rows, cols)
+        write_tsv(os.path.join(d, 'cov2.tsv'), cols, rows)
         ns = argparse.Namespace(out=out, full_count=700, coverage=os.path.join(d, 'cov2.tsv'))
         with open(os.devnull, 'w') as dn:
             so, sys.stdout = sys.stdout, dn

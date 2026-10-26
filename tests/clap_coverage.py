@@ -48,6 +48,10 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I leaves the script's directory off
+import parity_harness as harness  # noqa: E402
+from parity_harness import append_tsv, status_of, write_tsv  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 SABOTAGE = os.environ.get('CLAP_COVERAGE_SABOTAGE', '')
@@ -68,29 +72,8 @@ UNSAID = re.compile(r': (\d+) unoffered ids unsaid\b')
 
 
 def read_tsv(path):
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        lines = [l.rstrip('\n') for l in f if l.strip()]
-    if not lines:
-        return []
-    cols = lines[0].split('\t')
-    return [dict(zip(cols, l.split('\t') + [''] * (len(cols) - len(l.split('\t'))))) for l in lines[1:]]
-
-
-def write_tsv(path, cols, rows):
-    with open(path, 'w') as f:
-        f.write('\t'.join(cols) + '\n')
-        for r in rows:
-            f.write('\t'.join(str(r.get(c, '')).replace('\t', ' ').replace('\n', ' ') for c in cols) + '\n')
-
-
-def append_tsv(path, cols, row):
-    new = not os.path.exists(path) or os.path.getsize(path) == 0
-    with open(path, 'a') as f:
-        if new:
-            f.write('\t'.join(cols) + '\n')
-        f.write('\t'.join(str(row.get(c, '')).replace('\t', ' ').replace('\n', ' ') for c in cols) + '\n')
+    """the rows of a TSV a run may not have written yet: none when it is missing"""
+    return harness.read_tsv(path, missing_ok=True)
 
 
 # ---------------------------------------------------------------- scan
@@ -203,23 +186,15 @@ def unoffered_of(text, plugin_id):
     return seen
 
 
-class Host:
+class Host(harness.Host):
+    """omx-clap-host on `port`, its feed port on port + 1 (drained after every reply), one timeout for every send."""
+
     def __init__(self, argv, port, env, logpath, timeout, cwd=None):
-        self.port, self.timeout, self.logpath = port, timeout, logpath
-        self.log = open(logpath, 'wb')
-        self.p = subprocess.Popen(argv + ['-n', '-p', str(port), '-f', str(port + 1)], env=env, stdout=self.log,
-                                  stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, cwd=cwd)
-        self.s = self.f = None
-        deadline = time.time() + 15
-        while True:
-            try:
-                self.s = socket.create_connection(('127.0.0.1', port), timeout=1)
-                break
-            except OSError:
-                if self.p.poll() is not None or time.time() > deadline:
-                    self.kill()
-                    raise SystemExit(f'host: {argv[0]} did not start (log {logpath})')
-                time.sleep(0.1)
+        super().__init__(argv + ['-n', '-p', str(port), '-f', str(port + 1)], port, env, logpath, cwd)
+        self.timeout = timeout
+        if not self.connect():
+            self.kill()
+            raise SystemExit(f'host: {argv[0]} did not start (log {logpath})')
         try:
             self.f = socket.create_connection(('127.0.0.1', port + 1), timeout=1)
             self.f.setblocking(False)
@@ -235,34 +210,11 @@ class Host:
                 pass
 
     def send(self, line):
-        """(reply, None), or (None, 'closed' | 'timeout' | 'oserror')"""
-        try:
-            self.s.sendall(line.encode() + b'\0')
-            buf, deadline = b'', time.time() + self.timeout
-            while not buf.endswith(b'\0'):
-                left = deadline - time.time()
-                if left <= 0:
-                    return None, 'timeout'
-                self.s.settimeout(left)
-                d = self.s.recv(4096)
-                if not d:
-                    return None, 'closed'
-                buf += d
+        """(reply, None), or (None, 'closed' | 'timeout' | 'oserror <why>')"""
+        reply, err = super().send(line, self.timeout)
+        if not err:
             self.drain()
-            return buf[:-1].decode(errors='replace'), None
-        except socket.timeout:
-            return None, 'timeout'
-        except OSError:
-            return None, 'oserror'
-
-    def log_size(self):
-        self.log.flush()
-        return os.path.getsize(self.logpath)
-
-    def log_since(self, offset):
-        with open(self.logpath, 'rb') as f:
-            f.seek(offset)
-            return f.read().decode(errors='replace')
+        return reply, err
 
     def settle(self, quiet=0.25, most=2.0):
         """wait until the log has not grown for `quiet` seconds, at most `most`: the host says one unoffered id per tick"""
@@ -283,26 +235,15 @@ class Host:
         except subprocess.TimeoutExpired:
             return None
 
-    def kill(self):
+    def close_sockets(self):
         try:
-            os.killpg(self.p.pid, 9)
+            self.f and self.f.close()
         except OSError:
             pass
-        try:
-            self.p.wait(5)
-        except subprocess.TimeoutExpired:
-            pass
-        for x in (self.s, self.f):
-            try:
-                x and x.close()
-            except OSError:
-                pass
-        self.log.close()
+
+    def kill(self):
+        super().kill()
         time.sleep(0.2)
-
-
-def status_of(rc):
-    return f'signal {-rc}' if rc is not None and rc < 0 else f'exit {rc}'
 
 
 def host_loop(a, env):
@@ -365,42 +306,16 @@ def host_loop(a, env):
     return 0
 
 
-def start_pipewire(rt):
-    """a PipeWire of the namespace's own, its runtime and configuration under rt, with one null sink"""
-    conf = os.path.join(rt, 'etc', 'pipewire', 'pipewire.conf.d')
-    os.makedirs(conf, exist_ok=True)
-    with open(os.path.join(conf, 'clap-coverage.conf'), 'w') as f:
-        f.write('context.objects = [\n  { factory = adapter\n    args = { factory.name = support.null-audio-sink\n'
-                '             node.name = clap-coverage-null media.class = Audio/Sink\n'
-                '             audio.position = [ FL FR ] } }\n]\n')
-    env = dict(os.environ, XDG_RUNTIME_DIR=rt, PIPEWIRE_RUNTIME_DIR=rt, PULSE_RUNTIME_PATH=os.path.join(rt, 'pulse'),
-               XDG_CONFIG_HOME=os.path.join(rt, 'etc'), XDG_STATE_HOME=os.path.join(rt, 'state'))
-    for k in ('DBUS_SESSION_BUS_ADDRESS', 'PIPEWIRE_REMOTE', 'JACK_DEFAULT_SERVER', 'PULSE_SERVER'):
-        env.pop(k, None)
-    log = open(os.path.join(rt, 'pipewire.log'), 'w')
-    p = subprocess.Popen(['pipewire'], env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    for _ in range(100):
-        if os.path.exists(os.path.join(rt, 'pipewire-0')):
-            return p, env
-        time.sleep(0.05)
-    raise SystemExit('host: pipewire did not come up: ' + open(os.path.join(rt, 'pipewire.log')).read())
+PIPEWIRE_CONF = ('context.objects = [\n  { factory = adapter\n    args = { factory.name = support.null-audio-sink\n'
+                 '             node.name = clap-coverage-null media.class = Audio/Sink\n'
+                 '             audio.position = [ FL FR ] } }\n]\n')
 
 
 def inside_host(a):
-    if os.getpid() != 1:
-        raise SystemExit('host --sandbox: not pid 1 of a private namespace, refusing')
-    subprocess.run(['ip', 'link', 'set', 'lo', 'up'], check=False)
-    # a tmpfs over the user's runtime dir, where the live PipeWire's socket is: a filesystem socket is not netns-scoped
-    outer = os.environ.get('CLAP_COVERAGE_OUTER_RUNTIME', '')
-    base = outer if outer and os.path.isdir(outer) else tempfile.mkdtemp(prefix='runtime.', dir=a.out)
-    subprocess.run(['mount', '-t', 'tmpfs', '-o', 'size=256m,mode=0700', 'clap-coverage', base], check=True)
-    if not os.path.ismount(base):
-        raise SystemExit(f'host --sandbox: no tmpfs over {base}, refusing')
-    for sock in ('pipewire-0', 'pipewire-0-manager', 'pulse/native'):
-        if os.path.exists(os.path.join(base, sock)):
-            raise SystemExit(f'host --sandbox: the live {sock} is still reachable at {base}, refusing')
+    base = harness.private_runtime('host --sandbox', 'CLAP_COVERAGE_OUTER_RUNTIME', 'clap-coverage', '256m',
+                                   'runtime.', a.out)
     rt = tempfile.mkdtemp(prefix='pw.', dir=base)
-    pw, env = start_pipewire(rt)
+    pw, env = harness.start_pipewire(rt, 'clap-coverage.conf', PIPEWIRE_CONF, 'host')
     env['LD_LIBRARY_PATH'] = '/usr/lib64/pipewire-0.3/jack'
     try:
         return host_loop(a, env)
@@ -420,10 +335,7 @@ def cmd_host(a):
         os.nice(10)
     except OSError:
         pass
-    argv = ['unshare', '--user', '--map-root-user', '--net', '--pid', '--fork', '--mount-proc',
-            sys.executable, '-I', os.path.abspath(__file__)] + sys.argv[1:]
-    outer = os.environ.get('XDG_RUNTIME_DIR') or f'/run/user/{os.getuid()}'
-    return subprocess.call(argv, env=dict(os.environ, CLAP_COVERAGE_INSIDE='1', CLAP_COVERAGE_OUTER_RUNTIME=outer))
+    return harness.reenter_namespace(__file__, sys.argv[1:], 'CLAP_COVERAGE_INSIDE', 'CLAP_COVERAGE_OUTER_RUNTIME', ['-I'])
 
 
 # ---------------------------------------------------------------- classify
@@ -685,6 +597,16 @@ def self_test():
                   dict(os.environ, FAKE_DIE_ON_REMOVE='0'))
         r2 = read_tsv(os.path.join(out2, 'host.tsv'))
         t('host: a crash at remove is a crash', len(r2) == 1 and r2[0]['answer'] == 'crash' and r2[0]['code'].startswith('at remove'))
+
+        # the shared namespace helper refuses a process that is not pid 1 of a private namespace, before it mounts anything
+        try:
+            harness.private_runtime('self-test', 'CLAP_COVERAGE_NO_SUCH_VAR', 'clap-coverage', '1m', 'runtime.', work)
+            refused = False
+        except SystemExit as e:
+            refused = 'not pid 1' in str(e)
+        except Exception:  # it went on to mount: the guard is gone
+            refused = False
+        t('namespace: a process that is not pid 1 is refused', refused)
 
         # classify
         exts = {'clap.gui': 'CLAP_EXT_GUI', 'clap.render': 'CLAP_EXT_RENDER', 'clap.log': 'CLAP_EXT_LOG',
