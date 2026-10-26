@@ -46,8 +46,8 @@ struct omx_host_verb {
 #define OMX_VERB_REMOTE_PAGES "remote_pages"
 #define OMX_VERB_REMOTE_PAGES_FMT "remote_pages %i"
 #define OMX_VERB_REMOTE_PAGES_REPLY "resp <count>"
-#define OMX_VERB_REMOTE_PAGES_CODES_COUNT 1u
-#define OMX_VERB_REMOTE_PAGES_CODES_INIT { -3 } /* reply.host.instance-non-exists */
+#define OMX_VERB_REMOTE_PAGES_CODES_COUNT 2u
+#define OMX_VERB_REMOTE_PAGES_CODES_INIT { -902, -3 } /* reply.host.invalid-operation, reply.host.instance-non-exists */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.remotePageGet (data/verbs.json): One page, 0 to count - 1: its section and name as quoted words, and each slot the symbol param_set takes, - for an empty one; -902 for a page that is not one. */
 #define OMX_VERB_REMOTE_PAGE_GET "remote_page_get"

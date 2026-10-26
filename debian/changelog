@@ -1,3 +1,11 @@
+omx-clap-host (0.22.1) unstable; urgency=medium
+
+  * remote_pages declares -902 beside -3: a line missing its instance is
+    answered with -902 by plugin-hostd, and the shared declaration names
+    every code either host answers.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 26 Oct 2026 19:00:00 +0100
+
 omx-clap-host (0.22.0) unstable; urgency=medium
 
   * The verbs omx-clap-host shares with plugin-hostd (track_info,
