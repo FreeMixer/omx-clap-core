@@ -44,7 +44,8 @@ must carry mod-audio/mod-host#113 (the FreeMixer build of it does); CI runs it.
     make install-tests DESTDIR=<root> PREFIX=/usr
 
 puts the fixtures a program that drives the worker tests itself against
-(`fake.clap`, `fake_compressor.clap` and `jack_meter_source`) in
+(`fake.clap`, `fake_compressor.clap`, `fault-14.clap`, `jack_meter_source`
+and `jack_identity`) in
 `<PREFIX>/libexec/omx-clap-host/tests`; the omx-clap-host-tests package carries them.
 
     make test-jack CLAP_TEST_PLUGIN=<omx-delay>.clap

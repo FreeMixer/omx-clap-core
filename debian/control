@@ -40,8 +40,9 @@ Description: fixtures to test a program that drives omx-clap-host
  its CLAP worker: a plugin that reads the track information the host passes
  it, a compressor that reports meters, a gain that aborts on a write of 0.9
  or more, a JACK client that plays a constant level, and one that plays a
- noise into up to six effects and records each of them from the same cycles. They are installed in /usr/libexec/omx-clap-host/tests, away
- from the directories CLAP hosts scan, and are of no use to anyone else.
+ noise into up to six effects and records each of them from the same cycles.
+ They are installed in /usr/libexec/omx-clap-host/tests, away from the
+ directories CLAP hosts scan, and are of no use to anyone else.
  socket_conformance.py, beside them, checks how any server of the mod-host
  socket protocol splits what it receives into commands.
 
