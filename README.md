@@ -1,10 +1,10 @@
 omx-clap-host
 =============
 
-omx-clap-host runs CLAP audio plugins without a screen. You drive it over a socket with the
-same text commands as mod-host, and each plugin appears in your JACK or PipeWire graph as
-a client of its own. It is for controllers, mixers and stage rigs on Linux that already talk
-to mod-host and want CLAP plugins as well.
+omx-clap-host hosts CLAP and LV2 audio plugins without a screen. You drive it over a socket
+with the same text commands as mod-host, and each plugin appears in your JACK or PipeWire
+graph as a client of its own. It is for controllers, mixers and stage rigs on Linux that
+already talk to mod-host and want CLAP plugins beside their LV2 ones.
 
 - Same protocol as mod-host: `add`, `param_set`, `bypass`, `connect`, with mod-host's replies and error codes.
 - Every plugin is a JACK client `effect_<N>` with ports `in_<k>` and `out_<k>`, laid out as mod-host lays out an LV2 plugin.
@@ -16,12 +16,17 @@ to mod-host and want CLAP plugins as well.
 - `-S` shows every plugin's window as it is added; with no display the command says so by code and the audio runs on.
 - `omx-clap-scan` lists what a CLAP file holds (parameters, ports, latency), as text or JSON; `--fields` dumps every field one CLAP or LV2 plugin states, the records plugin-hostd builds its descriptors from.
 
-LV2 plugins run through the same CLAP host by an LV2 to CLAP adapter, the library
-`libomx-clap-lv2`, which omx-clap-host links in (and any program can, from the package
-`omx-clap-lv2-devel`, or `libomx-clap-lv2-dev` on Debian). lilv is loaded on the first LV2 add. A
-plugin the adapter cannot run is refused with its reason: `resp -102 hosting.features.missing`.
-What works today, and the test that proves each part, is in
-[docs/lv2-compatibility.md](docs/lv2-compatibility.md).
+An LV2 plugin runs natively: it is a real LV2 instance, loaded through lilv into the host's own
+process, with no emulation and no wrapper process. What sits between it and the host is the
+LV2 adapter, the library `libomx-clap-lv2` linked into omx-clap-host, and it maps the host
+interface only: the plugin's ports and controls are presented as CLAP ports and parameters, so
+one hosting core drives both formats. Any program can link the adapter too, from the package
+`omx-clap-lv2-devel` (`libomx-clap-lv2-dev` on Debian). lilv is loaded on the first LV2 add. A
+plugin the adapter cannot map is refused with its reason: `resp -102 hosting.features.missing`.
+What is supported, what is not and the test behind each row is in
+[docs/lv2-compatibility.md](docs/lv2-compatibility.md). plugin-hostd, which runs each plugin in a
+process of its own, hosts CLAP and LV2 with omx-clap-host as the worker of both, and mod-host for
+an LV2 plugin the adapter refuses.
 
 The CLAP hosting core is a library of its own, `libomx-clap-core`, for programs that host CLAP
 plugins themselves: it checks a plugin before using it, runs its audio on your thread and keeps
@@ -48,7 +53,7 @@ Version 0.21.0 ships these packages, all from the same release:
 | The host and the scanner: `omx-clap-host`, `omx-clap-scan`, their manual pages | `omx-clap-host` | `omx-clap-host` |
 | The hosting core, a shared library | `omx-clap-core` | `libomx-clap-core1` |
 | Headers, pkg-config file and ABI baseline to build a program on the core | `omx-clap-core-devel` | `libomx-clap-core-dev` |
-| Headers, pkg-config file and static library to run LV2 plugins in a CLAP host | `omx-clap-lv2-devel` | `libomx-clap-lv2-dev` |
+| Headers, pkg-config file and static library of the LV2 adapter, to link at build time (LV2 at run time is `omx-clap-host` with lilv) | `omx-clap-lv2-devel` | `libomx-clap-lv2-dev` |
 
 For your own program, install the `-devel` / `-dev` package and build with
 `pkg-config --cflags --libs omx-clap-core` (and `omx-clap-lv2` for the adapter).
@@ -71,8 +76,8 @@ the continuous integration runs on every push, and the packages it builds:
 - RPMs (Fedora 44, x86_64 and aarch64) and DEBs (bookworm and trixie, amd64 and arm64), each
   installed in a clean root or container.
 
-LV2 support is partial: [docs/lv2-compatibility.md](docs/lv2-compatibility.md) lists what is
-claimed and the test behind each row.
+Almost all of LV2 is supported: [docs/lv2-compatibility.md](docs/lv2-compatibility.md) lists
+each feature with the test behind it, and the few that are not supported, each with its reason.
 Every CLAP extension, what the host does with it and the test behind each claim, is in
 [docs/clap-compatibility.md](docs/clap-compatibility.md).
 
@@ -111,7 +116,7 @@ floating window. The first the plugin offers whose display answers is taken.
 
 An LV2 plugin is added by its URI, from the bundles on `LV2_PATH`, and its controls are its port
 symbols, as with mod-host. Its audio ports are read by the LV2 port groups, so a mono-in
-stereo-out reverb has `in_1` and `out_1`, `out_2`; a plugin the LV2 adapter cannot run answers
+stereo-out reverb has `in_1` and `out_1`, `out_2`; a plugin the LV2 adapter cannot map answers
 `resp -102` and the code that says why:
 
     send "add lv2:urn:zamaudio:ZamComp 1"                                          # resp 1

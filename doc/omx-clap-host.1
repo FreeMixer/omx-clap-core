@@ -1,6 +1,6 @@
 .TH OMX\-CLAP\-HOST 1 "October 2026" "omx-clap-host @VERSION@" "User Commands"
 .SH NAME
-omx\-clap\-host \- CLAP plugin host for JACK, driven over mod\-host's socket protocol
+omx\-clap\-host \- CLAP and LV2 plugin host for JACK, driven over mod\-host's socket protocol
 .SH SYNOPSIS
 .B omx\-clap\-host
 .RB [ \-n ]
@@ -19,7 +19,7 @@ omx\-clap\-host \- CLAP plugin host for JACK, driven over mod\-host's socket pro
 .RB { \-V | \-h }
 .SH DESCRIPTION
 .B omx\-clap\-host
-loads CLAP plugins and runs each instance as a JACK client named
+loads CLAP and LV2 plugins and runs each instance as a JACK client named
 .BI effect_ N
 with one port per channel of the plugin's main audio pair,
 .BI in_ k
@@ -69,9 +69,11 @@ An LV2 plugin is added by its URI,
 .BI lv2: uri
 or the URI alone as mod\-host takes it, from the bundle on
 .B LV2_PATH
-that holds it. It runs through the LV2 to CLAP adapter linked into the host,
-on the same ports and under the same rules as a CLAP plugin; a plugin the
-adapter cannot run is refused with
+that holds it. It runs natively, a real LV2 instance loaded through lilv,
+with no wrapper process; the LV2 adapter linked into the host maps the host
+interface, presenting its ports and controls as CLAP ports and parameters, so
+it runs on the same ports and under the same rules as a CLAP plugin. A plugin
+the adapter cannot map is refused with
 .B resp \-102
 and the adapter's hosting code, and a URI no bundle holds with
 .BR "resp \-101" .
