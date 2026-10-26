@@ -53,6 +53,7 @@ Version 0.21.0 ships these packages, all from the same release:
 | The host and the scanner: `omx-clap-host`, `omx-clap-scan`, their manual pages | `omx-clap-host` | `omx-clap-host` |
 | The hosting core, a shared library | `omx-clap-core` | `libomx-clap-core1` |
 | Headers, pkg-config file and ABI baseline to build a program on the core | `omx-clap-core-devel` | `libomx-clap-core-dev` |
+| The core's definitions in omx-contract's contract directory: hosting limits and codes, the host verbs | `omx-clap-core-contract` (noarch) | `omx-clap-core-contract` (all) |
 | Headers, pkg-config file and static library of the LV2 adapter, to link at build time (LV2 at run time is `omx-clap-host` with lilv) | `omx-clap-lv2-devel` | `libomx-clap-lv2-dev` |
 
 For your own program, install the `-devel` / `-dev` package and build with

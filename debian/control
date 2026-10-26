@@ -10,9 +10,10 @@ Build-Depends: debhelper-compat (= 13),
                libxcb1-dev,
                libmod-host-protocol-dev,
                libomxdsp-dev (>= 0.18.0),
-               libomx-contract-dev (>= 3.1.0),
+               libomx-contract-dev (>= 3.3.0),
                plugin-hostd-dev (>= 0.4.0~),
-               pkgconf
+               pkgconf,
+               python3
 Standards-Version: 4.6.2
 Homepage: https://github.com/FreeMixer/omx-clap-core
 Rules-Requires-Root: no
@@ -53,7 +54,7 @@ Section: libs
 Architecture: any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, omx-clap-core-contract (= ${source:Version})
 Description: engine that runs CLAP plugins for omx-clap-host
  The library that loads and runs CLAP plugins: it checks a plugin before using
  it, activates and warms it up, keeps its parameters and saved state, and runs
@@ -65,12 +66,23 @@ Package: libomx-clap-core-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libomx-contract-dev (>= 3.1.0), ${misc:Depends}
+Depends: libomx-contract-dev (>= 3.3.0), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
 Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
- the headers, the pkg-config file, the list of functions the library
- promises to keep, with the baseline each release is checked against, and
- the hosting limits as definitions in omx-contract's contract directory.
+ the headers, the pkg-config file, and the list of functions the library
+ promises to keep, with the baseline each release is checked against.
+
+Package: omx-clap-core-contract
+Architecture: all
+Multi-Arch: foreign
+Depends: ${misc:Depends}
+Breaks: libomx-clap-core-dev (<< ${source:Version})
+Replaces: libomx-clap-core-dev (<< ${source:Version})
+Description: omx-clap-core's definitions in omx-contract's contract directory
+ omx-clap-core's definitions as files in omx-contract's contract directory,
+ for any program that reads them at run time: the hosting limits and refusal
+ codes, and the verbs omx-clap-host and plugin-hostd answer, with their
+ formats, replies, refusal codes and what each host owes each verb.
 
 Package: libomx-clap-lv2-dev
 Section: libdevel
