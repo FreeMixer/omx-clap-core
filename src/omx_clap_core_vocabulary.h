@@ -117,4 +117,29 @@
 /* HOSTING_WORKER_CODES (data/hosting/worker.json) */
 #define OMX_HOSTING_WORKER_NONCONFORMING "hosting.worker.nonconforming"
 
+/* HOST_REPLY_CODES (data/verbs.json) */
+#define OMX_REPLY_HOST_INSTANCE_INVALID "reply.host.instance-invalid" ///< mod-host's ERR_INSTANCE_INVALID: an instance number outside the host's table
+#define OMX_REPLY_HOST_INSTANCE_NON_EXISTS "reply.host.instance-non-exists" ///< mod-host's ERR_INSTANCE_NON_EXISTS: an instance no add made
+#define OMX_REPLY_HOST_PARAM_SYMBOL_INVALID "reply.host.param-symbol-invalid" ///< mod-host's ERR_LV2_INVALID_PARAM_SYMBOL: a symbol that is not a parameter param_set takes, the plugin's own bypass included
+#define OMX_REPLY_HOST_MEMORY_ALLOCATION "reply.host.memory-allocation" ///< mod-host's ERR_MEMORY_ALLOCATION: the reply could not be built
+#define OMX_REPLY_HOST_INVALID_OPERATION "reply.host.invalid-operation" ///< mod-host's ERR_INVALID_OPERATION: a word outside the verb's grammar, or a verb the host refuses on purpose
+#define OMX_REPLY_HOST_PIN_ABSENT "reply.host.pin-absent" ///< a layout pin in a scheme this host does not know, refused as no pin at all
+#define OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH "reply.host.pin-layout-mismatch" ///< the add of an instance whose layout after init is not the one pin_expect named: the plugin is not activated
+#define OMX_REPLY_HOST_NO_PARAM_CONTRACT "reply.host.no-param-contract" ///< the host holds no checked unit and scale for this parameter: the controller falls back to the layout the scan gives
+#define OMX_REPLY_HOST_NO_NOTE_INPUT "reply.host.no-note-input" ///< the instance's plugin takes no notes
+#define OMX_REPLY_HOST_NOTES_BY_JACK "reply.host.notes-by-jack" ///< the instance's worker takes no notes on its socket (mod-host): the plugin is played through its jack MIDI input
+#define OMX_REPLY_HOST_NOTE_QUEUE_FULL "reply.host.note-queue-full" ///< the worker has no room for the line's notes before its next block: nothing of it is kept, and the line may be sent again
+
+/* HOST_TRACK_KINDS (data/verbs.json) */
+#define OMX_HOST_TRACK_KINDS_BUS "bus"
+#define OMX_HOST_TRACK_KINDS_RETURN "return"
+#define OMX_HOST_TRACK_KINDS_MASTER "master"
+#define OMX_HOST_TRACK_KINDS_COUNT 3u
+#define OMX_HOST_TRACK_KINDS_INIT { "bus", "return", "master" }
+
+/* HOST_EVENTS (data/verbs.json) */
+#define OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED "remote_pages_changed" ///< the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again
+#define OMX_HOST_EVENTS_COUNT 1u
+#define OMX_HOST_EVENTS_INIT { "remote_pages_changed" }
+
 #endif /* OMX_CLAP_CORE_VOCABULARY_H */
