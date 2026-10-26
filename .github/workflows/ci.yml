@@ -514,6 +514,7 @@ jobs:
             rpm -qlp "$rpm"
             files "$rpm" > files.txt
             printf '%s\n' /usr/libexec/omx-clap-host/tests/fake.clap /usr/libexec/omx-clap-host/tests/fake_compressor.clap \
+              /usr/libexec/omx-clap-host/tests/fault-14.clap /usr/libexec/omx-clap-host/tests/jack_identity \
               /usr/libexec/omx-clap-host/tests/jack_meter_source /usr/libexec/omx-clap-host/tests/socket_conformance.py \
               /usr/share/licenses/omx-clap-host-tests/COPYING | sort > expected.txt
             diff -u expected.txt files.txt
@@ -717,12 +718,13 @@ jobs:
           /tmp/lv2-consumer "$PWD/build/lv2/omx-host-fixture.lv2" | tee lv2-consumer.txt
           grep -q 'lv2 link test ok' lv2-consumer.txt
 
-      # the fixtures package: the three fixtures and the socket conformance script under libexec, and the worker it depends on
+      # the fixtures package: the five fixtures and the socket conformance script under libexec, and the worker it depends on
       - name: The tests package carries the fixtures and depends on the worker
         run: |
           set -euo pipefail
           dpkg -c debs/omx-clap-host-tests_*.deb | awk '$1 !~ /^d/ && $NF ~ /libexec/ {print $NF}' | sort | tee tests-files.txt
           printf '%s\n' ./usr/libexec/omx-clap-host/tests/fake.clap ./usr/libexec/omx-clap-host/tests/fake_compressor.clap \
+            ./usr/libexec/omx-clap-host/tests/fault-14.clap ./usr/libexec/omx-clap-host/tests/jack_identity \
             ./usr/libexec/omx-clap-host/tests/jack_meter_source ./usr/libexec/omx-clap-host/tests/socket_conformance.py \
             | sort > tests-expected.txt
           diff -u tests-expected.txt tests-files.txt
