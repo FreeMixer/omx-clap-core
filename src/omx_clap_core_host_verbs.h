@@ -39,29 +39,29 @@ struct omx_host_verb {
 #define OMX_VERB_TRACK_INFO "track_info"
 #define OMX_VERB_TRACK_INFO_FMT "track_info %i %s %s ..."
 #define OMX_VERB_TRACK_INFO_REPLY "resp 0"
-#define OMX_VERB_TRACK_INFO_CODES_COUNT 2u
-#define OMX_VERB_TRACK_INFO_CODES_INIT { -902, -3 } /* reply.host.invalid-operation, reply.host.instance-non-exists */
+#define OMX_VERB_TRACK_INFO_CODES_COUNT 3u
+#define OMX_VERB_TRACK_INFO_CODES_INIT { -902, -3, -901 } /* reply.host.invalid-operation, reply.host.instance-non-exists, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.remotePages (data/verbs.json): The plugin's remote-control pages, from clap.remote-controls; 0 for a plugin that has none. */
 #define OMX_VERB_REMOTE_PAGES "remote_pages"
 #define OMX_VERB_REMOTE_PAGES_FMT "remote_pages %i"
 #define OMX_VERB_REMOTE_PAGES_REPLY "resp <count>"
-#define OMX_VERB_REMOTE_PAGES_CODES_COUNT 2u
-#define OMX_VERB_REMOTE_PAGES_CODES_INIT { -902, -3 } /* reply.host.invalid-operation, reply.host.instance-non-exists */
+#define OMX_VERB_REMOTE_PAGES_CODES_COUNT 3u
+#define OMX_VERB_REMOTE_PAGES_CODES_INIT { -902, -3, -901 } /* reply.host.invalid-operation, reply.host.instance-non-exists, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.remotePageGet (data/verbs.json): One page, 0 to count - 1: its section and name as quoted words, and each slot the symbol param_set takes, - for an empty one; -902 for a page that is not one. */
 #define OMX_VERB_REMOTE_PAGE_GET "remote_page_get"
 #define OMX_VERB_REMOTE_PAGE_GET_FMT "remote_page_get %i %i"
 #define OMX_VERB_REMOTE_PAGE_GET_REPLY "resp 0 <page_id> <section> <page_name> <s1> <s2> <s3> <s4> <s5> <s6> <s7> <s8>"
-#define OMX_VERB_REMOTE_PAGE_GET_CODES_COUNT 2u
-#define OMX_VERB_REMOTE_PAGE_GET_CODES_INIT { -902, -3 } /* reply.host.invalid-operation, reply.host.instance-non-exists */
+#define OMX_VERB_REMOTE_PAGE_GET_CODES_COUNT 3u
+#define OMX_VERB_REMOTE_PAGE_GET_CODES_INIT { -902, -3, -901 } /* reply.host.invalid-operation, reply.host.instance-non-exists, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.paramInfo (data/verbs.json): What a parameter's value means: its unit, its scale (linear, log or stepped), its range, default and step, and the symbol it keeps across hosts and versions. */
 #define OMX_VERB_PARAM_INFO "param_info"
 #define OMX_VERB_PARAM_INFO_FMT "param_info %i %s"
 #define OMX_VERB_PARAM_INFO_REPLY "resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>"
-#define OMX_VERB_PARAM_INFO_CODES_COUNT 4u
-#define OMX_VERB_PARAM_INFO_CODES_INIT { -103, -511, -3, -902 } /* reply.host.param-symbol-invalid, reply.host.no-param-contract, reply.host.instance-non-exists, reply.host.invalid-operation */
+#define OMX_VERB_PARAM_INFO_CODES_COUNT 5u
+#define OMX_VERB_PARAM_INFO_CODES_INIT { -103, -511, -3, -902, -901 } /* reply.host.param-symbol-invalid, reply.host.no-param-contract, reply.host.instance-non-exists, reply.host.invalid-operation, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.pinExpect (data/verbs.json): The layout pin <scheme>:<sha256> the next add of the instance checks after init and before activate; plugin-hostd sends it to a worker of a format that checks layouts, and refuses the add with any other answer than resp 0. */
 #define OMX_VERB_PIN_EXPECT "pin_expect"
@@ -74,29 +74,29 @@ struct omx_host_verb {
 #define OMX_VERB_NOTE_INPUT "note_input"
 #define OMX_VERB_NOTE_INPUT_FMT "note_input %i"
 #define OMX_VERB_NOTE_INPUT_REPLY "resp 0 <port>"
-#define OMX_VERB_NOTE_INPUT_CODES_COUNT 3u
-#define OMX_VERB_NOTE_INPUT_CODES_INIT { -3, -902, -514 } /* reply.host.instance-non-exists, reply.host.invalid-operation, reply.host.notes-by-jack */
+#define OMX_VERB_NOTE_INPUT_CODES_COUNT 4u
+#define OMX_VERB_NOTE_INPUT_CODES_INIT { -3, -902, -514, -901 } /* reply.host.instance-non-exists, reply.host.invalid-operation, reply.host.notes-by-jack, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.noteOn (data/verbs.json): Play a key: <instance> <channel> <key> <velocity>, channel 0 to 15, key 0 to 127, velocity 1 to 127, a MIDI note on at the start of the worker's next cycle; -902 for a word out of its range. */
 #define OMX_VERB_NOTE_ON "note_on"
 #define OMX_VERB_NOTE_ON_FMT "note_on %i %i %i %i"
 #define OMX_VERB_NOTE_ON_REPLY "resp 0"
-#define OMX_VERB_NOTE_ON_CODES_COUNT 5u
-#define OMX_VERB_NOTE_ON_CODES_INIT { -513, -514, -517, -3, -902 } /* reply.host.no-note-input, reply.host.notes-by-jack, reply.host.note-queue-full, reply.host.instance-non-exists, reply.host.invalid-operation */
+#define OMX_VERB_NOTE_ON_CODES_COUNT 6u
+#define OMX_VERB_NOTE_ON_CODES_INIT { -513, -514, -517, -3, -902, -901 } /* reply.host.no-note-input, reply.host.notes-by-jack, reply.host.note-queue-full, reply.host.instance-non-exists, reply.host.invalid-operation, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.noteOff (data/verbs.json): Release a key: <instance> <channel> <key> <velocity>, velocity 0 to 127, a MIDI note off; answered as note_on is. */
 #define OMX_VERB_NOTE_OFF "note_off"
 #define OMX_VERB_NOTE_OFF_FMT "note_off %i %i %i %i"
 #define OMX_VERB_NOTE_OFF_REPLY "resp 0"
-#define OMX_VERB_NOTE_OFF_CODES_COUNT 5u
-#define OMX_VERB_NOTE_OFF_CODES_INIT { -513, -514, -517, -3, -902 } /* reply.host.no-note-input, reply.host.notes-by-jack, reply.host.note-queue-full, reply.host.instance-non-exists, reply.host.invalid-operation */
+#define OMX_VERB_NOTE_OFF_CODES_COUNT 6u
+#define OMX_VERB_NOTE_OFF_CODES_INIT { -513, -514, -517, -3, -902, -901 } /* reply.host.no-note-input, reply.host.notes-by-jack, reply.host.note-queue-full, reply.host.instance-non-exists, reply.host.invalid-operation, reply.host.memory-allocation */
 
 /* OMX_CLAP_CORE_SHARED_VERBS.allNotesOff (data/verbs.json): Release every key of every channel, MIDI's all notes off (controller 123) on each; answered as note_on is. */
 #define OMX_VERB_ALL_NOTES_OFF "all_notes_off"
 #define OMX_VERB_ALL_NOTES_OFF_FMT "all_notes_off %i"
 #define OMX_VERB_ALL_NOTES_OFF_REPLY "resp 0"
-#define OMX_VERB_ALL_NOTES_OFF_CODES_COUNT 5u
-#define OMX_VERB_ALL_NOTES_OFF_CODES_INIT { -513, -514, -517, -3, -902 } /* reply.host.no-note-input, reply.host.notes-by-jack, reply.host.note-queue-full, reply.host.instance-non-exists, reply.host.invalid-operation */
+#define OMX_VERB_ALL_NOTES_OFF_CODES_COUNT 6u
+#define OMX_VERB_ALL_NOTES_OFF_CODES_INIT { -513, -514, -517, -3, -902, -901 } /* reply.host.no-note-input, reply.host.notes-by-jack, reply.host.note-queue-full, reply.host.instance-non-exists, reply.host.invalid-operation, reply.host.memory-allocation */
 
 /* OMX_CLAP_HOST_VERBS.audioPorts (data/verbs.json): The instance's audio ports, inputs first and each side's main port first, each with the JACK ports that carry it; dry while the instance passes its input through. */
 #define OMX_VERB_AUDIO_PORTS "audio_ports"
