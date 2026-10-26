@@ -307,20 +307,20 @@ static void sanitize_client_name(char *dst, size_t dst_size, const char *src, si
     dst[n] = '\0';
 }
 
-/* a client opened under name, and the name it has copied to opened (when not NULL) at the open: the one asked for, or the
+/* a client opened under name, and the name it has copied to given (when not NULL) at the open: the one asked for, or the
  * one JACK made unique when it says so (JackNameNotUnique, never under JackUseExactName). The name is never read from
  * the client later: PipeWire's libjack rewrites the client's name on its own thread when the client's node appears,
  * which can be after jack_client_open returns, so a later jack_get_client_name races that write. */
-static jack_client_t *open_as(const char *name, jack_options_t options, jack_status_t *status, char *opened, size_t opened_size)
+static jack_client_t *open_as(const char *name, jack_options_t options, jack_status_t *status, char *given, size_t given_size)
 {
     jack_client_t *jack_client = jack_client_open(name, options, status);
 
-    if (jack_client && opened)
-        snprintf(opened, opened_size, "%s", (*status & JackNameNotUnique) ? jack_get_client_name(jack_client) : name);
+    if (jack_client && given)
+        snprintf(given, given_size, "%s", (*status & JackNameNotUnique) ? jack_get_client_name(jack_client) : name);
     return jack_client;
 }
 
-static jack_client_t *open_jack_client(int instance, const char *client_name, char *opened, size_t opened_size)
+static jack_client_t *open_jack_client(int instance, const char *client_name, char *given, size_t given_size)
 {
     char effect_name[32];
     char requested_name[REQUESTED_CLIENT_NAME_BUF_SIZE];
@@ -331,14 +331,14 @@ static jack_client_t *open_jack_client(int instance, const char *client_name, ch
     snprintf(effect_name, sizeof(effect_name), "effect_%i", instance);
 
     if (!client_name || client_name[0] == '\0')
-        return open_as(effect_name, JackNoStartServer, &jack_status, opened, opened_size);
+        return open_as(effect_name, JackNoStartServer, &jack_status, given, given_size);
 
     name_limit = (size_t)jack_client_name_size() - 1;
     sanitize_client_name(requested_name, sizeof(requested_name), client_name, name_limit);
     if (requested_name[0] == '\0')
-        return open_as(effect_name, JackNoStartServer, &jack_status, opened, opened_size);
+        return open_as(effect_name, JackNoStartServer, &jack_status, given, given_size);
 
-    jack_client = open_as(requested_name, JackNoStartServer | JackUseExactName, &jack_status, opened, opened_size);
+    jack_client = open_as(requested_name, JackNoStartServer | JackUseExactName, &jack_status, given, given_size);
     if (!jack_client && (jack_status & JackNameNotUnique))
     {
         char suffixed_name[REQUESTED_CLIENT_NAME_BUF_SIZE];
@@ -353,10 +353,10 @@ static jack_client_t *open_jack_client(int instance, const char *client_name, ch
         memcpy(suffixed_name, requested_name, keep);
         memcpy(suffixed_name + keep, id_suffix, suffix_len + 1);
 
-        jack_client = open_as(suffixed_name, JackNoStartServer | JackUseExactName, &jack_status, opened, opened_size);
+        jack_client = open_as(suffixed_name, JackNoStartServer | JackUseExactName, &jack_status, given, given_size);
     }
     if (!jack_client)
-        jack_client = open_as(effect_name, JackNoStartServer, &jack_status, opened, opened_size);
+        jack_client = open_as(effect_name, JackNoStartServer, &jack_status, given, given_size);
 
     return jack_client;
 }
