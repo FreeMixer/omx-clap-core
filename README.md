@@ -37,14 +37,13 @@ Install
 
 Fedora (x86_64 and aarch64):
 
-    sudo dnf config-manager addrepo --from-repofile=https://freemixer.github.io/rpm/freemixer.repo
+    sudo dnf install https://www.openmixer.org/rpm/openmixer-release.noarch.rpm
     sudo dnf install omx-clap-host
 
 Debian bookworm and trixie and Raspberry Pi OS (amd64 and arm64):
 
-    curl -fsSL https://freemixer.github.io/deb/freemixer.asc | sudo tee /usr/share/keyrings/freemixer.asc >/dev/null
-    echo "deb [signed-by=/usr/share/keyrings/freemixer.asc] https://freemixer.github.io/deb/debian/$(. /etc/os-release; echo $VERSION_CODENAME) ./" | sudo tee /etc/apt/sources.list.d/freemixer.list
-    sudo apt update && sudo apt install omx-clap-host
+    curl -fsSLO https://www.openmixer.org/deb/openmixer-release.deb && sudo apt install ./openmixer-release.deb
+    sudo apt install omx-clap-host
 
 Version 0.22.1 ships these packages, all from the same release:
 
@@ -126,5 +125,5 @@ stereo-out reverb has `in_1` and `out_1`, `out_2`; a plugin the LV2 adapter cann
     send "add lv2:http://moddevices.com/plugins/caps/Plate 2"                       # resp 2
 
 More: [every command, meters, bypass, port layout, latency and scanning](doc/reference.md), the
-manual pages (`man omx-clap-host`, `man omx-clap-scan`) and <https://freemixer.github.io>.
+manual pages (`man omx-clap-host`, `man omx-clap-scan`) and <https://www.openmixer.org>.
 Building from source: see [BUILDING.md](BUILDING.md).
