@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.21.0
+Version:        0.22.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,21 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Mon Oct 26 2026 Pau Aliagas <linuxnow@gmail.com> - 0.22.0-1
+- The verbs omx-clap-host shares with plugin-hostd (track_info,
+  remote_pages, remote_page_get, param_info, pin_expect, note_input,
+  note_on, note_off, all_notes_off) and the ones it adds for itself
+  (audio_ports, hide_external_ui, idle_hold, note_drops, note_out_drops)
+  are declared once in data/verbs.json, with their formats, replies,
+  refusal codes and what each host owes them, and the host names them by
+  their render, omx_clap_core_host_verbs.h. The build no longer reads
+  plugin-hostd's protocol.h.
+- New package omx-clap-core-contract (noarch): omx-clap-core's files in
+  omx-contract's contract directory, the hosting limits and codes and now
+  the verbs, move there from omx-clap-core-devel. omx-clap-core and
+  omx-clap-core-devel require it at their version.
+- Built with omx-contract 3.3.0.
+
 * Mon Oct 26 2026 Pau Aliagas <linuxnow@gmail.com> - 0.21.0-1
 - omx-clap-host runs plugin-hostd's chain line in one JACK client: chain
   <chain> <instance> ... makes the instances, in order, one chain in the

@@ -1,3 +1,22 @@
+omx-clap-host (0.22.0) unstable; urgency=medium
+
+  * The verbs omx-clap-host shares with plugin-hostd (track_info,
+    remote_pages, remote_page_get, param_info, pin_expect, note_input,
+    note_on, note_off, all_notes_off) and the ones it adds for itself
+    (audio_ports, hide_external_ui, idle_hold, note_drops, note_out_drops)
+    are declared once in data/verbs.json, with their formats, replies,
+    refusal codes and what each host owes them, and the host names them
+    by their render, omx_clap_core_host_verbs.h. The build no longer
+    reads plugin-hostd's protocol.h.
+  * New package omx-clap-core-contract (Architecture: all): omx-clap-core's
+    files in omx-contract's contract directory, the hosting limits and
+    codes and now the verbs, move there from libomx-clap-core-dev, which
+    it Breaks and Replaces below this version. libomx-clap-core1 and
+    libomx-clap-core-dev depend on it at their version.
+  * Built with omx-contract 3.3.0.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 26 Oct 2026 18:00:00 +0100
+
 omx-clap-host (0.21.0) unstable; urgency=medium
 
   * omx-clap-host runs plugin-hostd's chain line in one JACK client:
