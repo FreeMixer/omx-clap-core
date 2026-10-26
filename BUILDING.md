@@ -372,10 +372,12 @@ shares with plugin-hostd (`track_info`, `remote_pages`, `remote_page_get`,
 `all_notes_off`) and its own (`audio_ports`, `hide_external_ui`, `idle_hold`,
 `note_drops`, `note_out_drops`), each with its format, its reply, the refusal
 codes it answers (`HOST_REPLY_CODES`) and what each host owes it. Their render,
-`src/omx_clap_core_host_verbs.h`, installs with the core headers: a verb is
-`OMX_VERB_<VERB>` and `OMX_VERB_<VERB>_FMT`, its refusals'
-numbers `OMX_VERB_<VERB>_CODES_INIT`, and `omx_clap_core_host_verbs()` the table
-of what each host owes each verb. `src/host_verbs.h` holds the grammar over it.
+`src/omx_clap_core_host_verbs.h`, names a verb `OMX_VERB_<VERB>` and
+`OMX_VERB_<VERB>_FMT`, its refusals' numbers `OMX_VERB_<VERB>_CODES_INIT`, and
+`omx_clap_core_host_verbs()` is the table of what each host owes each verb;
+another host renders the same macros from the installed contract directory
+(`omx-contract render --target c --installed`, `omxcontract/omx_host_verbs.h`).
+`src/host_verbs.h` holds the grammar over it.
 `make test-codes` runs `tests/host-verbs-check.sh`, which fails on a verb's word
 or format typed in `src/` or `lv2/` and on a `HOST_REPLY_*` number that is not
 the declared one, with its `--self-test`. `make test-host-verbs` installs the
