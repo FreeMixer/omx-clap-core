@@ -96,7 +96,7 @@ seed with a matching declaration reaches.
 | Harness | Reader lines | Covered | Lines no input reaches |
 | --- | ---: | ---: | --- |
 | preset | 394 | 387 (98.22%) | `parse_string`'s two `goto bad` once its first scan has found the closing quote; `pj_free(NULL)`; `pj_set`'s allocation failure, a builder only a harness calls |
-| state | 59 | 59 (100%) | |
+| state | 60 | 60 (100%) | |
 | manifest | 92 | 92 (100%) | |
 
 ## The records

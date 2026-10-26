@@ -2,10 +2,10 @@ Breaks the check of fuzz/fuzz_state.c:201 (the decoder keeps its buffer on a ref
 Caught by the seed input "refuse-letter" of fuzz_state.
 
 diff --git a/src/preset_file.c b/src/preset_file.c
-index c4da476..75e7268 100644
+index a519c37..cf2045b 100644
 --- a/src/preset_file.c
 +++ b/src/preset_file.c
-@@ -640,7 +640,6 @@ uint8_t *preset_base64_decode(const char *text, size_t *len)
+@@ -641,7 +641,6 @@ uint8_t *preset_base64_decode(const char *text, size_t *len)
      *len = n;
      return out;
  bad:
