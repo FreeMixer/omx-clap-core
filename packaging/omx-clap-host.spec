@@ -11,12 +11,13 @@ BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
 BuildRequires: pkgconfig(mod-host-protocol)
+# plugin-hostd's pin.h: the layout fingerprint pin_expect names, one implementation, plugin-hostd's
 BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
-# the codes under contract.d/3 (3.0.0, the hosting codes moved here)
-BuildRequires: omx-contract-devel >= 3.1.0
+# the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0)
+BuildRequires: omx-contract-devel >= 3.3.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -59,6 +60,7 @@ socket protocol splits what it receives into commands.
 %package -n omx-clap-core
 Summary: The engine that runs CLAP plugins for omx-clap-host, as a library
 License: GPL-3.0-or-later
+Requires: omx-clap-core-contract = %{version}-%{release}
 
 %description -n omx-clap-core
 The library that loads and runs CLAP plugins: it checks a plugin before using
@@ -73,16 +75,30 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# the hosting limits and codes, in omx-contract's contract directory, which that package owns (3.0.0), and
-# omxcontract/omx_resource_hints.h, which clap_host.h includes (3.1.0)
-Requires: omx-contract-devel >= 3.1.0
+# omxcontract/omx_resource_hints.h, which clap_host.h includes
+Requires: omx-contract-devel >= 3.3.0
+Requires: omx-clap-core-contract = %{version}-%{release}
 Requires: pkgconfig
 
 %description -n omx-clap-core-devel
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
-headers, the pkg-config file, the list of functions the library promises to
-keep, with the baseline each release is checked against, and the hosting
-limits as definitions in omx-contract's contract directory.
+headers, the pkg-config file, and the list of functions the library promises
+to keep, with the baseline each release is checked against.
+
+%package -n omx-clap-core-contract
+Summary: omx-clap-core's definitions in omx-contract's contract directory
+License: GPL-3.0-or-later
+BuildArch: noarch
+# the contract directory, its schema and its reader's own package
+Requires: omx-contract-data >= 3.3.0
+# the files lived in omx-clap-core-devel before this package
+Conflicts: omx-clap-core-devel < %{version}-%{release}
+
+%description -n omx-clap-core-contract
+omx-clap-core's definitions as files in omx-contract's contract directory,
+for any program that reads them at run time: the hosting limits and refusal
+codes, and the verbs omx-clap-host and plugin-hostd answer, with their
+formats, replies, refusal codes and what each host owes each verb.
 
 %package -n omx-clap-lv2-devel
 Summary: Run LV2 plugins in a CLAP host, as a library to link
@@ -145,6 +161,9 @@ make test-lv2
 %{_includedir}/omx-clap-host/
 %{_datadir}/omx-clap-core/omx-clap-core.map
 %{_datadir}/omx-clap-core/libomx-clap-core.so.*.abi
+
+%files -n omx-clap-core-contract
+%license COPYING
 %{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
