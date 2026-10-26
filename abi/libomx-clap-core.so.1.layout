@@ -1,4 +1,4 @@
-version 0.18.0
+version 0.21.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -192,7 +192,8 @@ member struct omx_clap_instance passthrough 269512 4 uint32_t passthrough
 member struct omx_clap_instance idle_held 269516 4 uint32_t idle_held
 member struct omx_clap_instance resource_hints 269520 48 omx_resource_hints_t resource_hints
 member struct omx_clap_instance resource_hints_why 269568 8 const char * resource_hints_why
-size struct omx_clap_instance 269576
+member struct omx_clap_instance audio_slot 269576 8 _Atomic const _Atomic pthread_t * audio_slot
+size struct omx_clap_instance 269584
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
@@ -247,6 +248,36 @@ member struct omx_clap_note_out_event time 8 4 uint32_t time
 member struct omx_clap_note_out_event size 12 1 uint8_t size
 member struct omx_clap_note_out_event data 13 3 uint8_t data[3]
 size struct omx_clap_note_out_event 16
+member struct omx_clap_panel_description_control param_id 0 4 clap_id param_id
+member struct omx_clap_panel_description_control section 4 4 uint32_t section
+member struct omx_clap_panel_description_control widget 8 4 uint32_t widget
+member struct omx_clap_panel_description_control label_key 12 64 char label_key[64]
+member struct omx_clap_panel_description_control label 76 256 char label[256]
+member struct omx_clap_panel_description_control visible_param_id 332 4 clap_id visible_param_id
+member struct omx_clap_panel_description_control visible_mask 336 8 uint64_t visible_mask
+size struct omx_clap_panel_description_control 344
+member struct omx_clap_panel_description_default placement 0 4 uint32_t placement
+member struct omx_clap_panel_description_default param_id 4 4 clap_id param_id
+member struct omx_clap_panel_description_default value 8 8 double value
+size struct omx_clap_panel_description_default 16
+member struct omx_clap_panel_description_display kind 0 4 uint32_t kind
+member struct omx_clap_panel_description_display section 4 4 uint32_t section
+member struct omx_clap_panel_description_display source 8 4 uint32_t source
+member struct omx_clap_panel_description_display meter_ids 12 8 uint32_t meter_ids[2]
+member struct omx_clap_panel_description_display curve_index 20 4 uint32_t curve_index
+member struct omx_clap_panel_description_display floor_param_id 24 4 clap_id floor_param_id
+member struct omx_clap_panel_description_display floor_db 32 8 double floor_db
+member struct omx_clap_panel_description_display label_key 40 64 char label_key[64]
+member struct omx_clap_panel_description_display label 104 256 char label[256]
+size struct omx_clap_panel_description_display 360
+member struct omx_clap_panel_description_role role 0 64 char role[64]
+member struct omx_clap_panel_description_role index 64 4 uint32_t index
+member struct omx_clap_panel_description_role param_id 68 4 clap_id param_id
+size struct omx_clap_panel_description_role 72
+member struct omx_clap_panel_description_section key 0 64 char key[64]
+member struct omx_clap_panel_description_section label_key 64 64 char label_key[64]
+member struct omx_clap_panel_description_section label 128 256 char label[256]
+size struct omx_clap_panel_description_section 384
 member struct omx_clap_param_contract_entry param_id 0 4 clap_id param_id
 member struct omx_clap_param_contract_entry symbol 4 64 char symbol[64]
 member struct omx_clap_param_contract_entry unit 68 4 uint32_t unit
@@ -301,6 +332,11 @@ size struct omx_clap_param_tag 16
 member struct omx_clap_plugin_declaration ) 0 8 const char * (*source)(const clap_plugin_t *)
 member struct omx_clap_plugin_declaration ) 8 8 const char * (*digest)(const clap_plugin_t *)
 size struct omx_clap_plugin_declaration 16
+member struct omx_clap_plugin_panel_description_ext ) 0 8 const char * (*fingerprint)(const clap_plugin_t *)
+member struct omx_clap_plugin_panel_description_ext ) 8 8 uint32_t (*family)(const clap_plugin_t *)
+member struct omx_clap_plugin_panel_description_ext uint32_t) 16 8 uint32_t (*count)(const clap_plugin_t *, uint32_t)
+member struct omx_clap_plugin_panel_description_ext ) 24 8 _Bool (*get)(const clap_plugin_t *, uint32_t, uint32_t, void *)
+size struct omx_clap_plugin_panel_description_ext 32
 member struct omx_clap_plugin_param_contract_ext ) 0 8 uint32_t (*version)(const clap_plugin_t *)
 member struct omx_clap_plugin_param_contract_ext ) 8 8 const char * (*fingerprint)(const clap_plugin_t *)
 member struct omx_clap_plugin_param_contract_ext ) 16 8 _Bool (*get)(const clap_plugin_t *, clap_id, omx_clap_param_contract_entry_t *)
