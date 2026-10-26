@@ -360,3 +360,104 @@ export declare const HOSTING_WORKER_CODES: {
     readonly code: "hosting.worker.nonconforming";
   };
 };
+
+/**
+ * The refusals the verbs of this package answer, by the number of resp <n>: mod-host's own numbers (mod-host.h) and the ones a worker answers past them.
+ * @see data/verbs.json
+ */
+export declare const HOST_REPLY_CODES: {
+  readonly instanceInvalid: {
+    readonly code: "reply.host.instance-invalid";
+    readonly resp: -1;
+    readonly doc: "mod-host's ERR_INSTANCE_INVALID: an instance number outside the host's table";
+  };
+  readonly instanceNonExists: {
+    readonly code: "reply.host.instance-non-exists";
+    readonly resp: -3;
+    readonly doc: "mod-host's ERR_INSTANCE_NON_EXISTS: an instance no add made";
+  };
+  readonly paramSymbolInvalid: {
+    readonly code: "reply.host.param-symbol-invalid";
+    readonly resp: -103;
+    readonly doc: "mod-host's ERR_LV2_INVALID_PARAM_SYMBOL: a symbol that is not a parameter param_set takes, the plugin's own bypass included";
+  };
+  readonly memoryAllocation: {
+    readonly code: "reply.host.memory-allocation";
+    readonly resp: -901;
+    readonly doc: "mod-host's ERR_MEMORY_ALLOCATION: the reply could not be built";
+  };
+  readonly invalidOperation: {
+    readonly code: "reply.host.invalid-operation";
+    readonly resp: -902;
+    readonly doc: "mod-host's ERR_INVALID_OPERATION: a word outside the verb's grammar, or a verb the host refuses on purpose";
+  };
+  readonly pinAbsent: {
+    readonly code: "reply.host.pin-absent";
+    readonly resp: -508;
+    readonly doc: "a layout pin in a scheme this host does not know, refused as no pin at all";
+  };
+  readonly pinLayoutMismatch: {
+    readonly code: "reply.host.pin-layout-mismatch";
+    readonly resp: -510;
+    readonly doc: "the add of an instance whose layout after init is not the one pin_expect named: the plugin is not activated";
+  };
+  readonly noParamContract: {
+    readonly code: "reply.host.no-param-contract";
+    readonly resp: -511;
+    readonly doc: "the host holds no checked unit and scale for this parameter: the controller falls back to the layout the scan gives";
+  };
+  readonly noNoteInput: {
+    readonly code: "reply.host.no-note-input";
+    readonly resp: -513;
+    readonly doc: "the instance's plugin takes no notes";
+  };
+  readonly notesByJack: {
+    readonly code: "reply.host.notes-by-jack";
+    readonly resp: -514;
+    readonly doc: "the instance's worker takes no notes on its socket (mod-host): the plugin is played through its jack MIDI input";
+  };
+  readonly noteQueueFull: {
+    readonly code: "reply.host.note-queue-full";
+    readonly resp: -517;
+    readonly doc: "the worker has no room for the line's notes before its next block: nothing of it is kept, and the line may be sent again";
+  };
+};
+
+/**
+ * The kind of strip, the last word of track_info; a line without it is an input channel.
+ * @see data/verbs.json
+ */
+export declare const HOST_TRACK_KINDS: {
+  readonly bus: {
+    readonly word: "bus";
+  };
+  readonly return: {
+    readonly word: "return";
+  };
+  readonly master: {
+    readonly word: "master";
+  };
+};
+
+/**
+ * The lines a host writes on its feedback port for these verbs, each followed by the instance number.
+ * @see data/verbs.json
+ */
+export declare const HOST_EVENTS: {
+  readonly remotePagesChanged: {
+    readonly word: "remote_pages_changed";
+    readonly doc: "the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again";
+  };
+};
+
+/**
+ * The words of HOST_TRACK_KINDS, in their declared order.
+ * @see data/verbs.json
+ */
+export declare const HOST_TRACK_KINDS_WORDS: readonly ["bus", "return", "master"];
+
+/**
+ * The words of HOST_EVENTS, in their declared order.
+ * @see data/verbs.json
+ */
+export declare const HOST_EVENTS_WORDS: readonly ["remote_pages_changed"];

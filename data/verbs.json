@@ -1,0 +1,401 @@
+{
+  "$schema": "../schema/omx-contract.schema.json",
+  "requires": {
+    "omx-contract-schema": ">= 3.3.0"
+  },
+  "HOST_REPLY_CODES": {
+    "kind": "codes",
+    "since": "0.22.0",
+    "doc": "The refusals the verbs of this package answer, by the number of resp <n>: mod-host's own numbers (mod-host.h) and the ones a worker answers past them.",
+    "codes": {
+      "instanceInvalid": {
+        "code": "reply.host.instance-invalid",
+        "resp": -1,
+        "doc": "mod-host's ERR_INSTANCE_INVALID: an instance number outside the host's table"
+      },
+      "instanceNonExists": {
+        "code": "reply.host.instance-non-exists",
+        "resp": -3,
+        "doc": "mod-host's ERR_INSTANCE_NON_EXISTS: an instance no add made"
+      },
+      "paramSymbolInvalid": {
+        "code": "reply.host.param-symbol-invalid",
+        "resp": -103,
+        "doc": "mod-host's ERR_LV2_INVALID_PARAM_SYMBOL: a symbol that is not a parameter param_set takes, the plugin's own bypass included"
+      },
+      "memoryAllocation": {
+        "code": "reply.host.memory-allocation",
+        "resp": -901,
+        "doc": "mod-host's ERR_MEMORY_ALLOCATION: the reply could not be built"
+      },
+      "invalidOperation": {
+        "code": "reply.host.invalid-operation",
+        "resp": -902,
+        "doc": "mod-host's ERR_INVALID_OPERATION: a word outside the verb's grammar, or a verb the host refuses on purpose"
+      },
+      "pinAbsent": {
+        "code": "reply.host.pin-absent",
+        "resp": -508,
+        "doc": "a layout pin in a scheme this host does not know, refused as no pin at all"
+      },
+      "pinLayoutMismatch": {
+        "code": "reply.host.pin-layout-mismatch",
+        "resp": -510,
+        "doc": "the add of an instance whose layout after init is not the one pin_expect named: the plugin is not activated"
+      },
+      "noParamContract": {
+        "code": "reply.host.no-param-contract",
+        "resp": -511,
+        "doc": "the host holds no checked unit and scale for this parameter: the controller falls back to the layout the scan gives"
+      },
+      "noNoteInput": {
+        "code": "reply.host.no-note-input",
+        "resp": -513,
+        "doc": "the instance's plugin takes no notes"
+      },
+      "notesByJack": {
+        "code": "reply.host.notes-by-jack",
+        "resp": -514,
+        "doc": "the instance's worker takes no notes on its socket (mod-host): the plugin is played through its jack MIDI input"
+      },
+      "noteQueueFull": {
+        "code": "reply.host.note-queue-full",
+        "resp": -517,
+        "doc": "the worker has no room for the line's notes before its next block: nothing of it is kept, and the line may be sent again"
+      }
+    }
+  },
+  "HOST_TRACK_KINDS": {
+    "kind": "words",
+    "since": "0.22.0",
+    "doc": "The kind of strip, the last word of track_info; a line without it is an input channel.",
+    "words": {
+      "bus": {
+        "word": "bus"
+      },
+      "return": {
+        "word": "return"
+      },
+      "master": {
+        "word": "master"
+      }
+    }
+  },
+  "HOST_EVENTS": {
+    "kind": "words",
+    "since": "0.22.0",
+    "doc": "The lines a host writes on its feedback port for these verbs, each followed by the instance number.",
+    "words": {
+      "remotePagesChanged": {
+        "word": "remote_pages_changed",
+        "doc": "the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again"
+      }
+    }
+  },
+  "OMX_CLAP_CORE_SHARED_VERBS": {
+    "kind": "verbs",
+    "since": "0.22.0",
+    "doc": "The verbs omx-clap-host and plugin-hostd both answer by instance, and the layout pin plugin-hostd sends its worker before an add: declared once, rendered for both hosts.",
+    "verbs": {
+      "trackInfo": {
+        "verb": "track_info",
+        "format": "track_info %i %s %s ...",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "The strip's name, colour and kind: <instance> <name> <#RRGGBB | -> [bus | return | master]; a string word is at most 255 bytes of UTF-8 with no control character, and any other word is -902. A CLAP plugin reads them through clap.track-info."
+      },
+      "remotePages": {
+        "verb": "remote_pages",
+        "format": "remote_pages %i",
+        "reply": "resp <count>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "The plugin's remote-control pages, from clap.remote-controls; 0 for a plugin that has none."
+      },
+      "remotePageGet": {
+        "verb": "remote_page_get",
+        "format": "remote_page_get %i %i",
+        "reply": "resp 0 <page_id> <section> <page_name> <s1> <s2> <s3> <s4> <s5> <s6> <s7> <s8>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "One page, 0 to count - 1: its section and name as quoted words, and each slot the symbol param_set takes, - for an empty one; -902 for a page that is not one."
+      },
+      "paramInfo": {
+        "verb": "param_info",
+        "format": "param_info %i %s",
+        "reply": "resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.paramSymbolInvalid"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.noParamContract"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "What a parameter's value means: its unit, its scale (linear, log or stepped), its range, default and step, and the symbol it keeps across hosts and versions."
+      },
+      "pinExpect": {
+        "verb": "pin_expect",
+        "format": "pin_expect %i %s",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceInvalid"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.pinAbsent"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.22.0",
+        "doc": "The layout pin <scheme>:<sha256> the next add of the instance checks after init and before activate; plugin-hostd sends it to a worker of a format that checks layouts, and refuses the add with any other answer than resp 0."
+      },
+      "noteInput": {
+        "verb": "note_input",
+        "format": "note_input %i",
+        "reply": "resp 0 <port>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.notesByJack"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "Whether the instance takes notes: the name of its note input on its worker's jack client, - for a plugin that takes none."
+      },
+      "noteOn": {
+        "verb": "note_on",
+        "format": "note_on %i %i %i %i",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.noNoteInput"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.notesByJack"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.noteQueueFull"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "Play a key: <instance> <channel> <key> <velocity>, channel 0 to 15, key 0 to 127, velocity 1 to 127, a MIDI note on at the start of the worker's next cycle; -902 for a word out of its range."
+      },
+      "noteOff": {
+        "verb": "note_off",
+        "format": "note_off %i %i %i %i",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.noNoteInput"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.notesByJack"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.noteQueueFull"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "Release a key: <instance> <channel> <key> <velocity>, velocity 0 to 127, a MIDI note off; answered as note_on is."
+      },
+      "allNotesOff": {
+        "verb": "all_notes_off",
+        "format": "all_notes_off %i",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.noNoteInput"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.notesByJack"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.noteQueueFull"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          }
+        ],
+        "implementedBy": {
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
+        },
+        "since": "0.22.0",
+        "doc": "Release every key of every channel, MIDI's all notes off (controller 123) on each; answered as note_on is."
+      }
+    }
+  },
+  "OMX_CLAP_HOST_VERBS": {
+    "kind": "verbs",
+    "since": "0.22.0",
+    "doc": "The verbs omx-clap-host adds to mod-host's protocol for itself: what a controller reads of an instance's ports, window, note counters and the CPU idle hold.",
+    "verbs": {
+      "audioPorts": {
+        "verb": "audio_ports",
+        "format": "audio_ports %i",
+        "reply": "resp 0 [dry] <port> ...",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.memoryAllocation"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.22.0",
+        "doc": "The instance's audio ports, inputs first and each side's main port first, each with the JACK ports that carry it; dry while the instance passes its input through."
+      },
+      "hideExternalUi": {
+        "verb": "hide_external_ui",
+        "format": "hide_external_ui %i",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.22.0",
+        "doc": "Hide the plugin's own window that show_external_ui showed."
+      },
+      "idleHold": {
+        "verb": "idle_hold",
+        "format": "idle_hold ...",
+        "reply": "resp 0 <target> <held> <aggregate> <active> <code>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.22.0",
+        "doc": "The CPU idle hold as it stands; idle_hold <off | microseconds> changes its target at once and answers resp 0."
+      },
+      "noteDrops": {
+        "verb": "note_drops",
+        "format": "note_drops %i",
+        "reply": "resp 0 <notes> <releases> <sysex> <unmappable>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.22.0",
+        "doc": "The note events the instance's blocks had no room for, of them the releases, the sysex past a block's pool, and the messages no dialect of the plugin carries."
+      },
+      "noteOutDrops": {
+        "verb": "note_out_drops",
+        "format": "note_out_drops %i",
+        "reply": "resp 0 <dropped> <unmapped> <midi_out_full>",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceNonExists"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.22.0",
+        "doc": "The plugin's note output counters: the events the ring had no room for, those with no MIDI form, and the messages midi_out had no room for."
+      }
+    }
+  }
+}
