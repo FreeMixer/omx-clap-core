@@ -536,13 +536,15 @@ it declares, and whose plugin list holds it. A manifest that spells the URI
 any other way, relative to `@base` for instance, is not found. plugin-hostd
 narrows `LV2_PATH` to the plugin's own bundle.
 
-The plugin runs through `libomx-clap-lv2`, the LV2 to CLAP adapter, linked into
-the host: one CLAP plugin with the same client, ports, latency, meters and
-bypass as a CLAP plugin (`effect_<N>`, `in_<k>` and `out_<k>`, `midi_in` for a
-plugin with an LV2 MIDI input). lilv is not linked: the adapter loads it on the
-first LV2 add, so a host that never adds one never maps it.
-[docs/lv2-compatibility.md](../docs/lv2-compatibility.md) says what the adapter
-carries.
+The plugin runs natively: a real LV2 instance, loaded through lilv in the
+host's process, with no emulation and no wrapper process. `libomx-clap-lv2`,
+the LV2 adapter linked into the host, maps the host interface: the plugin's
+ports and controls are presented as CLAP ports and parameters, so it gets the
+same client, ports, latency, meters and bypass as a CLAP plugin (`effect_<N>`,
+`in_<k>` and `out_<k>`, `midi_in` for a plugin with an LV2 MIDI input). lilv is
+not linked: the adapter loads it on the first LV2 add, so a host that never
+adds one never maps it. [docs/lv2-compatibility.md](../docs/lv2-compatibility.md)
+says what is supported, what is not, and the test behind each row.
 
 A plugin that asks for `state:makePath` makes its files in the host's state
 root: `-s <dir>`, else `$XDG_STATE_HOME/omx-clap-host`, else

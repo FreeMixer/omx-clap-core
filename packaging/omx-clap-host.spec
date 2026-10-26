@@ -2,7 +2,7 @@ Name: omx-clap-host
 Version:        0.22.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
-Summary: Use CLAP plugins on a JACK or PipeWire rig, driven like mod-host
+Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
 URL: https://github.com/FreeMixer/omx-clap-core
 
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
@@ -31,17 +31,19 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
-# LV2 plugins run through the adapter linked into the host, which loads lilv on the first LV2 add
+# an LV2 plugin is a lilv instance, mapped by the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
 
 %description
-omx-clap-host brings CLAP plugins, the modern open plugin format, into a live
-JACK or PipeWire rig. Each plugin runs as a JACK client with its own ports, and
-an instrument gets a MIDI input as well. Anything that already controls
-mod-host can control it over the same socket with the same commands. LV2
-plugins run in it too, by their URI, through its LV2 to CLAP adapter. It comes
-with omx-clap-scan, which lists what is in a CLAP bundle and survives a plugin
-that crashes while loading.
+omx-clap-host hosts CLAP and LV2 plugins in a live JACK or PipeWire rig. Each
+plugin runs as a JACK client with its own ports, and an instrument gets a MIDI
+input as well. Anything that already controls mod-host can control it over the
+same socket with the same commands. An LV2 plugin, added by its URI, runs
+natively: a real LV2 instance loaded through lilv, with no emulation and no
+wrapper process. The LV2 adapter linked into the host maps the host interface,
+presenting the plugin's ports and controls as CLAP ports and parameters. It
+comes with omx-clap-scan, which lists what is in a CLAP bundle and survives a
+plugin that crashes while loading.
 
 %package tests
 Summary: Fixtures to test a program that drives omx-clap-host
@@ -101,19 +103,22 @@ codes, and the verbs omx-clap-host and plugin-hostd answer, with their
 formats, replies, refusal codes and what each host owes each verb.
 
 %package -n omx-clap-lv2-devel
-Summary: Run LV2 plugins in a CLAP host, as a library to link
+Summary: The LV2 adapter of omx-clap-host, as a static library to link
 License: GPL-3.0-or-later
 Requires: omx-clap-core-devel%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 Requires: pkgconfig
 
 %description -n omx-clap-lv2-devel
-libomx-clap-lv2 lets a program that hosts CLAP plugins run LV2 plugins too:
-it presents one LV2 plugin as one CLAP plugin, with its controls as CLAP
-parameters, its latency, its own background worker and its default
-settings. It is a static library with its header and pkg-config file, and
-it loads lilv when the first LV2 bundle is opened, so a program that never
-opens one never needs lilv.
+libomx-clap-lv2 is the LV2 adapter omx-clap-host links in, for a program of
+your own that hosts plugins on omx-clap-core: it loads an LV2 plugin through
+lilv as a real LV2 instance and maps the host interface, presenting the
+plugin's ports and controls as CLAP ports and parameters, with its latency,
+its own background worker and its default settings. It is a static library
+with its header and pkg-config file, linked at build time, and it loads lilv
+when the first LV2 bundle is opened, so a program that never opens one never
+needs lilv. LV2 at run time is omx-clap-host with lilv-libs, which
+plugin-hostd also runs as the worker of an LV2 plugin.
 
 %prep
 %autosetup
@@ -217,6 +222,10 @@ make test-lv2
   grammar's depth of 32 and the manifest rule's 16 declarations, a compact
   write whose allocation fails giving no text and a rewritten member holding
   the value its rewrite set; the library does not change (#345).
+- The descriptions say what the host is: it hosts CLAP and LV2, an LV2 plugin
+  running natively as a lilv instance, the adapter the mapping of its ports
+  and controls to CLAP ports and parameters; omx-clap-lv2-devel says it is the
+  static library linked at build time, and where LV2 runs (#352).
 
 * Sun Oct 25 2026 Pau Aliagas <linuxnow@gmail.com> - 0.20.1-1
 - The fuzz harnesses read each input by its own grammar, never by the
