@@ -380,11 +380,16 @@ test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap 
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) - $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap)
 
 # every hosting code src/ and lv2/ write is an OMX_HOSTING_ macro of src/omx_clap_core_vocabulary.h, the render of
-# data/hosting/: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms)
-.PHONY: test-codes
-test-codes:
+# data/hosting/: no hand-typed "hosting." literal, no name that header lacks (tests/hosting-codes-check.sh, with its sabotage arms); and
+# every verb data/verbs.json declares is an OMX_VERB_ macro of src/omx_clap_core_host_verbs.h, every reply number of
+# src/host_verbs.h the declared one (tests/host-verbs-check.sh, with its sabotage arms)
+.PHONY: test-codes test-verbs-source
+test-codes: test-verbs-source
 	bash tests/hosting-codes-check.sh
 	bash tests/hosting-codes-check.sh --self-test
+test-verbs-source:
+	bash tests/host-verbs-check.sh
+	bash tests/host-verbs-check.sh --self-test
 
 # the stage against fake plugins at six rates, and the core over the fault fixtures and fakes: the witness, the guard
 # page, the audio role on a split, the whole roster and the tempo
@@ -767,12 +772,29 @@ test-hostd-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/fault-14.clap tests/fault-0.clap
 	$(PHD_CHAIN_DECLARED) PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/hostd_chain_e2e.sh
 
+# the verbs the installed declarations name for this host, against its socket and its registration table, in a PipeWire
+# of its own (tests/host_verbs_e2e.sh): data/ installed into build/verbs-contract as the package installs it, unless
+# OMX_CONTRACT_PATH names the contract directories to read (the packaging job's installed one)
+HOST_VERBS_CONTRACT = $(abspath build/verbs-contract)
+.PHONY: test-host-verbs test-host-verbs-sabotage host-verbs-contract
+host-verbs-contract:
+	rm -rf $(HOST_VERBS_CONTRACT)
+	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(HOST_VERBS_CONTRACT)
+test-host-verbs: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
+	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_e2e.sh
+
+# the sabotage of that guard (tests/host_verbs_sabotage.sh): a format and what the host owes a verb changed in a copy of
+# the declarations, a handler deleted and a verb with no declaration registered in a copy of the sources; each red
+test-host-verbs-sabotage: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
+	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_sabotage.sh
+
 # what the tests read of the verbs data/verbs.json declares, from the header over its renders (src/host_verbs.h) and
 # the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
 HASH := \#
 host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 HOST_PIN_DECLARED = $(foreach n,HOST_REPLY_PIN_ABSENT HOST_REPLY_PIN_LAYOUT_MISMATCH OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
 HOST_INFO_DECLARED = $(foreach n,HOST_REPLY_NO_PARAM_CONTRACT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
+HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
 # what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE PHD_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED PHD_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')

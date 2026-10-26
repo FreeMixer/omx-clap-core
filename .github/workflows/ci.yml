@@ -291,6 +291,18 @@ jobs:
             echo "::warning::test-socket SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # the verbs data/verbs.json declares for this host, installed as the package installs them, against its socket and
+      # its registration table; then the guard's sabotage: a format and what the host owes a verb changed in the
+      # declaration, a handler deleted and a verb with no declaration registered in the host, each red
+      - name: Test the verbs the declarations name for this host
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-host-verbs
+            make test-host-verbs-sabotage
+          else
+            echo "::warning::test-host-verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # a plugin that moves its own parameter: param_gesture and param_set on the feedback port, in order
       - name: Test the values and gestures a plugin makes itself over jack
         run: |
