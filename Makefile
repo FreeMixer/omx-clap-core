@@ -792,8 +792,8 @@ test-host-verbs-sabotage: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(O
 # the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
 HASH := \#
 host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
-HOST_PIN_DECLARED = $(foreach n,HOST_REPLY_PIN_ABSENT HOST_REPLY_PIN_LAYOUT_MISMATCH OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
-HOST_INFO_DECLARED = $(foreach n,HOST_REPLY_NO_PARAM_CONTRACT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
+HOST_PIN_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
+HOST_INFO_DECLARED = $(foreach n,OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
 HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
 # what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
