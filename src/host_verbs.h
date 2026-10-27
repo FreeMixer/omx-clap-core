@@ -54,14 +54,6 @@
 ************************************************************************************************************************
 */
 
-/* the refusals of HOST_REPLY_CODES the host answers past mod-host's own numbers: HOST_REPLY_<NAME> is the resp of
- * reply.host.<name> */
-#define HOST_REPLY_PIN_ABSENT           (-508)
-#define HOST_REPLY_PIN_LAYOUT_MISMATCH  (-510)
-#define HOST_REPLY_NO_PARAM_CONTRACT    (-511)
-#define HOST_REPLY_NO_NOTE_INPUT        (-513)
-#define HOST_REPLY_NOTE_QUEUE_FULL      (-517)
-
 /* the word for what is not there: no colour in track_info, an empty slot of remote_page_get, no note input */
 #define HOST_WORD_NONE          "-"
 /* the longest string word, in bytes: a CLAP name without its terminator */

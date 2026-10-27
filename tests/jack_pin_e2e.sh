@@ -26,7 +26,7 @@ layout_pin=$here/clap_layout_pin
 id=org.omx-clap-host.test.passthrough
 uri="clap:$fake#$id"
 
-: "${HOST_REPLY_PIN_ABSENT:?}" "${HOST_REPLY_PIN_LAYOUT_MISMATCH:?}" "${OMX_VERB_PIN_EXPECT:?}" "${PHD_PIN_LAYOUT_SCHEME:?}"
+: "${OMX_REPLY_HOST_PIN_ABSENT_RESP:?}" "${OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP:?}" "${OMX_VERB_PIN_EXPECT:?}" "${PHD_PIN_LAYOUT_SCHEME:?}"
 expect_verb=$OMX_VERB_PIN_EXPECT
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
@@ -128,14 +128,14 @@ in_graph 0; step $? "effect_0 is in the graph"
 # (d) a pin for another instance leaves this one alone, and waits for its own add, which spends it
 expect "$expect_verb 2 $other" "resp 0"
 expect "add $uri 1" "resp 1"
-expect "add $uri 2" "resp $HOST_REPLY_PIN_LAYOUT_MISMATCH"
+expect "add $uri 2" "resp $OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP"
 expect "add $uri 2" "resp 2"
 
 # (c) a scheme this host does not know is refused and pins nothing; a token outside the grammar too
-expect "$expect_verb 3 $wrong_scheme" "resp $HOST_REPLY_PIN_ABSENT"
+expect "$expect_verb 3 $wrong_scheme" "resp $OMX_REPLY_HOST_PIN_ABSENT_RESP"
 expect "$expect_verb 3 omx-layout/1:0123" "resp -902"
 expect "$expect_verb 3 $pin" "resp 0"
-expect "$expect_verb 3 $wrong_scheme" "resp $HOST_REPLY_PIN_ABSENT"
+expect "$expect_verb 3 $wrong_scheme" "resp $OMX_REPLY_HOST_PIN_ABSENT_RESP"
 expect "add $uri 3" "resp 3"
 expect "$expect_verb -1 $pin" "resp -1"
 expect "$expect_verb 10000 $pin" "resp -1"
@@ -155,7 +155,7 @@ stop_host
 # (b) the same binary with another default: destroyed after init, never activated, nothing processed, not in the graph
 start_host 32
 expect "$expect_verb 0 $pin" "resp 0"
-expect "add $uri 0" "resp $HOST_REPLY_PIN_LAYOUT_MISMATCH"
+expect "add $uri 0" "resp $OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP"
 sleep 0.5
 [ "$(logged init)" -eq 1 ] && [ "$(logged destroy)" -eq 1 ]
 step $? "the refused instance was created and destroyed ($(logged init) init, $(logged destroy) destroy)"
