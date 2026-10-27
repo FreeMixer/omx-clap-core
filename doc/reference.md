@@ -1011,7 +1011,7 @@ as `omx_clap_core_host_verbs.h`), answered from the plugin:
   contract once, at `add`: a plugin that offers none, or whose contract breaks
   one rule (an id with no entry, two entries with one symbol, a malformed
   symbol, unit, scale or step, a fingerprint that is not the one the host
-  computes, a malformed migration step), answers `resp -511`
+  computes), answers `resp -511`
   (`reply.host.no-param-contract`) for every parameter, and the host's log names
   the broken rule once (`<plugin id>: the parameter contract is not trusted:
   R4 ...`). An id `param_set` would refuse (a read-only parameter, the
