@@ -180,6 +180,20 @@ make test-lv2
 %changelog
 * Tue Oct 27 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.0-1
 - The parameter contract no longer carries migration steps: the
+  org.openmixer.param-contract/1 extension is version, fingerprint and get, and
+  the host's R5 rule is gone. The two removed members were the last of the
+  extension's table, so a plugin that still fills them is read as before.
+  libomx-clap-core's soname stays .so.1.
+- omx-clap-scan --json writes a "labels" list on each enum parameter (the
+  plugin's own text for every whole value of the range) and a "remote_controls"
+  list on each plugin (page id, section, name and the eight parameter slots of
+  every remote-control page).
+- omx-clap-host writes xruns <count> on its feedback port, the count of xruns
+  since it started, so a client of the worker can tell when the rig
+  dropped a cycle.
+
+* Tue Oct 27 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.0-1
+- The parameter contract no longer carries migration steps: the
   org.openmixer.param-contract/1 extension is version, fingerprint and get,
   and the host's R5 rule is gone. The soname stays libomx-clap-core.so.1.
 
