@@ -154,9 +154,6 @@ int main(void)
 
     CHECK(symbol_ok("time_ms") && symbol_ok("_x9") && !symbol_ok("9x") && !symbol_ok("a-b") && !symbol_ok(""),
           "the symbol grammar");
-    CHECK(pc_convertible(1, 3) && pc_convertible(17, 19) && pc_convertible(14, 15) && pc_convertible(13, 15)
-          && pc_convertible(0x100, 0x100) && !pc_convertible(0x100, 13) && !pc_convertible(13, 14) && !pc_convertible(1, 16),
-          "the conversion table: time, frequency with bpm, pc and coef, db and coef, identity; never dbfs to db");
 
     printf("%s\n", g_failures == 0 ? "param contract test ok" : "FAILED");
     return g_failures == 0 ? 0 : 1;

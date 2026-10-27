@@ -1,3 +1,13 @@
+omx-clap-host (0.23.0) unstable; urgency=medium
+
+  * The parameter contract no longer carries migration steps: the
+    org.openmixer.param-contract/1 extension is version, fingerprint and
+    get, and the host's R5 rule is gone. The two removed members were the
+    last of the extension's table, so a plugin that still fills them is
+    read as before. libomx-clap-core's soname stays .so.1.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 27 Oct 2026 12:00:00 +0100
+
 omx-clap-host (0.22.1) unstable; urgency=medium
 
   * remote_pages declares -902 beside -3: a line missing its instance is

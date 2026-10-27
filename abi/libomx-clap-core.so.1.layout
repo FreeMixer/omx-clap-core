@@ -1,4 +1,4 @@
-version 0.21.0
+version 0.23.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -284,16 +284,6 @@ member struct omx_clap_param_contract_entry unit 68 4 uint32_t unit
 member struct omx_clap_param_contract_entry scale 72 4 uint32_t scale
 member struct omx_clap_param_contract_entry step 80 8 double step
 size struct omx_clap_param_contract_entry 88
-member struct omx_clap_param_contract_step from_version 0 4 uint32_t from_version
-member struct omx_clap_param_contract_step from_symbol 4 64 char from_symbol[64]
-member struct omx_clap_param_contract_step to_symbol 68 64 char to_symbol[64]
-member struct omx_clap_param_contract_step from_unit 132 4 uint32_t from_unit
-member struct omx_clap_param_contract_step to_unit 136 4 uint32_t to_unit
-member struct omx_clap_param_contract_step factor 144 8 double factor
-member struct omx_clap_param_contract_step offset 152 8 double offset
-member struct omx_clap_param_contract_step value_map_count 160 4 uint32_t value_map_count
-member struct omx_clap_param_contract_step value_map 168 8 const double * value_map
-size struct omx_clap_param_contract_step 176
 member struct omx_clap_param_event kind 0 4 uint32_t kind
 member struct omx_clap_param_event id 4 4 clap_id id
 member struct omx_clap_param_event value 8 8 double value
@@ -340,9 +330,7 @@ size struct omx_clap_plugin_panel_description_ext 32
 member struct omx_clap_plugin_param_contract_ext ) 0 8 uint32_t (*version)(const clap_plugin_t *)
 member struct omx_clap_plugin_param_contract_ext ) 8 8 const char * (*fingerprint)(const clap_plugin_t *)
 member struct omx_clap_plugin_param_contract_ext ) 16 8 _Bool (*get)(const clap_plugin_t *, clap_id, omx_clap_param_contract_entry_t *)
-member struct omx_clap_plugin_param_contract_ext ) 24 8 uint32_t (*migration_count)(const clap_plugin_t *)
-member struct omx_clap_plugin_param_contract_ext ) 32 8 _Bool (*get_migration)(const clap_plugin_t *, uint32_t, omx_clap_param_contract_step_t *)
-size struct omx_clap_plugin_param_contract_ext 40
+size struct omx_clap_plugin_param_contract_ext 24
 member struct omx_clap_port id 0 4 clap_id id
 member struct omx_clap_port name 4 256 char name[256]
 member struct omx_clap_port channels 260 4 uint32_t channels
