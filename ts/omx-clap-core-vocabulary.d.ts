@@ -440,13 +440,17 @@ export declare const HOST_TRACK_KINDS: {
 };
 
 /**
- * The lines a host writes on its feedback port for these verbs, each followed by the instance number.
+ * The lines a host writes on its feedback port for these verbs, each followed by the instance number, but xruns, which is the worker's own and is followed by its count.
  * @see data/verbs.json
  */
 export declare const HOST_EVENTS: {
   readonly remotePagesChanged: {
     readonly word: "remote_pages_changed";
     readonly doc: "the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again";
+  };
+  readonly xruns: {
+    readonly word: "xruns";
+    readonly doc: "the worker's JACK xrun count since its start, written when it changes and at most once a second; a worker that never writes it reports no xruns";
   };
 };
 
@@ -460,4 +464,4 @@ export declare const HOST_TRACK_KINDS_WORDS: readonly ["bus", "return", "master"
  * The words of HOST_EVENTS, in their declared order.
  * @see data/verbs.json
  */
-export declare const HOST_EVENTS_WORDS: readonly ["remote_pages_changed"];
+export declare const HOST_EVENTS_WORDS: readonly ["remote_pages_changed", "xruns"];
