@@ -14,11 +14,19 @@ on:
         description: 'Sign and publish; only a run on a tag publishes'
         type: boolean
         default: false
+      arm:
+        description: 'Build the aarch64/arm64 packages too; a pull request dry run passes false'
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       publish:
         type: boolean
         default: false
+      arm:
+        type: boolean
+        default: true
+        description: 'Build the aarch64/arm64 packages too; the pull-request dry run passes false (arm builds run at release only)'
 
 permissions:
   contents: write
@@ -36,6 +44,7 @@ jobs:
     with:
       package-name: omx-clap-host
       publish: ${{ github.event_name == 'push' || inputs.publish == true }}
+      arch-matrix: ${{ (github.event_name != 'push' && inputs.arm == false) && '["x86_64"]' || '["x86_64", "aarch64"]' }}
     secrets: inherit
 
   # after the RPMs: both publish into one tree, and a push that loses a race is refused
@@ -46,6 +55,7 @@ jobs:
     with:
       package-name: omx-clap-host
       publish: ${{ github.event_name == 'push' || inputs.publish == true }}
+      arch-matrix: ${{ (github.event_name != 'push' && inputs.arm == false) && '["amd64"]' || '["amd64", "arm64"]' }}
     secrets: inherit
 
   # the generated C API reference, fetched by the website from the release assets

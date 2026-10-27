@@ -12,6 +12,12 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A new push to a pull request cancels the run it supersedes. Every other run (main, a tag) has a group of its own
+  # and is never cancelled; the run id keeps two pushes to main from replacing each other while one is queued.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.7.0
@@ -19,6 +25,37 @@ env:
   OMX_CONTRACT_REF: v3.3.0
 
 jobs:
+  # The packages and their smoke tests are built from the whole tree but fuzz/, bench/, the top-level pages and the licence:
+  # a pull request that changes only those skips them (the jobs below that need this one). main and tags run them always.
+  changes:
+    name: what the pull request changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      packages: ${{ steps.diff.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # The checkout of a pull request is its merge commit and the first parent is the base, so this diff is what the
+      # pull request adds. Any other event, or a diff that cannot be read, says true: main and tags always run it.
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ] || ! changed=$(git diff --name-only HEAD^1 HEAD) || [ -z "$changed" ]; then
+            echo "packages=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$changed"
+          if grep -qvE '^(fuzz/|bench/|[^/]*\.md$|COPYING$|LICENSE$|\.github/workflows/fuzz\.yml$)' <<<"$changed"; then
+            echo "packages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "packages=false" >> "$GITHUB_OUTPUT"
+          fi
+
   version:
     name: VERSION agrees with the spec and debian/changelog
     runs-on: ubuntu-latest
@@ -422,12 +459,14 @@ jobs:
 
   rpm:
     name: RPMs (fc44, ${{ matrix.arch }}), installed in a clean root
+    needs: changes
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, aarch64]
+        arch: ${{ fromJSON(github.event_name == 'pull_request' && '["x86_64"]' || '["x86_64", "aarch64"]') }}
     container:
       image: fedora:44
       # the clean root gets a /proc and a /dev of its own
@@ -554,7 +593,17 @@ jobs:
       - name: A consumer builds against omx-clap-core-devel and runs on omx-clap-core
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm \
+          # a mirror that fails in mid-transfer (curl 56, zchunk checksums) is tried again; a real install error fails the
+          # third attempt with its own output on the log
+          dnf_retry() {
+            local n
+            for n in 1 2 3; do
+              dnf install -y --setopt=retries=5 "$@" && return 0
+              [ "$n" -lt 3 ] && { echo "::warning::dnf install failed, attempt $n of 3"; sleep 15; }
+            done
+            return 1
+          }
+          dnf_retry --setopt=install_weak_deps=False rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm \
             rpms/omx-clap-core-contract-[0-9]*.noarch.rpm
           make tests/fake.clap tests/fake_synth.clap tests/fault-1.clap
           pkg-config --modversion omx-clap-core | tee v.txt
@@ -570,7 +619,17 @@ jobs:
       - name: The installed host answers the verbs its installed declarations name
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False pipewire iproute util-linux python3 \
+          # a mirror that fails in mid-transfer (curl 56, zchunk checksums) is tried again; a real install error fails the
+          # third attempt with its own output on the log
+          dnf_retry() {
+            local n
+            for n in 1 2 3; do
+              dnf install -y --setopt=retries=5 "$@" && return 0
+              [ "$n" -lt 3 ] && { echo "::warning::dnf install failed, attempt $n of 3"; sleep 15; }
+            done
+            return 1
+          }
+          dnf_retry --setopt=install_weak_deps=False pipewire iproute util-linux python3 \
             mod-host-rpms/mod-host-protocol-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
@@ -585,7 +644,17 @@ jobs:
       - name: A consumer builds against omx-clap-lv2-devel and runs an LV2 plugin
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm lilv-libs
+          # a mirror that fails in mid-transfer (curl 56, zchunk checksums) is tried again; a real install error fails the
+          # third attempt with its own output on the log
+          dnf_retry() {
+            local n
+            for n in 1 2 3; do
+              dnf install -y --setopt=retries=5 "$@" && return 0
+              [ "$n" -lt 3 ] && { echo "::warning::dnf install failed, attempt $n of 3"; sleep 15; }
+            done
+            return 1
+          }
+          dnf_retry --setopt=install_weak_deps=False rpms/omx-clap-lv2-devel-[0-9]*.${{ matrix.arch }}.rpm lilv-libs
           make build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
           pkg-config --modversion omx-clap-lv2 | tee v.txt
           grep -qx "$(cat VERSION)" v.txt
@@ -653,13 +722,15 @@ jobs:
 
   deb:
     name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), built and linted
+    needs: changes
+    if: needs.changes.outputs.packages == 'true'
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         suite: [bookworm, trixie]
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(github.event_name == 'pull_request' && '["amd64"]' || '["amd64", "arm64"]') }}
     defaults:
       run:
         shell: bash
@@ -798,7 +869,7 @@ jobs:
       fail-fast: false
       matrix:
         suite: [bookworm, trixie]
-        arch: [amd64, arm64]
+        arch: ${{ fromJSON(github.event_name == 'pull_request' && '["amd64"]' || '["amd64", "arm64"]') }}
     # nothing but the distribution: a dependency the package forgot to declare is missing here
     defaults:
       run:
@@ -857,6 +928,8 @@ jobs:
   # for; its publish and release steps do not run here.
   release-dry-run:
     name: release workflow, dry run
+    needs: changes
+    if: needs.changes.outputs.packages == 'true'
     permissions:
       contents: write
       issues: write
@@ -864,6 +937,7 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       publish: false
+      arm: false  # aarch64/arm64 build at release only
 
   # A commit message is published like a file. A pull request's own commits must carry no
   # AI-attribution line (tools/ai-trace-commit-check.sh); what is already on the base is not read.
