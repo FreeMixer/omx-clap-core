@@ -920,22 +920,7 @@ static bool contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param
     return false;
 }
 
-static uint32_t contract_migration_count(const clap_plugin_t *plugin)
-{
-    (void)plugin;
-    return 0;
-}
-
-static bool contract_get_migration(const clap_plugin_t *plugin, uint32_t index, omx_clap_param_contract_step_t *step)
-{
-    (void)plugin;
-    (void)index;
-    (void)step;
-    return false;
-}
-
-static const omx_clap_plugin_param_contract_ext_t g_contract = { contract_version, contract_fingerprint, contract_get,
-                                                                  contract_migration_count, contract_get_migration };
+static const omx_clap_plugin_param_contract_ext_t g_contract = { contract_version, contract_fingerprint, contract_get };
 
 static bool plugin_init(const clap_plugin_t *plugin)
 {
