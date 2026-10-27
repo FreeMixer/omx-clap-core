@@ -60,3 +60,4 @@ tests/preset_file_test
 tools/preset-census
 /fuzz/findings/
 tests/xrun_report_test
+tests/jack_xrun_shim.so
