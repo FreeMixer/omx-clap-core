@@ -246,8 +246,6 @@ lv2/clap/lv2_clap.c	contract_make	MIXED	params/contract	MAIN	needs fmt.param_inf
 lv2/clap/lv2_clap.c	contract_version	NEUTRAL	params/contract	MAIN	returns a constant; no plugin access
 lv2/clap/lv2_clap.c	contract_fingerprint	NEUTRAL	params/contract	MAIN	returns precomputed s->fingerprint string; no LV2 call
 lv2/clap/lv2_clap.c	contract_get	NEUTRAL	params/contract	MAIN	linear scan of precomputed canonical contract table (param_contract.h); no LV2 touch
-lv2/clap/lv2_clap.c	contract_migration_count	NEUTRAL	params/contract	MAIN	returns a constant 0; no plugin access
-lv2/clap/lv2_clap.c	contract_get_migration	NEUTRAL	params/contract	MAIN	stub returning false; no plugin access
 lv2/clap/lv2_clap.c	plugin_init	MIXED	instantiate/discovery	MAIN	needs fmt.load()/fmt.instance_new()/fmt.set_role() (lv2_plugin_load/lv2_instance_new/lv2_instance_set_role)
 lv2/clap/lv2_clap.c	plugin_destroy	MIXED	instantiate/discovery	MAIN	needs fmt.instance_free()/fmt.close() (lv2_instance_free/lv2_plugin_close)
 lv2/clap/lv2_clap.c	plugin_activate	MIXED	latency/rate/activate	MAIN	needs fmt.keep()/fmt.activate()/fmt.latency() (lv2_instance_keep/activate/latency); reads lv2_core_feature_options for fixed-block
@@ -333,7 +331,6 @@ src/param_contract.h	pc_append	NEUTRAL	params/contract	MAIN	generic bounded stri
 src/param_contract.h	pc_refuse	NEUTRAL	params/contract	MAIN	message-building generic; writes into struct pc_contract, a CLAP-read result type; CLAP is the face every adapter presents, so neutral
 src/param_contract.h	pc_line	NEUTRAL	params/contract	MAIN	serialises clap_param_info_t fields and CLAP_PARAM_IS_* flag bits directly; CLAP is the face every adapter presents, so neutral
 src/param_contract.h	pc_fingerprint	NEUTRAL	params/contract	MAIN	hashing generic; iterates struct pc_param[] which embeds CLAP param info; CLAP is the face every adapter presents, so neutral
-src/param_contract.h	pc_migrations	NEUTRAL	params/contract	MAIN	takes clap_plugin_t* and the CLAP param-contract ext vtable directly; CLAP is the face every adapter presents, so neutral
 src/param_contract.h	pc_read	NEUTRAL	params/contract	MAIN	reads clap_plugin_t get_extension and clap_plugin_params_t get_info; CLAP is the face every adapter presents, so neutral
 src/param_contract.h	pc_fingerprint_of	NEUTRAL	params/contract	MAIN	pointer arithmetic on the shared omx_clap_param_contract_entry_t layout only
 src/param_contract.h	pc_same	NEUTRAL	params/contract	MAIN	version+fingerprint compare generic; operand struct pc_contract is CLAP-read-specific; CLAP is the face every adapter presents, so neutral

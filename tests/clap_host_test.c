@@ -943,20 +943,11 @@ static void contract_checks(const char *path)
         omx_clap_host_close(instance);
     }
 
-    contract_open(path, "migrated", &instance);
-    if (instance)
-    {
-        CHECK(omx_clap_host_param_contract(instance, &version, &why) == 1 && version == 2,
-              "migrated: a rename step at version 2 is contracted (version %u)", version);
-        omx_clap_host_close(instance);
-    }
-
     contract_refused(path, "fingerprint", "R4");
     contract_refused(path, "missing", "R1");
     contract_refused(path, "duplicate", "R1");
     contract_refused(path, "symbol", "R2");
     contract_refused(path, "step", "R2");
-    contract_refused(path, "noop", "R5");
     unsetenv("FAKE_CONTRACT");
 
     CHECK(omx_clap_param_unit_name(0x103) && strcmp(omx_clap_param_unit_name(0x103), "lufs") == 0

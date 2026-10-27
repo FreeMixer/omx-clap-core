@@ -84,8 +84,7 @@ typedef struct omx_clap_plugin_declaration
 
 /*
  * What a plugin says about each parameter beyond clap_param_info: a symbol stable across versions, the unit of its plain
- * value, how the value maps to a control's travel and the quantum the plugin resolves, then the contract's version and
- * its migration steps. omx-plugins' faces serve it from their include/omx_param_contract.h, whose structures have this
+ * value, how the value maps to a control's travel and the quantum the plugin resolves, then the contract's version. omx-plugins' faces serve it from their include/omx_param_contract.h, whose structures have this
  * layout under other names, so a face may include both.
  *
  * The canonical serialisation, whose lowercase hex SHA-256 is the fingerprint: UTF-8, an LF after every line; the
@@ -131,22 +130,6 @@ typedef struct omx_clap_param_contract_entry
     double step;  ///< the plain-unit quantum the plugin resolves: 0 continuous, 1 for a stepped scale
 } omx_clap_param_contract_entry_t;
 
-/** One migration step: contract version from_version to from_version + 1, one symbol. With no value map the new value
- * is factor * convert(from_unit, to_unit, v) + offset; with one, an enum reorder of (old, new) pairs. An empty
- * to_symbol is a removal. */
-typedef struct omx_clap_param_contract_step
-{
-    uint32_t from_version;  ///< the version this step leaves
-    char from_symbol[OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE];  ///< the symbol at from_version
-    char to_symbol[OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE];  ///< the symbol at from_version + 1, "" when removed
-    uint32_t from_unit;  ///< the unit at from_version
-    uint32_t to_unit;  ///< the unit at from_version + 1
-    double factor;  ///< 1 when not rescaled
-    double offset;  ///< 0 when not rescaled
-    uint32_t value_map_count;  ///< the (old, new) pairs in value_map, 0 unless an enum reorder
-    const double *value_map;  ///< the pairs, static storage; NULL when the count is 0
-} omx_clap_param_contract_step_t;
-
 /** The org.openmixer.param-contract/1 extension a plugin offers. */
 typedef struct omx_clap_plugin_param_contract_ext
 {
@@ -158,12 +141,6 @@ typedef struct omx_clap_plugin_param_contract_ext
 
     /** [main-thread] Fills `*entry` for a parameter id clap.params lists; false for an id it does not know. */
     bool (CLAP_ABI *get)(const clap_plugin_t *plugin, clap_id param_id, omx_clap_param_contract_entry_t *entry);
-
-    /** [main-thread] The migration steps of versions 1 to version() - 1. */
-    uint32_t (CLAP_ABI *migration_count)(const clap_plugin_t *plugin);
-
-    /** [main-thread] Fills `*step`, by from_version ascending; false past the end. */
-    bool (CLAP_ABI *get_migration)(const clap_plugin_t *plugin, uint32_t index, omx_clap_param_contract_step_t *step);
 } omx_clap_plugin_param_contract_ext_t;
 
 
