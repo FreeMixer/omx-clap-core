@@ -15,9 +15,48 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # A new push to a pull request cancels the run it supersedes. Every other run (main, a tag) has a group of its own
+  # and is never cancelled; the run id keeps two pushes to main from replacing each other while one is queued.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # A pull request fuzzes only when it changes what the harnesses are built from or read (the Makefile's FUZZ_DEPS and the
+  # fixtures the seed corpus is cut from); main runs it always.
+  changes:
+    name: what the pull request changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      fuzz: ${{ steps.diff.outputs.fuzz }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # The checkout of a pull request is its merge commit and the first parent is the base, so this diff is what the
+      # pull request adds. Any other event, or a diff that cannot be read, says true: main and tags always run it.
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ] || ! changed=$(git diff --name-only HEAD^1 HEAD) || [ -z "$changed" ]; then
+            echo "fuzz=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$changed"
+          if grep -qE '^(fuzz/|src/|lv2/tests/fixtures/|Makefile$|\.github/workflows/fuzz\.yml$)' <<<"$changed"; then
+            echo "fuzz=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fuzz=false" >> "$GITHUB_OUTPUT"
+          fi
+
   fuzz:
     name: fuzz the preset, state and manifest readers
+    needs: changes
+    if: needs.changes.outputs.fuzz == 'true'
     runs-on: ubuntu-latest
     # a backstop: fuzz-run spends 60 s on each harness and fuzz-sabotage runs seeds only, so the job ends well inside it
     timeout-minutes: 30
