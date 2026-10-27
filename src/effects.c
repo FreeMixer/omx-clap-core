@@ -42,6 +42,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
@@ -60,6 +61,7 @@
 #include "omx_clap_core_vocabulary.h"
 #include "lv2_locate.h"
 #include "window.h"
+#include "xrun_report.h"
 #include "omx_msgring.h"
 #include "omx_clap_lv2.h"
 #include "host-dispatch.h"
@@ -236,6 +238,8 @@ static effect_t g_effects[MAX_INSTANCES];
 // the layout digest pin_expect named for the next add of an instance, empty when none
 static char g_layout_pins[MAX_INSTANCES][PHD_SHA256_HEX_LEN + 1];
 static jack_client_t *g_jack_global_client;
+// the xruns JACK reported to this worker, and what of them the feedback port has been told (#371)
+static xrun_report_t g_xruns;
 // the hosting.* code of the last add that failed with one, "" otherwise: the add reply carries it
 static char g_add_reason[OMX_CLAP_LV2_WHY_MAX > OMX_CLAP_WHY_MAX ? OMX_CLAP_LV2_WHY_MAX : OMX_CLAP_WHY_MAX];
 // the LV2 adapter took its configuration: an LV2 add can be tried
@@ -2480,6 +2484,27 @@ static void configure_lv2(void)
         fprintf(stderr, "the LV2 adapter refused its configuration: %s; no LV2 plugin can be added\n", why);
 }
 
+// JACK's xrun callback, on a thread of its own: it counts and writes nothing, effects_idle writes the line
+static int xrun_cb(void *arg)
+{
+    xrun_report_note(arg);
+    return 0;
+}
+
+// the xruns line, when the count changed and a second has passed since the last one (xrun_report.h)
+static void xruns_feedback(void)
+{
+    struct timespec now;
+    uint64_t count;
+    char line[64];
+
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (!xrun_report_due(&g_xruns, (uint64_t)now.tv_sec * 1000u + (uint64_t)now.tv_nsec / 1000000u, &count))
+        return;
+    snprintf(line, sizeof(line), HOST_EVENT_XRUNS_FMT, (unsigned long long)count);
+    socket_send_feedback(line);
+}
+
 int effects_init(void)
 {
     uint32_t i;
@@ -2499,6 +2524,9 @@ int effects_init(void)
         fprintf(stderr, "can't get jack client\n");
         return ERR_JACK_CLIENT_CREATION;
     }
+    // its xrun callback is set before it is active: JACK reports every xrun of the graph to every client
+    xrun_report_init(&g_xruns);
+    jack_set_xrun_callback(g_jack_global_client, xrun_cb, &g_xruns);
     // active, with no port and no process callback, so its frame clock runs: a transport command is anchored on it at
     // the frame the graph is at, the clock each instance's cycle reads
     if (jack_activate(g_jack_global_client) != 0)
@@ -3281,6 +3309,7 @@ void effects_idle(void)
     int i;
 
     g_idle_ticks++;
+    xruns_feedback();
     // a member's block size its head's callback left to this thread is recorded before the member's tick reads it
     chain_members_reconcile();
     for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)

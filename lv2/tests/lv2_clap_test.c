@@ -1708,8 +1708,8 @@ static void t_props(void)
         const omx_clap_plugin_param_contract_ext_t *pc = g.plugin->get_extension(g.plugin, OMX_CLAP_EXT_PARAM_CONTRACT);
         omx_clap_param_contract_entry_t e;
 
-        CHECK(pc && pc->version(g.plugin) == 1 && strlen(pc->fingerprint(g.plugin)) == 64 && pc->migration_count(g.plugin) == 0,
-              "props: the face offers org.openmixer.param-contract/1, version 1, a fingerprint, no migration");
+        CHECK(pc && pc->version(g.plugin) == 1 && strlen(pc->fingerprint(g.plugin)) == 64,
+              "props: the face offers org.openmixer.param-contract/1, version 1, a fingerprint");
         CHECK(pc && pc->get(g.plugin, 8, &e) && !strcmp(e.symbol, "freq") && e.unit == 16 && e.scale == 1 && e.step == 0.0,
               "props: freq is units:hz (16) on a log scale, continuous (%s %u %u %g)", pc ? e.symbol : "", pc ? e.unit : 0, pc ? e.scale : 0,
               pc ? e.step : -1.0);

@@ -66,6 +66,8 @@
 #define HOST_NOTE_VELOCITY_MAX  127
 /* the feedback line of a plugin that changed its pages, with the instance number */
 #define HOST_EVENT_REMOTE_PAGES_CHANGED_FMT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED " %d"
+/* the feedback line of the worker's xrun count since its start: no instance number, the count is the worker's */
+#define HOST_EVENT_XRUNS_FMT OMX_HOST_EVENTS_XRUNS " %llu"
 
 
 /*
