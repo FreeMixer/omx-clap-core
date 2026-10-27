@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.22.1
+Version:        0.23.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Tue Oct 27 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.0-1
+- The parameter contract no longer carries migration steps: the
+  org.openmixer.param-contract/1 extension is version, fingerprint and get,
+  and the host's R5 rule is gone. The soname stays libomx-clap-core.so.1.
+
 * Mon Oct 26 2026 Pau Aliagas <linuxnow@gmail.com> - 0.22.1-1
 - remote_pages declares -902 beside -3: a line missing its instance is
   answered with -902 by plugin-hostd, and the shared declaration names every

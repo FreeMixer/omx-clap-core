@@ -472,6 +472,15 @@ static void panel_checks(const char *scan, const char *fake, const char *panel, 
                    "\"curveIndex\":0,\"floorParamId\":null,\"floorDb\":-24,\"labelKey\":\"panel.display.gain_reduction\","
                    "\"label\":\"Gain reduction\"}],"),
           "its one display: a gain reduction bar over main from meter 7, a -24 dB floor no parameter sets");
+    CHECK(plugin_has(out, "panel", "{\"id\":1,\"name\":\"mode\",\"module\":\"\",\"min\":0,\"max\":2,\"default\":0,"
+                                     "\"flags\":[\"stepped\",\"automatable\",\"enum\"],"
+                                     "\"labels\":[{\"value\":0,\"label\":\"Off\"},{\"value\":1,\"label\":\"Soft \\\"2\\\"\"}]}"),
+          "the enum parameter's labels as the plugin renders them, value 2 it gives no text for left out");
+    CHECK(count(out, "\"labels\"") == 3, "only the enum parameter of the three panel plugins carries labels (%i)", count(out, "\"labels\""));
+    CHECK(plugin_has(out, "panel", "\"remote_controls\":[{\"id\":5,\"section\":\"Dyn\",\"name\":\"Page 1\","
+                                     "\"params\":[0,null,1,null,null,null,null,null],\"forPreset\":true}],\"audio_ports\""),
+          "its remote-control page: id, section, name, eight slots with the empty ones null, forPreset; the refused page is left out");
+    CHECK(plugin_has(out, "panel-none", "\"remote_controls\":[],"), "a plugin without the extension has no pages: an empty list");
     CHECK(has(out, ",\"placementDefaults\":[]}"), "a table the plugin leaves empty is empty, nothing filled in");
     CHECK(count(out, "\"panel\":{") == 2 && plugin_has(out, "panel-none", "\"panel\":null"),
           "panel-none serves no description: \"panel\":null (%i described)", count(out, "\"panel\":{"));

@@ -440,13 +440,17 @@ export const HOST_TRACK_KINDS = {
 };
 
 /**
- * The lines a host writes on its feedback port for these verbs, each followed by the instance number.
+ * The lines a host writes on its feedback port for these verbs, each followed by the instance number, but xruns, which is the worker's own and is followed by its count.
  * @see data/verbs.json
  */
 export const HOST_EVENTS = {
   "remotePagesChanged": {
     "word": "remote_pages_changed",
     "doc": "the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again"
+  },
+  "xruns": {
+    "word": "xruns",
+    "doc": "the worker's JACK xrun count since its start, written when it changes and at most once a second; a worker that never writes it reports no xruns"
   }
 };
 
@@ -465,5 +469,6 @@ export const HOST_TRACK_KINDS_WORDS = [
  * @see data/verbs.json
  */
 export const HOST_EVENTS_WORDS = [
-  "remote_pages_changed"
+  "remote_pages_changed",
+  "xruns"
 ];

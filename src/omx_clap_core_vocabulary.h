@@ -150,7 +150,8 @@
 
 /* HOST_EVENTS (data/verbs.json) */
 #define OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED "remote_pages_changed" ///< the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again
-#define OMX_HOST_EVENTS_COUNT 1u
-#define OMX_HOST_EVENTS_INIT { "remote_pages_changed" }
+#define OMX_HOST_EVENTS_XRUNS "xruns" ///< the worker's JACK xrun count since its start, written when it changes and at most once a second; a worker that never writes it reports no xruns
+#define OMX_HOST_EVENTS_COUNT 2u
+#define OMX_HOST_EVENTS_INIT { "remote_pages_changed", "xruns" }
 
 #endif /* OMX_CLAP_CORE_VOCABULARY_H */
