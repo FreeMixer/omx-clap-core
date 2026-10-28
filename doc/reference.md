@@ -60,6 +60,30 @@ host delivers it itself through the plugin's `params.flush` on the control
 thread, so `param_get`, `state_save` and the plugin always see the last
 value written.
 
+The worker's xruns
+------------------
+
+The host is the JACK client, so it is the one that hears an xrun. It counts
+them in the callback it registers with `jack_set_xrun_callback` on its own
+client, before that client is active, and writes on the feedback socket, from
+the idle tick and never from JACK's thread:
+
+    xruns <count>
+
+the count of xruns since the host started, when it changed and at most once a
+second: a change inside the second after a line waits for the next tick that
+is a second on, and the line then carries the count at that time. The line has
+no instance number, the count is the whole host's. A host that has had no xrun
+writes none. A controller attributes a window's xruns to every plugin the
+host holds (plugin-hostd's grouping planner reads it this way); a host that
+never writes the line, such as an older omx-clap-host or mod-host, is read as
+one with no xruns.
+
+The count is what JACK's callback reports. PipeWire's libjack calls it for an
+xrun the graph's driver reports (an audio device that ran dry), and not for a
+client that was late to finish a cycle, and not for the first xrun of a driver
+whose count was still 0. Under jackd the callback is called for both.
+
 What a plugin does with its parameters by itself
 ------------------------------------------------
 

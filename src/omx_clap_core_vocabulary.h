@@ -5,7 +5,7 @@
 /*
  * GENERATED — DO NOT EDIT BY HAND.
  * Produced by `omx-contract render --target c` from FreeMixer/omx-clap-core's data/: the vocabulary
- * (docs/data-layout.md). A code is OMX_ and the code in upper snake case; a word is OMX_<ITEM>_<NAME>, each words
+ * (docs/data-layout.md). A code is OMX_ and the code in upper snake case, and a reply code that carries a resp has it as that name and _RESP; a word is OMX_<ITEM>_<NAME>, each words
  * item with its _COUNT and an _INIT of its words in their order. A consumer writes and compares these, never a
  * literal of its own.
  */
@@ -119,16 +119,27 @@
 
 /* HOST_REPLY_CODES (data/verbs.json) */
 #define OMX_REPLY_HOST_INSTANCE_INVALID "reply.host.instance-invalid" ///< mod-host's ERR_INSTANCE_INVALID: an instance number outside the host's table
+#define OMX_REPLY_HOST_INSTANCE_INVALID_RESP (-1)
 #define OMX_REPLY_HOST_INSTANCE_NON_EXISTS "reply.host.instance-non-exists" ///< mod-host's ERR_INSTANCE_NON_EXISTS: an instance no add made
+#define OMX_REPLY_HOST_INSTANCE_NON_EXISTS_RESP (-3)
 #define OMX_REPLY_HOST_PARAM_SYMBOL_INVALID "reply.host.param-symbol-invalid" ///< mod-host's ERR_LV2_INVALID_PARAM_SYMBOL: a symbol that is not a parameter param_set takes, the plugin's own bypass included
+#define OMX_REPLY_HOST_PARAM_SYMBOL_INVALID_RESP (-103)
 #define OMX_REPLY_HOST_MEMORY_ALLOCATION "reply.host.memory-allocation" ///< mod-host's ERR_MEMORY_ALLOCATION: the reply could not be built
+#define OMX_REPLY_HOST_MEMORY_ALLOCATION_RESP (-901)
 #define OMX_REPLY_HOST_INVALID_OPERATION "reply.host.invalid-operation" ///< mod-host's ERR_INVALID_OPERATION: a word outside the verb's grammar, or a verb the host refuses on purpose
+#define OMX_REPLY_HOST_INVALID_OPERATION_RESP (-902)
 #define OMX_REPLY_HOST_PIN_ABSENT "reply.host.pin-absent" ///< a layout pin in a scheme this host does not know, refused as no pin at all
+#define OMX_REPLY_HOST_PIN_ABSENT_RESP (-508)
 #define OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH "reply.host.pin-layout-mismatch" ///< the add of an instance whose layout after init is not the one pin_expect named: the plugin is not activated
+#define OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP (-510)
 #define OMX_REPLY_HOST_NO_PARAM_CONTRACT "reply.host.no-param-contract" ///< the host holds no checked unit and scale for this parameter: the controller falls back to the layout the scan gives
+#define OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP (-511)
 #define OMX_REPLY_HOST_NO_NOTE_INPUT "reply.host.no-note-input" ///< the instance's plugin takes no notes
+#define OMX_REPLY_HOST_NO_NOTE_INPUT_RESP (-513)
 #define OMX_REPLY_HOST_NOTES_BY_JACK "reply.host.notes-by-jack" ///< the instance's worker takes no notes on its socket (mod-host): the plugin is played through its jack MIDI input
+#define OMX_REPLY_HOST_NOTES_BY_JACK_RESP (-514)
 #define OMX_REPLY_HOST_NOTE_QUEUE_FULL "reply.host.note-queue-full" ///< the worker has no room for the line's notes before its next block: nothing of it is kept, and the line may be sent again
+#define OMX_REPLY_HOST_NOTE_QUEUE_FULL_RESP (-517)
 
 /* HOST_TRACK_KINDS (data/verbs.json) */
 #define OMX_HOST_TRACK_KINDS_BUS "bus"
@@ -139,7 +150,8 @@
 
 /* HOST_EVENTS (data/verbs.json) */
 #define OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED "remote_pages_changed" ///< the plugin changed its remote pages: a controller reads remote_pages and remote_page_get again
-#define OMX_HOST_EVENTS_COUNT 1u
-#define OMX_HOST_EVENTS_INIT { "remote_pages_changed" }
+#define OMX_HOST_EVENTS_XRUNS "xruns" ///< the worker's JACK xrun count since its start, written when it changes and at most once a second; a worker that never writes it reports no xruns
+#define OMX_HOST_EVENTS_COUNT 2u
+#define OMX_HOST_EVENTS_INIT { "remote_pages_changed", "xruns" }
 
 #endif /* OMX_CLAP_CORE_VOCABULARY_H */

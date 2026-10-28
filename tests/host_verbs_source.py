@@ -3,7 +3,8 @@
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 """
 The check proper of tests/host-verbs-check.sh, over C sources: no string literal types a verb data/verbs.json declares,
-and every HOST_REPLY_<NAME> define is the resp the declaration gives reply.host.<name>.
+and no source defines a reply number: a HOST_REPLY_* or OMX_REPLY_*_RESP define outside the render is red, the number is
+OMX_REPLY_HOST_<NAME>_RESP of omx_clap_core_vocabulary.h.
 
     host_verbs_source.py <verbs.json> <source>...
 
@@ -15,19 +16,17 @@ import sys
 
 # token by token: a string literal, a character constant, a comment, a reply define, an identifier, anything else
 TOKEN = re.compile(r'("(?:\\.|[^"\\\n])*")|(\'(?:\\.|[^\'\\\n])*\')|(/\*.*?\*/)|(//[^\n]*)'
-                   r'|(#define[ \t]+HOST_REPLY_([A-Z0-9_]+)[ \t]+\(?(-?[0-9]+)\)?)|([A-Za-z_][A-Za-z0-9_]*)|(.)', re.S)
+                   r'|(#define[ \t]+(HOST_REPLY_[A-Z0-9_]+|OMX_REPLY_[A-Z0-9_]+_RESP)\b)|([A-Za-z_][A-Za-z0-9_]*)|(.)', re.S)
 
 
 def main():
     decl, files = sys.argv[1], sys.argv[2:]
     with open(decl) as f:
         data = json.load(f)
-    verbs, resp = set(), {}
+    verbs = set()
     for item in data.values():
         if isinstance(item, dict) and item.get('kind') == 'verbs':
             verbs |= {v['verb'] for v in item['verbs'].values()}
-        if isinstance(item, dict) and item.get('kind') == 'codes':
-            resp.update({c['code']: c['resp'] for c in item['codes'].values() if 'resp' in c})
     if not verbs:
         print('host-verbs-check: %s declares no verb' % decl, file=sys.stderr)
         return 2
@@ -41,7 +40,7 @@ def main():
             text = f.read()
         line = 1
         for m in TOKEN.finditer(text):
-            lit, name, num = m.group(1), m.group(6), m.group(7)
+            lit, name = m.group(1), m.group(6)
             if lit is not None:
                 hit = starts.search(lit[1:-1]) or inner.search(lit[1:-1])
                 if hit:
@@ -49,15 +48,9 @@ def main():
                           'omx_clap_core_host_verbs.h' % (path, line, lit, hit.group(1), hit.group(1).upper()), file=sys.stderr)
                     bad = 1
             elif name is not None:
-                code = 'reply.host.' + name.lower().replace('_', '-')
-                if code not in resp:
-                    print('host-verbs-check: %s:%d: HOST_REPLY_%s names %s, which %s does not declare' % (path, line, name, code, decl),
-                          file=sys.stderr)
-                    bad = 1
-                elif resp[code] != int(num):
-                    print('host-verbs-check: %s:%d: HOST_REPLY_%s is %s, %s declares %s resp %d' % (path, line, name, num, decl, code, resp[code]),
-                          file=sys.stderr)
-                    bad = 1
+                print('host-verbs-check: %s:%d: %s is a reply number defined by hand: write OMX_REPLY_HOST_<NAME>_RESP of '
+                      'omx_clap_core_vocabulary.h, the resp %s declares' % (path, line, name, decl), file=sys.stderr)
+                bad = 1
             line += m.group(0).count('\n')
     if bad:
         return 1
