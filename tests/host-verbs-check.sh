@@ -4,15 +4,16 @@
 #
 # host-verbs-check.sh — every verb data/verbs.json declares is written in the C sources by its macro: OMX_VERB_<VERB>
 # for the word and OMX_VERB_<VERB>_FMT for the line protocol_add_command takes, both of src/omx_clap_core_host_verbs.h,
-# which contract-dir-check.sh holds to the data. Never a literal of their own. And every HOST_REPLY_<NAME> number of
-# src/host_verbs.h is the resp data/verbs.json declares for reply.host.<name>.
+# which contract-dir-check.sh holds to the data. Never a literal of their own. And no source defines a reply number: it is
+# OMX_REPLY_HOST_<NAME>_RESP of src/omx_clap_core_vocabulary.h, the resp data/verbs.json declares for reply.host.<name>.
 #
 #   host-verbs-check.sh [--self-test] [--root <dir>]
 #
-# The sources are src/ and lv2/ (their .c and .h, lv2/tests/ left out, and src/omx_clap_core_host_verbs.h, the render).
+# The sources are src/ and lv2/ (their .c and .h, lv2/tests/ left out, and the renders src/omx_clap_core_host_verbs.h and
+# src/omx_clap_core_vocabulary.h).
 # Outside comments, a string literal that starts with a declared verb's word followed by a space or its end, or that
-# holds a declared verb's word followed by a conversion (a format), is a failure; so is a HOST_REPLY_ define whose
-# number is not its code's resp, or whose code the declaration lacks. --self-test runs the check on a copy of the
+# holds a declared verb's word followed by a conversion (a format), is a failure; so is a HOST_REPLY_ or
+# OMX_REPLY_*_RESP define outside the renders. --self-test runs the check on a copy of the
 # sources once clean and once per sabotage, each of which must fail, and two prose mentions, which must not.
 # The check proper is tests/host_verbs_source.py. Exit 0 held; 1 a hand-typed verb or a number off its declaration; 2
 # usage or no declaration.
@@ -35,14 +36,14 @@ done
 check() {
   local dir=$1
   local files decl=$1/data/verbs.json
-  files=$(cd "$dir" && find src lv2 -path lv2/tests -prune -o \( -name '*.c' -o -name '*.h' \) -type f -print | grep -vx 'src/omx_clap_core_host_verbs.h' | sort)
+  files=$(cd "$dir" && find src lv2 -path lv2/tests -prune -o \( -name '*.c' -o -name '*.h' \) -type f -print | grep -vxE 'src/omx_clap_core_(host_verbs|vocabulary).h' | sort)
   [ -n "$files" ] || { echo "host-verbs-check: no sources under $dir" >&2; return 2; }
   (cd "$dir" && python3 -I "$here/host_verbs_source.py" "$decl" $files)
 }
 
 if [ "$self" -eq 0 ]; then
   n=$(check "$root")
-  echo "host-verbs-check: src/ and lv2/ type none of the $n verbs data/verbs.json declares, and its reply numbers are the declared ones"
+  echo "host-verbs-check: src/ and lv2/ type none of the $n verbs data/verbs.json declares, and define no reply number of their own"
   exit 0
 fi
 
@@ -75,8 +76,9 @@ arm 'a format typed by hand in a define' fail src/main.c '#define SABOTAGE_FMT "
 arm 'a registration typed by hand' fail src/main.c 'static void sabotage(void) { protocol_add_command("note_drops %i", note_drops_cb); }'
 arm 'a verb word typed by hand' fail src/effects.c 'static const char *const sabotage = "param_info";'
 arm 'a format inside a longer string' fail lv2/clap/lv2_clap.c 'static const char *const sabotage = "send remote_page_get %i %i";'
-arm 'a reply number the declaration lacks' fail src/host_verbs.h '#define HOST_REPLY_NOT_A_CODE (-599)'
-sed_arm 'a reply number off its declaration' src/host_verbs.h 's/^#define HOST_REPLY_NO_NOTE_INPUT\( *\)(-513)/#define HOST_REPLY_NO_NOTE_INPUT\1(-514)/'
+arm 'a reply number defined by hand under its old name' fail src/host_verbs.h '#define HOST_REPLY_NO_NOTE_INPUT (-513)'
+arm 'a reply number restated under its rendered name' fail src/effects.c '#define OMX_REPLY_HOST_NO_NOTE_INPUT_RESP (-513)'
+arm 'a reply number defined by hand under a name of its own' fail src/host_verbs.h '#define HOST_REPLY_NOT_A_CODE (-599)'
 arm 'a verb named in a comment' pass src/main.c '/* answers "track_info" lines */'
 arm 'a verb named in prose' pass src/main.c 'static const char *const sabotage_prose = "the idle_hold command changes it";'
 [ "$missed" -eq 0 ] || exit 1

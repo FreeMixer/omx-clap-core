@@ -620,7 +620,8 @@ uint8_t *preset_base64_decode(const char *text, size_t *len)
             continue;
         if (*text == '=')
         {
-            pad++;
+            if (++pad > 2)
+                goto bad;
             continue;
         }
         at = strchr(g_b64, *text);
@@ -635,7 +636,7 @@ uint8_t *preset_base64_decode(const char *text, size_t *len)
         }
     }
     // what is left is the padding's: under a byte, and zero
-    if (bits >= 6 || (w & ((1u << bits) - 1)) != 0 || pad > 2)
+    if (bits >= 6 || (w & ((1u << bits) - 1)) != 0)
         goto bad;
     *len = n;
     return out;

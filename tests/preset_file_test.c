@@ -7,9 +7,12 @@
  * double, unknown members survive a rewrite, base64 and the load keys go both ways, and what is not JSON is refused.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
 
 #include "preset_file.h"
 
@@ -24,6 +27,36 @@ static int parses(const char *text)
 
     pj_free(&v);
     return rc == 0;
+}
+
+/* 2^31 '=', more than an int counts, in one MiB: the same MiB mapped over and over, then a page of zeros. 1 when the
+ * decoder refuses it, 0 when it reads it, -1 when the address space cannot hold the text and the decoder's buffer */
+static int pads_past_int_refused(void)
+{
+    const size_t tile = (size_t)1 << 20, run = (size_t)1 << 31, size = run + (size_t)sysconf(_SC_PAGESIZE);
+    const int fd = memfd_create("pads", MFD_CLOEXEC);
+    char *text = mmap(NULL, size, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    uint8_t *dec;
+    size_t i, len;
+    int refused = -1;
+
+    if (fd < 0 || ftruncate(fd, (off_t)tile) != 0 || text == MAP_FAILED)
+        goto out;
+    for (i = 0; i < run; i += tile)
+        if (mmap(text + i, tile, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_FIXED, fd, 0) == MAP_FAILED)
+            goto out;
+    memset(text, '=', tile);
+    // ENOMEM: the decoder's own malloc failed, which refuses the text whatever it counts
+    errno = 0;
+    dec = preset_base64_decode(text, &len);
+    refused = dec ? 0 : errno == ENOMEM ? -1 : 1;
+    free(dec);
+out:
+    if (text != MAP_FAILED)
+        munmap(text, size);
+    if (fd >= 0)
+        close(fd);
+    return refused;
 }
 
 int main(void)
@@ -103,6 +136,11 @@ int main(void)
     free(text);
     CHECK(!preset_base64_decode("c3R*dGU=", &len) && !preset_base64_decode("c3RhdGV=", &len)
           && !preset_base64_decode("c", &len) && !preset_base64_decode("c3=RhdGU=", &len), "what is not base64 is refused");
+    ok = pads_past_int_refused();
+    if (ok < 0)
+        printf("skip the address space cannot hold 2^31 '=' and the decoder's buffer: a third '=' past an int unchecked\n");
+    else
+        CHECK(ok, "a third '=' is refused past the 2^31 an int counts");
 
     // a load key with a space and a percent sign survives the reply line
     CHECK(preset_key_encode("/a b/100%.fxp", key, sizeof(key)) == 0 && strcmp(key, "/a%20b/100%25.fxp") == 0,

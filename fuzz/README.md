@@ -96,8 +96,8 @@ seed with a matching declaration reaches.
 | Harness | Reader lines | Covered | Lines no input reaches |
 | --- | ---: | ---: | --- |
 | preset | 394 | 387 (98.22%) | `parse_string`'s two `goto bad` once its first scan has found the closing quote; `pj_free(NULL)`; `pj_set`'s allocation failure, a builder only a harness calls |
-| state | 59 | 59 (100%) | |
-| manifest | 92 | 92 (100%) | |
+| state | 60 | 60 (100%) | |
+| manifest | 107 | 107 (100%) | |
 
 ## The records
 
@@ -155,8 +155,13 @@ that check's own `abort()`.
 the URI starts with: a manifest that repeats one costs its size squared (a 4 MiB one, 10.7 s at -O3 per lookup).
 Past `LV2_LOCATE_PREFIXES_MAX` such declarations a manifest is now a candidate unread, which the caller opens to know;
 `tests/lv2_locate_test.c` holds it by counting the readings (`lv2_locate_manifest_readings`): 16 for a manifest of
-1024 such declarations, where the reader before read it 1024 times. The seeds `prefixes-most-read` and `prefixes-past-most-read` stand either side
-of the bound.
+1024 such declarations, where the reader before read it 1024 times. The seeds `prefixes-most-read` and
+`prefixes-past-most-read` stand either side of the bound. The same reader compared a declared prefix at each prefixed
+name and looked for the local name again one byte after each place it found it: a long prefix whose letters come again
+before many prefixed names cost the prefix's length at each, and a local name that repeats itself, in a run of it, its
+own length at each byte (4 MiB, 10.8 s and 1.01 s at -O3 per lookup). The same test counts the bytes compared
+(`*compared`), at most twice the text's length for one reading of each shape. The seeds `long-prefix` and
+`repeated-local` are small manifests of those shapes.
 
 ## Running
 
