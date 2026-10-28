@@ -1730,7 +1730,11 @@ static void t_keep(void)
 
 /* ---- the configured list ---- */
 
-static const char *g_list[16];
+/* the URIs lv2_core_provided holds, its NULL not counted */
+#define PROVIDED_COUNT (sizeof((const char *const[])LV2_CORE_PROVIDED_INIT) / sizeof(const char *) - 1u)
+
+/* room for every provided URI, the one list_plus appends and the NULL */
+static const char *g_list[PROVIDED_COUNT + 2u];
 
 static const char *const *list_without(const char *uri)
 {
