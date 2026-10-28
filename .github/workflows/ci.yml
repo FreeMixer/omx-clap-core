@@ -481,7 +481,7 @@ jobs:
       - name: Install plugin-hostd-devel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False plugin-hostd-rpms/plugin-hostd-devel-[0-9]*.noarch.rpm
+          dnf install -y --setopt=install_weak_deps=False plugin-hostd-rpms/plugin-hostd-contract-[0-9]*.noarch.rpm plugin-hostd-rpms/plugin-hostd-devel-[0-9]*.noarch.rpm
           pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-rpm@v1
@@ -712,7 +712,7 @@ jobs:
       - name: Install plugin-hostd-dev
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends ./plugin-hostd-debs/plugin-hostd-dev_*.deb
+          apt-get install -y --no-install-recommends ./plugin-hostd-debs/plugin-hostd-contract_*.deb ./plugin-hostd-debs/plugin-hostd-dev_*.deb
           pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-deb@v1
