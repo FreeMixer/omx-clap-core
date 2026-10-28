@@ -1047,8 +1047,14 @@ static int open_lv2(const char *uri, effect_t *effect)
         snprintf(g_add_reason, sizeof(g_add_reason), "%s", OMX_HOSTING_NO_REALISATION);
         return ERR_LV2_INSTANTIATION;
     }
-    if (!lv2_locate(NULL, uri, lv2_candidate, &search))
+    switch (lv2_locate(NULL, uri, lv2_candidate, &search))
     {
+    case LV2_LOCATE_READ_FAILED:
+        // a manifest's own allocation failed: a read failure, never that no bundle holds the URI
+        fprintf(stderr, "%s: a manifest on the LV2 path could not be read\n", uri);
+        snprintf(g_add_reason, sizeof(g_add_reason), "a manifest on the LV2 path could not be read");
+        return ERR_LV2_INSTANTIATION;
+    case 0:
         if (search.why[0])
         {
             // a bundle that may hold it could not be read: lilv missing, or the bundle broken
@@ -1058,6 +1064,8 @@ static int open_lv2(const char *uri, effect_t *effect)
         }
         fprintf(stderr, "%s: no bundle on the LV2 path holds it\n", uri);
         return ERR_LV2_INVALID_URI;
+    default:
+        break;
     }
     effect->lv2_entry = search.entry;
     if (omx_clap_host_open_entry(search.entry, uri, &effect->clap, why) != 0)

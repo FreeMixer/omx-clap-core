@@ -42,21 +42,30 @@
 /* the declarations of a namespace the URI starts with a manifest is read for, at most; one more makes it a candidate */
 #define LV2_LOCATE_PREFIXES_MAX 16
 
+/* lv2_locate_manifest_names, lv2_locate_manifest_readings and lv2_locate return this when a manifest could not be
+ * read because an allocation of the reader's own failed, as when memory is out: a read failure, never the answer
+ * that no manifest names the URI. It is not 0 (not named) or 1 (named), and not a callback's nonzero return, which
+ * lv2_locate_fn gives only positive; a caller that tests the result as a boolean must test for this first. */
+#define LV2_LOCATE_READ_FAILED (-1)
+
 /* Called with each candidate bundle, an absolute directory with no trailing '/', in the order of the path and, inside a
- * directory of it, in name order. A nonzero return ends the walk and is what lv2_locate returns. */
+ * directory of it, in name order. A nonzero return ends the walk and is what lv2_locate returns; it must be positive,
+ * so that it is never read as LV2_LOCATE_READ_FAILED. */
 typedef int (*lv2_locate_fn)(const char *bundle, void *ctx);
 
 /* Walk `path` (':'-separated, a leading "~/" the home directory; NULL: LV2_PATH, else LV2_LOCATE_DEFAULT_PATH) for the
- * bundles whose manifest may hold `uri`: 0 when the walk ended with no callback taking a bundle, or the callback's
- * nonzero return. */
+ * bundles whose manifest may hold `uri`: 0 when the walk ended with no callback taking a bundle, the callback's
+ * nonzero return, or LV2_LOCATE_READ_FAILED when a manifest's own allocation failed before every bundle was looked at. */
 int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx);
 
-/* Whether the text of a manifest names `uri`, as lv2_locate reads it: 1 or 0. */
+/* Whether the text of a manifest names `uri`, as lv2_locate reads it: 1, 0, or LV2_LOCATE_READ_FAILED when the
+ * reader's own allocation failed. */
 int lv2_locate_manifest_names(const char *text, const char *uri);
 
 /* lv2_locate_manifest_names, adding to *readings each reading of the whole text for a prefixed name, and to
  * *compared the bytes of each local name a reading finds, of each prefix it compares and of each repeat it reads: the
- * work a manifest costs, which no manifest makes more than LV2_LOCATE_PREFIXES_MAX readings of. */
+ * work a manifest costs, which no manifest makes more than LV2_LOCATE_PREFIXES_MAX readings of. Nothing is added to
+ * either when the reader's own allocation failed and it answers LV2_LOCATE_READ_FAILED. */
 int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings, size_t *compared);
 
 #endif
