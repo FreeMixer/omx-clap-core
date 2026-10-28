@@ -962,7 +962,7 @@ jobs:
   # A commit message is published like a file. A pull request's own commits must carry no
   # attribution line (the commit-message-check action of FreeMixer/.github); what is already on the base is not read.
   commit-message-check:
-    name: commit messages carry no attribution
+    name: commit messages pass the message check
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
