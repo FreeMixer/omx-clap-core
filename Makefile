@@ -624,7 +624,14 @@ tests/clap_ext_test: tests/clap_ext_test.c $(CORE_SO)
 tests/thread_pool_test: tests/thread_pool_test.c tests/test_util.h $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -ldl -lpthread -lm
 
+# and request_exec's path, the pool's hand-out and wait included (tests/rt_reach.py), names no allocator, sleep, lock or
+# printf: the one syscall it makes is the futex's
 test-thread-pool: tests/thread_pool_test tests/fake_pool.clap
+	mkdir -p build && python3 -I tests/rt_reach.py build/thread_pool_rt.c host_request_exec src/clap_host.c src/thread_pool.c
+	@for f in thread_pool_run take_tasks run_task futex_wait futex_wake; do grep -q -E "^# reached: .*\<$$f\>" build/thread_pool_rt.c || { echo "FAIL the scan of request_exec does not reach $$f"; exit 1; }; done
+	! grep -n -E '\<(malloc|calloc|realloc|free|posix_memalign|usleep|nanosleep|sleep|printf|fprintf|snprintf|puts)\s*\(|pthread_mutex|pthread_cond|_lock\s*\(' build/thread_pool_rt.c \
+	    || { echo "FAIL request_exec's path names an allocator, sleep, lock or printf"; false; }
+	@echo "ok   request_exec and every function it reaches ($$(sed -n 's/^# reached: //p' build/thread_pool_rt.c | wc -w)) name no allocator, sleep, lock or printf"
 	./tests/thread_pool_test $(abspath tests/fake_pool.clap)
 
 # the same under ThreadSanitizer, the core and the fixture both built with it: the helpers' tasks, the hand-out word, the
@@ -643,7 +650,7 @@ test-thread-pool-tsan: tests/thread_pool_tsan tests/fake_pool_tsan.clap
 # waiting for the helpers' to end, must make the test's "every task done before request_exec returned" go red
 test-thread-pool-sabotage: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS) tests/fake_pool.clap
 	mkdir -p build/thread-pool-sabotage
-	sed -e 's|^    while (atomic_load_explicit(&g_pool.done, memory_order_acquire) < num)$$|    while (0)|' src/thread_pool.c > build/thread-pool-sabotage/thread_pool.c
+	sed -e 's|^    while (atomic_load_explicit(&g_done, memory_order_acquire) < num)$$|    while (0)|' src/thread_pool.c > build/thread-pool-sabotage/thread_pool.c
 	! cmp -s src/thread_pool.c build/thread-pool-sabotage/thread_pool.c
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o build/thread-pool-sabotage/test $< \
