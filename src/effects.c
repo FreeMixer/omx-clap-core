@@ -46,6 +46,7 @@
 #include <unistd.h>
 #include <jack/jack.h>
 #include <jack/midiport.h>
+#include <jack/thread.h>
 #include <clap/ext/draft/gain-adjustment-metering.h>
 #include <clap/factory/preset-discovery.h>
 
@@ -256,6 +257,8 @@ static uint32_t g_lane_channels = 2;
 static int32_t g_idle_hold = INT32_MIN;      // --idle-hold; INT32_MIN until given, the core's default then
 static int g_idle_hold_said;                 // the refusal, said on stderr once
 static int g_show_ui;                        // -S: every plugin's own window shown at its add (#180)
+static int g_thread_pool = EFFECTS_THREAD_POOL_QUALIFIED;  // --thread-pool: which plugins get the thread pool (#395)
+static uint64_t g_pool_late_seen;             // the pool's late count the last tick added to the xruns
 /* the control thread's idle ticks, counted by effects_idle */
 static uint32_t g_idle_ticks;
 /* the chains the chain line declared; a slot whose id is -1 is free (effects_init) */
@@ -2499,6 +2502,25 @@ static int xrun_cb(void *arg)
     return 0;
 }
 
+// the thread pool's waits past the block (#395) since the last tick: an xrun-class event, added to the xruns count the
+// feedback line carries, and said on stderr; a pool made again starts its count over
+static void pool_late_note(void)
+{
+    struct omx_clap_thread_pool_info info;
+
+    if (g_thread_pool == EFFECTS_THREAD_POOL_OFF)
+        return;
+    omx_clap_host_thread_pool(&info);
+    if (info.late < g_pool_late_seen)
+        g_pool_late_seen = 0;
+    if (info.late == g_pool_late_seen)
+        return;
+    fprintf(stderr, "thread pool: %llu waits for a helper past the block, counted as xruns\n",
+            (unsigned long long)(info.late - g_pool_late_seen));
+    atomic_fetch_add_explicit(&g_xruns.count, info.late - g_pool_late_seen, memory_order_relaxed);
+    g_pool_late_seen = info.late;
+}
+
 // the xruns line, when the count changed and a second has passed since the last one (xrun_report.h)
 static void xruns_feedback(void)
 {
@@ -2506,6 +2528,7 @@ static void xruns_feedback(void)
     uint64_t count;
     char line[64];
 
+    pool_late_note();
     clock_gettime(CLOCK_MONOTONIC, &now);
     if (!xrun_report_due(&g_xruns, (uint64_t)now.tv_sec * 1000u + (uint64_t)now.tv_nsec / 1000000u, &count))
         return;
@@ -2703,6 +2726,14 @@ int effects_add(const char *uri, int instance, const char *client_name)
     }
 
     callbacks_set(effect);
+
+    // --thread-pool on: the plugin's tasks go to the process's pool, its helpers at the JACK thread's priority (#395)
+    if (g_thread_pool == EFFECTS_THREAD_POOL_ON)
+    {
+        const int priority = jack_client_real_time_priority(effect->jack_client);
+
+        omx_clap_host_thread_pool_use(effect->clap, 1, priority > 0 && priority <= 99 ? priority : 0);
+    }
 
     if (omx_clap_host_activate(effect->clap, jack_get_sample_rate(effect->jack_client), jack_get_buffer_size(effect->jack_client), why) != 0)
     {
@@ -3348,6 +3379,24 @@ void effects_idle(void)
 void effects_show_ui_at_add(int on)
 {
     g_show_ui = on;
+}
+
+int effects_thread_pool_word(const char *word, int *mode)
+{
+    if (!strcmp(word, "qualified"))
+        *mode = EFFECTS_THREAD_POOL_QUALIFIED;
+    else if (!strcmp(word, "off"))
+        *mode = EFFECTS_THREAD_POOL_OFF;
+    else if (!strcmp(word, "on"))
+        *mode = EFFECTS_THREAD_POOL_ON;
+    else
+        return 0;
+    return 1;
+}
+
+void effects_set_thread_pool(int mode)
+{
+    g_thread_pool = mode;
 }
 
 int effects_show_ui(int effect_id, const char **code)
