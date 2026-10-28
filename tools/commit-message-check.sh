@@ -1,24 +1,24 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# ai-trace-commit-check.sh: fail when a commit message carries an AI-attribution line.
+# commit-message-check.sh: fail when a commit message carries an attribution line.
 #
-#   ai-trace-commit-check.sh <range>          every commit in the range (e.g. origin/main..HEAD)
-#   ai-trace-commit-check.sh --msg-file FILE  one message (the commit-msg hook; # lines are git comments, skipped)
-#   ai-trace-commit-check.sh --text-file FILE any text, every line judged (PR titles and bodies)
-#   ai-trace-commit-check.sh --selftest       fixtures plus a sabotage run
+#   commit-message-check.sh <range>          every commit in the range (e.g. origin/main..HEAD)
+#   commit-message-check.sh --msg-file FILE  one message (the commit-msg hook; # lines are git comments, skipped)
+#   commit-message-check.sh --text-file FILE any text, every line judged (PR titles and bodies)
+#   commit-message-check.sh --selftest       fixtures plus a sabotage run
 #
 # Exit 0 clean, 1 a hit (each commit and offending line is named), 2 a range, file or pattern list that cannot be read
 # (any crash is 2). Callers refuse on 2: a checker that cannot judge is never a pass.
-# The patterns are ai-trace-patterns.json beside this script, the same list ai-trace-sweep.sh strips
+# The patterns are commit-message-patterns.json beside this script, the same list the ops sweep strips
 # issue and PR text with, and the one list every door reads: merge-pr.sh, integrate-check.sh, pr-from-devel.sh
-# (ops/tools/tests/ai-trace-one-list.t.sh refuses a second list). AI_TRACE_PATTERNS names another JSON (self-tests). Repos that cannot see the ops tree carry a copy of both files.
+# (ops/tools/tests/commit-message-one-list.t.sh refuses a second list). COMMIT_MESSAGE_PATTERNS names another JSON (self-tests). Repos that cannot see the ops tree carry a copy of both files.
 set -euo pipefail
-export AI_TRACE_SELF="${BASH_SOURCE[0]}"
+export COMMIT_MESSAGE_CHECK_SELF="${BASH_SOURCE[0]}"
 exec python3 -I - "$@" <<'PY'
 import json, os, re, subprocess, sys
 
-here = os.path.dirname(os.path.realpath(os.environ["AI_TRACE_SELF"]))
-pfile = os.environ.get("AI_TRACE_PATTERNS") or os.path.join(here, "ai-trace-patterns.json")
+here = os.path.dirname(os.path.realpath(os.environ["COMMIT_MESSAGE_CHECK_SELF"]))
+pfile = os.environ.get("COMMIT_MESSAGE_PATTERNS") or os.path.join(here, "commit-message-patterns.json")
 
 
 def load():
@@ -45,7 +45,7 @@ def report(label, text, markers):
 def git(*a):
     p = subprocess.run(["git", *a], capture_output=True, text=True)
     if p.returncode:
-        print(f"ai-trace-commit-check: git {' '.join(a[:3])}: {p.stderr.strip()}", file=sys.stderr)
+        print(f"commit-message-check: git {' '.join(a[:3])}: {p.stderr.strip()}", file=sys.stderr)
         sys.exit(2)
     return p.stdout
 
@@ -96,7 +96,7 @@ def main(a):
         try:
             text = open(a[1], encoding="utf-8", errors="replace").read()
         except OSError as e:
-            print(f"ai-trace-commit-check: {e}", file=sys.stderr)
+            print(f"commit-message-check: {e}", file=sys.stderr)
             return 2
         # lines git adds as comments are not part of the message
         text = "\n".join(l for l in text.splitlines() if not l.startswith("#"))
@@ -105,7 +105,7 @@ def main(a):
         try:
             text = open(a[1], encoding="utf-8", errors="replace").read()
         except OSError as e:
-            print(f"ai-trace-commit-check: {e}", file=sys.stderr)
+            print(f"commit-message-check: {e}", file=sys.stderr)
             return 2
         return 1 if report("text", text, markers) else 0
     if len(a) == 1 and not a[0].startswith("-"):
@@ -113,16 +113,16 @@ def main(a):
         bad = 0
         for sha in shas:
             bad += report(sha[:12], git("log", "-1", "--format=%B", sha), markers)
-        print(f"ai-trace-commit-check: {len(shas)} commits, {bad} offending lines")
+        print(f"commit-message-check: {len(shas)} commits, {bad} offending lines")
         return 1 if bad else 0
-    print(__doc__ if False else "usage: ai-trace-commit-check.sh <range> | --msg-file FILE | --text-file FILE | --selftest", file=sys.stderr)
+    print(__doc__ if False else "usage: commit-message-check.sh <range> | --msg-file FILE | --text-file FILE | --selftest", file=sys.stderr)
     return 2
 
 
 try:
     rc = main(sys.argv[1:])
 except Exception as e:  # a bad or missing pattern file, a decode error: unreadable, never "a hit"
-    print(f"ai-trace-commit-check: {type(e).__name__}: {e}", file=sys.stderr)
+    print(f"commit-message-check: {type(e).__name__}: {e}", file=sys.stderr)
     rc = 2
 sys.exit(rc)
 PY

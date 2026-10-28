@@ -1,5 +1,5 @@
 {
- "$comment": "Single source of the AI-trace patterns (Python re, flags IGNORECASE|MULTILINE). Read by ai-trace-sweep.sh and ai-trace-commit-check.sh. Edit here only. A trailer-shaped pattern that eats the rest of its line is anchored at the line start, so prose quoting a trailer keeps its text.",
+ "$comment": "Single source of the attribution patterns (Python re, flags IGNORECASE|MULTILINE). Read by the ops sweep and commit-message-check.sh. Edit here only. A trailer-shaped pattern that eats the rest of its line is anchored at the line start, so prose quoting a trailer keeps its text.",
  "markers": [
   {
    "name": "robot-footer",
