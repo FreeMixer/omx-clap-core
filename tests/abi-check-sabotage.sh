@@ -47,6 +47,19 @@ case_ retyped-same-layout FAIL 'int a; int b;' 'int a; int b;' 'struct other *in
 case_ retyped-smaller FAIL 'int a; int b;' 'int a;' 'struct other *instance; int flags; void (*cb)(int);'
 case_ pointee-reordered FAIL 'int b; int a;' 'int z;' 'struct inst *instance; int flags; void (*cb)(int);'
 
+# the pointee's own change (#325) carries its own "data member change" heading nested inside the outer one on
+# 'instance'; 'flags', a sibling of 'instance' under the SAME outer heading, is listed after that nested heading
+# closes. Both must still carry the outer heading's "data member change:" mark; wanted FAIL either way (the line
+# patterns alone catch each), so this also checks the mark directly in abidiff-judged.txt, not just the verdict.
+case_ nested-then-sibling FAIL 'int a; short b;' 'int z;' 'struct inst *instance; short flags; void (*cb)(int);'
+judged=$work/abidiff-judged.txt
+if [ -f "$judged" ] && grep -q "data member change:.*type of 'int flags' changed:" "$judged"; then
+    echo "ok   nested-then-sibling: 'flags' after the nested block still carries the outer heading's mark"
+else
+    echo "FAIL nested-then-sibling: 'flags' after the nested block lost the outer heading's mark in $judged"
+    failures=$((failures + 1))
+fi
+
 if [ "$failures" -eq 0 ]; then
     echo "abi-check sabotage ok: the growth reads ok, every other case FAILs"
     exit 0
