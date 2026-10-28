@@ -331,6 +331,15 @@ jobs:
             echo "::warning::test-jack-info SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # --thread-pool over jack (#395): on makes the helpers and they run the plugin's tasks, qualified and off make none
+      - name: Test the thread pool over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-pool
+          else
+            echo "::warning::test-jack-pool SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # the xruns line: the callback the host registered with libjack, the line on the feedback socket
       - name: Test the xruns line over jack
         run: |
