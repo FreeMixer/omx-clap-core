@@ -54,14 +54,6 @@
 ************************************************************************************************************************
 */
 
-/* the refusals of HOST_REPLY_CODES the host answers past mod-host's own numbers: HOST_REPLY_<NAME> is the resp of
- * reply.host.<name> */
-#define HOST_REPLY_PIN_ABSENT           (-508)
-#define HOST_REPLY_PIN_LAYOUT_MISMATCH  (-510)
-#define HOST_REPLY_NO_PARAM_CONTRACT    (-511)
-#define HOST_REPLY_NO_NOTE_INPUT        (-513)
-#define HOST_REPLY_NOTE_QUEUE_FULL      (-517)
-
 /* the word for what is not there: no colour in track_info, an empty slot of remote_page_get, no note input */
 #define HOST_WORD_NONE          "-"
 /* the longest string word, in bytes: a CLAP name without its terminator */
@@ -74,6 +66,8 @@
 #define HOST_NOTE_VELOCITY_MAX  127
 /* the feedback line of a plugin that changed its pages, with the instance number */
 #define HOST_EVENT_REMOTE_PAGES_CHANGED_FMT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED " %d"
+/* the feedback line of the worker's xrun count since its start: no instance number, the count is the worker's */
+#define HOST_EVENT_XRUNS_FMT OMX_HOST_EVENTS_XRUNS " %llu"
 
 
 /*
