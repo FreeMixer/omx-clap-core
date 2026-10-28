@@ -56,6 +56,7 @@
 #include "idle_hold.h"
 #include "param_contract.h"
 #include "resource_hints.h"
+#include "thread_pool.h"
 
 
 /*
@@ -341,6 +342,9 @@ static int on_audio_role(const struct omx_clap_instance *in)
     const pthread_t self = pthread_self();
 
     if (named_by_slot(in, self))
+        return 1;
+    // a helper of the thread pool holds the role of the instance whose task it runs, for that task (#395)
+    if (in->pool_held && thread_pool_on_helper(in))
         return 1;
     if (!in->audio_role_held)
         return 0;
@@ -650,17 +654,26 @@ static bool host_unregister_fd(const clap_host_t *host, int fd)
     return true;
 }
 
-/* thread-pool, on the audio role inside process(): every task runs before the call returns, one after the other on the
- * calling thread, which is real-time safe and what the extension allows; anywhere else the request is refused */
+/* thread-pool, on the audio role inside process(): every task has ended when the call returns. An instance holding the
+ * process's pool (granted it, docs/thread-pool.md) hands its tasks to the helpers and the calling thread; any other runs
+ * them one after the other on the calling thread, which is real-time safe and what the extension allows. A wait for the
+ * helpers past the block is counted late. Anywhere else the request is refused, a helper's own included */
 static bool host_request_exec(const clap_host_t *host, uint32_t num_tasks)
 {
     struct omx_clap_instance *in = instance_of(host);
+    int late = 0;
 
+    if (thread_pool_is_helper())
+        return false;       // a task asking again from a helper: refused, the plugin runs its own
     if (!in->thread_pool || !in->thread_pool->exec || !on_audio_role(in) || in->in_exec)
         return false;       // a request made from inside exec would nest the tasks: refused, the plugin runs its own
     in->in_exec = 1;
-    for (uint32_t i = 0; i < num_tasks; i++)
-        in->thread_pool->exec(in->plugin, i);
+    if (!in->pool_held ||
+        thread_pool_run(in, num_tasks, (uint64_t)((double)in->max_block * 1e9 / in->rate), &late) != 0)
+        for (uint32_t i = 0; i < num_tasks; i++)
+            in->thread_pool->exec(in->plugin, i);
+    if (late)
+        atomic_fetch_add_explicit(&in->pool_late, 1u, memory_order_relaxed);
     in->in_exec = 0;
     return true;
 }
@@ -3033,6 +3046,19 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     // active for good: the process's idle hold counts it (#296)
     in->idle_held = 1;
     idle_hold_acquire();
+    // granted the thread pool and asking for it: the process's pool counts it, or it runs serial and says why (#395)
+    if (in->pool_use && in->thread_pool && in->thread_pool->exec)
+    {
+        char why_serial[CLAP_HOST_LOG_BYTES], line[CLAP_HOST_LOG_BYTES + 128];
+
+        if (thread_pool_acquire(in->pool_priority, why_serial, sizeof(why_serial)))
+            in->pool_held = 1;
+        else
+        {
+            snprintf(line, sizeof(line), "%s: %s", in->desc->id, why_serial);
+            log_to_ring(in, line);
+        }
+    }
     if (why)
         why[0] = '\0';
     return 0;
@@ -3171,11 +3197,36 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
         in->idle_held = 0;
         idle_hold_release();
     }
+    if (in->pool_held)
+    {
+        in->pool_held = 0;
+        thread_pool_release();
+    }
     drop_bounce(in);
     memset(&in->stage, 0, sizeof(in->stage));
     for (i = 0; i < in->shadow_n; i++)
         in->shadow[i].valid = 0;
     in->shadow_n = 0;
+}
+
+int omx_clap_host_thread_pool_use(struct omx_clap_instance *in, int use, int rt_priority)
+{
+    if (!in || in->active || rt_priority < 0 || rt_priority > 99)
+        return -1;
+    in->pool_use = use ? 1u : 0u;
+    in->pool_priority = rt_priority;
+    return 0;
+}
+
+void omx_clap_host_thread_pool(struct omx_clap_thread_pool_info *out)
+{
+    if (out)
+        thread_pool_info(out);
+}
+
+uint32_t omx_clap_host_thread_pool_late(const struct omx_clap_instance *in)
+{
+    return in ? atomic_load_explicit(&in->pool_late, memory_order_relaxed) : 0u;
 }
 
 int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])

@@ -189,3 +189,13 @@ OMX_CLAP_CORE_0.21
     /* a carrier thread on the audio role from its first cycle, named with no lock (#104) */
     omx_clap_host_name_slot;
 } OMX_CLAP_CORE_0.18;
+
+/* added after 0.23.2: the 0.21 node is frozen */
+OMX_CLAP_CORE_0.24
+{
+  global:
+    /* the thread pool, granted per instance (#395) */
+    omx_clap_host_thread_pool_use;
+    omx_clap_host_thread_pool;
+    omx_clap_host_thread_pool_late;
+} OMX_CLAP_CORE_0.21;

@@ -28,6 +28,7 @@
 
 #include "../src/clap_host.c"
 #include "../src/idle_hold.c"
+#include "../src/thread_pool.c"
 
 #define FAKE_PASSTHROUGH "org.omx-clap-host.test.passthrough"
 
