@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.23.0
+Version:        0.23.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,14 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Oct 28 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.1-1
+- The shared verbs that plugin-hostd answers declare -901 (data/verbs.json
+  and the generated header) (Sami Jawhar, #363).
+- lv2_locate reads a prefixed name in work linear in the manifest; the fuzz
+  corpus and the sabotage arms follow (Sami Jawhar, #370).
+- preset_base64_decode refuses a third '=' as soon as it reads it (Sami
+  Jawhar, #358).
+
 * Tue Oct 27 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.0-1
 - The parameter contract no longer carries migration steps: the
   org.openmixer.param-contract/1 extension is version, fingerprint and get, and
