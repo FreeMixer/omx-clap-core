@@ -129,7 +129,7 @@ LDFLAGS += -Wl,--no-undefined
 # source and object files
 SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c src/window.c
 OBJ = $(SRC:.c=.o)
-CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c
+CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c src/thread_pool.c
 CORE_OBJ = $(CORE_SRC:.c=.o)
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,

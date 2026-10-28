@@ -108,7 +108,7 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.state-context/2` | — | supported: save and load for preset, duplicate and project (`tests/clap_ext_test.c`); a plugin without it gets its plain state for each, which no test exercises | — | in the host since #90 |
 | `clap.tail` | supported: `changed`, read again by the next tick (`tests/clap_ext_test.c`) | supported: read at every activate, and the sleep after a tail (`tests/clap_ext_test.c`) | offered | in the host since #90 |
 | `clap.thread-check` | supported: `is_audio_thread` is true on the audio role alone, a split of a driver and workers included (`tests/clap_host_test.c:role_checks`, `tests/clap_core_test.c:t_audio_role_on_split`); `is_main_thread`, true on the thread that opened the instance off the audio role, is untested | — | offered | |
-| `clap.thread-pool` | supported: `request_exec` inside `process()` runs every task in turn on the calling audio thread before it returns; refused off the audio role and from inside a task (`tests/clap_ext_test.c`) | supported: `exec` called for each task (`tests/clap_ext_test.c`) | offered | in the host since #90 |
+| `clap.thread-pool` | supported: `request_exec` inside `process()` returns once every task has ended; an instance granted the process's pool by its qualification hands the tasks to helper threads pinned one per core and to the calling audio thread, any other runs them in turn on the calling audio thread (docs/thread-pool.md, `tests/thread_pool_test.c`); refused off the audio role and from inside a task, on a helper too (`tests/clap_ext_test.c`) | supported: `exec` called for each task (`tests/clap_ext_test.c`) | offered | in the host since #90 |
 | `clap.timer-support` | supported: a timer registered, called once per tick when due (`tests/clap_ext_test.c`); the limit of 16 (`OMX_CLAP_TIMERS`) is untested | supported: `on_timer` (`tests/clap_ext_test.c`) | offered | in the host since #90 |
 | `clap.track-info/1` | supported: `get` answers the strip's name, colour and kind as the caller set them (`make test-jack-info`) | supported: `changed` called on each set (`tests/jack_info_e2e.sh`) | offered | offered and read only where the configuration asks |
 | `clap.track-info.draft/1` | offered, untested: answered as the final id where the configuration asks | read, untested: asked when the plugin lacks the final id | offered | |
@@ -249,7 +249,7 @@ Gaps
 
 In the order #196 gives them, with what the desk measured and where each stands today:
 
-1. **`clap.thread-pool`**: in the host, host-side and plugin-side (#90, `tests/clap_ext_test.c`).
+1. **`clap.thread-pool`**: in the host, host-side and plugin-side (#90, `tests/clap_ext_test.c`); the pool of helper threads, gated per plugin by its qualification (#395, docs/thread-pool.md, `tests/thread_pool_test.c`).
    The probe counts only ids the host does not offer, so no plugin is counted for it.
 2. **`clap.tail`**: in the host (#90): read at activate and on `changed`, and the sleep after it.
    Not counted, as above.
