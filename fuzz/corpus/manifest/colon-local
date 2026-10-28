@@ -1,0 +1,2 @@
+u:::@prefix p: <u:> .
+x p::: a lv2:Plugin .

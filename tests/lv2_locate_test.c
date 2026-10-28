@@ -64,7 +64,7 @@ static void many_prefixes(void)
     static const char line[] = "@prefix a: <urn:example:plugins#> .\n";
     const size_t len = sizeof(line) - 1, n = 1024;
     char *text = malloc(n * len + 1);
-    size_t i, readings = 0;
+    size_t i, readings = 0, compared = 0;
     int got;
 
     if (!text)
@@ -75,17 +75,123 @@ static void many_prefixes(void)
     for (i = 0; i < n; i++)
         memcpy(text + i * len, line, len);
     text[n * len] = '\0';
-    got = lv2_locate_manifest_readings(text, URI, &readings);
+    got = lv2_locate_manifest_readings(text, URI, &readings, &compared);
     CHECK(got == 1 && readings <= LV2_LOCATE_PREFIXES_MAX,
           "manifest: %zu declarations of the URI's namespace and no name: a candidate, read %zu times (at most %d)", n,
           readings, LV2_LOCATE_PREFIXES_MAX);
     text[LV2_LOCATE_PREFIXES_MAX * len] = '\0';
-    readings = 0;
-    got = lv2_locate_manifest_readings(text, URI, &readings);
+    readings = compared = 0;
+    got = lv2_locate_manifest_readings(text, URI, &readings, &compared);
     CHECK(got == 0 && readings == LV2_LOCATE_PREFIXES_MAX,
           "manifest: %d declarations of the URI's namespace and no name: read whole for each (%zu times), not a candidate",
           LV2_LOCATE_PREFIXES_MAX, readings);
     free(text);
+}
+
+/* `n` copies of `s` at text + *len, and the NUL after them; nothing when the memory for the text was not had */
+static void put(char *text, size_t *len, const char *s, size_t n)
+{
+    const size_t k = strlen(s);
+
+    if (!text)
+        return;
+    for (; n > 0; n--, *len += k)
+        memcpy(text + *len, s, k);
+    text[*len] = '\0';
+}
+
+/* One lookup of `uri` in `text`, which it frees: no candidate, read `want` times, and at most twice the text's length
+ * compared, and some when `some`. The work is counted in the bytes compared, never timed. */
+static void counted(const char *what, char *text, const char *uri, size_t want, int some)
+{
+    size_t readings = 0, compared = 0, len;
+
+    if (!text)
+    {
+        CHECK(0, "manifest: memory for %s", what);
+        return;
+    }
+    len = strlen(text);
+    CHECK(lv2_locate_manifest_readings(text, uri, &readings, &compared) == 0 && readings == want
+              && (!some || compared > 0) && compared <= 2 * len,
+          "manifest: %s: read %zu times, %zu bytes compared of %zu", what, readings, compared, len);
+    free(text);
+}
+
+/* A manifest that declares a long prefix for the URI's namespace, then its letters again and the local name after each
+ * of many ':': one reading compared up to the whole prefix against the text at each of them, so the reading cost the
+ * prefix's length for each. */
+static void long_prefix(void)
+{
+    static const char decl[] = ": <urn:example:plugins#> .\n", name[] = ":gain";
+    const size_t p = 4096, n = 1024;
+    char *text = malloc(sizeof("@prefix ") + sizeof(decl) + 2 * p + n * (sizeof(name) - 1));
+    size_t len = 0;
+
+    put(text, &len, "@prefix ", 1);
+    put(text, &len, "a", p);
+    put(text, &len, decl, 1);
+    put(text, &len, "a", p - 1);
+    put(text, &len, name, n);
+    counted("a long prefix and prefixed names that are not it", text, URI, 1, 1);
+}
+
+/* A URI whose local name repeats `unit`, and a manifest of it after the declaration of its namespace, then the name
+ * once under another prefix: the local name was looked for again one byte after each place it was found, so one reading
+ * compared the local name's length at each. Each ":a:a..." found is turned down, and so is each after it in the run;
+ * each ":::..." is a name. */
+static void repeated_local(const char *unit)
+{
+    enum { LOCAL = 64, N = 16384 };
+    static const char ns[] = "urn:example:plugins#", decl[] = "@prefix ex: <urn:example:plugins#> .\n";
+    static const char other[] = "\nzx:";
+    const size_t k = strlen(unit);
+    char uri[sizeof(ns) + LOCAL], what[64], *text = malloc(sizeof(decl) + N + sizeof(other) + LOCAL);
+    size_t ulen = sizeof(ns) - 1, len = 0;
+
+    memcpy(uri, ns, ulen);
+    put(uri, &ulen, unit, LOCAL / k);
+    put(text, &len, decl, 1);
+    put(text, &len, unit, N / k);
+    put(text, &len, other, 1);
+    put(text, &len, unit, LOCAL / k);
+    snprintf(what, sizeof(what), "a local name of \"%s\" again and again, and a run of it", unit);
+    counted(what, text, uri, 1, 1);
+}
+
+/* The URI's namespace declared LV2_LOCATE_PREFIXES_MAX times, then ':' to the end: no ':' is followed by the local
+ * name, so there is no name to compare, and the reader before compared none. A reader that compares at every ':' of
+ * each reading compares the text's length once per declaration. */
+static void colon_run(void)
+{
+    static const char line[] = "@prefix p: <urn:example:plugins#> .\n";
+    const size_t n = 65536;
+    char *text = malloc(LV2_LOCATE_PREFIXES_MAX * (sizeof(line) - 1) + n + 1);
+    size_t len = 0;
+
+    put(text, &len, line, LV2_LOCATE_PREFIXES_MAX);
+    put(text, &len, ":", n);
+    counted("the URI's namespace declared as often as a manifest is read for, then ':' alone", text, URI,
+            LV2_LOCATE_PREFIXES_MAX, 0);
+}
+
+/* A URI whose local name is long, "a:" again and again and then "b", and a manifest that declares its namespace and
+ * holds the name once, not after a ':': the work is linear in the local name too. A reader that compares the local
+ * name with itself at each of its ':' compares about a quarter of its length squared. */
+static void long_local(void)
+{
+    enum { LOCAL = 65536 };
+    static const char ns[] = "urn:example:plugins#", decl[] = "@prefix ex: <urn:example:plugins#> .\n ";
+    static char uri[sizeof(ns) + LOCAL];
+    char *text = malloc(sizeof(decl) + LOCAL);
+    size_t ulen = sizeof(ns) - 1, len = 0;
+
+    memcpy(uri, ns, ulen);
+    put(uri, &ulen, "a:", LOCAL / 2 - 1);
+    put(uri, &ulen, "ab", 1);
+    put(text, &len, decl, 1);
+    put(text, &len, uri + sizeof(ns) - 1, 1);
+    counted("a long local name that repeats \"a:\", held once", text, uri, 1, 1);
 }
 
 static void bundle(const char *dir, const char *name, const char *manifest)
@@ -189,6 +295,11 @@ int main(void)
 {
     names();
     many_prefixes();
+    long_prefix();
+    repeated_local(":a");
+    repeated_local(":");
+    colon_run();
+    long_local();
     walk();
     if (g_failures)
     {
