@@ -20,22 +20,66 @@
 # THE SEED FLOOR. A line counts as covered when any seed runs it, so a branch on a line other seeds reach is invisible
 # to the floor: the seed written to take it can go and the floor holds. fuzz/reach.txt names such a branch and its seed;
 # the seed is run alone and must take the branch's true side, or the branch is named by file, line and column and this
-# turns red.
+# turns red. An empty fuzz/reach.txt (every line blank or a comment) runs no seed and proves nothing, so it is red the
+# same way an empty coverage report is; an entry naming a harness this run does not know is red too, not skipped.
 #
 # Usage: LLVM_COV=llvm-cov LLVM_PROFDATA=llvm-profdata coverage.sh <cov build dir> <harness>...
+#        coverage.sh --self-test   # the seed floor's two guards, each sabotaged and must turn red
 set -eu
+FLOOR=${FLOOR:-fuzz/coverage-floor.txt}
+REACH=${REACH:-fuzz/reach.txt}
+
+self_test() {
+    t=$(mktemp -d)
+    trap 'rm -rf "$t"' EXIT
+    fail=0
+
+    mkdir -p "$t/build"
+    printf '# nothing active\n\n' >"$t/reach-empty.txt"
+    if out=$(REACH="$t/reach-empty.txt" sh "$0" "$t/build" 2>&1); then
+        echo "SELF-TEST empty-reach: STAYED GREEN"
+        fail=1
+    elif ! printf '%s\n' "$out" | grep -q "no active entries"; then
+        echo "SELF-TEST empty-reach: red, but not naming the empty $REACH:"
+        printf '%s\n' "$out"
+        fail=1
+    else
+        echo "SELF-TEST empty-reach: red, names the empty reach.txt"
+    fi
+
+    printf 'preset self-test-seed fuzz/coverage.sh placeholder\n' >"$t/reach-unknown.txt"
+    if out=$(REACH="$t/reach-unknown.txt" sh "$0" "$t/build" 2>&1); then
+        echo "SELF-TEST unknown-harness: STAYED GREEN"
+        fail=1
+    elif ! printf '%s\n' "$out" | grep -q "reach.txt names harness preset, not in this run"; then
+        echo "SELF-TEST unknown-harness: red, but not naming the unknown harness:"
+        printf '%s\n' "$out"
+        fail=1
+    else
+        echo "SELF-TEST unknown-harness: red, names the unknown harness"
+    fi
+
+    [ "$fail" -eq 0 ] || return 1
+    echo "coverage.sh --self-test: both seed-floor guards went red on their own sabotage"
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+    self_test
+    exit $?
+fi
+
 B=$1
 shift
 harnesses="$*"
 LLVM_COV=${LLVM_COV:-llvm-cov}
 LLVM_PROFDATA=${LLVM_PROFDATA:-llvm-profdata}
-FLOOR=fuzz/coverage-floor.txt
-REACH=fuzz/reach.txt
 [ -f "$FLOOR" ] || { echo "coverage.sh: no $FLOOR" >&2; exit 2; }
 [ -f "$REACH" ] || { echo "coverage.sh: no $REACH" >&2; exit 2; }
 low=
 dead=
 unseeded=
+noactive=
+unknown=
 
 # the reader functions each harness covers, its files then `::` then the functions; a static is matched by bare name
 funcs() {
@@ -109,8 +153,19 @@ done
 
 # the seed floor: each branch of fuzz/reach.txt for a harness run here, its seed alone
 echo "== the seed floor ($REACH)"
+active=$(grep -v -e '^#' -e '^[[:space:]]*$' "$REACH" | wc -l)
+if [ "$active" -eq 0 ]; then
+    echo "  REACH: $REACH has no active entries"
+    noactive=1
+fi
 grep -v -e '^#' -e '^[[:space:]]*$' "$REACH" | while read -r h seed file cond; do
-    case " $harnesses " in *" $h "*) ;; *) continue ;; esac
+    case " $harnesses " in
+    *" $h "*) ;;
+    *)
+        echo "  REACH: reach.txt names harness $h, not in this run"
+        echo "$h" >>"$B/reach.unknown"
+        continue ;;
+    esac
     if [ ! -f "fuzz/corpus/$h/$seed" ]; then
         echo "  REACH: fuzz/corpus/$h/$seed is gone, and with it the seed of $file: $cond"
         echo "$h/$seed" >>"$B/reach.red"
@@ -146,9 +201,15 @@ if [ -f "$B/reach.red" ]; then
     unseeded=$(tr '\n' ' ' <"$B/reach.red" | sed 's/ $//')
     rm -f "$B/reach.red"
 fi
+if [ -f "$B/reach.unknown" ]; then
+    unknown=$(tr '\n' ' ' <"$B/reach.unknown" | sed 's/ $//')
+    rm -f "$B/reach.unknown"
+fi
 
 [ -z "$low" ] || echo "make fuzz-coverage: RED -- below the coverage floor:$low"
 [ -z "$dead" ] || echo "make fuzz-coverage: RED -- harness checks no seed reaches, or with no record:$dead"
 [ -z "$unseeded" ] || echo "make fuzz-coverage: RED -- branches their seed does not take: $unseeded"
-[ -z "$low$dead$unseeded" ] || exit 1
+[ -z "$noactive" ] || echo "make fuzz-coverage: RED -- $REACH has no active entries"
+[ -z "$unknown" ] || echo "make fuzz-coverage: RED -- reach.txt names a harness not in this run: $unknown"
+[ -z "$low$dead$unseeded$noactive$unknown" ] || exit 1
 echo "make fuzz-coverage: every harness at or above its coverage floor, every check and seeded branch reached"
