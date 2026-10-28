@@ -410,21 +410,63 @@ int pj_string(struct pj *v, const char *s)
     return (v->str = strdup(s ? s : "")) ? 0 : -1;
 }
 
+/* the shortest text that reads back to the same double: a value is never widened nor rounded on its way to the file */
+static void number_shortest(char *text, size_t size, double num)
+{
+    int digits;
+
+    for (digits = 1; digits <= 17; digits++)
+    {
+        snprintf(text, size, "%.*g", digits, num);
+        if (strtod(text, NULL) == num)
+            break;
+    }
+}
+
+/* whether `s` is one RFC 8259 number, start to end: the grammar pj_parse's lax reader also accepts (a trailing '.',
+ * a '.' straight into 'e') fails this */
+static int number_is_strict(const char *s)
+{
+    if (*s == '-')
+        s++;
+    if (*s == '0')
+        s++;
+    else
+    {
+        if (*s < '1' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    if (*s == '.')
+    {
+        s++;
+        if (*s < '0' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    if (*s == 'e' || *s == 'E')
+    {
+        s++;
+        if (*s == '+' || *s == '-')
+            s++;
+        if (*s < '0' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    return *s == '\0';
+}
+
 int pj_number(struct pj *v, double num)
 {
     char text[40];
-    int digits;
 
     memset(v, 0, sizeof(*v));
     if (!isfinite(num))
         return -1;
-    // the shortest text that reads back to the same double: a value is never widened nor rounded on its way to the file
-    for (digits = 1; digits <= 17; digits++)
-    {
-        snprintf(text, sizeof(text), "%.*g", digits, num);
-        if (strtod(text, NULL) == num)
-            break;
-    }
+    number_shortest(text, sizeof(text), num);
     v->type = PJ_NUMBER;
     v->num = num;
     return (v->str = strdup(text)) ? 0 : -1;
@@ -531,7 +573,17 @@ static void write_value(struct pj_out *o, const struct pj *v, int pretty, int de
     case PJ_NULL: puts_(o, "null"); break;
     case PJ_FALSE: puts_(o, "false"); break;
     case PJ_TRUE: puts_(o, "true"); break;
-    case PJ_NUMBER: puts_(o, v->str ? v->str : "0"); break;
+    case PJ_NUMBER:
+        if (v->str && number_is_strict(v->str))
+            puts_(o, v->str);
+        else
+        {
+            char text[40];
+
+            number_shortest(text, sizeof(text), v->num);
+            puts_(o, text);
+        }
+        break;
     case PJ_STRING: put_string(o, v->str ? v->str : ""); break;
     case PJ_ARRAY:
     case PJ_OBJECT:
