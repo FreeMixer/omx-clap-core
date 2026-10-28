@@ -54,8 +54,9 @@ int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx);
 /* Whether the text of a manifest names `uri`, as lv2_locate reads it: 1 or 0. */
 int lv2_locate_manifest_names(const char *text, const char *uri);
 
-/* lv2_locate_manifest_names, adding to *readings each reading of the whole text for a prefixed name:
- * the work a manifest costs, which no manifest makes more than LV2_LOCATE_PREFIXES_MAX of. */
-int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings);
+/* lv2_locate_manifest_names, adding to *readings each reading of the whole text for a prefixed name, and to
+ * *compared the bytes of each local name a reading finds, of each prefix it compares and of each repeat it reads: the
+ * work a manifest costs, which no manifest makes more than LV2_LOCATE_PREFIXES_MAX readings of. */
+int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings, size_t *compared);
 
 #endif

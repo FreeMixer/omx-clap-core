@@ -1,4 +1,4 @@
-<abi-corpus version='3.0' path='build/abi/usr/lib/libomx-clap-core.so.0.21.0' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.1' tracking-non-reachable-types='yes'>
+<abi-corpus version='3.0' path='build/abi/usr/lib/libomx-clap-core.so.0.23.0' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.1' tracking-non-reachable-types='yes'>
   <elf-needed>
     <dependency name='libm.so.6'/>
     <dependency name='libc.so.6'/>
@@ -292,7 +292,7 @@
     <pointer-type-def type-id='type-id-248' size-in-bits='64' hash='471f06bafb758b96' id='type-id-249'/>
     <qualified-type-def type-id='type-id-250' const='yes' hash='88e6c818a91d93cd' id='type-id-251'/>
     <pointer-type-def type-id='type-id-251' size-in-bits='64' hash='08c268bbfd1878a8' id='type-id-252'/>
-    <qualified-type-def type-id='type-id-253' const='yes' hash='d35f96d3bd5c1898' id='type-id-254'/>
+    <qualified-type-def type-id='type-id-253' const='yes' hash='eb3503bd3b18944d' id='type-id-254'/>
     <pointer-type-def type-id='type-id-254' size-in-bits='64' hash='2e6ec327f50e905a' id='type-id-255'/>
     <qualified-type-def type-id='type-id-256' const='yes' hash='5949e77f101b2abc' id='type-id-257'/>
     <pointer-type-def type-id='type-id-257' size-in-bits='64' hash='8e9492c943fe2cd2' id='type-id-258'/>
@@ -1997,7 +1997,7 @@
         <var-decl name='code' type-id='type-id-66' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2156672' hash='59f4f28bb1f85b78' id='type-id-238'>
+    <class-decl name='omx_clap_instance' is-struct='yes' visibility='default' size-in-bits='2156672' hash='1ea0079193f6d63e' id='type-id-238'>
       <data-member access='public' layout-offset-in-bits='0'>
         <var-decl name='bin' type-id='type-id-309' visibility='default'/>
       </data-member>
@@ -2786,32 +2786,7 @@
         <var-decl name='guards' type-id='type-id-256' visibility='default'/>
       </data-member>
     </class-decl>
-    <class-decl name='omx_resource_hints' is-struct='yes' visibility='default' size-in-bits='384' hash='12ebd1ad8ccac18f' id='type-id-532'>
-      <data-member access='public' layout-offset-in-bits='0'>
-        <var-decl name='declared' type-id='type-id-256' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='64'>
-        <var-decl name='footprint_at_rest' type-id='type-id-272' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='128'>
-        <var-decl name='footprint_per_voice' type-id='type-id-272' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='192'>
-        <var-decl name='shared_load' type-id='type-id-272' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='256'>
-        <var-decl name='threads_spawned' type-id='type-id-256' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='288'>
-        <var-decl name='streams_from_disk' type-id='type-id-14' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='296'>
-        <var-decl name='opens_sockets' type-id='type-id-14' visibility='default'/>
-      </data-member>
-      <data-member access='public' layout-offset-in-bits='320'>
-        <var-decl name='activate_time' type-id='type-id-256' visibility='default'/>
-      </data-member>
-    </class-decl>
+    <class-decl name='omx_resource_hints' is-struct='yes' visibility='default' is-declaration-only='yes' hash='0f9c89637d091234' id='type-id-532'/>
     <typedef-decl name='__int16_t' type-id='type-id-445' size-in-bits='16' hash='bfcf8c53a7e22b05' id='type-id-533'/>
     <typedef-decl name='__int32_t' type-id='type-id-280' size-in-bits='32' hash='f2b82e49c8af56cd' id='type-id-534'/>
     <typedef-decl name='__int64_t' type-id='type-id-411' size-in-bits='64' hash='567f7af3a2d00f27' id='type-id-535'/>
@@ -2881,7 +2856,7 @@
     <typedef-decl name='omx_clap_chain_process_fn' type-id='type-id-548' size-in-bits='64' hash='045b2fe1ddfdfe08' id='type-id-516'/>
     <typedef-decl name='omx_clap_param_contract_entry_t' type-id='type-id-527' size-in-bits='704' hash='38231c1a80ab3be6' id='type-id-427'/>
     <typedef-decl name='omx_clap_preset_fn' type-id='type-id-405' size-in-bits='64' hash='072016b64905a146' id='type-id-289'/>
-    <typedef-decl name='omx_resource_hints_t' type-id='type-id-532' size-in-bits='384' hash='49a3b4f7bfcad60a' id='type-id-253'/>
+    <typedef-decl name='omx_resource_hints_t' type-id='type-id-532' hash='0f9c89637d091234' id='type-id-253'/>
     <typedef-decl name='pthread_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-352'/>
     <typedef-decl name='size_t' type-id='type-id-1' size-in-bits='64' hash='8b230c0ebd12548b' id='type-id-279'/>
     <typedef-decl name='uint16_t' type-id='type-id-537' size-in-bits='16' hash='012767b19cd3b7f4' id='type-id-452'/>
@@ -2961,7 +2936,7 @@
     <pointer-type-def type-id='type-id-403' size-in-bits='64' hash='39c027fda290099c' id='type-id-467'/>
     <pointer-type-def type-id='type-id-404' size-in-bits='64' hash='7eb0e0fedee2349a' id='type-id-479'/>
   </abi-types>
-  <abi-instr address-size='64' path='src/clap_chain.c' comp-dir-path='/work/lane' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/clap_chain.c' comp-dir-path='/var/home/pau/Devel/audio/wt-clap-154' language='LANG_C99'>
       <function-decl name='omx_clap_chain_add' type-id='type-id-314' mangled-name='omx_clap_chain_add' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_chain_add@@OMX_CLAP_CORE_0.16'/>
       <function-decl name='omx_clap_chain_bypass' type-id='type-id-317' mangled-name='omx_clap_chain_bypass' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_chain_bypass@@OMX_CLAP_CORE_0.16'/>
       <function-decl name='omx_clap_chain_create' type-id='type-id-293' mangled-name='omx_clap_chain_create' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_chain_create@@OMX_CLAP_CORE_0.16'/>
@@ -2974,7 +2949,7 @@
       <function-decl name='omx_clap_chain_report' type-id='type-id-291' mangled-name='omx_clap_chain_report' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_chain_report@@OMX_CLAP_CORE_0.16'/>
       <function-decl name='omx_clap_chain_destroy' type-id='type-id-382' mangled-name='omx_clap_chain_destroy' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_chain_destroy@@OMX_CLAP_CORE_0.16'/>
   </abi-instr>
-  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/work/lane' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/clap_host.c' comp-dir-path='/var/home/pau/Devel/audio/wt-clap-154' language='LANG_C99'>
       <function-decl name='omx_clap_host_log_take' type-id='type-id-274' mangled-name='omx_clap_host_log_take' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_log_take@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_param_scale_name' type-id='type-id-276' mangled-name='omx_clap_param_scale_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_scale_name@@OMX_CLAP_CORE_0.10'/>
       <function-decl name='omx_clap_param_unit_name' type-id='type-id-276' mangled-name='omx_clap_param_unit_name' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_param_unit_name@@OMX_CLAP_CORE_0.10'/>
@@ -3067,7 +3042,7 @@
       <function-decl name='omx_clap_host_stop' type-id='type-id-388' mangled-name='omx_clap_host_stop' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_stop@@OMX_CLAP_CORE_0'/>
       <function-decl name='omx_clap_host_take_role' type-id='type-id-393' mangled-name='omx_clap_host_take_role' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_take_role@@OMX_CLAP_CORE_0'/>
   </abi-instr>
-  <abi-instr address-size='64' path='src/idle_hold.c' comp-dir-path='/work/lane' language='LANG_C99'>
+  <abi-instr address-size='64' path='src/idle_hold.c' comp-dir-path='/var/home/pau/Devel/audio/wt-clap-154' language='LANG_C99'>
       <function-decl name='omx_clap_host_idle_hold_set' type-id='type-id-306' mangled-name='omx_clap_host_idle_hold_set' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_idle_hold_set@@OMX_CLAP_CORE_0.14'/>
       <function-decl name='omx_clap_host_idle_hold' type-id='type-id-386' mangled-name='omx_clap_host_idle_hold' visibility='default' binding='global' size-in-bits='64' elf-symbol-id='omx_clap_host_idle_hold@@OMX_CLAP_CORE_0.14'/>
   </abi-instr>

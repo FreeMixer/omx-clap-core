@@ -172,7 +172,7 @@ static __attribute__((noinline)) void check_as_written(const char *text, const u
         abort();
     n = expected_body(text, want);
     /* The decoder refuses a text the grammar reads, or reads one it refuses.
-     * mutant: src/preset_file.c:638 `pad > 2` -> `pad > 3`
+     * mutant: src/preset_file.c:623 `pad > 2` -> `pad > 3`
      * input: refuse-three-pads */
     if (!body != (n == SIZE_MAX))
         abort();
@@ -191,11 +191,11 @@ static __attribute__((noinline)) void check_reject_clean(const uint8_t *body, si
      * input: rfc4648-f */
     if (body)
         abort();
-    /* mutant: src/preset_file.c:643 `free(out);` -> `free(out), *len = n;`
+    /* mutant: src/preset_file.c:644 `free(out);` -> `free(out), *len = n;`
      * input: refuse-letter */
     if (len != SIZE_MAX)
         abort();
-    /* mutant: src/preset_file.c:643 `free(out);` -> ``
+    /* mutant: src/preset_file.c:644 `free(out);` -> ``
      * input: refuse-letter */
     if (fuzz_alloc_live() != live_before)
         abort();

@@ -34,10 +34,6 @@
 *   R2  a symbol matches the grammar; the unit and the scale are known codes; a log scale has positive bounds; a stepped
 *       scale has CLAP_PARAM_IS_STEPPED and step 1; a step is 0 or positive and finite; the bounds are finite
 *   R4  the fingerprint the host computes from get_info and get is the one the plugin states
-*   R5  the migration steps: by from_version ascending inside 1..version - 1; per version the from symbols and the
-*       non-empty to symbols are unique; no step changes nothing; a value map keeps the symbol, the unit, factor 1 and
-*       offset 0, its old and new values each unique, and on its last version lands on an enumerated parameter's range;
-*       a removed symbol never comes back; the unit pair is one the conversion table holds
 * R3 (the contract is the same after params.rescan) is the rescan's to check: pc_read again, then pc_same against what the
 * open held.
 *
@@ -281,33 +277,6 @@ static int pc_symbol_ok(const char symbol[OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE])
     return 1;
 }
 
-/* the conversion table: a unit pair a migration step may take, identity included. The affine families are LV2's own
- * units:conversion pairs (time, length, frequency with bpm, pc and coef, pitch); db and coef are the one non-affine
- * pair. The vendor units convert to nothing but themselves. */
-static int pc_unit_family(uint32_t unit)
-{
-    switch (unit)
-    {
-        case 1: case 2: case 3: return 1;  // s ms min
-        case 7: case 8: case 9: case 10: case 11: case 12: return 2;  // m cm mm km inch mile
-        case 16: case 17: case 18: case 19: return 3;  // hz khz mhz bpm
-        case 20: case 21: case 22: return 4;  // oct cent semitone12TET
-        default: return 0;
-    }
-}
-
-static int pc_convertible(uint32_t from, uint32_t to)
-{
-    const int family = pc_unit_family(from);
-
-    if (from == to)
-        return 1;
-    if (family && family == pc_unit_family(to))
-        return 1;
-    // pc and coef (a factor of 100), db and coef (amplitude)
-    return (from == 14 && to == 15) || (from == 15 && to == 14) || (from == 13 && to == 15) || (from == 15 && to == 13);
-}
-
 
 /*
 ************************************************************************************************************************
@@ -404,87 +373,6 @@ static int pc_fingerprint(const struct pc_param *p, uint32_t n, char hex[65])
     return 0;
 }
 
-/* R5: the migration steps, against the live parameters `p` (sorted by id) */
-static int pc_migrations(struct pc_contract *c, const clap_plugin_t *plugin, const omx_clap_plugin_param_contract_ext_t *ext,
-                         const struct pc_param *p, uint32_t n)
-{
-    const uint32_t count = ext->migration_count ? ext->migration_count(plugin) : 0;
-    omx_clap_param_contract_step_t *steps;
-    uint32_t i, j, k;
-    int ret = 0;
-
-    if (count == 0)
-        return 0;
-    if (!ext->get_migration)
-        return pc_refuse(c, "R5", "migration steps counted but no get_migration", NULL);
-    if (count > 4096)
-        return pc_refuse(c, "R5", "more migration steps than the host reads", NULL);
-    steps = calloc(count, sizeof(*steps));
-    if (!steps)
-        return pc_refuse(c, "R5", "no memory for the migration steps", NULL);
-    for (i = 0; i < count && ret == 0; i++)
-    {
-        omx_clap_param_contract_step_t *s = &steps[i];
-
-        if (!ext->get_migration(plugin, i, s))
-            ret = pc_refuse(c, "R5", "a counted migration step is missing", NULL);
-        else if (!memchr(s->from_symbol, '\0', sizeof(s->from_symbol)) || !memchr(s->to_symbol, '\0', sizeof(s->to_symbol))
-                 || !pc_symbol_ok(s->from_symbol) || (s->to_symbol[0] && !pc_symbol_ok(s->to_symbol)))
-            ret = pc_refuse(c, "R5", "a migration symbol breaks the grammar", NULL);
-        else if (s->from_version < 1 || s->from_version >= c->version || (i > 0 && s->from_version < steps[i - 1].from_version))
-            ret = pc_refuse(c, "R5", "a step's from_version is out of order or out of 1..version-1:", s->from_symbol);
-        else if (!pc_unit_name(s->from_unit) || !pc_unit_name(s->to_unit) || !pc_convertible(s->from_unit, s->to_unit))
-            ret = pc_refuse(c, "R5", "a unit pair the conversion table does not hold:", s->from_symbol);
-        else if (!isfinite(s->factor) || !isfinite(s->offset))
-            ret = pc_refuse(c, "R5", "a factor or offset that is not finite:", s->from_symbol);
-        else if (s->to_symbol[0] && !strcmp(s->from_symbol, s->to_symbol) && s->from_unit == s->to_unit && s->factor == 1
-                 && s->offset == 0 && s->value_map_count == 0)
-            ret = pc_refuse(c, "R5", "a step that changes nothing:", s->from_symbol);
-        else if (s->value_map_count > 0)
-        {
-            if (!s->value_map || strcmp(s->from_symbol, s->to_symbol) || s->from_unit != s->to_unit || s->factor != 1
-                || s->offset != 0)
-                ret = pc_refuse(c, "R5", "a value map that is not a plain reorder:", s->from_symbol);
-            for (j = 0; j < s->value_map_count && ret == 0; j++)
-                for (k = j + 1; k < s->value_map_count && ret == 0; k++)
-                    if (s->value_map[2 * j] == s->value_map[2 * k] || s->value_map[2 * j + 1] == s->value_map[2 * k + 1])
-                        ret = pc_refuse(c, "R5", "a value map whose values repeat:", s->from_symbol);
-            if (ret == 0 && s->from_version + 1 == c->version)
-            {
-                const struct pc_param *live = NULL;
-
-                for (j = 0; j < n; j++)
-                    if (!strcmp(p[j].entry.symbol, s->to_symbol))
-                        live = &p[j];
-                if (!live || !(live->info.flags & CLAP_PARAM_IS_ENUM))
-                    ret = pc_refuse(c, "R5", "a value map on a parameter that is not enumerated:", s->from_symbol);
-                for (j = 0; j < s->value_map_count && ret == 0; j++)
-                    if (s->value_map[2 * j + 1] < live->info.min_value || s->value_map[2 * j + 1] > live->info.max_value)
-                        ret = pc_refuse(c, "R5", "a value map lands outside the range:", s->from_symbol);
-            }
-        }
-    }
-    // per version: from symbols unique, non-empty to symbols unique; a removed symbol never comes back
-    for (i = 0; i < count && ret == 0; i++)
-    {
-        for (j = i + 1; j < count && ret == 0 && steps[j].from_version == steps[i].from_version; j++)
-            if (!strcmp(steps[i].from_symbol, steps[j].from_symbol)
-                || (steps[i].to_symbol[0] && !strcmp(steps[i].to_symbol, steps[j].to_symbol)))
-                ret = pc_refuse(c, "R5", "two steps of one version share a symbol:", steps[i].from_symbol);
-        if (ret == 0 && steps[i].to_symbol[0] == '\0')
-        {
-            for (j = 0; j < count && ret == 0; j++)
-                if (steps[j].from_version > steps[i].from_version && !strcmp(steps[j].to_symbol, steps[i].from_symbol))
-                    ret = pc_refuse(c, "R5", "a removed symbol comes back:", steps[i].from_symbol);
-            for (j = 0; j < n && ret == 0; j++)
-                if (!strcmp(p[j].entry.symbol, steps[i].from_symbol))
-                    ret = pc_refuse(c, "R5", "a removed symbol is live again:", steps[i].from_symbol);
-        }
-    }
-    free(steps);
-    return ret;
-}
-
 /* Read and check the contract of `plugin`, whose clap.params is `params` and lists `count` parameters: 0 and `c`
  * holds the entries by params index; -1 and `c->why` says why it is uncontracted (`c->entry` NULL). */
 static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const clap_plugin_params_t *params, uint32_t count)
@@ -576,8 +464,6 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
         snprintf(c->why, sizeof(c->why), "R4 the fingerprint is %s", hex);
         goto out;
     }
-    if (pc_migrations(c, plugin, ext, p, count) != 0)
-        goto out;
     c->entry = calloc(1, count * sizeof(*c->entry) + PC_FINGERPRINT_SIZE);
     if (!c->entry)
     {

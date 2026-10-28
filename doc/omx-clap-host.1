@@ -328,7 +328,10 @@ read
 .BR clap.remote\-controls ,
 and the feedback port carries
 .BI "remote_pages_changed " N
-when the plugin changes its pages;
+when the plugin changes its pages,
+and the host's own JACK xrun count as
+.BI "xruns " count
+(since its start, when it changes, at most once a second, none before the first xrun);
 .BI "param_info " "N id"
 answers
 .BI "resp 0 " "unit scale min max default step symbol"

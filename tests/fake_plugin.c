@@ -87,10 +87,9 @@
  * activate (NAMES) or its deactivate (LIST); FAKE_RESCAN_ON_FIRST_ACTIVATE from its first activate only.
  * FAKE_LAYOUT_DEFAULT is the default parameter 0 declares (64 without it): the same binary with another layout.
  * FAKE_CONTRACT makes every plugin offer org.openmixer.param-contract/1 over its four parameters (0 latency, frames,
- * stepped; the read-only three, no unit, stepped), whole with "good", at version 2 with one rename step with "migrated",
- * and with one rule broken otherwise: "fingerprint" (R4, the stated fingerprint is off by one digit), "missing" (R1,
+ * stepped; the read-only three, no unit, stepped), whole with "good", and with one rule broken otherwise: "fingerprint" (R4, the stated fingerprint is off by one digit), "missing" (R1,
  * no entry for parameter 3), "duplicate" (R1, two entries named activations), "symbol" (R2, a symbol starting with a
- * digit), "step" (R2, a stepped parameter whose step is 2), "noop" (R5, a migration step that changes nothing).
+ * digit), "step" (R2, a stepped parameter whose step is 2).
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
  * "<id> destroy" to, which outlives an instance the host destroyed, and "<id> process off the audio role" once when
  * the host's thread-check says process() runs off it.
@@ -618,7 +617,7 @@ static const char *contract_arm(void)
 static uint32_t contract_version(const clap_plugin_t *plugin)
 {
     (void)plugin;
-    return !strcmp(contract_arm(), "migrated") || !strcmp(contract_arm(), "noop") ? 2 : 1;
+    return 1;
 }
 
 static const char *contract_fingerprint(const clap_plugin_t *plugin)
@@ -649,28 +648,8 @@ static bool contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param
     return true;
 }
 
-static uint32_t contract_migration_count(const clap_plugin_t *plugin)
-{
-    (void)plugin;
-    return contract_version(plugin) == 2 ? 1 : 0;
-}
-
-static bool contract_get_migration(const clap_plugin_t *plugin, uint32_t index, omx_clap_param_contract_step_t *step)
-{
-    if (index >= contract_migration_count(plugin))
-        return false;
-    memset(step, 0, sizeof(*step));
-    step->from_version = 1;
-    snprintf(step->from_symbol, sizeof(step->from_symbol), !strcmp(contract_arm(), "noop") ? "latency" : "latency_frames");
-    snprintf(step->to_symbol, sizeof(step->to_symbol), "latency");
-    step->from_unit = 6;
-    step->to_unit = 6;
-    step->factor = 1.0;
-    return true;
-}
-
 static const omx_clap_plugin_param_contract_ext_t g_contract = {
-    contract_version, contract_fingerprint, contract_get, contract_migration_count, contract_get_migration
+    contract_version, contract_fingerprint, contract_get
 };
 
 static uint32_t latency_get(const clap_plugin_t *plugin)
