@@ -870,7 +870,14 @@ static int fields_lv2(const char *uri)
     }
     memset(&find, 0, sizeof(find));
     find.uri = uri;
-    if (!lv2_locate(NULL, uri, lv2_found, &find))
+    rc = lv2_locate(NULL, uri, lv2_found, &find);
+    if (rc == LV2_LOCATE_READ_FAILED)
+    {
+        // a manifest's own allocation failed: a read failure, never that no bundle holds the URI
+        fprintf(stderr, "omx-clap-scan: %s: a manifest on the LV2 path could not be read\n", uri);
+        return 1;
+    }
+    if (!rc)
     {
         fprintf(stderr, "omx-clap-scan: %s: no bundle on the LV2 path holds it\n", uri);
         return 1;
