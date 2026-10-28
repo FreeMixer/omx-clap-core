@@ -8,7 +8,9 @@
  *
  * Properties, each in a check_ function of its own, `if (!cond) abort();`:
  *   no_overread    the tree is the one the file's own bytes give: the input parsed with a digit after it, with another
- *                  digit after it and with a NUL after it is one answer, and the same tree whenever two of them accept.
+ *                  digit after it and with a NUL after it is one answer, and the same tree whenever two of them accept;
+ *                  a reading that runs out of memory is refused cleanly instead (reject_clean), and the three are not
+ *                  compared.
  *                  The parse that follows reads the input from a buffer of exactly its size, so a read past it is
  *                  AddressSanitizer's to report.
  *   as_written     the answer is the one the grammar below gives, read by the harness and not by the reader: a file is
@@ -514,23 +516,43 @@ static char *rendered(const struct pj *doc, int pretty)
 
 /* ---------------------------------------------------------------- the properties */
 
+static __attribute__((noinline)) void check_reject_clean(int rc, const struct pj *doc, size_t live_before);
+
+/* pj_parse of `text`, and whether memory ran out while it read; a reading that ran out is refused cleanly */
+static int parse_noting(const char *text, size_t size, struct pj *doc, int *ran_out)
+{
+    const size_t live = fuzz_alloc_live();
+    int rc;
+
+    fuzz_alloc_ran_out_reset();
+    rc = pj_parse(text, size, doc);
+    *ran_out = fuzz_alloc_ran_out();
+    if (*ran_out)
+        check_reject_clean(rc, doc, live);
+    return rc;
+}
+
 static __attribute__((noinline)) void check_no_overread(const uint8_t *data, size_t size)
 {
     char *one = fuzz_copy(data, size, 0, FUZZ_PAD, '1'), *two = fuzz_copy(data, size, 0, FUZZ_PAD, '2');
     char *nul = fuzz_copy(data, size, 0, FUZZ_PAD, '\0');
     struct pj a1, a2, a0;
-    const int r1 = pj_parse(one, size, &a1), r2 = pj_parse(two, size, &a2), r0 = pj_parse(nul, size, &a0);
+    int o1, o2, o0;
+    const int r1 = parse_noting(one, size, &a1, &o1), r2 = parse_noting(two, size, &a2, &o2),
+              r0 = parse_noting(nul, size, &a0, &o0), ran_out = o1 || o2 || o0;
 
-    /* The same tree, whatever follows the file: a number that runs on into the bytes past it reads differently after a
+    /* A reading that ran out of memory is refused whatever follows the file, so the three are compared only when none
+     * ran out.
+     * The same tree, whatever follows the file: a number that runs on into the bytes past it reads differently after a
      * 1 and after a 2.
      * mutant: src/preset_file.c:298 `text + len,` -> `text + len + 1,`
      * input: number-alone */
-    if (r1 == 0 && ((r2 == 0 && !same(&a1, &a2)) || (r0 == 0 && !same(&a1, &a0))))
+    if (!ran_out && r1 == 0 && ((r2 == 0 && !same(&a1, &a2)) || (r0 == 0 && !same(&a1, &a0))))
         abort();
     /* One answer, whatever follows the file.
      * mutant: src/preset_file.c:193 `s + 1 < in->end` -> `s + 1 <= in->end`
      * input: zero-alone */
-    if (r1 != r0 || r2 != r0)
+    if (!ran_out && (r1 != r0 || r2 != r0))
         abort();
     pj_free(&a1);
     pj_free(&a2);
