@@ -104,6 +104,32 @@ int main(void)
     pj_free(&back);
     pj_free(&doc);
 
+    // a lax number the reader accepted (RFC 8259 refuses "1." and "1.e5") is normalised on write, to text that
+    // parses with this reader and would with a strict one too; a strict number's text is kept as written
+    {
+        static const char *const lax[] = { "1.", "1.e5", "-0.e+2" };
+
+        ok = 1;
+        for (i = 0; i < sizeof(lax) / sizeof(lax[0]); i++)
+        {
+            const double before = strtod(lax[i], NULL);
+
+            CHECK(pj_parse(lax[i], strlen(lax[i]), &v) == 0, "the lax reader accepts it");
+            text = pj_write(&v, 0);
+            ok &= text && strcmp(text, lax[i]) != 0 && strtod(text, NULL) == before;
+            free(text);
+            pj_free(&v);
+        }
+        CHECK(ok, "a lax number is written back as a strict one of the same value");
+    }
+    pj_number(&v, 1.5);
+    free(v.str);
+    v.str = strdup("1.50");
+    text = pj_write(&v, 0);
+    CHECK(text && strcmp(text, "1.50") == 0, "a strict number's own text survives the write unchanged");
+    free(text);
+    pj_free(&v);
+
     // not one JSON value: refused
     CHECK(!parses("{\"a\":1,}") && !parses("{\"a\" 1}") && !parses("[1] 2") && !parses("\"\\u0000\"") && !parses("01")
           && !parses("{\"a\":\"\\ud800\"}") && !parses("") && !parses("nul"), "what is not JSON is refused");
