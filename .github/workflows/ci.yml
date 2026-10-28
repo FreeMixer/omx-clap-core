@@ -729,7 +729,9 @@ jobs:
       - name: A consumer builds against libomx-clap-core-dev and runs on libomx-clap-core1
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends ./debs/libomx-clap-core1_*.deb ./debs/libomx-clap-core-dev_*.deb ./debs/omx-clap-core-contract_*_all.deb
+          # plugin-hostd-contract (installed above for the build) pulled the channel's released omx-clap-core-contract;
+          # this tree's, built from the same version number with a ~git suffix, replaces it
+          apt-get install -y --no-install-recommends --allow-downgrades ./debs/libomx-clap-core1_*.deb ./debs/libomx-clap-core-dev_*.deb ./debs/omx-clap-core-contract_*_all.deb
           pkg-config --modversion omx-clap-core | tee v.txt
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
