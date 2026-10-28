@@ -395,7 +395,9 @@ test-verbs-source:
 # page, the audio role on a split, the whole roster and the tempo
 test-stage: tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test fixtures
 	bash tests/dialect_doc_check.sh
+	bash tests/dialect_doc_check.sh --self-test
 	bash tests/ext_table_check.sh
+	bash tests/ext_table_check.sh --self-test
 	./tests/clap_stage_test
 	./tests/clap_core_test $(abspath tests)
 	./tests/clap_untrusted_test
