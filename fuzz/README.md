@@ -91,7 +91,10 @@ A line counts as covered when any seed runs it, so a branch on a line other seed
 `fuzz/reach.txt` names such a branch and the seed written for it; the target runs that seed alone and is red, naming
 the branch by file, line and column, when the seed is gone or does not take the branch's true side. It holds the
 manifest's bound: `prefixes-past-most-read` alone must take `++read_again > LV2_LOCATE_PREFIXES_MAX`, a line every
-seed with a matching declaration reaches.
+seed with a matching declaration reaches. An empty `fuzz/reach.txt` (every line blank or a comment) proves no branch
+and is red for it, the same way an empty coverage report is; an entry naming a harness the run does not know is red
+too, never skipped. `make fuzz-coverage-self` (`fuzz/coverage.sh --self-test`) sabotages each of those two ways and
+checks the target turns red, without needing a build.
 
 | Harness | Reader lines | Covered | Lines no input reaches |
 | --- | ---: | ---: | --- |
@@ -171,6 +174,7 @@ make fuzz-run FUZZ_TIME=60   # fuzz each for 60 s; red on any crash
 make fuzz-sabotage           # every mutant found, each in the property its header names
 make fuzz-records            # every check's own record, alone, makes that check abort on its seed
 make fuzz-coverage           # the coverage witness and its floors
+make fuzz-coverage-self      # the seed floor's own guards, sabotaged, must turn it red; needs no build
 make fuzz-static             # each harness linked fully static with a plain driver, over its corpus
 make fuzz-corpus             # write fuzz/corpus/ again from the fixtures
 ```
