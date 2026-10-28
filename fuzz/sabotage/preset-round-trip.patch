@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_preset.c:650 (an escaped character is written again raw after its escape).
+Breaks the check of fuzz/fuzz_preset.c:672 (an escaped character is written again raw after its escape).
 Caught by the seed input "escapes" of fuzz_preset.
 
 diff --git a/src/preset_file.c b/src/preset_file.c
