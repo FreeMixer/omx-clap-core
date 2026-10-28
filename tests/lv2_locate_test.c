@@ -33,6 +33,22 @@
 
 #define URI "urn:example:plugins#gain"
 
+/* the allocator: malloc of exactly `g_fail_size` bytes fails once, armed by the test right before the one call whose
+ * allocation it means to fail, so no allocation a libc call of its own makes can be mistaken for it */
+static size_t g_fail_size;
+static int g_failed;
+extern void *__libc_malloc(size_t);
+void *malloc(size_t n)
+{
+    if (g_fail_size && n == g_fail_size)
+    {
+        g_fail_size = 0;
+        g_failed++;
+        return NULL;
+    }
+    return __libc_malloc(n);
+}
+
 static void names(void)
 {
     static const struct { const char *text; int want; const char *what; } cases[] =
@@ -291,6 +307,58 @@ static void walk(void)
         fprintf(stderr, "could not remove %s\n", root);
 }
 
+/* lv2_locate_manifest_names's one allocation (src/lv2_locate.c's "whole") failing, as when memory is out, is a read
+ * failure, not the answer that the manifest does not name the URI: before the fix, it returned 0, the same it gives
+ * a manifest that truly does not name the URI, which turned an out-of-memory into a wrong negative answer. */
+static void alloc_fail_names(void)
+{
+    const size_t uri_len = strlen(URI);
+    int got;
+
+    g_failed = 0;
+    g_fail_size = uri_len + 3;
+    got = lv2_locate_manifest_names("<" URI "> a lv2:Plugin .", URI);
+    CHECK(g_failed == 1, "alloc fail: the allocation armed for was the one that failed");
+    CHECK(got == LV2_LOCATE_READ_FAILED,
+          "alloc fail: the manifest's allocation failing answers LV2_LOCATE_READ_FAILED, not 0 or 1 (got %d)", got);
+    g_fail_size = 0;
+}
+
+/* The same allocation failing inside a walk (src/lv2_locate.c's walk_dir): the walk must answer LV2_LOCATE_READ_FAILED
+ * too, and never call back with the bundle whose manifest could not be read, which would be the answer that it does
+ * not hold the URI. */
+static void alloc_fail_walk(void)
+{
+    char root[] = "/tmp/lv2-locate-alloc-fail.XXXXXX";
+    struct seen s;
+    int ret;
+
+    if (!mkdtemp(root))
+    {
+        CHECK(0, "alloc fail: a temporary directory");
+        return;
+    }
+    bundle(root, "a.lv2", "<" URI "> a lv2:Plugin .");
+
+    memset(&s, 0, sizeof(s));
+    g_failed = 0;
+    g_fail_size = strlen(URI) + 3;
+    ret = lv2_locate(root, URI, collect, &s);
+    CHECK(g_failed == 1, "alloc fail: walk: the allocation armed for was the one that failed");
+    CHECK(ret == LV2_LOCATE_READ_FAILED && s.calls == 0,
+          "alloc fail: walk: a manifest's allocation failing answers LV2_LOCATE_READ_FAILED and calls back for no "
+          "bundle, not the answer that none holds the URI (got %d, %d calls)", ret, s.calls);
+    g_fail_size = 0;
+
+    {
+        char cmd[64];
+
+        snprintf(cmd, sizeof(cmd), "rm -rf '%s'", root);
+        if (system(cmd) != 0)
+            fprintf(stderr, "could not remove %s\n", root);
+    }
+}
+
 int main(void)
 {
     names();
@@ -301,6 +369,8 @@ int main(void)
     colon_run();
     long_local();
     walk();
+    alloc_fail_names();
+    alloc_fail_walk();
     if (g_failures)
     {
         printf("lv2 locate test FAILED (%d)\n", g_failures);

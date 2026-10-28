@@ -114,7 +114,7 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
         return 0;
     whole = malloc(uri_len + 3);
     if (!whole)
-        return 0;
+        return LV2_LOCATE_READ_FAILED;
     snprintf(whole, uri_len + 3, "<%s>", uri);
     found = strstr(text, whole) != NULL;
     free(whole);
@@ -212,7 +212,9 @@ static int walk_dir(const char *dir, const char *uri, lv2_locate_fn fn, void *ct
             const int names_it = lv2_locate_manifest_names(text, uri);
 
             free(text);
-            if (names_it)
+            if (names_it == LV2_LOCATE_READ_FAILED)
+                ret = LV2_LOCATE_READ_FAILED;
+            else if (names_it)
                 ret = fn(bundle, ctx);
         }
         free(names[i]);
