@@ -23,6 +23,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 rate=${COST_RATE:-48000}
@@ -64,12 +65,7 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 pw-metadata -n settings 0 clock.force-rate "$rate" >/dev/null
 pw-metadata -n settings 0 clock.force-quantum "$quantum" >/dev/null
 
-send() {
-    local reply
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 30 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=30
 ticks() { awk '{ print $14 + $15 }' "/proc/$1/stat"; }
 median() { sort -n | awk '{ v[NR] = $1 } END { if (NR) print (NR % 2 ? v[(NR + 1) / 2] : (v[NR / 2] + v[NR / 2 + 1]) / 2); else print "" }'; }
 

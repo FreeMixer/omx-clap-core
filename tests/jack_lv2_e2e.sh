@@ -22,6 +22,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 bundles=${LV2_BUNDLES:-$root/build/lv2}
@@ -97,8 +98,7 @@ TTL
 LV2_PATH=$bundles:$runtime/extra "$host" -n -p "$port" -f "$fbport" >"$runtime/host.log" 2>&1 &
 host_pid=$!
 pids+=($host_pid)
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host.log"
+protocol_wait_ready "$runtime/host.log"
 step $? "omx-clap-host ready on port $port with LV2_PATH=$bundles:$runtime/extra"
 
 exec 3<>"/dev/tcp/127.0.0.1/$port"
@@ -107,11 +107,7 @@ exec 4<>"/dev/tcp/127.0.0.1/$fbport"
 while IFS= read -r -d '' line <&4; do echo "$line" >>"$feedback"; done &
 pids+=($!)
 
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")
@@ -371,7 +367,7 @@ sleep 0.3
 port=$((port + 2))
 LV2_PATH=$bundles "$host" -n -p "$port" -f "$((port + 1))" -s "$runtime/afile/state" >"$runtime/host-noroot.log" 2>&1 &
 pids+=($!)
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host-noroot.log" && break; sleep 0.1; done
+protocol_wait_ready "$runtime/host-noroot.log"
 grep -q "^the state root $runtime/afile/state is not a directory this host can write: state:makePath is not offered\$" "$runtime/host-noroot.log"
 step $? "-s under a file says so: $(grep 'state root' "$runtime/host-noroot.log")"
 exec 3>&- 4>&-

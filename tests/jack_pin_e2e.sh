@@ -18,6 +18,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5564}
@@ -73,11 +74,7 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
 
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")
@@ -90,8 +87,7 @@ start_host() {
     FAKE_LAYOUT_DEFAULT=$1 FAKE_LOG=$runtime/fake.log "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
     host_pid=$!
     pids+=($host_pid)
-    for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-    grep -q "ready!" "$runtime/host.log"
+    protocol_wait_ready "$runtime/host.log"
     step $? "omx-clap-host ready on port $port, FAKE_LAYOUT_DEFAULT '${1}'"
     exec 3<>"/dev/tcp/127.0.0.1/$port"
 }

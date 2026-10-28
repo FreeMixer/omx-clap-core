@@ -17,6 +17,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 plugin=${CLAP_TEST_PLUGIN:-/usr/lib/clap/omx-delay.clap}
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
@@ -78,16 +79,11 @@ step 0 "private pipewire on $runtime"
 
 FAKE_LOG=$runtime/fake.log "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pids+=($!)
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host.log"
+protocol_wait_ready "$runtime/host.log"
 step $? "omx-clap-host ready on port $port"
 
 exec 3<>"/dev/tcp/127.0.0.1/$port"
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")
@@ -260,8 +256,7 @@ run "$host" -n -c 3 -p "$((port + 1))" >"$runtime/host3.log" 2>&1
 [ $? -ne 0 ] && grep -q -- "-c" "$runtime/host3.log"; step $? "-c 3 is refused: the lane is one or two channels ($(head -1 "$runtime/host3.log"))"
 "$host" -n -c 1 --idle-hold=off -p "$((port + 1))" >"$runtime/host1.log" 2>&1 &
 pids+=($!)
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host1.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host1.log"; step $? "omx-clap-host -c 1 ready on port $((port + 1))"
+protocol_wait_ready "$runtime/host1.log"; step $? "omx-clap-host -c 1 ready on port $((port + 1))"
 exec 3>&-
 exec 3<>"/dev/tcp/127.0.0.1/$((port + 1))"
 expect "add clap:$fake#org.omx-clap-host.test.configs 0" "resp 0"
@@ -311,8 +306,7 @@ echo "     idle hold arm: $idle_arm (the device $device $([ "$idle_arm" = held ]
 "$host" -n -p "$((port + 2))" >"$runtime/host9.log" 2>&1 &
 host9=$!
 pids+=("$host9")
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host9.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host9.log"; step $? "a third host, the default hold (10 us), ready on port $((port + 2))"
+protocol_wait_ready "$runtime/host9.log"; step $? "a third host, the default hold (10 us), ready on port $((port + 2))"
 exec 3>&-
 exec 3<>"/dev/tcp/127.0.0.1/$((port + 2))"
 expect "idle_hold" "resp 0 10 off $before 0 -"
@@ -346,8 +340,7 @@ case $idle_arm in
         "$host" -n -p "$((port + 3))" >"$runtime/host10.log" 2>&1 &
         host10=$!
         pids+=("$host10")
-        for _ in $(seq 50); do grep -q "ready!" "$runtime/host10.log" && break; sleep 0.1; done
-        grep -q "ready!" "$runtime/host10.log"; step $? "a fourth host, ready on port $((port + 3))"
+        protocol_wait_ready "$runtime/host10.log"; step $? "a fourth host, ready on port $((port + 3))"
         exec 3<>"/dev/tcp/127.0.0.1/$((port + 3))"
         expect "add clap:$fake#org.omx-clap-host.test.mono-stereo 0" "resp 0"
         [ "$(device_reads)" = "$(held_reads 10)" ]; step $? "the fourth host holds at 10 ($(device_reads))"

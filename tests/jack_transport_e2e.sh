@@ -16,6 +16,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5571}
@@ -77,16 +78,11 @@ host_up() {
     shift
     "$host" -n -p "$p" "$@" >"$runtime/host-$p.log" 2>&1 &
     pids+=($!)
-    for _ in $(seq 50); do grep -q "ready!" "$runtime/host-$p.log" && break; sleep 0.1; done
-    grep -q "ready!" "$runtime/host-$p.log"
+    protocol_wait_ready "$runtime/host-$p.log"
     step $? "omx-clap-host $* ready on port $p"
     exec 3<>"/dev/tcp/127.0.0.1/$p"
 }
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")

@@ -46,6 +46,11 @@ else
 PLUGIN_HOSTD_CFLAGS = -I$(PLUGIN_HOSTD_DIR)/include
 endif
 
+# plugin-hostd-tests' protocol clients (lib/protocol.sh, lib/plugin_hostd_client.py), which every e2e test and bench
+# sources: the checkout's, else the installed package's
+PLUGIN_HOSTD_TESTS_LIB ?= $(firstword $(wildcard $(PLUGIN_HOSTD_DIR)/tests/lib) /usr/libexec/plugin-hostd/tests/lib)
+export PLUGIN_HOSTD_TESTS_LIB
+
 # CLAP headers: pkg-config when clap-devel is installed, CLAP_CFLAGS=-I<dir> otherwise
 CLAP_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags clap 2>/dev/null)
 
@@ -1263,3 +1268,9 @@ fuzz-corpus-check: $(FUZZ_BUILD)/gen-corpus
 	$(FUZZ_BUILD)/gen-corpus $$tmp/corpus; diff -r $$tmp/corpus fuzz/corpus; echo "the seed corpus is current"
 
 .PHONY: fuzz fuzz-run fuzz-sabotage fuzz-records fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check
+
+# no test or bench writes its own NUL-framed send: the clients above are the one (tests/protocol_client_check.sh, which
+# proves it can see a copy before it looks)
+.PHONY: test-protocol-client
+test-protocol-client:
+	sh tests/protocol_client_check.sh
