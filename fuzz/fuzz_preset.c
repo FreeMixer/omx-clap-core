@@ -613,7 +613,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
     fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
     text = pj_write(doc, 1);
     fuzz_alloc_fail(SIZE_MAX);
-    /* mutant: src/preset_file.c:465 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
+    /* mutant: src/preset_file.c:507 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
      * input: string-alone */
     if (text || fuzz_alloc_live() != live)
         abort();
@@ -626,7 +626,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
     fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
     text = pj_write(doc, 0);
     fuzz_alloc_fail(SIZE_MAX);
-    /* mutant: src/preset_file.c:565 `if (o.failed)` -> `if (o.failed && pretty)`
+    /* mutant: src/preset_file.c:617 `if (o.failed)` -> `if (o.failed && pretty)`
      * input: compact-second-allocation */
     if (text || fuzz_alloc_live() != live)
         abort();
@@ -639,12 +639,12 @@ static void round_trip_text(const struct pj *doc, int pretty, struct pj *copy)
     struct pj back;
 
     /* A tree is written while memory lasts.
-     * mutant: src/preset_file.c:565 `if (o.failed)` -> `if (!o.failed)`
+     * mutant: src/preset_file.c:617 `if (o.failed)` -> `if (!o.failed)`
      * input: string-alone */
     if (!text)
         abort();
     /* The text is the writer's format, byte for byte.
-     * mutant: src/preset_file.c:522 `put(o, "  ", 2);` -> `put(o, "   ", 3);`
+     * mutant: src/preset_file.c:564 `put(o, "  ", 2);` -> `put(o, "   ", 3);`
      * input: no-modified-at */
     if (strcmp(text, want) != 0)
         abort();
@@ -680,7 +680,7 @@ static void round_trip_rewrite(const struct pj *doc, struct pj *copy)
         abort();
     saved = pj_write(copy, 1);
     /* The rewrite is written and read back: a file of no strings has written none until the save adds one.
-     * mutant: src/preset_file.c:511 `put(o, "\"", 1);` -> ``
+     * mutant: src/preset_file.c:553 `put(o, "\"", 1);` -> ``
      * input: empty-object */
     if (!saved || pj_parse(saved, strlen(saved), &back) != 0)
         abort();
