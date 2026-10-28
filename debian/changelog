@@ -1,3 +1,14 @@
+omx-clap-host (0.23.2) unstable; urgency=medium
+
+  * The shared verbs that plugin-hostd answers declare -901 (data/verbs.json
+    and the generated header) (Sami Jawhar, #363).
+  * lv2_locate reads a prefixed name in work linear in the manifest; the
+    fuzz corpus and the sabotage arms follow (Sami Jawhar, #370).
+  * preset_base64_decode refuses a third '=' as soon as it reads it (Sami
+    Jawhar, #358).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Wed, 28 Oct 2026 10:00:00 +0100
+
 omx-clap-host (0.23.0) unstable; urgency=medium
 
   * The parameter contract no longer carries migration steps: the
