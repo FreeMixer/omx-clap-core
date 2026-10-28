@@ -1203,6 +1203,7 @@ bench: bench-tools
 #   make fuzz-sabotage           each mutant of fuzz/sabotage/ must make its harness abort at the check it names
 #   make fuzz-records            each check's mutant: and input: record, alone, must make that check abort on that seed
 #   make fuzz-coverage           the coverage witness: llvm-cov over the corpus, held to fuzz/coverage-floor.txt
+#   make fuzz-coverage-self      the seed floor's own guards, sabotaged, each must turn it red; needs no build
 #   make fuzz-static             each harness linked fully static with a plain driver, over its corpus
 #   make fuzz-corpus            write fuzz/corpus/ again from the fixtures; fuzz-corpus-check: it is what they give
 FUZZ_CC        ?= clang
@@ -1258,6 +1259,11 @@ fuzz-coverage: $(FUZZ_HARNESSES:%=$(FUZZ_COV_BUILD)/fuzz_%)
 	done
 	@LLVM_COV=$(LLVM_COV) LLVM_PROFDATA=$(LLVM_PROFDATA) fuzz/coverage.sh $(FUZZ_COV_BUILD) $(FUZZ_HARNESSES)
 
+# the seed floor's own two guards, against itself: an empty fuzz/reach.txt and an entry naming a harness the run does
+# not know must each turn it red; needs no build
+fuzz-coverage-self:
+	fuzz/coverage.sh --self-test
+
 # the same harnesses driven by fuzz/standalone.c instead of libFuzzer and linked fully static, each run over its corpus:
 # the build a verifier that brings its own driver takes. Needs the static libc (glibc-static)
 FUZZ_STATIC_BUILD := $(FUZZ_BUILD)/static
@@ -1285,7 +1291,7 @@ fuzz-corpus-check: $(FUZZ_BUILD)/gen-corpus
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf $$tmp' EXIT; \
 	$(FUZZ_BUILD)/gen-corpus $$tmp/corpus; diff -r $$tmp/corpus fuzz/corpus; echo "the seed corpus is current"
 
-.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-records fuzz-coverage fuzz-static fuzz-corpus fuzz-corpus-check
+.PHONY: fuzz fuzz-run fuzz-sabotage fuzz-records fuzz-coverage fuzz-coverage-self fuzz-static fuzz-corpus fuzz-corpus-check
 
 # no test or bench writes its own NUL-framed send: the clients above are the one (tests/protocol_client_check.sh, which
 # proves it can see a copy before it looks)
