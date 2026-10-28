@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.23.1
+Version:        0.23.2
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,7 +178,7 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
-* Wed Oct 28 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.1-1
+* Wed Oct 28 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.2-1
 - The shared verbs that plugin-hostd answers declare -901 (data/verbs.json
   and the generated header) (Sami Jawhar, #363).
 - lv2_locate reads a prefixed name in work linear in the manifest; the fuzz

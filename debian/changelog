@@ -1,4 +1,4 @@
-omx-clap-host (0.23.1) unstable; urgency=medium
+omx-clap-host (0.23.2) unstable; urgency=medium
 
   * The shared verbs that plugin-hostd answers declare -901 (data/verbs.json
     and the generated header) (Sami Jawhar, #363).
