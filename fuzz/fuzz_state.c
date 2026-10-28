@@ -137,12 +137,12 @@ static __attribute__((noinline)) void check_no_overread(const uint8_t *data, siz
     uint8_t *a = preset_base64_decode(ca, &la), *b = preset_base64_decode(cb, &lb), *z = preset_base64_decode(cz, &lz);
 
     /* One answer, whatever follows the NUL.
-     * mutant: src/preset_file.c:620 `continue;` -> `{ text++; continue; }`
+     * mutant: src/preset_file.c:672 `continue;` -> `{ text++; continue; }`
      * input: rfc4648-f-newline */
     if (!a != !z || !b != !z)
         abort();
     /* The same bytes, whatever follows the NUL.
-     * mutant: src/preset_file.c:620 `continue;` -> `{ text++; continue; }`
+     * mutant: src/preset_file.c:672 `continue;` -> `{ text++; continue; }`
      * input: trailing-newline */
     if (z && (!same_body(a, la, z, lz) || !same_body(b, lb, z, lz)))
         abort();
@@ -156,7 +156,7 @@ static __attribute__((noinline)) void check_no_overread(const uint8_t *data, siz
 
 static __attribute__((noinline)) void check_bounded_alloc(size_t held, size_t n)
 {
-    /* mutant: src/preset_file.c:608 `strlen(text) / 4 * 3 + 3` -> `strlen(text) * 3 + 3`
+    /* mutant: src/preset_file.c:660 `strlen(text) / 4 * 3 + 3` -> `strlen(text) * 3 + 3`
      * input: rfc4648-f */
     if (held > B64_ALLOC_BOUND(n))
         abort();
@@ -172,13 +172,13 @@ static __attribute__((noinline)) void check_as_written(const char *text, const u
         abort();
     n = expected_body(text, want);
     /* The decoder refuses a text the grammar reads, or reads one it refuses.
-     * mutant: src/preset_file.c:623 `pad > 2` -> `pad > 3`
+     * mutant: src/preset_file.c:675 `pad > 2` -> `pad > 3`
      * input: refuse-three-pads */
     if (!body != (n == SIZE_MAX))
         abort();
     /* The bytes are the ones the text spells, not the ones the decoder's own table gives: a letter the encoder and the
      * decoder both read wrong is a round trip that holds.
-     * mutant: src/preset_file.c:575 `"ABCDEF` -> `"BACDEF`
+     * mutant: src/preset_file.c:627 `"ABCDEF` -> `"BACDEF`
      * input: bytes-0-255 */
     if (body && !same_body(body, len, want, n))
         abort();
@@ -187,15 +187,15 @@ static __attribute__((noinline)) void check_as_written(const char *text, const u
 
 static __attribute__((noinline)) void check_reject_clean(const uint8_t *body, size_t len, size_t live_before)
 {
-    /* mutant: src/preset_file.c:608 `malloc(strlen(text) / 4 * 3 + 3);` -> `malloc(strlen(text) / 4 * 3 + 3) ?: malloc(strlen(text) / 4 * 3 + 3);`
+    /* mutant: src/preset_file.c:660 `malloc(strlen(text) / 4 * 3 + 3);` -> `malloc(strlen(text) / 4 * 3 + 3) ?: malloc(strlen(text) / 4 * 3 + 3);`
      * input: rfc4648-f */
     if (body)
         abort();
-    /* mutant: src/preset_file.c:644 `free(out);` -> `free(out), *len = n;`
+    /* mutant: src/preset_file.c:696 `free(out);` -> `free(out), *len = n;`
      * input: refuse-letter */
     if (len != SIZE_MAX)
         abort();
-    /* mutant: src/preset_file.c:644 `free(out);` -> ``
+    /* mutant: src/preset_file.c:696 `free(out);` -> ``
      * input: refuse-letter */
     if (fuzz_alloc_live() != live_before)
         abort();
@@ -219,7 +219,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const char *tex
     fuzz_alloc_fail(0);
     encoded = preset_base64_encode(body, len);
     fuzz_alloc_fail(SIZE_MAX);
-    /* mutant: src/preset_file.c:579 `malloc((len + 2) / 3 * 4 + 1)` -> `malloc((len + 2) / 3 * 4 + 1) ?: malloc((len + 2) / 3 * 4 + 1)`
+    /* mutant: src/preset_file.c:631 `malloc((len + 2) / 3 * 4 + 1)` -> `malloc((len + 2) / 3 * 4 + 1) ?: malloc((len + 2) / 3 * 4 + 1)`
      * input: rfc4648-f */
     if (encoded || fuzz_alloc_live() != live)
         abort();
@@ -247,7 +247,7 @@ static void round_trip_document(const char *text, const uint8_t *body, size_t le
         abort();
     file = pj_write(&doc, 1);
     /* The document is written and read back.
-     * mutant: src/preset_file.c:511 `put(o, "\"", 1);` -> ``
+     * mutant: src/preset_file.c:553 `put(o, "\"", 1);` -> ``
      * input: rfc4648-f */
     if (!file || pj_parse(file, strlen(file), &back) != 0)
         abort();
@@ -286,23 +286,23 @@ static __attribute__((noinline)) void check_round_trip(const char *input, const 
     if (!want || !same)
         abort();
     expected_text(body, len, want);
-    /* mutant: src/preset_file.c:600 `*o++ = '=';` -> ``
+    /* mutant: src/preset_file.c:652 `*o++ = '=';` -> ``
      * input: rfc4648-f */
     if (!text || strlen(text) != (len + 2) / 3 * 4)
         abort();
     /* A text that is already the body's encoding is what the encoder writes of it.
-     * mutant: src/preset_file.c:599 `i + 1 < len ? g_b64[(w >> 6) & 63] : '='` -> `g_b64[(w >> 6) & 63]`
+     * mutant: src/preset_file.c:651 `i + 1 < len ? g_b64[(w >> 6) & 63] : '='` -> `g_b64[(w >> 6) & 63]`
      * input: rfc4648-f */
     if (canonical(input, same) && strcmp(text, same) != 0)
         abort();
     /* The encoder writes the body's encoding, letter for letter.
-     * mutant: src/preset_file.c:599 `i + 1 < len ? g_b64[(w >> 6) & 63] : '='` -> `g_b64[(w >> 6) & 63]`
+     * mutant: src/preset_file.c:651 `i + 1 < len ? g_b64[(w >> 6) & 63] : '='` -> `g_b64[(w >> 6) & 63]`
      * input: unpadded-f */
     if (strcmp(text, want) != 0)
         abort();
     back = preset_base64_decode(text, &n);
     /* The encoding decodes to the body: a padded text the decoder must read, where the input was not padded.
-     * mutant: src/preset_file.c:621 `*text == '='` -> `*text == '=' && 0`
+     * mutant: src/preset_file.c:673 `*text == '='` -> `*text == '=' && 0`
      * input: unpadded-f */
     if (!back || !same_body(back, n, body, len))
         abort();

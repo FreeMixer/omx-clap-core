@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_preset.c:470 (a number's leading-zero test peeks one byte past the input).
+Breaks the check of fuzz/fuzz_preset.c:534 (a number's leading-zero test peeks one byte past the input).
 Caught by the seed input "zero-alone" of fuzz_preset.
 
 diff --git a/src/preset_file.c b/src/preset_file.c

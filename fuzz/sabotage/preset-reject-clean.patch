@@ -1,4 +1,4 @@
-Breaks the check of fuzz/fuzz_preset.c:522 (a member that fails is not counted, so not freed with its container).
+Breaks the check of fuzz/fuzz_preset.c:586 (a member that fails is not counted, so not freed with its container).
 Caught by the seed input "refuse-array-cut" of fuzz_preset.
 
 diff --git a/src/preset_file.c b/src/preset_file.c

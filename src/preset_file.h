@@ -75,7 +75,9 @@ struct pj
     size_t n, cap;
 };
 
-/* parse `len` bytes of `text` into `out`: 0, or -1 for anything that is not one JSON value (trailing bytes included) */
+/* parse `len` bytes of `text` into `out`: 0, or -1 for anything that is not one value of the lax grammar fuzz/fuzz_preset.c
+ * states (RFC 8259, plus a number's trailing '.' or '.' straight into 'e', plus any string byte from 0x20 up taken
+ * whole, invalid UTF-8 included), trailing bytes included */
 int pj_parse(const char *text, size_t len, struct pj *out);
 /* read the file at `path` whole and parse it: 0, or -1 (unreadable, larger than PRESET_FILE_MAX_BYTES, not JSON) */
 int pj_read_file(const char *path, struct pj *out);
@@ -104,7 +106,9 @@ char *pj_write(const struct pj *v, int pretty);
 
 /* base64 (RFC 4648, padded) of `len` bytes, malloc'd and NUL-terminated; NULL when memory runs out */
 char *preset_base64_encode(const uint8_t *data, size_t len);
-/* decode base64 text into a malloc'd buffer of `*len` bytes: NULL for text that is not base64 (whitespace is skipped) */
+/* decode base64 text into a malloc'd buffer of `*len` bytes: NULL for text that is not base64 (whitespace is skipped).
+ * Padding is lax: missing or mismatched '=' count is accepted, but a third '=', '=' before more data, and trailing
+ * bits that are not all zero are refused */
 uint8_t *preset_base64_decode(const char *text, size_t *len);
 
 /* a load key of preset_get: a space as %20, a % as %25, into `out` of `size` bytes; 0, or -1 when it does not fit */
