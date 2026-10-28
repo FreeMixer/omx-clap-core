@@ -227,6 +227,14 @@ jobs:
       - name: Sabotage the cycle gate under ThreadSanitizer
         run: make test-cycle-gate-sabotage
 
+      # the thread pool's helpers, hand-out word and completion count against the audio and control threads (#395)
+      - name: Test the thread pool under ThreadSanitizer
+        run: make test-thread-pool-tsan
+
+      # the thread pool's completion wait removed in a copy of the sources, tests/thread_pool_test red on it (#395)
+      - name: The sabotage of the thread pool's completion wait
+        run: make test-thread-pool-sabotage
+
       # The LV2 adapter: lv2/core against the fixture bundles through lilv, the CLAP face and libomx-clap-core's body
       # around it, and a program linked through the installed pkg-config file alone
       - name: Test the LV2 adapter
