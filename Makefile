@@ -76,6 +76,18 @@ endif
 # plugin the test loads
 CLAP_TEST_PLUGIN ?= /usr/lib/clap/omx-delay.clap
 
+# $(1): the command that needs $(CLAP_TEST_PLUGIN). A missing plugin is a named skip, not a FAIL, on
+# a desk with no omx-plugins installed; CI pins the absence red so it never passes on a skip (#200).
+# The skip and $(1) share one recipe line: an early "exit 0" only ends that line's own subshell, not
+# the rest of the recipe, so running $(1) has to be inside the same if/else.
+define run_or_skip_clap_test_plugin
+	if [ ! -e "$(CLAP_TEST_PLUGIN)" ] && [ -z "$$CI" ]; then \
+		echo "skip: $(CLAP_TEST_PLUGIN) not found (install omx-plugins or set CLAP_TEST_PLUGIN)"; \
+	else \
+		$(1); \
+	fi
+endef
+
 # omx-dsp's headers: hosted_stage.h spells no DSP word of its own (omx_block_finite, omx_denormals_off, omx_db_to_lin,
 # omx_wetdry_xfade_block), it takes them from omx-dsp. pkg-config when omx-dsp-devel is installed (it names omx-contract and
 # the -ffp-contract=off the kernels are built with), an omx-dsp and an omx-contract checkout otherwise
@@ -373,7 +385,7 @@ test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fa
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
 test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap tests/fake_synth.clap tests/fake_panel.clap
-	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap)
+	@$(call run_or_skip_clap_test_plugin,./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap))
 
 # the same without omx-delay.clap: only the fake plugin's checks
 test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-xrun-report test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test tests/fake_panel.clap
@@ -852,7 +864,7 @@ tests/jack_meter_source: tests/jack_meter_source.c
 # host, the LV2 bundle through this host's adapter, and through the adapter in process; omx-delay from the omx-plugins
 # packages unless the script's variables say otherwise (tests/clap_lv2_identity.sh)
 test-identity: $(PROG) tests/jack_identity build/bench/inproc
-	./tests/clap_lv2_identity.sh
+	@$(call run_or_skip_clap_test_plugin,./tests/clap_lv2_identity.sh)
 
 # a chain of plugins in one JACK client against the same plugins one client each in series, bit for bit, and the latency
 # the chain reports their sum (#302): the fake plugins of this tree; PLUGINS=bench/plugins.tsv for the omx-plugins set
