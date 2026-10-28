@@ -193,7 +193,11 @@ static void *helper_main(void *arg)
 {
     struct pool_helper *self = arg;
     uint32_t seen = atomic_load_explicit(&g_wake, memory_order_acquire);
+    char name[16];
 
+    // named for ps and /proc: omx-pool-<core>
+    snprintf(name, sizeof(name), "omx-pool-%d", self->core);
+    pthread_setname_np(pthread_self(), name);
     atomic_store_explicit(&self->self, pthread_self(), memory_order_relaxed);
     atomic_store_explicit(&self->started, 1u, memory_order_release);
     while (!atomic_load_explicit(&g_stop, memory_order_acquire))
