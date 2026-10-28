@@ -12,5 +12,5 @@ index 5b7ac67..33013de 100644
 -    whole = malloc(uri_len + 3);
 +    whole = malloc(uri_len * 2 + 3);
      if (!whole)
-         return 0;
+         return LV2_LOCATE_READ_FAILED;
      snprintf(whole, uri_len + 3, "<%s>", uri);
