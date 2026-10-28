@@ -23,20 +23,24 @@
  *                  sets modifiedAt, keeps every other member and its place.
  *   bounded_alloc  for a file of n bytes the reader holds at most PJ_ALLOC_BOUND(n) bytes at once.
  *
- * The grammar, as the reader reads a file: one JSON value (RFC 8259) and whitespace around it, with three differences.
+ * The grammar, as the reader reads a file: one JSON value (RFC 8259) and whitespace around it, with four differences.
  * Arrays and objects nest JSON_DEPTH_MAX (32) deep at most. A string holds no \u0000, and a \u escape of a surrogate
  * is a pair, high then low. A number is an optional '-' and a digit, a 0 not followed by another digit, then the
  * longest run of digits, '.', 'e', 'E', '+' and '-', which strtod reads whole to a finite value: "1." and "1.e5" are
- * numbers. A number's text is that run, its value what strtod reads.
+ * numbers. A number's text is that run, its value what strtod reads. A string's byte under 0x20 is refused, but every
+ * other byte is taken whole, invalid UTF-8 included: the reader does not validate a string's encoding.
  *
  * The writer's format: compact, no whitespace; pretty, each item on a line of its own indented two spaces for each
  * level, ": " after a member name, the closing bracket on a line of its own under its opener unless the container is
  * empty, and a newline at the end. A string escapes '"' and '\\' with a backslash, a newline, tab and carriage return as
- * \n, \t and \r, and every other byte under 0x20 as \u00xx in lower case; a number is written as its text.
+ * \n, \t and \r, and every other byte under 0x20 as \u00xx in lower case; a number is written as its own text when that
+ * text is already one RFC 8259 number, or as the shortest text of the same value when it is not (a lax "1." or
+ * "1.e5" in, a strict number of the same value out).
  */
 
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -58,6 +62,43 @@
 /* the member a save rewrites */
 #define REWRITTEN "modifiedAt"
 
+/* whether `s` is one RFC 8259 number, start to end: what the writer keeps as written. A lax number the reader also
+ * takes ("1.", "1.e5") fails this, and the writer gives it back normalised, so two lax texts of the same value are
+ * the same number even when their bytes differ. */
+static int number_is_strict(const char *s)
+{
+    if (*s == '-')
+        s++;
+    if (*s == '0')
+        s++;
+    else
+    {
+        if (*s < '1' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    if (*s == '.')
+    {
+        s++;
+        if (*s < '0' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    if (*s == 'e' || *s == 'E')
+    {
+        s++;
+        if (*s == '+' || *s == '-')
+            s++;
+        if (*s < '0' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    return *s == '\0';
+}
+
 static int same(const struct pj *a, const struct pj *b)
 {
     size_t i;
@@ -67,7 +108,9 @@ static int same(const struct pj *a, const struct pj *b)
     switch (a->type)
     {
     case PJ_NUMBER:
-        return strcmp(a->str, b->str) == 0 && memcmp(&a->num, &b->num, sizeof(a->num)) == 0;
+        if (memcmp(&a->num, &b->num, sizeof(a->num)) != 0)
+            return 0;
+        return !number_is_strict(a->str) || !number_is_strict(b->str) || strcmp(a->str, b->str) == 0;
     case PJ_STRING:
         return strcmp(a->str, b->str) == 0;
     case PJ_ARRAY:
@@ -400,6 +443,27 @@ static void tx_line(struct text *t, int depth)
         tx_put(t, "  ", 2);
 }
 
+/* a number as the writer now writes one: its own text when that is already strict, the shortest text of the same
+ * value when it is not */
+static void tx_number(struct text *t, const struct pj *v)
+{
+    char buf[40];
+    int digits;
+
+    if (number_is_strict(v->str))
+    {
+        tx_put(t, v->str, strlen(v->str));
+        return;
+    }
+    for (digits = 1; digits <= 17; digits++)
+    {
+        snprintf(buf, sizeof(buf), "%.*g", digits, v->num);
+        if (strtod(buf, NULL) == v->num)
+            break;
+    }
+    tx_put(t, buf, strlen(buf));
+}
+
 static void tx_value(struct text *t, const struct pj *v, int pretty, int depth)
 {
     size_t i;
@@ -409,7 +473,7 @@ static void tx_value(struct text *t, const struct pj *v, int pretty, int depth)
     case PJ_NULL: tx_put(t, "null", 4); break;
     case PJ_FALSE: tx_put(t, "false", 5); break;
     case PJ_TRUE: tx_put(t, "true", 4); break;
-    case PJ_NUMBER: tx_put(t, v->str, strlen(v->str)); break;
+    case PJ_NUMBER: tx_number(t, v); break;
     case PJ_STRING: tx_string(t, v->str); break;
     case PJ_ARRAY:
     case PJ_OBJECT:
@@ -549,7 +613,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
     fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
     text = pj_write(doc, 1);
     fuzz_alloc_fail(SIZE_MAX);
-    /* mutant: src/preset_file.c:465 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
+    /* mutant: src/preset_file.c:507 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
      * input: string-alone */
     if (text || fuzz_alloc_live() != live)
         abort();
@@ -562,7 +626,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
     fuzz_alloc_fail(fuzz_pick(data, size, fuzz_alloc_count() - before));
     text = pj_write(doc, 0);
     fuzz_alloc_fail(SIZE_MAX);
-    /* mutant: src/preset_file.c:565 `if (o.failed)` -> `if (o.failed && pretty)`
+    /* mutant: src/preset_file.c:617 `if (o.failed)` -> `if (o.failed && pretty)`
      * input: compact-second-allocation */
     if (text || fuzz_alloc_live() != live)
         abort();
@@ -575,12 +639,12 @@ static void round_trip_text(const struct pj *doc, int pretty, struct pj *copy)
     struct pj back;
 
     /* A tree is written while memory lasts.
-     * mutant: src/preset_file.c:565 `if (o.failed)` -> `if (!o.failed)`
+     * mutant: src/preset_file.c:617 `if (o.failed)` -> `if (!o.failed)`
      * input: string-alone */
     if (!text)
         abort();
     /* The text is the writer's format, byte for byte.
-     * mutant: src/preset_file.c:522 `put(o, "  ", 2);` -> `put(o, "   ", 3);`
+     * mutant: src/preset_file.c:564 `put(o, "  ", 2);` -> `put(o, "   ", 3);`
      * input: no-modified-at */
     if (strcmp(text, want) != 0)
         abort();
@@ -616,7 +680,7 @@ static void round_trip_rewrite(const struct pj *doc, struct pj *copy)
         abort();
     saved = pj_write(copy, 1);
     /* The rewrite is written and read back: a file of no strings has written none until the save adds one.
-     * mutant: src/preset_file.c:511 `put(o, "\"", 1);` -> ``
+     * mutant: src/preset_file.c:553 `put(o, "\"", 1);` -> ``
      * input: empty-object */
     if (!saved || pj_parse(saved, strlen(saved), &back) != 0)
         abort();
