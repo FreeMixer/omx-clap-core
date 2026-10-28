@@ -25,7 +25,8 @@
  * task
  *  - records the thread that ran it, and whether the host's is_audio_thread answered true there;
  *  - renders `voices` sine voices over the block into a buffer of its own, allocated at activate, and spins for
- *    `spin_us` microseconds besides (a load the tests can size without a block size behind it);
+ *    `spin_us` microseconds besides (a load the tests can size without a block size behind it), `spin_other_us` more
+ *    off the audio thread (a helper slower than the audio thread);
  *  - with `nested`, asks the pool again from inside the task, which a host refuses;
  *  - with `probe_sched`, records the scheduling policy and priority it ran at when off the audio thread.
  * After request_exec returns, process() counts the tasks done: a request that returned before its last task ended is
@@ -51,6 +52,7 @@ typedef struct FAKE_POOL_CONFIG_T {
     uint32_t spin_us;       ///< the microseconds each task spins besides
     uint32_t nested;        ///< 1: each task asks the pool again from inside exec
     uint32_t probe_sched;   ///< 1: a task off the audio thread records its policy and priority
+    uint32_t spin_other_us; ///< the microseconds a task off the audio thread spins besides `spin_us`
 } fake_pool_config_t;
 
 typedef struct FAKE_POOL_STATS_T {
@@ -141,7 +143,7 @@ static void pool_exec(const clap_plugin_t *plugin, uint32_t task)
             s += sinf((float)((double)(i + task * 7u + v * 13u) * g_phase_step * (1.0 + v * 0.01)));
         out[i] = s * 0.001f;
     }
-    spin(g_cfg.spin_us);
+    spin(g_cfg.spin_us + (audio ? 0u : g_cfg.spin_other_us));
     if (g_cfg.nested)
     {
         const clap_host_thread_pool_t *pool = g_host->get_extension(g_host, CLAP_EXT_THREAD_POOL);

@@ -28,7 +28,7 @@
  *    done before request_exec returns, each task on the audio role; the pool has one helper per core of the affinity
  *    mask but one, and ends with the last deactivate;
  *  - a request from inside a task, on a helper or on the audio thread, is refused;
- *  - a task that runs past the block is waited for and counted late;
+ *  - a helper's task that runs past the block is waited for and counted late;
  *  - an affinity mask of one core gives no pool, with the log line that says so;
  *  - SCHED_FIFO: where this process may set it, the helpers run at the priority given; where it may not, the instance
  *    runs serial with the log line that names the refusal;
@@ -51,7 +51,7 @@
 #define TASKS_MAX   256u
 
 typedef struct {
-    uint32_t tasks, voices, spin_us, nested, probe_sched;
+    uint32_t tasks, voices, spin_us, nested, probe_sched, spin_other_us;
 } pool_config_t;
 
 typedef struct {
@@ -160,8 +160,13 @@ int main(int argc, char **argv)
     CHECK(omx_clap_host_open(argv[1], POOL_ID, &in, why) == 0, "fake_pool opens (%s)", why);
     if (!in)
         return 1;
-    g_cfg = hook(argv[1], "fake_pool_config");
-    g_st = hook(argv[1], "fake_pool_stats");
+    {
+        pool_config_t *(*config)(void) = (pool_config_t *(*)(void))hook(argv[1], "fake_pool_config");
+        pool_stats_t *(*stats)(void) = (pool_stats_t *(*)(void))hook(argv[1], "fake_pool_stats");
+
+        g_cfg = config ? config() : NULL;
+        g_st = stats ? stats() : NULL;
+    }
     CHECK(g_cfg && g_st, "its hooks are found");
     if (!g_cfg || !g_st)
         return 1;
@@ -232,16 +237,21 @@ int main(int argc, char **argv)
               "a request from inside a task is refused on every thread (%u ran, %u refused)", g_st->nested_ok, g_st->nested_refused);
         g_cfg->nested = 0;
 
-        /* a task past the block: waited for, counted late */
+        /* a helper's task past the block: waited for, counted late */
         {
             const uint64_t late = info.late;
+            const uint32_t late_in = omx_clap_host_thread_pool_late(in);
 
-            blocks(in, 3, helpers + 1u, 8000);
+            g_cfg->spin_other_us = 8000;
+            blocks(in, 3, helpers + 1u, 1000);
+            g_cfg->spin_other_us = 0;
             omx_clap_host_thread_pool(&info);
-            CHECK(g_st->incomplete == 0, "tasks of 8 ms in a block of 5.3 ms are still all done before request_exec returns");
-            CHECK(info.late > late && omx_clap_host_thread_pool_late(in) > 0,
-                  "and the waits past the block are counted late (%llu in the pool, %u for the instance)",
-                  (unsigned long long)(info.late - late), omx_clap_host_thread_pool_late(in));
+            CHECK(g_st->incomplete == 0 && g_st->tasks_other > 0,
+                  "helper tasks of 9 ms in a block of 5.3 ms are still all done before request_exec returns (%llu on helpers)",
+                  (unsigned long long)g_st->tasks_other);
+            CHECK(info.late >= late + 3u && omx_clap_host_thread_pool_late(in) >= late_in + 3u,
+                  "and each of the 3 waits past the block is counted late (%llu in the pool, %u for the instance)",
+                  (unsigned long long)(info.late - late), omx_clap_host_thread_pool_late(in) - late_in);
         }
     }
     else
