@@ -6,7 +6,7 @@ index 5b7ac67..4dee3f8 100644
 --- a/src/lv2_locate.c
 +++ b/src/lv2_locate.c
 @@ -117,7 +117,6 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
-         return 0;
+         return LV2_LOCATE_READ_FAILED;
      snprintf(whole, uri_len + 3, "<%s>", uri);
      found = strstr(text, whole) != NULL;
 -    free(whole);
