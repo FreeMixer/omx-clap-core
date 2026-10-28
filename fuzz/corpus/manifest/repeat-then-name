@@ -1,0 +1,2 @@
+urn:example:plugins#aa@prefix aaa: <urn:example:plugins#> .
+ aaa:aa a lv2:Plugin .

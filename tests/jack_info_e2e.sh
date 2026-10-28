@@ -24,7 +24,7 @@ fake=$here/fake.clap
 id=org.omx-clap-host.test.passthrough
 uri="clap:$fake#$id"
 
-: "${HOST_REPLY_NO_PARAM_CONTRACT:?}" "${OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED:?}"
+: "${OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP:?}" "${OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED:?}"
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     for f in "$host" "$fake"; do
@@ -132,7 +132,7 @@ step $? "a page past the count is refused without asking the plugin"
 
 # param_info: a parameter of a plugin with no parameter contract falls back to qualification; what is not a parameter
 # (a read-only one, an unknown id, the host's bypass) is -103
-expect "param_info 0 0" "resp $HOST_REPLY_NO_PARAM_CONTRACT"
+expect "param_info 0 0" "resp $OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP"
 expect "param_info 0 1" "resp -103"
 expect "param_info 0 99" "resp -103"
 expect "param_info 0 :bypass" "resp -103"
@@ -167,7 +167,7 @@ expect "quit" "resp 0"
 
 contract_host fingerprint
 expect "add $uri 0" "resp 0"
-expect "param_info 0 0" "resp $HOST_REPLY_NO_PARAM_CONTRACT"
+expect "param_info 0 0" "resp $OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP"
 for _ in $(seq 30); do grep -q "parameter contract is not trusted: R4" "$runtime/host-fingerprint.log" && break; sleep 0.1; done
 grep -q "^$id: the parameter contract is not trusted: R4 " "$runtime/host-fingerprint.log"
 step $? "the host's log names the broken rule: $(grep -o 'not trusted: R4.*' "$runtime/host-fingerprint.log")"

@@ -363,12 +363,12 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-clap-coverage-self test-clap-doc-check
+test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-clap-coverage-self test-clap-doc-check
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -376,7 +376,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap)
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test tests/fake_panel.clap
+test-fake: test-codes tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-xrun-report test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test tests/fake_panel.clap
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/resource_hints_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
@@ -539,6 +539,30 @@ tests/preset_file_test: tests/preset_file_test.c src/preset_file.c src/preset_fi
 
 tests/msgring_test: tests/msgring_test.c src/omx_msgring.h src/hosted_stage_limits.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
+
+# the xrun count a worker reports (#371): what is due and when, and the count JACK's thread and the control thread share
+test-xrun-report: tests/xrun_report_test
+	./tests/xrun_report_test
+
+tests/xrun_report_test: tests/xrun_report_test.c src/xrun_report.h
+	$(CC) -Isrc $(CFLAGS) -Werror -pthread -o $@ $<
+
+# the sabotage of each guard: a report with no once-a-second limit, one that writes a count already written, one that
+# loses a count to a plain increment: each reds the test
+test-xrun-report-sabotage: tests/xrun_report_test.c src/xrun_report.h
+	mkdir -p build/xrun-report-sabotage
+	for arm in rate repeat atomic; do \
+	    case $$arm in \
+	    rate) sed -e 's|now_ms - report->written_at_ms < XRUN_REPORT_MIN_INTERVAL_MS|now_ms == (uint64_t)-1|' src/xrun_report.h ;; \
+	    repeat) sed -e 's|if (seen == report->written)|if (0)|' src/xrun_report.h ;; \
+	    atomic) sed -e 's|atomic_fetch_add_explicit(&report->count, 1, memory_order_relaxed);|atomic_store_explicit(\&report->count, atomic_load_explicit(\&report->count, memory_order_relaxed) + 1, memory_order_relaxed);|' src/xrun_report.h ;; \
+	    esac > build/xrun-report-sabotage/xrun_report.h; \
+	    ! cmp -s src/xrun_report.h build/xrun-report-sabotage/xrun_report.h || { echo "sabotage $$arm changed nothing"; exit 1; }; \
+	    $(CC) -Ibuild/xrun-report-sabotage $(CFLAGS) -Werror -pthread -o build/xrun-report-sabotage/test $<; \
+	    if ./build/xrun-report-sabotage/test > build/xrun-report-sabotage/$$arm.log 2>&1; then echo "sabotage $$arm: test stayed green"; exit 1; fi; \
+	    grep -q '^FAIL' build/xrun-report-sabotage/$$arm.log || { echo "sabotage $$arm: no FAIL line"; exit 1; }; \
+	    echo "sabotage $$arm: red as it should"; \
+	done
 
 # a host that crashes dies of the same signal and writes no core (checked where the machine writes cores at all)
 test-quiet-death: tests/quiet_death_test
@@ -758,6 +782,20 @@ test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 test-jack-info: $(PROG) tests/fake.clap
 	$(HOST_INFO_DECLARED) ./tests/jack_info_e2e.sh
 
+# the xruns line over jack in the same kind of namespace (#371): the xrun callback the host registered, called by a
+# preloaded test double (PipeWire's libjack calls it only when the driver reports an xrun, which a private daemon with no
+# sound card never does), and the line on the feedback port: its grammar, its count, its once a second
+test-jack-xruns: $(PROG) tests/jack_xrun_shim.so
+	OMX_HOST_EVENTS_XRUNS='$(call host_declared,OMX_HOST_EVENTS_XRUNS)' ./tests/jack_xruns_e2e.sh
+
+# the sabotage of the host's side of it: each guard of src/effects.c broken in a copy of the tree, the test red on the check
+# that names it
+test-jack-xruns-sabotage: $(PROG) tests/jack_xrun_shim.so
+	./tests/jack_xruns_sabotage.sh
+
+tests/jack_xrun_shim.so: tests/jack_xrun_shim.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -shared -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -ldl -pthread
+
 # a plugin that moves its own parameter over jack in the same kind of namespace: param_gesture and param_set on the
 # feedback port, in order, and the values read again when there were more than the ring holds
 test-jack-params: $(PROG) tests/fake_mover.clap
@@ -797,8 +835,8 @@ test-host-verbs-sabotage: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(O
 # the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
 HASH := \#
 host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
-HOST_PIN_DECLARED = $(foreach n,HOST_REPLY_PIN_ABSENT HOST_REPLY_PIN_LAYOUT_MISMATCH OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
-HOST_INFO_DECLARED = $(foreach n,HOST_REPLY_NO_PARAM_CONTRACT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
+HOST_PIN_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
+HOST_INFO_DECLARED = $(foreach n,OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
 HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
 # what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')

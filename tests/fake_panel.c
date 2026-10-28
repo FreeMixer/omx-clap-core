@@ -121,7 +121,7 @@ static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_pa
 {
     static const struct { const char *name; double min, max, def; clap_param_info_flags flags; } params[PARAM_COUNT] = {
         { "threshold", -60.0, 0.0, -20.0, CLAP_PARAM_IS_AUTOMATABLE },
-        { "mode", 0.0, 2.0, 0.0, CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_AUTOMATABLE },
+        { "mode", 0.0, 2.0, 0.0, CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM | CLAP_PARAM_IS_AUTOMATABLE },
         { "knee", 0.0, 12.0, 6.0, CLAP_PARAM_IS_AUTOMATABLE },
     };
 
@@ -153,6 +153,17 @@ static bool params_value_to_text(const clap_plugin_t *plugin, clap_id id, double
     (void)plugin;
     if (id >= PARAM_COUNT)
         return false;
+    if (id == 1)
+    {
+        /* the enum parameter: "Off", "Soft \"2\"", and no text at all for 2, so a refused value is left out */
+        if (value == 0.0)
+            snprintf(text, size, "Off");
+        else if (value == 1.0)
+            snprintf(text, size, "Soft \"2\"");
+        else
+            return false;
+        return true;
+    }
     snprintf(text, size, "%g", value);
     return true;
 }
@@ -230,12 +241,42 @@ static const clap_plugin_audio_ports_t g_ports = { ports_count, ports_get };
 static const omx_clap_plugin_panel_description_ext_t g_panel = { panel_fingerprint, panel_family, panel_count, panel_get };
 static const omx_clap_plugin_panel_description_ext_t g_hostile = { panel_fingerprint, panel_family, hostile_count, hostile_get };
 
+static uint32_t remote_controls_count(const clap_plugin_t *plugin)
+{
+    (void)plugin;
+    return 2;
+}
+
+/* page 0 holds the threshold and the mode, the rest of its slots empty; page 1 is refused by get */
+static bool remote_controls_get(const clap_plugin_t *plugin, uint32_t index, clap_remote_controls_page_t *page)
+{
+    uint32_t i;
+
+    (void)plugin;
+    if (index != 0)
+        return false;
+    memset(page, 0, sizeof(*page));
+    for (i = 0; i < CLAP_REMOTE_CONTROLS_COUNT; i++)
+        page->param_ids[i] = CLAP_INVALID_ID;
+    page->page_id = 5;
+    strcpy(page->section_name, "Dyn");
+    strcpy(page->page_name, "Page 1");
+    page->param_ids[0] = 0;
+    page->param_ids[2] = 1;
+    page->is_for_preset = true;
+    return true;
+}
+
+static const clap_plugin_remote_controls_t g_remote_controls = { remote_controls_count, remote_controls_get };
+
 static const void *plugin_get_extension(const clap_plugin_t *plugin, const char *id)
 {
     if (!strcmp(id, CLAP_EXT_PARAMS))
         return &g_params;
     if (!strcmp(id, CLAP_EXT_AUDIO_PORTS))
         return &g_ports;
+    if (!strcmp(id, CLAP_EXT_REMOTE_CONTROLS) && !strcmp(plugin->desc->id, ID_PANEL))
+        return &g_remote_controls;
     if (!strcmp(id, OMX_CLAP_EXT_PANEL_DESCRIPTION) && !strcmp(plugin->desc->id, ID_PANEL))
         return &g_panel;
     if (!strcmp(id, OMX_CLAP_EXT_PANEL_DESCRIPTION) && !strcmp(plugin->desc->id, ID_HOSTILE))

@@ -51,38 +51,59 @@ static int plain_local(const char *local)
     return 1;
 }
 
-/* whether `text` holds the prefixed name `prefix`:`local` as a whole token */
-static int has_prefixed(const char *text, const char *prefix, size_t prefix_len, const char *local)
+/* whether `text`, which holds a declaration, holds the prefixed name `prefix`:`local` as a whole token, adding to
+ * *compared the bytes of each local name it finds, of each prefix it compares and of each repeat it reads */
+static int has_prefixed(const char *text, const char *prefix, size_t prefix_len, const char *local, size_t *compared)
 {
     const size_t local_len = strlen(local);
-    const char *at;
+    const char *at = strstr(text + 1, local), *end = text, *next, *p, *start;
+    size_t n = 0;
 
-    for (at = text; (at = strstr(at, local)) != NULL; at++)
+    while (at)
     {
-        const char *start;
-
-        if (at - text < (ptrdiff_t)(prefix_len + 1))
+        if (at[-1] != ':')
+        {
+            n += local_len;
+            next = strstr(at + 1, local);
+            // the next local name overlaps this one and is not taken either: the text repeats with their distance as
+            // period, so every local name in the repeat follows what the next one follows, not a ':', and one that
+            // crosses its end has a byte of the repeat, a name character or '.', before its prefix
+            if (next && next - at < (ptrdiff_t)local_len && next[-1] != ':')
+            {
+                for (p = next + local_len; *p == p[at - next]; p++)
+                    ;
+                n += (size_t)(p - next);
+                next = strstr(p, local);
+            }
+            at = next;
             continue;
-        start = at - prefix_len - 1;
-        if (start[prefix_len] != ':' || strncmp(start, prefix, prefix_len) != 0)
-            continue;
-        if (start > text && (name_char(start[-1]) || start[-1] == '.'))
-            continue;
-        if (name_char(at[local_len]))
-            continue;
-        return 1;
+        }
+        n += 1 + local_len;
+        // a name whose prefix starts before `end` has the last name's ':' in its prefix, which holds none, or one of
+        // its bytes, a name character or '.', before it
+        if (at - end > (ptrdiff_t)prefix_len)
+        {
+            start = at - 1 - prefix_len;
+            n += prefix_len;
+            if (strncmp(start, prefix, prefix_len) == 0 && !(start > text && (name_char(start[-1]) || start[-1] == '.'))
+                && !name_char(at[local_len]))
+                break;
+        }
+        end = at += local_len;
+        at = strstr(at, local);
     }
-    return 0;
+    *compared += n;
+    return at != NULL;
 }
 
 int lv2_locate_manifest_names(const char *text, const char *uri)
 {
-    size_t readings = 0;
+    size_t readings = 0, compared = 0;
 
-    return lv2_locate_manifest_readings(text, uri, &readings);
+    return lv2_locate_manifest_readings(text, uri, &readings, &compared);
 }
 
-int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings)
+int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *readings, size_t *compared)
 {
     const size_t uri_len = strlen(uri);
     const char *at;
@@ -139,7 +160,7 @@ int lv2_locate_manifest_readings(const char *text, const char *uri, size_t *read
             if (++read_again > LV2_LOCATE_PREFIXES_MAX)
                 return 1;
             ++*readings;
-            if (has_prefixed(text, name, name_len, uri + ns_len))
+            if (has_prefixed(text, name, name_len, uri + ns_len, compared))
                 return 1;
         }
         at = ns_end;
