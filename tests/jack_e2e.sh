@@ -28,6 +28,10 @@ source=$here/jack_meter_source
 listen=$here/jack_synth_probe
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
+    if [ ! -e "$plugin" ] && [ -z "${CI:-}" ]; then
+        echo "skip: $plugin not found (install omx-plugins or set CLAP_TEST_PLUGIN)"
+        exit 0
+    fi
     for f in "$plugin" "$host" "$fake" "$probe" "$source" "$listen"; do
         [ -e "$f" ] || { echo "missing $f" >&2; exit 2; }
     done
