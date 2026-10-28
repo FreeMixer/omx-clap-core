@@ -960,9 +960,9 @@ jobs:
       arm: false  # aarch64/arm64 build at release only
 
   # A commit message is published like a file. A pull request's own commits must carry no
-  # AI-attribution line (the ai-trace-check action of FreeMixer/.github); what is already on the base is not read.
-  ai-trace:
-    name: commit messages carry no AI attribution
+  # attribution line (the commit-message-check action of FreeMixer/.github); what is already on the base is not read.
+  commit-message-check:
+    name: commit messages pass the message check
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -972,6 +972,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
       # @main until FreeMixer/.github moves v1 past the action
-      - uses: FreeMixer/.github/.github/actions/ai-trace-check@main
+      - uses: FreeMixer/.github/.github/actions/commit-message-check@main
         with:
           base-ref: ${{ github.event.pull_request.base.ref }}
