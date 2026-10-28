@@ -31,6 +31,9 @@ import re
 import socket
 import sys
 
+sys.path.insert(0, os.environ.get('PLUGIN_HOSTD_TESTS_LIB') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'plugin-hostd', 'tests', 'lib'))
+import plugin_hostd_client  # noqa: E402  plugin-hostd-tests' lib/plugin_hostd_client.py
+
 HOST = 'omx-clap-host'
 OWNER = 'omx-clap-core'
 # a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
@@ -164,17 +167,10 @@ def fitted(fmt, args):
 class Host:
     def __init__(self, port):
         self.s = socket.create_connection(('127.0.0.1', port), timeout=10)
-        self.buf = b''
+        self.client = plugin_hostd_client.Client(self.s)
 
     def send(self, line):
-        self.s.sendall(line.encode() + b'\0')
-        while b'\0' not in self.buf:
-            chunk = self.s.recv(65536)
-            if not chunk:
-                raise ConnectionError('the host closed the socket')
-            self.buf += chunk
-        reply, self.buf = self.buf.split(b'\0', 1)
-        return reply.decode(errors='replace')
+        return self.client.send(line)
 
 
 def registrations(main_c, header):

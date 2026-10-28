@@ -238,6 +238,10 @@ host_rss_kb() { local p t=0; for p in $(host_pids); do t=$((t + $(rss_kb "$p")))
 host_cpu_ticks() { local p t=0; for p in $(host_pids); do t=$((t + $(cpu_ticks "$p"))); done; echo "$t"; }
 host_alive() { local p; for p in $(host_pids); do kill -0 "$p" 2>/dev/null || return 1; done; return 0; }
 
+# the mod-host line client, plugin-hostd-tests' lib/protocol.sh (PLUGIN_HOSTD_TESTS_LIB; the checkout beside this one by default)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
+
+# the reply of the path's host to one line; the native sockets are NUL-framed, the in-process host reads lines
 send() {
     local reply uri k p
     case $path in
@@ -265,8 +269,7 @@ send() {
                 *) reply="resp -1" ;;
             esac ;;
         *)
-            printf '%s\0' "$1" >&3
-            IFS= read -r -d '' -t 30 reply <&3 ;;
+            reply=$(protocol_send 3 30 "$1") ;;
     esac
     echo "$reply"
 }

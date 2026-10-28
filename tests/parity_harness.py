@@ -13,6 +13,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.environ.get('PLUGIN_HOSTD_TESTS_LIB') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'plugin-hostd', 'tests', 'lib'))
+import plugin_hostd_client  # noqa: E402  plugin-hostd-tests' lib/plugin_hostd_client.py
+
 
 # ---------------------------------------------------------------- tsv
 
@@ -83,23 +86,7 @@ class Host:
 
     def send(self, line, timeout):
         """(reply, None), or (None, 'closed' | 'timeout' | 'oserror <why>')"""
-        try:
-            self.s.sendall(line.encode() + b'\0')
-            buf, dl = b'', time.time() + timeout
-            while not buf.endswith(b'\0'):
-                left = dl - time.time()
-                if left <= 0:
-                    return None, 'timeout'
-                self.s.settimeout(left)
-                d = self.s.recv(4096)
-                if not d:
-                    return None, 'closed'
-                buf += d
-            return buf[:-1].decode(errors='replace'), None
-        except socket.timeout:
-            return None, 'timeout'
-        except OSError as e:
-            return None, f'oserror {e}'
+        return plugin_hostd_client.Client(self.s).try_send(line, timeout)
 
     def alive(self):
         return self.p.poll() is None

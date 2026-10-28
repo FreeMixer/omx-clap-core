@@ -15,6 +15,9 @@ permissions:
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
   PLUGIN_HOSTD_REF: v0.7.0
+  # plugin-hostd-tests' lib/ (protocol.sh, plugin_hostd_client.py), which every e2e script and bench sources, from the release
+  # tag that first ships it; the headers and the daemon above stay at their own tag
+  PLUGIN_HOSTD_TESTS_REF: v0.13.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
 
@@ -126,6 +129,8 @@ jobs:
           make -C /tmp/plugin-hostd install_protocol PREFIX=/opt/plugin-hostd
           make -C /tmp/plugin-hostd plugin-hostd
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          PLUGIN_HOSTD_REF=$PLUGIN_HOSTD_TESTS_REF .github/plugin-hostd.sh /tmp/plugin-hostd-tests
+          echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd-tests/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
       - name: Build
@@ -356,6 +361,10 @@ jobs:
       - name: Test the CLAP compatibility page against the headers
         run: make test-clap-doc-check
 
+      # no test or bench writes its own send: they source plugin-hostd-tests' lib/protocol.sh (tests/protocol_client_check.sh)
+      - name: Test that no script carries its own protocol client
+        run: make test-protocol-client
+
       # the two clean-root consumer steps below build core_link_test by hand: they must build and run what test-core does
       - name: Test the consumer steps against test-core
         run: make test-ci-consumer-args
@@ -456,7 +465,9 @@ jobs:
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
       - name: Fetch plugin-hostd
-        run: .github/plugin-hostd.sh /tmp/plugin-hostd
+        run: |
+          .github/plugin-hostd.sh /tmp/plugin-hostd
+          PLUGIN_HOSTD_REF=$PLUGIN_HOSTD_TESTS_REF .github/plugin-hostd.sh /tmp/plugin-hostd-tests
 
       # plugin-hostd's spec gates its check BuildRequires (omx-clap-host-tests) behind `%bcond_without check`; the
       # user macro turns the check off for builddep and rpmbuild alike, so the channel's libomx-clap-core 0.10.0
@@ -584,7 +595,7 @@ jobs:
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
+            PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd-tests/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
               ./tests/host_verbs_e2e.sh
           else
             echo "::warning::the installed verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"

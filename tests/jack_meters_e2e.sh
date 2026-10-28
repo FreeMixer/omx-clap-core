@@ -16,6 +16,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5562}
@@ -72,8 +73,7 @@ step 0 "private pipewire on $runtime"
 "$host" -n -p "$port" -f "$fbport" >"$runtime/host.log" 2>&1 &
 host_pid=$!
 pids+=($host_pid)
-for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
-grep -q "ready!" "$runtime/host.log"
+protocol_wait_ready "$runtime/host.log"
 step $? "omx-clap-host ready on port $port, feedback on $fbport"
 
 # the command socket is accepted first, then the feedback socket; every feedback message is a line of the log
@@ -83,11 +83,7 @@ exec 4<>"/dev/tcp/127.0.0.1/$fbport"
 while IFS= read -r -d '' line <&4; do echo "$line" >>"$feedback"; done &
 pids+=($!)
 
-send() {
-    printf '%s\0' "$1" >&3
-    IFS= read -r -d '' -t 5 reply <&3
-    echo "$reply"
-}
+PROTOCOL_TIMEOUT=5
 expect() {
     local reply
     reply=$(send "$1")
