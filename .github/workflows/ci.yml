@@ -14,9 +14,9 @@ permissions:
 
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
-  PLUGIN_HOSTD_REF: v0.7.0
+  PLUGIN_HOSTD_REF: v0.13.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
-  OMX_CONTRACT_REF: v3.3.0
+  OMX_CONTRACT_REF: v3.4.0
 
 jobs:
   version:
@@ -280,6 +280,15 @@ jobs:
             make test-jack-info
           else
             echo "::warning::test-jack-info SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
+      # the xruns line: the callback the host registered with libjack, the line on the feedback socket
+      - name: Test the xruns line over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-xruns
+          else
+            echo "::warning::test-jack-xruns SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
       # The command socket's framing against tests/socket_conformance.py: a command of exactly the receive buffer, many
@@ -580,7 +589,7 @@ jobs:
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
+            PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
               ./tests/host_verbs_e2e.sh
           else
             echo "::warning::the installed verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
