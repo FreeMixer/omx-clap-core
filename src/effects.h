@@ -122,6 +122,16 @@ int effects_show_ui(int effect_id, const char **code);
 int effects_hide_ui(int effect_id);
 /* -S, before the first add: every plugin's window shown at its add, the add answered as before whatever it shows */
 void effects_show_ui_at_add(int on);
+/* --thread-pool, before the first add: which plugins get the process's thread pool (#395, docs/thread-pool.md).
+ * QUALIFIED, the default: those the host is told their qualification grants it, and this host is told of none yet, so
+ * every plugin runs its tasks serial; ON: every plugin that asks, for a worker plugin-hostd starts for a plugin whose
+ * pin grants it; OFF: none */
+#define EFFECTS_THREAD_POOL_QUALIFIED   0
+#define EFFECTS_THREAD_POOL_OFF         1
+#define EFFECTS_THREAD_POOL_ON          2
+/* the word --thread-pool takes, qualified, off or on: 1 with *mode set, 0 for any other */
+int effects_thread_pool_word(const char *word, int *mode);
+void effects_set_thread_pool(int mode);
 void effects_idle(void);
 
 

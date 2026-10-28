@@ -490,6 +490,7 @@ int main(int argc, char **argv)
         {"channels", required_argument, 0, 'c'},
         {"idle-hold", required_argument, 0, 'i'},
         {"show-ui", no_argument, 0, 'S'},
+        {"thread-pool", required_argument, 0, 'T'},
         {"version", no_argument, 0, 'V'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
@@ -555,6 +556,19 @@ int main(int argc, char **argv)
                 effects_show_ui_at_add(1);
                 break;
 
+            case 'T':
+            {
+                int mode;
+
+                if (!effects_thread_pool_word(optarg, &mode))
+                {
+                    fprintf(stderr, "--thread-pool=%s: the thread pool is qualified, off or on\n", optarg);
+                    exit(EXIT_FAILURE);
+                }
+                effects_set_thread_pool(mode);
+                break;
+            }
+
             case 'V':
                 printf("%s version: %s\n", argv[0], VERSION);
                 exit(EXIT_SUCCESS);
@@ -563,6 +577,7 @@ int main(int argc, char **argv)
             case 'h':
                 printf(
                     "Usage: %s [-vhtS] [-p <port>] [-f <port>] [-s <dir>] [-c <channels>] [-i <off|us>]\n"
+                    "       [--thread-pool=<qualified|off|on>]\n"
                     "  -v, --verbose                  verbose messages\n"
                     "  -p, --socket-port=<port>       socket port definition\n"
                     "  -f, --feedback-port=<port>     feedback port definition\n"
@@ -577,6 +592,11 @@ int main(int argc, char **argv)
                     "  -S, --show-ui                  show each plugin's own window at its add,\n"
                     "                                 over Wayland first, then X11; show_external_ui and\n"
                     "                                 hide_external_ui do it later\n"
+                    "      --thread-pool=<mode>       which plugins run their clap.thread-pool tasks on helper\n"
+                    "                                 threads, one per core of the affinity mask but one:\n"
+                    "                                 qualified (default: those whose qualification grants\n"
+                    "                                 it; none is granted on this command line yet, so all\n"
+                    "                                 run serial), on (every plugin that asks) or off\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
                     "  -h, --help                     print this help and exit\n"

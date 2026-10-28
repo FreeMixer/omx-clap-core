@@ -14,6 +14,7 @@ omx\-clap\-host \- CLAP and LV2 plugin host for JACK, driven over mod\-host's so
 .RB [ \-c
 .IR channels ]
 .RB [ \-S ]
+.RB [ \-\-thread\-pool =\fImode\fR]
 .br
 .B omx\-clap\-host
 .RB { \-V | \-h }
@@ -156,6 +157,24 @@ answer, by code.
 Show every plugin's own window at its add, as
 .B show_external_ui
 does; the add answers as before whatever the window does.
+.TP
+.BR \-\-thread\-pool =\fIqualified\fR|\fIoff\fR|\fIon\fR
+Which plugins run their clap.thread\-pool tasks on the process's helper
+threads, one per core of the host's CPU affinity mask but the first, each
+pinned to its core at the JACK thread's real\-time priority, the JACK thread
+taking tasks too (docs/thread\-pool.md).
+.B qualified
+(the default) gives the pool to a plugin whose qualification measured it
+real\-time safe and faster with it; the host is told of no such verdict on
+its command line yet, so every plugin runs its tasks serial on the JACK
+thread.
+.B on
+gives it to every plugin that asks: plugin\-hostd passes it to the worker of
+a plugin whose pin grants the pool.
+.B off
+gives it to none. A pool that cannot run at the JACK thread's priority is
+not made, and the plugin runs serial with one log line saying why; a wait
+for a helper past the block is counted with the xruns.
 .TP
 .BR \-V ", " \-\-version
 Print the version and exit.
