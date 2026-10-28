@@ -61,6 +61,11 @@ void fuzz_alloc_peak_reset(void);
 size_t fuzz_alloc_count(void);
 void fuzz_alloc_fail(size_t k);
 
+/* whether memory has run out since the last fuzz_alloc_ran_out_reset(): the C library's allocator returned NULL on one
+ * of the reader's allocations that fuzz_alloc_fail did not choose */
+int fuzz_alloc_ran_out(void);
+void fuzz_alloc_ran_out_reset(void);
+
 /* which of `n` allocations an input fails: one its bytes choose, so the same input fails the same one */
 static inline size_t fuzz_pick(const uint8_t *p, size_t len, size_t n)
 {
