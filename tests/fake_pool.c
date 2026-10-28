@@ -31,7 +31,8 @@
  *  - with `probe_sched`, records the scheduling policy and priority it ran at when off the audio thread.
  * After request_exec returns, process() counts the tasks done: a request that returned before its last task ended is
  * `incomplete`. The output is the sum of the task buffers, so the work cannot be optimised away. Everything is in the
- * struct fake_pool_stats returns, the load in the one fake_pool_config returns, for a program that dlsyms them.
+ * struct fake_pool_stats returns, the load in the one fake_pool_config returns, for a program that dlsyms them; a host
+ * started by a script takes the load from FAKE_POOL_TASKS and FAKE_POOL_VOICES at init.
  */
 
 #include <math.h>
@@ -217,8 +218,15 @@ static const clap_plugin_descriptor_t g_desc = { CLAP_VERSION_INIT, ID_POOL, "po
 
 static bool plugin_init(const clap_plugin_t *plugin)
 {
+    const char *tasks = getenv("FAKE_POOL_TASKS"), *voices = getenv("FAKE_POOL_VOICES");
+
     (void)plugin;
     g_check = g_host->get_extension(g_host, CLAP_EXT_THREAD_CHECK);
+    // a host started by a script sets the load through the environment
+    if (tasks)
+        g_cfg.tasks = (uint32_t)atoi(tasks);
+    if (voices)
+        g_cfg.voices = (uint32_t)atoi(voices);
     return true;
 }
 
