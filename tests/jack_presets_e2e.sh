@@ -101,6 +101,14 @@ for (key, name), record in zip(want, ['1|-|init', '1|-|bright', '0|%sbox.fsprese
     r = ask('preset_load 1 ' + key)
     check(r == 'resp 0' and loads()[before:] == [record], 'preset_load %s hands the plugin %s (%s, %s)' % (key, record, r, loads()[before:]))
 check(ask('preset_load 1 plugin:missing') != 'resp 0', 'a key the plugin refuses is not answered resp 0')
+# a bare path, a space in it written %20 (#401), and a file the plugin reports through on_error while answering true
+before = len(loads())
+r = ask('preset_load 1 ' + (runtime + '/user presets/one.fspreset').replace(' ', '%20'))
+check(r == 'resp 0' and loads()[before:] == ['0|%sone.fspreset|-' % path], 'a bare path with %%20 is decoded and loads (%s, %s)' % (r, loads()[before:]))
+r = ask('preset_load 1 ' + (runtime + '/user presets/none.fspreset').replace(' ', '%20'))
+check(r != 'resp 0', 'a file the plugin reports through on_error is not answered resp 0 (%s)' % r)
+r = ask('preset_load 1 file:' + (runtime + '/user presets/none.fspreset').replace(' ', '%20'))
+check(r != 'resp 0', 'a file: key the plugin reports through on_error is not answered resp 0 (%s)' % r)
 
 lv2 = 'urn:openmixer:test:host-fixture'
 check(ask('add %s 2' % lv2) == 'resp 2', 'the LV2 fixture is added through the adapter')
