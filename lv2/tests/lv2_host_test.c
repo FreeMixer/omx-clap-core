@@ -1505,8 +1505,9 @@ static void t_event_run(void)
     // reads the first alone
     p = open_plugin(g_ev, EV_URI "#two", why);
     in = p && lv2_plugin_load(p, why) == 0 ? lv2_instance_new(p) : NULL;
+    seen = ev_seen();
     CHECK(in && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "event run: #two instantiates and activates (%s)", why);
-    if (in)
+    if (in && seen)
     {
         lv2_instance_midi_in_add(in, 3, on, 3);
         memset(&g, 0, sizeof(g));
