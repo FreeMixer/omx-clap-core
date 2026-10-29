@@ -1361,5 +1361,5 @@ test-protocol-client:
 # preset_list, preset_get and preset_load over the socket (docs/presets.md): fake_synth's preset-discovery factory and
 # the LV2 fixture bundle through the adapter, in a private PipeWire (tests/jack_presets_e2e.sh)
 .PHONY: test-jack-presets
-test-jack-presets: $(PROG) tests/fake_synth.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+test-jack-presets: $(PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fake_ext.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
 	bash tests/jack_presets_e2e.sh
