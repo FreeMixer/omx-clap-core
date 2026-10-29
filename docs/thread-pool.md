@@ -24,7 +24,7 @@ extension allows it, it is real-time safe, and it is what an instance gets unles
   a worker that plugin-hostd placed on cores gets exactly those); the pool has N - 1 helpers (at most
   `OMX_CLAP_THREAD_POOL_HELPERS_MAX`), and the audio thread is the N-th worker. A mask of one core gives no pool.
 - **Placement.** Each helper is pinned to one core of the mask, every core but the mask's first, which is left to the
-  audio thread.
+  audio thread. A helper is named `omx-pool-<core>` (ps, `/proc/<pid>/task/*/comm`).
 - **Priority.** A helper runs at the audio thread's scheduling: `SCHED_FIFO` at the audio thread's real-time priority
   (omx-clap-host reads it from JACK, `jack_client_real_time_priority`), or the normal class when the audio thread is not
   real-time. When the priority cannot be set (no `CAP_SYS_NICE`, an `RLIMIT_RTPRIO` below it) no pool is made and the
@@ -72,7 +72,30 @@ omx-clap-host takes the verdict on its command line, `--thread-pool=qualified|of
 
 ## Measured
 
-Not measured yet. The command, on an idle Raspberry Pi 5, pool off against pool on at 48000 Hz and 128, 256 and 512
-frames:
+Raspberry Pi 5 (4 cores, governor `powersave`, kernel 6.18 PREEMPT), idle (no stress run), 2026-10-29. Surge XT offers
+no `clap.thread-pool`, and no plugin on the device does, so this is **the fixture plugin**, `tests/fake_pool.clap`: 16
+tasks a block, each rendering 8, 24 or 48 sine voices over the block. The bench (`tests/thread_pool_bench.c`) is the
+audio thread at SCHED_FIFO 70 (jackd's `-P 70`) on core 0, the pool's three helpers on cores 1 to 3 at the same
+priority, each block started at its period for 10 s; the branch was built natively on the Pi with its gcc. Per-block
+cost of `omx_clap_host_run` in microseconds, 48000 Hz:
 
-    tests/thread_pool_bench <fake_pool.clap> 48000 <frames> <tasks> <task_us> <blocks> off|on <rt_priority>
+| voices/task | frames | budget | off mean | off p99 | on mean | on p99 | speed-up | helper busy |
+|---|---|---|---|---|---|---|---|---|
+| 8  | 128 | 2667  | 263.6  | 277.1  | 81.7   | 86.8   | 3.2x | 2.5% each |
+| 8  | 256 | 5333  | 527.9  | 534.8  | 155.9  | 164.6  | 3.4x | 2.5% each |
+| 8  | 512 | 10667 | 1035.3 | 1050.2 | 289.5  | 296.0  | 3.6x | 2.4% each |
+| 24 | 128 | 2667  | 780.6  | 793.2  | 212.9  | 221.1  | 3.7x | 7.4% each |
+| 24 | 256 | 5333  | 1583.4 | 1591.1 | 418.7  | 425.0  | 3.8x | 7.4% each |
+| 24 | 512 | 10667 | 3242.2 | 3269.9 | 845.6  | 858.0  | 3.8x | 7.6% each |
+| 48 | 128 | 2667  | 1660.9 | 1683.1 | 432.3  | 439.0  | 3.8x | 15.6% each |
+| 48 | 256 | 5333  | 3335.5 | 3362.7 | 857.9  | 863.2  | 3.9x | 15.6% each |
+| 48 | 512 | 10667 | 6603.3 | 6649.5 | 1686.6 | 1699.2 | 3.9x | 15.4% each |
+
+No block went over its budget and no wait was late in any run. "Helper busy" is each helper's time inside tasks over
+the run's wall time. The 512-frame load of 48 voices, 6.6 ms of the 10.7 ms block serial, takes 1.7 ms on the pool.
+The raw per-block costs, the summary and the device are in `docs/evidence/thread-pool-pi5-2026-10-29/`
+(`measure.sh` reruns it).
+
+Not measured: a real plugin that requests tasks (none on the device does), the pool under JACK's own thread rather
+than the bench's, voices until the first xrun, and 96 kHz. The fixture's tasks are equal in size and touch no shared
+state, which is the pool's best case.
