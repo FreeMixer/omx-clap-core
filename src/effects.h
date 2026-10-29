@@ -74,6 +74,10 @@ int effects_preset_load(int effect_id, const char *location);
 int effects_preset_list(int effect_id);
 /* preset_get: one row of the last preset_list, "resp 0 <load_key> <name>", into `reply` */
 int effects_preset_get(int effect_id, int index, char *reply, size_t size);
+/* preset_save: the instance into an org.openmixer.preset/2 file; SUCCESS with "resp 0" in `reply`, or the refusal's line */
+int effects_preset_save(int effect_id, const char *path, const char *name, char *reply, size_t size);
+/* preset_load: a preset file (an absolute path) or a key of preset_get; the reply line, a refusal's with its code */
+int effects_preset_load_reply(int effect_id, const char *location, char *reply, size_t size);
 int effects_state_save(const char *dir);
 int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);

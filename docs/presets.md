@@ -34,6 +34,8 @@ Verbs
 - `preset_show` answers what a load would apply, on one line of JSON: for a file, the document with each state body's
   `bytes` replaced by its decoded `size`; for a listed preset, its `name`, `loadKey` and `location`.
 
+Not answered yet: `preset_show` (registered as unsupported, -902), and the feedback below after a load.
+
 After a load the host reports every parameter whose value the load moved as mod-host's `param_set <N> <symbol> <value>`
 feedback line, the same line a value the plugin moves by itself gives (plugin-hostd relays it as the parameter-feedback
 event); the plugin's own output events are flushed first, through `clap.params` flush.

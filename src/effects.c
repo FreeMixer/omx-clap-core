@@ -3278,6 +3278,301 @@ int effects_preset_load(int effect_id, const char *location)
     return omx_clap_host_preset_load(clap, key) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
 }
 
+/* a preset verb's refusal: "resp -104 <code>", the code one of plugin-hostd's preset refusals (docs/presets.md) */
+static int preset_refuse(char *reply, size_t size, const char *code)
+{
+    snprintf(reply, size, "resp %d %s", ERR_LV2_INVALID_PRESET_URI, code);
+    return ERR_LV2_INVALID_PRESET_URI;
+}
+
+static int pj_set_string(struct pj *obj, const char *key, const char *text)
+{
+    struct pj v;
+
+    memset(&v, 0, sizeof(v));
+    return pj_string(&v, text) != 0 || pj_set(obj, key, &v) != 0 ? -1 : 0;
+}
+
+/* the instance's plugin as a preset file names it: its id, its descriptor's version, and its layout's fingerprint
+ * (omx-layout/1:<sha256>, plugin-hostd's pin) */
+static int preset_identity(const effect_t *effect, const char **id, const char **version, char *fingerprint, size_t size)
+{
+    char hex[PHD_SHA256_HEX_LEN + 1];
+
+    *id = effect->clap->desc->id;
+    *version = effect->clap->desc->version ? effect->clap->desc->version : "";
+    if (layout_pin_write(effect->clap->plugin, effect->clap->params, NULL, NULL, hex) != 0)
+        return -1;
+    snprintf(fingerprint, size, "%s:%s", PHD_PIN_LAYOUT_SCHEME, hex);
+    return 0;
+}
+
+/* the name param_set takes for a parameter row: an LV2 control port's symbol, else the CLAP id in decimal */
+static const char *preset_symbol(const effect_t *effect, clap_id id, char *buf, size_t size)
+{
+    const lv2_param_t *lv2 = effect->lv2_entry ? lv2_param_by_id(effect, id) : NULL;
+
+    if (lv2)
+        return lv2->symbol;
+    snprintf(buf, size, "%u", id);
+    return buf;
+}
+
+/* preset_save: the instance into an org.openmixer.preset/2 file at `path` named `name`. An existing preset file at the
+ * path keeps its id, createdAt and every member this host does not write; anything else at the path is refused. */
+int effects_preset_save(int effect_id, const char *path, const char *name, char *reply, size_t size)
+{
+    effect_t *effect;
+    struct pj doc, plugin, params, state, row, v;
+    struct omx_clap_param_row *rows = NULL;
+    const char *pid, *version;
+    char fingerprint[96], now[32], tmp[PATH_MAX + 8], symbol[16];
+    uint8_t *body = NULL;
+    size_t body_len = 0;
+    char *text = NULL;
+    struct stat st;
+    time_t t = time(NULL);
+    struct tm tm;
+    int count, i, ret;
+    FILE *f;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    if (!path || path[0] != '/' || !name || !name[0])
+        return preset_refuse(reply, size, PRESET_CODE_INVALID);
+    memset(&doc, 0, sizeof(doc));
+    if (stat(path, &st) == 0)
+    {
+        const char *format;
+
+        if (pj_read_file(path, &doc) != 0 || doc.type != PJ_OBJECT || !(format = pj_get_str(&doc, "format")) ||
+            strncmp(format, PRESET_FORMAT_PREFIX, strlen(PRESET_FORMAT_PREFIX)) != 0)
+        {
+            pj_free(&doc);
+            return preset_refuse(reply, size, PRESET_CODE_INVALID);
+        }
+    }
+    else
+        pj_object(&doc);
+    if (preset_identity(effect, &pid, &version, fingerprint, sizeof(fingerprint)) != 0)
+    {
+        pj_free(&doc);
+        return preset_refuse(reply, size, PRESET_CODE_LOAD_REFUSED);
+    }
+    gmtime_r(&t, &tm);
+    strftime(now, sizeof(now), "%Y-%m-%dT%H:%M:%SZ", &tm);
+
+    ret = -1;
+    memset(&plugin, 0, sizeof(plugin));
+    memset(&params, 0, sizeof(params));
+    memset(&state, 0, sizeof(state));
+    pj_object(&plugin);
+    pj_array(&params);
+    if (pj_set_string(&plugin, "id", pid) || pj_set_string(&plugin, "version", version) ||
+        pj_set_string(&plugin, "fingerprint", fingerprint))
+        goto out;
+    count = omx_clap_host_param_roster(effect->clap, &rows, NULL);
+    for (i = 0; i < count; i++)
+    {
+        double value;
+
+        if (clap_param_get(effect->clap, rows[i].id, &value) != SUCCESS)
+            continue;
+        memset(&row, 0, sizeof(row));
+        memset(&v, 0, sizeof(v));
+        pj_object(&row);
+        if (pj_set_string(&row, "symbol", preset_symbol(effect, rows[i].id, symbol, sizeof(symbol))) ||
+            pj_set_string(&row, "unit", "") || pj_number(&v, value) || pj_set(&row, "value", &v) || pj_push(&params, &row))
+        {
+            pj_free(&row);
+            goto out;
+        }
+    }
+    if (effect->clap->state)
+    {
+        char *b64;
+
+        body = malloc(CLAP_HOST_STATE_MAX_BYTES);
+        omx_clap_host_settle(effect->clap, QUEUE_SETTLE_US);
+        if (!body || omx_clap_host_state_save_context(effect->clap, CLAP_STATE_CONTEXT_FOR_PRESET, body,
+                                                      CLAP_HOST_STATE_MAX_BYTES, &body_len) != 0)
+        {
+            ret = -2;
+            goto out;
+        }
+        if (!(b64 = preset_base64_encode(body, body_len)))
+            goto out;
+        pj_object(&state);
+        ret = pj_set_string(&state, "encoding", PRESET_ENCODING_BASE64) ||
+              pj_set_string(&state, "context", effect->lv2_entry ? PRESET_CONTEXT_LV2 : PRESET_CONTEXT_PRESET) ||
+              pj_set_string(&state, "bytes", b64);
+        free(b64);
+        if (ret)
+        {
+            ret = -1;
+            goto out;
+        }
+    }
+    if (!pj_get_str(&doc, "id"))
+    {
+        char minted[512];
+
+        snprintf(minted, sizeof(minted), "%s@%s", pid, now);
+        if (pj_set_string(&doc, "id", minted))
+            goto out;
+    }
+    if (!pj_get_str(&doc, "createdAt") && pj_set_string(&doc, "createdAt", now))
+        goto out;
+    if (pj_set_string(&doc, "format", PRESET_FORMAT_STATE) || pj_set(&doc, "plugin", &plugin) ||
+        pj_set_string(&doc, "name", name) || pj_set_string(&doc, "modifiedAt", now) ||
+        pj_set_string(&doc, "carries", effect->clap->state ? PRESET_CARRIES_PARAMS_STATE : PRESET_CARRIES_PARAMS) ||
+        pj_set(&doc, "params", &params))
+        goto out;
+    if (effect->clap->state)
+    {
+        if (pj_set(&doc, "state", &state))
+            goto out;
+    }
+    else
+    {
+        // a plugin without state writes none, and a rewrite drops the body an older save left
+        struct pj none;
+
+        memset(&none, 0, sizeof(none));
+        if (pj_get(&doc, "state") && pj_set(&doc, "state", &none))
+            goto out;
+    }
+    if (!(text = pj_write(&doc, 1)))
+        goto out;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    if (!(f = fopen(tmp, "w")))
+    {
+        ret = -3;
+        goto out;
+    }
+    ret = fputs(text, f) < 0;
+    ret = (fclose(f) != 0 || ret || rename(tmp, path) != 0) ? -3 : 0;
+    if (ret)
+        unlink(tmp);
+out:
+    free(rows);
+    free(body);
+    free(text);
+    pj_free(&plugin);
+    pj_free(&params);
+    pj_free(&state);
+    pj_free(&doc);
+    if (ret == 0)
+    {
+        snprintf(reply, size, "resp 0");
+        return SUCCESS;
+    }
+    return preset_refuse(reply, size, ret == -2 ? PRESET_CODE_LOAD_REFUSED : PRESET_CODE_INVALID);
+}
+
+/* preset_load of a file: an org.openmixer.preset/1 or /2 file for the instance's plugin, its state body loaded first
+ * and then each parameter at its exact value */
+static int preset_file_load(effect_t *effect, const char *path, char *reply, size_t size)
+{
+    struct pj doc, *plugin, *params, *state;
+    const char *format, *carries, *pid, *version;
+    char fingerprint[96];
+    int v2, ret;
+    uint32_t i;
+
+    memset(&doc, 0, sizeof(doc));
+    if (pj_read_file(path, &doc) != 0 || doc.type != PJ_OBJECT || !(format = pj_get_str(&doc, "format")))
+    {
+        pj_free(&doc);
+        return preset_refuse(reply, size, PRESET_CODE_INVALID);
+    }
+    v2 = !strcmp(format, PRESET_FORMAT_STATE);
+    if (!v2 && strcmp(format, PRESET_FORMAT_PARAMS))
+    {
+        pj_free(&doc);
+        return preset_refuse(reply, size, PRESET_CODE_INVALID);
+    }
+    plugin = pj_get(&doc, "plugin");
+    carries = pj_get_str(&doc, "carries");
+    params = pj_get(&doc, "params");
+    state = pj_get(&doc, "state");
+    ret = preset_identity(effect, &pid, &version, fingerprint, sizeof(fingerprint));
+    if (!plugin || plugin->type != PJ_OBJECT || !pj_get_str(plugin, "id") || (params && params->type != PJ_ARRAY) ||
+        (v2 && (!carries || !pj_get_str(plugin, "version") || !pj_get_str(plugin, "fingerprint"))))
+        ret = preset_refuse(reply, size, PRESET_CODE_INVALID);
+    else if (ret != 0)
+        ret = preset_refuse(reply, size, PRESET_CODE_LOAD_REFUSED);
+    else if (strcmp(pj_get_str(plugin, "id"), pid) ||
+             (v2 && (strcmp(pj_get_str(plugin, "version"), version) || strcmp(pj_get_str(plugin, "fingerprint"), fingerprint))))
+        ret = preset_refuse(reply, size, PRESET_CODE_PLUGIN_CHANGED);
+    else if (state && !effect->clap->state)
+        ret = preset_refuse(reply, size, PRESET_CODE_NEEDS_STATE);
+    else
+        ret = SUCCESS;
+    if (ret == SUCCESS && state)
+    {
+        const char *bytes = pj_get_str(state, "bytes");
+        size_t len = 0;
+        uint8_t *body = bytes ? preset_base64_decode(bytes, &len) : NULL;
+
+        if (!body)
+            ret = preset_refuse(reply, size, PRESET_CODE_INVALID);
+        else if (omx_clap_host_state_load_context(effect->clap, CLAP_STATE_CONTEXT_FOR_PRESET, body, len) != 0)
+            ret = preset_refuse(reply, size, PRESET_CODE_LOAD_REFUSED);
+        free(body);
+    }
+    for (i = 0; ret == SUCCESS && params && i < params->n; i++)
+    {
+        const struct pj *row = &params->kids[i];
+        const struct pj *value = pj_get(row, "value");
+        const char *symbol = pj_get_str(row, "symbol");
+        const lv2_param_t *lv2 = effect->lv2_entry && symbol ? lv2_param_by_symbol(effect, symbol) : NULL;
+        char *end;
+        unsigned long id;
+
+        if (!symbol || !value || value->type != PJ_NUMBER)
+            continue;
+        if (lv2)
+            id = lv2->id;
+        else
+        {
+            id = strtoul(symbol, &end, 10);
+            if (*end || end == symbol)
+                continue;
+        }
+        clap_param_set(effect->clap, (clap_id)id, value->num);
+    }
+    pj_free(&doc);
+    if (ret == SUCCESS)
+        snprintf(reply, size, "resp 0");
+    return ret;
+}
+
+/* preset_load as the socket answers it: a file path (absolute) is a preset file, anything else a key of preset_get */
+int effects_preset_load_reply(int effect_id, const char *location, char *reply, size_t size)
+{
+    int ret;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (location[0] == '/')
+    {
+        char path[PATH_MAX];
+
+        snprintf(path, sizeof(path), "%s", location);
+        preset_key_decode(path);
+        return preset_file_load(&g_effects[effect_id], path, reply, size);
+    }
+    // a key the plugin does not offer, or a plugin with no clap.preset-load for a key
+    ret = effects_preset_load(effect_id, location);
+    if (ret == ERR_LV2_INVALID_PRESET_URI || ret == ERR_INVALID_OPERATION)
+        return preset_refuse(reply, size, PRESET_CODE_NOT_OFFERED);
+    if (ret == SUCCESS)
+        snprintf(reply, size, "resp 0");
+    return ret;
+}
+
 int effects_state_save(const char *dir)
 {
     char filename[PATH_MAX];

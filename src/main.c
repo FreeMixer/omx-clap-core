@@ -354,6 +354,35 @@ static void preset_get_cb(proto_t *proto)
 }
 #endif
 
+/* preset_load <N> <file | key> and preset_save <N> <file> <name>: a refusal answers "resp -104 <code>" */
+static void preset_load_cb(proto_t *proto)
+{
+    char reply[SOCKET_MSG_BUFFER_SIZE];
+    const int resp = effects_preset_load_reply(atoi(proto->list[1]), proto->list[2], reply, sizeof(reply));
+
+    if (resp == SUCCESS || resp == ERR_LV2_INVALID_PRESET_URI)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+}
+
+static void preset_save_cb(proto_t *proto)
+{
+    char reply[SOCKET_MSG_BUFFER_SIZE], name[SOCKET_MSG_BUFFER_SIZE];
+    size_t used = 0;
+    int i, resp;
+
+    // the name is the rest of the line, or one quoted word
+    name[0] = '\0';
+    for (i = 3; i < (int)proto->list_count && used < sizeof(name); i++)
+        used += snprintf(name + used, sizeof(name) - used, i > 3 ? " %s" : "%s", proto->list[i]);
+    resp = effects_preset_save(atoi(proto->list[1]), proto->list[2], name, reply, sizeof(reply));
+    if (resp == SUCCESS || resp == ERR_LV2_INVALID_PRESET_URI)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+}
+
 static void param_info_cb(proto_t *proto)
 {
     char reply[SOCKET_MSG_BUFFER_SIZE];
@@ -459,6 +488,9 @@ static int host_init(int socket_port, int feedback_port)
 {
     // the first command registered under a verb is the one that answers it: this add, not the dispatch's
     protocol_add_command(EFFECT_ADD, add_cb);
+    // preset_load and preset_save as docs/presets.md has them, before the dispatch's and the unsupported list's
+    protocol_add_command(EFFECT_PRESET_LOAD, preset_load_cb);
+    protocol_add_command("preset_save %i %s ...", preset_save_cb);
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
