@@ -404,7 +404,6 @@ struct omx_clap_instance
     const clap_plugin_note_ports_t *note_ports;  ///< the plugin's clap.note-ports extension
     const clap_plugin_state_t *state;  ///< the plugin's clap.state extension
     const clap_plugin_preset_load_t *preset_load;  ///< the plugin's clap.preset-load extension
-    int preset_failed;          ///< main thread: the plugin reported on_error while a preset load was in progress
     clap_host_t host;           ///< this instance's host object; host_data is the instance
 
     struct omx_clap_stage stage;  ///< the RT stage the consumer's audio thread runs
