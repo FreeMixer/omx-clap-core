@@ -59,6 +59,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <clap/clap.h>
 
 #define ID_SYNTH        "org.omx-clap-host.test.synth"
@@ -580,6 +581,15 @@ static bool preset_from_location(const clap_plugin_t *plugin, uint32_t kind, con
     (void)plugin;
     if (key && !strcmp(key, "missing"))
         return false;
+    if (kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE && location && access(location, R_OK) != 0)
+    {
+        // like Surge XT: the call answers true and the failure comes through the host's preset-load on_error
+        const clap_host_preset_load_t *hp = g_poly_host ? g_poly_host->get_extension(g_poly_host, CLAP_EXT_PRESET_LOAD) : NULL;
+
+        if (hp && hp->on_error)
+            hp->on_error(g_poly_host, kind, location, key, 2, "cannot open the preset file");
+        return true;
+    }
     snprintf(g_poly.last_preset, sizeof(g_poly.last_preset), "%u|%s|%s", kind, location ? location : "-", key ? key : "-");
     if (log && (f = fopen(log, "a")) != NULL)
     {

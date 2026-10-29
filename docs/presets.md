@@ -28,6 +28,9 @@ Verbs
 - `preset_load` takes a key of `preset_get` (loaded through `clap.preset-load`), an LV2 preset's URI, or the path of a
   preset file below. A file's parameters are written as their exact values (a double, never through a float) and its
   state body is loaded with `clap.state-context` (`preset` context) or `clap.state`.
+  A load is answered `resp 0` only when the plugin's `from_location` answered true and the plugin reported no error
+  through the host's `clap.preset-load` `on_error` during the call (Surge XT answers true for a file it cannot open and
+  reports it there); either failure answers `-104`. A `%20` or `%25` in a bare path is decoded as in a key (#401).
 - `preset_save` writes the instance into the file at `<file>` with the display name `<name>` (the rest of the line, or
   one quoted word). An existing preset file at that path keeps its `id`, `createdAt` and every field this host does not
   write; anything else at that path is refused.

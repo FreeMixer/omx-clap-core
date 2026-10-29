@@ -475,6 +475,11 @@ static void host_state_mark_dirty(const clap_host_t *host)
         atomic_store_explicit(&instance_of(host)->state_dirty, 1u, memory_order_relaxed);
 }
 
+/* the instance a preset load is in progress for, and whether its plugin reported on_error meanwhile: main thread only, kept
+ * here so the public instance struct stays as the soname has it */
+static const struct omx_clap_instance *g_preset_loading;
+static int g_preset_failed;
+
 static void host_preset_on_error(const clap_host_t *host, uint32_t location_kind, const char *location, const char *load_key,
                                  int32_t os_error, const char *msg)
 {
@@ -485,6 +490,8 @@ static void host_preset_on_error(const clap_host_t *host, uint32_t location_kind
     (void)os_error;
     if (main_thread_call(host))
     {
+        if (instance_of(host) == g_preset_loading)
+            g_preset_failed = 1;
         snprintf(text, sizeof(text), "preset %s: %s", location ? location : "", msg ? msg : "error");
         log_to_ring(instance_of(host), text);
     }
@@ -3663,11 +3670,24 @@ uint32_t omx_clap_host_tail(const struct omx_clap_instance *in)
     return in ? atomic_load_explicit(&in->tail_frames, memory_order_relaxed) : 0;
 }
 
+/* from_location answers true for a load a plugin refuses later or says it could not do through the host's on_error
+ * (Surge XT does for a file it cannot open): the load is done only when it answered true and reported no error */
+static int preset_from_location(struct omx_clap_instance *in, uint32_t location_kind, const char *location, const char *load_key)
+{
+    int ok;
+
+    g_preset_failed = 0;
+    g_preset_loading = in;
+    ok = in->preset_load->from_location(in->plugin, location_kind, location, load_key);
+    g_preset_loading = NULL;
+    return ok && !g_preset_failed ? 0 : -1;
+}
+
 int omx_clap_host_preset_load(struct omx_clap_instance *in, const char *location)
 {
     if (!in->preset_load)
         return -1;
-    return in->preset_load->from_location(in->plugin, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL) ? 0 : -1;
+    return preset_from_location(in, CLAP_PRESET_DISCOVERY_LOCATION_FILE, location, NULL);
 }
 
 int omx_clap_host_preset_load_key(struct omx_clap_instance *in, uint32_t location_kind, const char *location, const char *load_key)
@@ -3676,8 +3696,7 @@ int omx_clap_host_preset_load_key(struct omx_clap_instance *in, uint32_t locatio
         return -1;
     if (location_kind == CLAP_PRESET_DISCOVERY_LOCATION_FILE ? !location : location_kind != CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
         return -1;
-    return in->preset_load->from_location(in->plugin, location_kind,
-                                          location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? NULL : location, load_key) ? 0 : -1;
+    return preset_from_location(in, location_kind, location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN ? NULL : location, load_key);
 }
 
 uint32_t omx_clap_host_param_events_take(struct omx_clap_instance *in, struct omx_clap_param_event *events, uint32_t capacity)
