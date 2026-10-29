@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.24.1
+Version:        0.24.2
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.2-1
+- preset_load of an unknown location in mod-host's form (a preset URI, not a
+  key of preset_get) answers the bare code again, as mod-host does, for a CLAP
+  plugin as for an LV2 one (#413, #383).
+
 * Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.1-1
 - omx-clap-host answers preset_list and preset_get: the plugin's own presets,
   from its file's preset-discovery factory for a CLAP plugin and from the
