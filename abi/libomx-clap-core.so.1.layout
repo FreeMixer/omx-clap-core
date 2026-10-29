@@ -1,4 +1,4 @@
-version 0.23.0
+version 0.24.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
@@ -193,7 +193,11 @@ member struct omx_clap_instance idle_held 269516 4 uint32_t idle_held
 member struct omx_clap_instance resource_hints 269520 48 omx_resource_hints_t resource_hints
 member struct omx_clap_instance resource_hints_why 269568 8 const char * resource_hints_why
 member struct omx_clap_instance audio_slot 269576 8 _Atomic const _Atomic pthread_t * audio_slot
-size struct omx_clap_instance 269584
+member struct omx_clap_instance pool_use 269584 4 uint32_t pool_use
+member struct omx_clap_instance pool_priority 269588 4 int32_t pool_priority
+member struct omx_clap_instance pool_held 269592 4 uint32_t pool_held
+member struct omx_clap_instance pool_late 269596 4 _Atomic uint32_t pool_late
+size struct omx_clap_instance 269600
 member struct omx_clap_meter id 0 4 clap_id id
 member struct omx_clap_meter name 4 256 char name[256]
 member struct omx_clap_meter kind 260 4 uint32_t kind
@@ -424,6 +428,19 @@ member struct omx_clap_stage passthrough 86168 4 uint32_t passthrough
 size struct omx_clap_stage 86176
 member struct omx_clap_tempo bpm_bits 0 8 _Atomic uint64_t bpm_bits
 size struct omx_clap_tempo 8
+member struct omx_clap_thread_pool_info helpers 0 4 uint32_t helpers
+member struct omx_clap_thread_pool_info holders 4 4 uint32_t holders
+member struct omx_clap_thread_pool_info cores 8 4 uint32_t cores
+member struct omx_clap_thread_pool_info priority 12 4 int32_t priority
+member struct omx_clap_thread_pool_info state 16 256 char state[256]
+member struct omx_clap_thread_pool_info requests 272 8 uint64_t requests
+member struct omx_clap_thread_pool_info busy 280 8 uint64_t busy
+member struct omx_clap_thread_pool_info late 288 8 uint64_t late
+member struct omx_clap_thread_pool_info tasks_audio 296 8 uint64_t tasks_audio
+member struct omx_clap_thread_pool_info helper_tasks 304 504 uint64_t helper_tasks[63]
+member struct omx_clap_thread_pool_info helper_busy_ns 808 504 uint64_t helper_busy_ns[63]
+member struct omx_clap_thread_pool_info helper_core 1312 252 int32_t helper_core[63]
+size struct omx_clap_thread_pool_info 1568
 member struct omx_clap_timer used 0 4 uint32_t used
 member struct omx_clap_timer id 4 4 clap_id id
 member struct omx_clap_timer period_ms 8 4 uint32_t period_ms

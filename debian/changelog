@@ -1,3 +1,30 @@
+omx-clap-host (0.24.0) unstable; urgency=medium
+
+  * The CLAP host has a thread pool: pinned real-time helper threads run the
+    tasks a plugin hands to the host through thread-pool request_exec, and
+    the plugin's grant comes from its qualification, per plugin. Helpers are
+    named omx-pool-<core>. omx-clap-host takes --thread-pool=qualified|off|on
+    (qualified is the default). The library ABI is 19: a new version node
+    OMX_CLAP_CORE_0.24 holds omx_clap_host_thread_pool_use,
+    omx_clap_host_thread_pool and omx_clap_host_thread_pool_late; the soname
+    stays libomx-clap-core.so.1 (#395, #399).
+  * fuzz_preset: no_overread compares its three readings only when none ran
+    out of memory, so a large valid preset under AddressSanitizer no longer
+    aborts it (Theorem's port, #396, #397).
+  * A manifest reader that runs out of memory answers its own code, and
+    open_lv2 and fields_lv2 treat it as a failure, not an invalid URI (#340).
+  * pj_write writes a lax number as a strict JSON one, and the preset grammar
+    is stated in preset_file.h (#347).
+  * The commit-message check is named for what it runs, tools/commit-message-check.sh
+    (#398).
+  * Checks and tests: the fuzz seed floor goes red on an empty reach file or
+    an unknown harness (#342), abi-check tracks the data-member heading depth
+    as a stack (#325), lv2_host_test runs under the address sanitizer (#293),
+    and test-jack, test-scan and test-identity skip a missing
+    CLAP_TEST_PLUGIN instead of failing.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Thu, 29 Oct 2026 12:00:00 +0100
+
 omx-clap-host (0.23.2) unstable; urgency=medium
 
   * The shared verbs that plugin-hostd answers declare -901 (data/verbs.json
