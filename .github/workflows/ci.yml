@@ -20,10 +20,10 @@ concurrency:
 
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
-  PLUGIN_HOSTD_REF: v0.7.0
+  PLUGIN_HOSTD_REF: v0.15.0
   # plugin-hostd-tests' lib/ (protocol.sh, plugin_hostd_client.py), which every e2e script and bench sources, from the release
   # tag that first ships it; the headers and the daemon above stay at their own tag
-  PLUGIN_HOSTD_TESTS_REF: v0.13.0
+  PLUGIN_HOSTD_TESTS_REF: v0.15.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
 
