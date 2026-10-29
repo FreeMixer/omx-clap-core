@@ -20,9 +20,11 @@ Verbs
   which lists the bundle's `pset:Preset` resources by lilv. Only presets that name the instance's plugin count. A
   plugin that offers none answers `resp 0`.
 - `preset_get` answers one of them, 0 to count - 1, in the listing's order: the key `preset_load` and `preset_show`
-  take, and its name (the rest of the line). The key is the preset's URI for LV2, the file's absolute path for a CLAP
-  `FILE` location holding one preset, `<path>#<key>` for one inside a container, `plugin:<key>` for a `PLUGIN` location;
-  a space and a `%` in it are written `%20` and `%25`. -902 for an index that is not one.
+  take, and its name (the rest of the line). The key is the preset's URI for LV2, `file:<path>` for a CLAP `FILE`
+  location holding one preset, `file:<path>#<key>` for one inside a container, `plugin:<key>` for a `PLUGIN` location;
+  a space and a `%` in it are written `%20` and `%25`. No key starts with `/`: an absolute path is a preset file of
+  ours, which plugin-hostd reads before it reaches the worker. -902 for an index that is not one. The rows are those
+  of the last `preset_list`; `preset_list` reads the plugin's presets again.
 - `preset_load` takes a key of `preset_get` (loaded through `clap.preset-load`), an LV2 preset's URI, or the path of a
   preset file below. A file's parameters are written as their exact values (a double, never through a float) and its
   state body is loaded with `clap.state-context` (`preset` context) or `clap.state`.

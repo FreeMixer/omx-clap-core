@@ -570,13 +570,22 @@ static bool note_name_get(const clap_plugin_t *plugin, uint32_t index, clap_note
 
 static const clap_plugin_note_name_t g_note_name = { note_name_count, note_name_get };
 
-/* synth-poly's preset-load: it records what it was asked for, and refuses the key "missing" */
+/* synth-poly's preset-load: it records what it was asked for, and refuses the key "missing"; with FAKE_SYNTH_PRESET_LOG
+ * set it also appends that record to the file it names, a line each, for a test that drives the host over its socket */
 static bool preset_from_location(const clap_plugin_t *plugin, uint32_t kind, const char *location, const char *key)
 {
+    const char *log = getenv("FAKE_SYNTH_PRESET_LOG");
+    FILE *f;
+
     (void)plugin;
     if (key && !strcmp(key, "missing"))
         return false;
     snprintf(g_poly.last_preset, sizeof(g_poly.last_preset), "%u|%s|%s", kind, location ? location : "-", key ? key : "-");
+    if (log && (f = fopen(log, "a")) != NULL)
+    {
+        fprintf(f, "%s\n", g_poly.last_preset);
+        fclose(f);
+    }
     return true;
 }
 
@@ -797,6 +806,14 @@ static bool provider_get_metadata(const clap_preset_discovery_provider_t *provid
         r->add_plugin_id(r, &other);
         r->set_flags(r, CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT | CLAP_PRESET_DISCOVERY_IS_FAVORITE);
         r->set_description(r, "A pad");
+        // with FAKE_SYNTH_PRESET_OTHER set, a third preset that names only the plain synth of this file: a host listing
+        // synth-poly's presets leaves it out
+        if (getenv("FAKE_SYNTH_PRESET_OTHER") && r->begin_preset(r, "Plain only", "plain"))
+        {
+            const clap_universal_plugin_id_t plain = { "clap", ID_SYNTH };
+
+            r->add_plugin_id(r, &plain);
+        }
         return true;
     }
     f = location ? fopen(location, "r") : NULL;

@@ -19,7 +19,8 @@ with a line built for its declared format from this file's EXAMPLES:
   unsupported  a well-formed line is answered with the verb's invalidOperation code (-902).
 
 And the reverse: every protocol_add_command of the registration table names its line by an OMX_VERB_<VERB>_FMT of the
-header, by a mod-host macro, or by the word of a verb another package declares (or AWAITING names until a package
+header, by an OMX_VERB_<VERB>_FMT of another package's header for a verb that package declares, by a mod-host macro,
+or by the word of a verb another package declares (or AWAITING names until a package
 declares it); the declared verbs this table registers equal the verbs this package declares for omx-clap-host. A
 registered verb with no declaration, a declared one with no handler, a verb whose answer is not its declaration's, and
 a declared verb with no example are each a failure. Exit 0 held; 1 a failure; 2 usage or no declaration.
@@ -38,7 +39,7 @@ HOST = 'omx-clap-host'
 OWNER = 'omx-clap-core'
 # a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
 # once any installed package declares it, the socket checks it as declared
-AWAITING = {'chain': 'plugin-hostd'}
+AWAITING = {'chain': 'plugin-hostd', 'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd'}
 
 # per verb: the words after the verb of a well-formed line, and malformed lines with the code each must answer.
 # {fx} is the passthrough instance (no note input, two remote pages, a parameter contract), {synth} the synth.
@@ -189,7 +190,9 @@ def registrations(main_c, header):
     for a in args:
         if re.fullmatch(r'OMX_VERB_[A-Z0-9_]+_FMT', a):
             fmt = macros.get(a)
-            out.append(('declared' if fmt else 'unknown', fmt.split()[0] if fmt else a, a))
+            # a macro the header does not define: another package's declaration, as its own header spells it
+            # (OMX_VERB_<VERB>_FMT for the verb <verb>), held below to that package declaring the verb
+            out.append(('declared', fmt.split()[0], a) if fmt else ('elsewhere', a[len('OMX_VERB_'):-len('_FMT')].lower(), a))
             continue
         parts = re.findall(r'"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*)', a)
         if len(parts) == 1 and parts[0][1] and parts[0][1] not in local:
@@ -226,8 +229,11 @@ def main():
             whose = 'another package\'s' if word in declared_elsewhere else '%s\'s, not installed yet' % AWAITING.get(word)
             step(ok, 'registered %s: %s' % (text, 'its declaration is ' + whose if ok
                                              else 'a verb with no declaration, or a declared one typed by hand'))
-        elif kind == 'unknown':
-            step(False, 'registered %s, which the header does not define' % text)
+        elif kind == 'elsewhere':
+            ok = word not in mine and (word in declared_elsewhere or word in AWAITING)
+            whose = ('another package declares %s' % word if word in declared_elsewhere
+                     else '%s declares %s, not installed here' % (AWAITING.get(word), word))
+            step(ok, 'registered %s, which the header does not define: %s' % (text, whose if ok else 'no package declares %s' % word))
     step(registered == mine, 'the declared verbs the host registers are the ones %s declares: missing %s, extra %s'
          % (OWNER, sorted(mine - registered) or 'none', sorted(registered - mine) or 'none'))
 
