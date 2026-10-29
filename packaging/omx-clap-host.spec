@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.23.2
+Version:        0.24.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,18 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.0-1
+- The CLAP host has a thread pool: pinned real-time helper threads run the
+  tasks a plugin hands to the host, granted per plugin from its
+  qualification; omx-clap-host takes --thread-pool=qualified|off|on. ABI 19,
+  a new version node OMX_CLAP_CORE_0.24 with omx_clap_host_thread_pool_use,
+  omx_clap_host_thread_pool and omx_clap_host_thread_pool_late; the soname
+  stays libomx-clap-core.so.1 (#395).
+- fuzz_preset no_overread compares its readings only when none ran out of
+  memory (#396).
+- A manifest reader that runs out of memory answers its own code (#340);
+  pj_write writes a lax number as a strict JSON one (#347).
+
 * Wed Oct 28 2026 Pau Aliagas <linuxnow@gmail.com> - 0.23.2-1
 - The shared verbs that plugin-hostd answers declare -901 (data/verbs.json
   and the generated header) (Sami Jawhar, #363).
