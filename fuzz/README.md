@@ -67,8 +67,11 @@ Each harness checks the same five, one `check_` function each:
   `n` characters; the manifest reader the URI's length and three.
 
 `fuzz/alloc.h` is forced on the reader's objects, never on the harness: the reader's `malloc`, `calloc`, `realloc`,
-`strdup` and `free` go to `fuzz/alloc.c`, which counts what it holds, the most it held, and can fail one allocation. A
-block's size sits in a head AddressSanitizer is told is poisoned, so a block still ends where the reader's bytes end.
+`strdup` and `free` go to `fuzz/alloc.c`, which counts what it holds, the most it held or asked to hold, and can fail
+one allocation. It notes when the C library returns NULL on a request of at most `fuzz_alloc_most()` bytes; fuzz_preset
+sets that to `PJ_ALLOC_BOUND` of the input, and ends the call when memory runs out. A request past it is left to the
+checks. A block's size sits in a head AddressSanitizer is told is poisoned, so a block still ends where the reader's
+bytes end.
 
 ## The seed corpus
 

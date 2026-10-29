@@ -17,15 +17,15 @@
 
 /* A heap copy of `n` bytes; with `terminated` a NUL after them, as a reader of C strings is handed its text; then `pad`
  * bytes of `fill`, and for a C string a NUL after the pad too, so a reader that runs past its NUL stops inside the copy.
- * With pad 0 the copy ends where the reader's bytes end, so a read past them is AddressSanitizer's. */
-static inline char *fuzz_copy(const uint8_t *p, size_t n, int terminated, size_t pad, char fill)
+ * With pad 0 the copy ends where the reader's bytes end, so a read past them is AddressSanitizer's. NULL when memory
+ * runs out. */
+static inline char *fuzz_copy_or_null(const uint8_t *p, size_t n, int terminated, size_t pad, char fill)
 {
     const size_t t = terminated ? 1 : 0, end = pad && terminated ? 1 : 0, total = n + t + pad + end;
     char *b = malloc(total ? total : 1);
 
-    /* not a property: the harness's own allocation failed */
     if (!b)
-        abort();
+        return NULL;
     if (n)
         memcpy(b, p, n);
     if (t)
@@ -33,6 +33,17 @@ static inline char *fuzz_copy(const uint8_t *p, size_t n, int terminated, size_t
     memset(b + n + t, fill, pad);
     if (end)
         b[total - 1] = '\0';
+    return b;
+}
+
+/* fuzz_copy_or_null, but an abort when memory runs out */
+static inline char *fuzz_copy(const uint8_t *p, size_t n, int terminated, size_t pad, char fill)
+{
+    char *b = fuzz_copy_or_null(p, n, terminated, pad, fill);
+
+    /* not a property: the harness's own allocation failed */
+    if (!b)
+        abort();
     return b;
 }
 
@@ -51,7 +62,8 @@ void *fuzz_realloc(void *p, size_t n);
 char *fuzz_strdup(const char *s);
 void fuzz_free(void *p);
 
-/* the bytes the reader holds now; the most it held since the last fuzz_alloc_peak_reset() */
+/* the bytes the reader holds now; the most it held, or asked to hold when refused, since the last
+ * fuzz_alloc_peak_reset() */
 size_t fuzz_alloc_live(void);
 size_t fuzz_alloc_peak(void);
 void fuzz_alloc_peak_reset(void);
@@ -62,9 +74,11 @@ size_t fuzz_alloc_count(void);
 void fuzz_alloc_fail(size_t k);
 
 /* whether memory has run out since the last fuzz_alloc_ran_out_reset(): the C library's allocator returned NULL on one
- * of the reader's allocations that fuzz_alloc_fail did not choose */
+ * of the reader's allocations that fuzz_alloc_fail did not choose, of at most fuzz_alloc_most(n)'s n bytes (SIZE_MAX
+ * until it is called) */
 int fuzz_alloc_ran_out(void);
 void fuzz_alloc_ran_out_reset(void);
+void fuzz_alloc_most(size_t n);
 
 /* which of `n` allocations an input fails: one its bytes choose, so the same input fails the same one */
 static inline size_t fuzz_pick(const uint8_t *p, size_t len, size_t n)
