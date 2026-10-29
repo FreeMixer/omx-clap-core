@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.24.0
+Version:        0.24.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,19 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.1-1
+- omx-clap-host answers preset_list and preset_get: the plugin's own presets,
+  from its file's preset-discovery factory for a CLAP plugin and from the
+  bundle's pset:Preset through the adapter for an LV2 plugin, keyed as
+  docs/presets.md says (file:, plugin:, an LV2 preset's URI). Before, neither
+  verb was registered and the protocol answered "not found", so a plugin-hostd
+  chain showed no presets in Zynthian (#383, plugin-hostd#269).
+- preset_save writes the instance into an org.openmixer.preset/2 file
+  (parameters at their exact values, the state for the preset context), and
+  preset_load reads one back, refusing a file for another plugin, version or
+  layout with plugin-hostd's codes; an LV2 preset URI the bundle does not hold
+  is answered as mod-host answers it (#383).
+
 * Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.0-1
 - The CLAP host has a thread pool: pinned real-time helper threads run the
   tasks a plugin hands to the host, granted per plugin from its
