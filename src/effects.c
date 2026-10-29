@@ -64,6 +64,7 @@
 #include "window.h"
 #include "xrun_report.h"
 #include "omx_msgring.h"
+#include "preset_file.h"
 #include "omx_clap_lv2.h"
 #include "host-dispatch.h"
 #include "socket.h"
@@ -194,6 +195,8 @@ typedef struct EFFECT_T {
     const clap_plugin_entry_t *lv2_entry;   // an LV2 plugin: the adapter's entry of its bundle; NULL for a CLAP plugin
     lv2_param_t *lv2_params;
     uint32_t lv2_params_count;
+    char **preset_keys, **preset_names;     // the last preset_list, the rows preset_get answers, encoded keys
+    uint32_t presets_count;
     uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
     clap_id *gestures_open;                 // the parameters whose gesture begin went out on the feedback port, no end yet
     uint32_t gestures_open_count, gestures_open_cap;
@@ -201,6 +204,8 @@ typedef struct EFFECT_T {
     struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
     struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
 } effect_t;
+
+static void presets_forget(effect_t *effect);
 
 /* a chain the chain line declared: the library's chain the head's cycle runs, and its members in order, the head first,
  * changed by the control thread and read by the head's buffer-size callback on JACK's thread, both under
@@ -930,6 +935,7 @@ static void instance_free(effect_t *effect)
     // the entry outlives the plugin made from it
     if (effect->lv2_entry)
         omx_clap_lv2_entry_release(effect->lv2_entry);
+    presets_forget(effect);
     free(effect->aux_in_ports);
     free(effect->aux_out_ports);
     free(effect->aux_in_bufs);
@@ -3092,20 +3098,184 @@ int effects_get_parameter(int effect_id, const char *control_symbol, float *valu
     return ret;
 }
 
+/* the rows of the last preset_list, gone */
+static void presets_forget(effect_t *effect)
+{
+    uint32_t i;
+
+    for (i = 0; i < effect->presets_count; i++)
+    {
+        free(effect->preset_keys[i]);
+        free(effect->preset_names[i]);
+    }
+    free(effect->preset_keys);
+    free(effect->preset_names);
+    effect->preset_keys = effect->preset_names = NULL;
+    effect->presets_count = 0;
+}
+
+struct preset_listing
+{
+    const char *plugin_id;  // the instance's plugin: a preset naming other plugins only is left out
+    int lv2;                // an LV2 plugin through the adapter: a PLUGIN location's key is the preset's URI, bare
+    char **keys, **names;
+    uint32_t n, cap;
+    int failed;             // memory ran out: the listing is refused, not cut short
+};
+
+/* one preset of the plugin's file into the listing, keyed as docs/presets.md says: the URI for LV2, plugin:<key> for a
+ * PLUGIN location, file:<path> for a FILE location holding one preset and file:<path>#<key> for one inside a container,
+ * a space and a % written %20 and %25. A key never starts with '/': an absolute path is a preset file of ours. */
+static int preset_collect(void *ctx, const struct omx_clap_preset *preset)
+{
+    struct preset_listing *l = ctx;
+    char key[2 * PATH_MAX + 16], encoded[3 * sizeof(key)];
+    uint32_t i;
+    int n;
+
+    if (preset->plugin_count > 0)
+    {
+        for (i = 0; i < preset->plugin_count && strcmp(preset->plugin_ids[i], l->plugin_id); i++)
+            ;
+        if (i == preset->plugin_count)
+            return 0;
+    }
+    if (preset->location_kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
+    {
+        if (!preset->load_key || !preset->load_key[0])
+            return 0;
+        n = snprintf(key, sizeof(key), l->lv2 ? "%s" : HOST_PRESET_KEY_PLUGIN "%s", preset->load_key);
+    }
+    else
+    {
+        if (!preset->location || !preset->location[0])
+            return 0;
+        n = preset->load_key ? snprintf(key, sizeof(key), HOST_PRESET_KEY_FILE "%s#%s", preset->location, preset->load_key)
+                             : snprintf(key, sizeof(key), HOST_PRESET_KEY_FILE "%s", preset->location);
+    }
+    if (n < 0 || (size_t)n >= sizeof(key) || preset_key_encode(key, encoded, sizeof(encoded)) != 0)
+        return 0;
+    if (l->n == l->cap)
+    {
+        const uint32_t cap = l->cap ? 2 * l->cap : 64;
+        char **keys = realloc(l->keys, cap * sizeof(*keys));
+
+        if (keys)
+            l->keys = keys;
+        char **names = keys ? realloc(l->names, cap * sizeof(*names)) : NULL;
+
+        if (!keys || !names)
+        {
+            l->failed = 1;
+            return 1;
+        }
+        l->names = names;
+        l->cap = cap;
+    }
+    l->keys[l->n] = strdup(encoded);
+    l->names[l->n] = strdup(preset->name ? preset->name : "");
+    if (!l->keys[l->n] || !l->names[l->n])
+    {
+        free(l->keys[l->n]);
+        free(l->names[l->n]);
+        l->failed = 1;
+        return 1;
+    }
+    l->n++;
+    return 0;
+}
+
+/* preset_list: the plugin's own presets, read again from its file's preset-discovery factory (a CLAP plugin) or the
+ * adapter's entry (an LV2 plugin, its bundle's pset:Preset); kept for preset_get until the next preset_list. 0 for a
+ * plugin that offers none. */
+int effects_preset_list(int effect_id)
+{
+    effect_t *effect;
+    struct preset_listing l;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    memset(&l, 0, sizeof(l));
+    l.plugin_id = effect->clap->desc->id;
+    l.lv2 = effect->lv2_entry != NULL;
+    if (effect->lv2_entry)
+        omx_clap_host_entry_presets(effect->lv2_entry, preset_collect, &l);
+    else
+        omx_clap_host_presets(effect->clap->bin, preset_collect, &l);
+    presets_forget(effect);
+    if (l.failed)
+    {
+        effect->preset_keys = l.keys;
+        effect->preset_names = l.names;
+        effect->presets_count = l.n;
+        presets_forget(effect);
+        return ERR_MEMORY_ALLOCATION;
+    }
+    effect->preset_keys = l.keys;
+    effect->preset_names = l.names;
+    effect->presets_count = l.n;
+    return (int)l.n;
+}
+
+/* preset_get: "resp 0 <load_key> <name>", the name the rest of the line with a byte below 0x20 a space; -902 for an
+ * index the last preset_list did not give */
+int effects_preset_get(int effect_id, int index, char *reply, size_t size)
+{
+    const effect_t *effect;
+    int n;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    if (index < 0 || (uint32_t)index >= effect->presets_count)
+        return ERR_INVALID_OPERATION;
+    n = snprintf(reply, size, "resp 0 %s %s", effect->preset_keys[index], effect->preset_names[index]);
+    if (n < 0 || (size_t)n >= size)
+        return ERR_INVALID_OPERATION;
+    for (char *c = reply; *c; c++)
+        if ((unsigned char)*c < 0x20)
+            *c = ' ';
+    return SUCCESS;
+}
+
 int effects_preset_load(int effect_id, const char *location)
 {
     struct omx_clap_instance *clap;
+    char key[2 * PATH_MAX + 16];
+    struct stat st;
+    char *mark;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
     if (!clap->preset_load)
         return ERR_INVALID_OPERATION;
+    if (snprintf(key, sizeof(key), "%s", location) >= (int)sizeof(key))
+        return ERR_LV2_INVALID_PRESET_URI;
+    preset_key_decode(key);
+    // a key of preset_get: plugin:<key>, file:<path> or file:<path>#<key> (a path that exists whole is a file)
+    if (!strncmp(key, HOST_PRESET_KEY_PLUGIN, strlen(HOST_PRESET_KEY_PLUGIN)))
+        return omx_clap_host_preset_load_key(clap, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL,
+                                             key + strlen(HOST_PRESET_KEY_PLUGIN)) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
+    if (!strncmp(key, HOST_PRESET_KEY_FILE, strlen(HOST_PRESET_KEY_FILE)))
+    {
+        char *path = key + strlen(HOST_PRESET_KEY_FILE);
+        const char *inner = NULL;
+
+        if (stat(path, &st) != 0 && (mark = strrchr(path, '#')) != NULL)
+        {
+            *mark = '\0';
+            inner = mark + 1;
+        }
+        return omx_clap_host_preset_load_key(clap, CLAP_PRESET_DISCOVERY_LOCATION_FILE, path, inner) == 0
+            ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
+    }
     // an LV2 preset is named by its URI, as mod-host takes it: a preset of the plugin's bundle, the URI its load key
     if (g_effects[effect_id].lv2_entry)
-        return clap->preset_load->from_location(clap->plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, location)
+        return clap->preset_load->from_location(clap->plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, key)
             ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
-    return omx_clap_host_preset_load(clap, location) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
+    return omx_clap_host_preset_load(clap, key) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
 }
 
 int effects_state_save(const char *dir)

@@ -56,6 +56,10 @@
 
 /* the word for what is not there: no colour in track_info, an empty slot of remote_page_get, no note input */
 #define HOST_WORD_NONE          "-"
+/* the load keys preset_get gives besides an LV2 preset's URI: a preset of a PLUGIN location, and of a FILE location
+ * (file:<path>, or file:<path>#<key> inside a container); docs/presets.md */
+#define HOST_PRESET_KEY_PLUGIN  "plugin:"
+#define HOST_PRESET_KEY_FILE    "file:"
 /* the longest string word, in bytes: a CLAP name without its terminator */
 #define HOST_STRING_MAX         (CLAP_NAME_SIZE - 1)
 /* the slots of one remote page */

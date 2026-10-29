@@ -123,6 +123,12 @@ LIBS = $(JACK_LIBS) -ldl -lpthread -lm
 
 # include paths
 INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
+# plugin-hostd's include tree searched after every other, for its verb declarations alone (preset_list and preset_get,
+# which plugin-hostd 0.13 and later install): a build whose pin.h comes from an older plugin-hostd still answers them
+PLUGIN_HOSTD_VERBS_DIR ?=
+ifneq ($(PLUGIN_HOSTD_VERBS_DIR),)
+INCS += -idirafter $(PLUGIN_HOSTD_VERBS_DIR)
+endif
 
 LDFLAGS += -Wl,--no-undefined
 
@@ -1351,3 +1357,9 @@ fuzz-corpus-check: $(FUZZ_BUILD)/gen-corpus
 .PHONY: test-protocol-client
 test-protocol-client:
 	sh tests/protocol_client_check.sh
+
+# preset_list, preset_get and preset_load over the socket (docs/presets.md): fake_synth's preset-discovery factory and
+# the LV2 fixture bundle through the adapter, in a private PipeWire (tests/jack_presets_e2e.sh)
+.PHONY: test-jack-presets
+test-jack-presets: $(PROG) tests/fake_synth.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+	bash tests/jack_presets_e2e.sh

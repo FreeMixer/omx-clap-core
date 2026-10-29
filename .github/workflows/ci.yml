@@ -392,6 +392,18 @@ jobs:
             echo "::warning::test-jack-lv2 SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # preset_list, preset_get and preset_load over the socket: fake_synth's preset-discovery factory and the LV2 fixture
+      # bundle through the adapter. The verbs' declarations are plugin-hostd 0.13's, from the tests checkout, searched
+      # after the pinned headers (omx-clap-core#383).
+      - name: Test presets through the host over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            touch src/main.c
+            make test-jack-presets PLUGIN_HOSTD_VERBS_DIR=/tmp/plugin-hostd-tests/include
+          else
+            echo "::warning::test-jack-presets SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # The fixture bundle through mod-host, through this host's adapter and through the adapter in process, bit for bit.
       - name: Test the LV2 path bit for bit against mod-host and the adapter in process
         run: |
