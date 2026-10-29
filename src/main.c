@@ -358,9 +358,11 @@ static void preset_get_cb(proto_t *proto)
 static void preset_load_cb(proto_t *proto)
 {
     char reply[SOCKET_MSG_BUFFER_SIZE];
-    const int resp = effects_preset_load_reply(atoi(proto->list[1]), proto->list[2], reply, sizeof(reply));
+    int resp;
 
-    if (resp == SUCCESS || resp == ERR_LV2_INVALID_PRESET_URI)
+    reply[0] = '\0';
+    resp = effects_preset_load_reply(atoi(proto->list[1]), proto->list[2], reply, sizeof(reply));
+    if (reply[0])
         protocol_response(reply, proto);
     else
         protocol_response_int(resp, proto);

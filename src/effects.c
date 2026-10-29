@@ -3564,8 +3564,12 @@ int effects_preset_load_reply(int effect_id, const char *location, char *reply, 
         preset_key_decode(path);
         return preset_file_load(&g_effects[effect_id], path, reply, size);
     }
-    // a key the plugin does not offer, or a plugin with no clap.preset-load for a key
+    // a key the plugin does not offer, or a plugin with no clap.preset-load for a key; an LV2 preset's URI, mod-host's
+    // form, is answered as mod-host answers it, the bare resp -104
     ret = effects_preset_load(effect_id, location);
+    if (g_effects[effect_id].lv2_entry && strncmp(location, HOST_PRESET_KEY_PLUGIN, strlen(HOST_PRESET_KEY_PLUGIN)) &&
+        strncmp(location, HOST_PRESET_KEY_FILE, strlen(HOST_PRESET_KEY_FILE)))
+        return ret;
     if (ret == ERR_LV2_INVALID_PRESET_URI || ret == ERR_INVALID_OPERATION)
         return preset_refuse(reply, size, PRESET_CODE_NOT_OFFERED);
     if (ret == SUCCESS)
