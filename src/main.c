@@ -46,8 +46,8 @@
 #include "protocol.h"
 #include "effects.h"
 #include "host_verbs.h"
-// preset_list and preset_get are plugin-hostd's verbs, optional for this host: their formats from its declaration,
-// which plugin-hostd 0.13 and later install; a build against older headers answers neither (omx-clap-core#383)
+// preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from its
+// declaration, which plugin-hostd 0.13 and later install; a build against older headers answers none (omx-clap-core#383)
 #if __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
 #include <plugin-hostd/plugin_hostd_host_verbs.h>
 #endif
@@ -332,6 +332,19 @@ static void remote_page_get_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+#ifdef OMX_VERB_PIN_LAYOUT_FMT
+static void pin_layout_cb(proto_t *proto)
+{
+    char reply[SOCKET_MSG_BUFFER_SIZE];
+    int resp = effects_pin_layout(atoi(proto->list[1]), reply, sizeof(reply));
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+}
+#endif
+
 #ifdef OMX_VERB_PRESET_GET_FMT
 static void preset_list_cb(proto_t *proto)
 {
@@ -500,6 +513,9 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(OMX_VERB_PARAM_INFO_FMT, param_info_cb);
+#ifdef OMX_VERB_PIN_LAYOUT_FMT
+    protocol_add_command(OMX_VERB_PIN_LAYOUT_FMT, pin_layout_cb);
+#endif
 #ifdef OMX_VERB_PRESET_GET_FMT
     protocol_add_command(OMX_VERB_PRESET_LIST_FMT, preset_list_cb);
     protocol_add_command(OMX_VERB_PRESET_GET_FMT, preset_get_cb);

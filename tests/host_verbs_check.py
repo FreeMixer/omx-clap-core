@@ -40,7 +40,7 @@ OWNER = 'omx-clap-core'
 # a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
 # once any installed package declares it, the socket checks it as declared
 # (preset_save is registered in plugin-hostd#131's form, <N> <file> <name...>, not mod-host's four-word one)
-AWAITING = {'chain': 'plugin-hostd', 'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd', 'preset_save': 'plugin-hostd'}
+AWAITING = {'chain': 'plugin-hostd', 'pin_layout': 'plugin-hostd', 'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd', 'preset_save': 'plugin-hostd'}
 
 # per verb: the words after the verb of a well-formed line, and malformed lines with the code each must answer.
 # {fx} is the passthrough instance (no note input, two remote pages, a parameter contract), {synth} the synth.

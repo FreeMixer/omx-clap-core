@@ -3307,6 +3307,22 @@ static int preset_identity(const effect_t *effect, const char **id, const char *
     return 0;
 }
 
+/* pin_layout: the layout the instance has after init, as plugin-hostd records it in a pin that has none yet
+ * ("resp 0 omx-layout/1:<sha256>"); the same fingerprint pin_expect checks and a preset file carries */
+int effects_pin_layout(int effect_id, char *reply, size_t size)
+{
+    const char *id, *version;
+    char fingerprint[sizeof(PHD_PIN_LAYOUT_SCHEME) + PHD_SHA256_HEX_LEN + 2];
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (!g_effects[effect_id].clap ||
+        preset_identity(&g_effects[effect_id], &id, &version, fingerprint, sizeof(fingerprint)) != 0)
+        return ERR_INVALID_OPERATION;
+    snprintf(reply, size, "resp 0 %s", fingerprint);
+    return SUCCESS;
+}
+
 /* the name param_set takes for a parameter row: an LV2 control port's symbol, else the CLAP id in decimal */
 static const char *preset_symbol(const effect_t *effect, clap_id id, char *buf, size_t size)
 {
