@@ -16,6 +16,11 @@ tests/jack_identity
 tests/jack_parity
 tests/fake_synth.clap
 tests/fake_ext.clap
+tests/fake_pool.clap
+tests/fake_pool_tsan.clap
+tests/thread_pool_test
+tests/thread_pool_tsan
+tests/thread_pool_bench
 tests/fake_mover.clap
 tests/jack_synth_probe
 tests/jack_transport_ctl

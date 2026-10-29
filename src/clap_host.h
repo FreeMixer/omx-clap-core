@@ -84,13 +84,15 @@
  * placement; 16: the CPU idle hold (#296): the configuration's idle_hold_us, the instance's idle_held,
  * omx_clap_host_idle_hold_set and omx_clap_host_idle_hold; 17: the plugin's resource hints (#323), the instance's
  * resource_hints and resource_hints_why, omx_clap_host_resource_hints; 18: the audio role's named slot (#104), the
- * instance's audio_slot, omx_clap_host_name_slot).
+ * instance's audio_slot, omx_clap_host_name_slot; 19: the thread pool (#395), the instance's pool_use, pool_priority,
+ * pool_held and pool_late, struct omx_clap_thread_pool_info, omx_clap_host_thread_pool_use, omx_clap_host_thread_pool and
+ * omx_clap_host_thread_pool_late).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               18u
+#define OMX_CLAP_CORE_ABI               19u
 #define OMX_CLAP_CORE_ABI_OLDEST        18u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
@@ -182,6 +184,27 @@ struct omx_clap_idle_hold
     int32_t aggregate_us;       ///< the device's own answer, the kernel's limit across every requester; -1 when it cannot be read
     uint32_t active;            ///< the instances active in this process
     char code[OMX_CLAP_WHY_MAX];///< empty, or CLAP_HOST_CODE_IDLE_HOLD_REFUSED since the device could not be opened for writing
+};
+
+/** The most helper threads the process's thread pool makes (ABI 19, #395): a worker given more cores uses this many. */
+#define OMX_CLAP_THREAD_POOL_HELPERS_MAX    63u
+
+/** The process's thread pool as it stands (ABI 19, #395), what omx_clap_host_thread_pool fills: docs/thread-pool.md. The
+ * counts run from the pool's making and are kept after its end, until the next is made. */
+struct omx_clap_thread_pool_info
+{
+    uint32_t helpers;           ///< the helper threads running, 0 while no pool is made
+    uint32_t holders;           ///< the active instances holding the pool
+    uint32_t cores;             ///< the cores of the affinity mask when the pool was last asked for
+    int32_t priority;           ///< the helpers' SCHED_FIFO priority, 0 the normal class
+    char state[CLAP_HOST_LOG_BYTES];  ///< empty, or why the last instance that asked for the pool runs serial
+    uint64_t requests;          ///< the requests the pool ran
+    uint64_t busy;              ///< the requests run serial because another audio thread held the pool
+    uint64_t late;              ///< the requests whose wait for the helpers ran past the block
+    uint64_t tasks_audio;       ///< the tasks the requesting audio threads ran themselves
+    uint64_t helper_tasks[OMX_CLAP_THREAD_POOL_HELPERS_MAX];    ///< the tasks each helper ran
+    uint64_t helper_busy_ns[OMX_CLAP_THREAD_POOL_HELPERS_MAX];  ///< the time each helper spent inside tasks, in nanoseconds
+    int32_t helper_core[OMX_CLAP_THREAD_POOL_HELPERS_MAX];      ///< the core each helper is pinned to, -1 past `helpers`
 };
 
 /** One parameter of a hosted plugin as a row: what a slot serves. A parameter that is not a row (hidden, read-only, the
@@ -559,6 +582,12 @@ struct omx_clap_instance
     // ABI 18: the audio role's named slot (#104), a thread the carrier's own thread names wait-free
     // (omx_clap_host_name_slot)
     const _Atomic(pthread_t) *_Atomic audio_slot;  ///< the carrier's slot, NULL for none: the thread it holds has the role
+
+    // ABI 19: the thread pool (#395): the caller's grant, set while inactive, and what the activate made of it
+    uint32_t pool_use;          ///< 1: the instance is granted the process's thread pool (omx_clap_host_thread_pool_use)
+    int32_t pool_priority;      ///< the audio thread's SCHED_FIFO priority the helpers run at, 0 the normal class
+    uint32_t pool_held;         ///< 1 while the active instance holds the pool: its requests are handed to the helpers
+    _Atomic uint32_t pool_late; ///< this instance's requests whose wait for the helpers ran past the block
 };
 
 
@@ -593,6 +622,19 @@ OMX_CLAP_EXPORT int omx_clap_host_idle_hold_set(int32_t target_us);
 
 /** The idle hold as it stands (ABI 16): the target, what is held, the device's aggregate, the active count, the code. */
 OMX_CLAP_EXPORT void omx_clap_host_idle_hold(struct omx_clap_idle_hold *out);
+
+/** Grant one instance the process's thread pool, or withdraw it (ABI 19, #395): `use` nonzero grants it, `rt_priority`
+ * is the audio thread's SCHED_FIFO priority the helpers run at (1 to 99), 0 when the audio thread runs at the normal
+ * class. The grant is the plugin's qualification's to give (docs/thread-pool.md): an instance never granted runs every
+ * task serial on the audio thread. Read at the next activate; while the instance is active, or for a priority outside
+ * 0..99, -1 and nothing changes; 0 otherwise. */
+OMX_CLAP_EXPORT int omx_clap_host_thread_pool_use(struct omx_clap_instance *in, int use, int rt_priority);
+
+/** The process's thread pool as it stands (ABI 19): helpers, holders, why it is serial, and the counts. Any thread. */
+OMX_CLAP_EXPORT void omx_clap_host_thread_pool(struct omx_clap_thread_pool_info *out);
+
+/** The instance's requests whose wait for the helpers ran past the block (ABI 19): an xrun-class count. Any thread. */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_thread_pool_late(const struct omx_clap_instance *in);
 
 /** The version of the library at run time, major * 10000 + minor * 100 + patch. */
 OMX_CLAP_EXPORT uint32_t omx_clap_core_version(void);

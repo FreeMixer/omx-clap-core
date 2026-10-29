@@ -126,7 +126,10 @@ static void fault_path(char *out, size_t cap, int mode) { snprintf(out, cap, "%s
 static void t_abi(void) {
   struct omx_clap_host_config config;
   omx_clap_host_config_default(&config);
-  CHECK(config.abi == 18u && OMX_CLAP_CORE_ABI_OLDEST == 18u, "this header is ABI 18, the oldest accepted 18 (%u)", config.abi);
+  CHECK(config.abi == 19u && OMX_CLAP_CORE_ABI_OLDEST == 18u, "this header is ABI 19, the oldest accepted 18 (%u)", config.abi);
+  /* ABI 19 appends the thread pool's gate to the instance, after the audio slot of ABI 18 */
+  CHECK(offsetof(struct omx_clap_instance, pool_use) >= offsetof(struct omx_clap_instance, audio_slot) + sizeof ((struct omx_clap_instance *)0)->audio_slot,
+        "the thread pool's gate follows every field of ABI 18 (%zu)", offsetof(struct omx_clap_instance, pool_use));
   /* ABI 6 appends the note ids to the instance: every field an older header reaches keeps its offset */
   CHECK(offsetof(struct omx_clap_instance, note_ids) >= offsetof(struct omx_clap_instance, contract_why) + sizeof ((struct omx_clap_instance *)0)->contract_why,
         "the note ids follow every field of ABI 5 (%zu)", offsetof(struct omx_clap_instance, note_ids));
@@ -169,13 +172,18 @@ static void t_abi(void) {
             offsetof(struct omx_clap_instance, idle_held) > offsetof(struct omx_clap_instance, passthrough),
         "the pass-through placement and the idle hold's count follow the layout requests' extensions (%zu)",
         offsetof(struct omx_clap_instance, idle_held));
-  /* ABI 17 appends the resource hints (#323); ABI 18 the audio role's named slot (#104), the instance's last */
+  /* ABI 17 appends the resource hints (#323); ABI 18 the audio role's named slot (#104) */
   CHECK(offsetof(struct omx_clap_instance, resource_hints) >= offsetof(struct omx_clap_instance, idle_held) + sizeof(uint32_t) &&
             offsetof(struct omx_clap_instance, resource_hints_why) > offsetof(struct omx_clap_instance, resource_hints),
         "the resource hints follow the idle hold's count (%zu)", offsetof(struct omx_clap_instance, resource_hints_why));
-  CHECK(offsetof(struct omx_clap_instance, audio_slot) >= offsetof(struct omx_clap_instance, resource_hints_why) + sizeof(void *) &&
-            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, audio_slot) <= _Alignof(struct omx_clap_instance),
-        "the named slot follows the resource hints, the instance's last (%zu)", offsetof(struct omx_clap_instance, audio_slot));
+  CHECK(offsetof(struct omx_clap_instance, audio_slot) >= offsetof(struct omx_clap_instance, resource_hints_why) + sizeof(void *),
+        "the named slot follows the resource hints (%zu)", offsetof(struct omx_clap_instance, audio_slot));
+  /* ABI 19 appends the thread pool's gate (#395), pool_late the instance's last */
+  CHECK(offsetof(struct omx_clap_instance, pool_priority) > offsetof(struct omx_clap_instance, pool_use) &&
+            offsetof(struct omx_clap_instance, pool_held) > offsetof(struct omx_clap_instance, pool_priority) &&
+            offsetof(struct omx_clap_instance, pool_late) > offsetof(struct omx_clap_instance, pool_held) &&
+            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, pool_late) <= _Alignof(struct omx_clap_instance),
+        "the thread pool's gate follows the named slot, pool_late the instance's last (%zu)", offsetof(struct omx_clap_instance, pool_late));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = 11;
