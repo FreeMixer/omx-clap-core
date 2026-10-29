@@ -1,4 +1,4 @@
-<abi-corpus version='3.0' path='build/abi/usr/lib/libomx-clap-core.so.0.24.0' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.1' tracking-non-reachable-types='yes'>
+<abi-corpus version='3.0' path='build/abi/usr/lib/libomx-clap-core.so.0.24.1' architecture='elf-amd-x86_64' soname='libomx-clap-core.so.1' tracking-non-reachable-types='yes'>
   <elf-needed>
     <dependency name='libm.so.6'/>
     <dependency name='libc.so.6'/>
