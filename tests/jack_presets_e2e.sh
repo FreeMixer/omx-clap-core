@@ -158,6 +158,8 @@ check(ask('preset_load 3 %s/junk.json' % runtime) == 'resp -104 PRESET_INVALID',
 check(ask('preset_save 3 %s/junk.json X' % runtime) == 'resp -104 PRESET_INVALID', 'a save over a file that is not a preset is refused')
 check(ask('preset_save 3 relative.json X') == 'resp -104 PRESET_INVALID', 'a relative path is refused')
 check(ask('preset_load 3 plugin:none') == 'resp -104 PRESET_NOT_OFFERED', 'a key the plugin does not offer answers PRESET_NOT_OFFERED')
+r = ask('preset_load 3 urn:no:such:preset')
+check(r == 'resp -902', "a location in mod-host's form is answered as mod-host answers it, with no code word: a CLAP plugin with no clap.preset-load the bare -902 (%s)" % r)
 
 # fake_ext: a state body, saved in the preset context
 check(ask('add clap:%s#org.omx-clap-host.test.ext 4' % ext) == 'resp 4', 'fake_ext is added')
