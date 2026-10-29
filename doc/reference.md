@@ -824,7 +824,8 @@ none: the host never creates a plugin through it.
 
 `omx_clap_host_preset_load_key(in, kind, location, load_key)` loads a listed
 preset through the plugin's `clap.preset-load`: a `FILE` preset by its path
-and key, a `PLUGIN` preset by its key alone.
+and key, a `PLUGIN` preset by its key alone. It answers -1 when the plugin's `from_location` answers false and also
+when the plugin reported `on_error` through the host's `clap.preset-load` during the call (#401).
 
 The LV2 adapter's entry offers the same factory for its bundle: one
 provider, `org.openmixer.lv2.pset`, whose one location is the bundle (a

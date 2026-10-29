@@ -3273,7 +3273,7 @@ int effects_preset_load(int effect_id, const char *location)
     }
     // an LV2 preset is named by its URI, as mod-host takes it: a preset of the plugin's bundle, the URI its load key
     if (g_effects[effect_id].lv2_entry)
-        return clap->preset_load->from_location(clap->plugin, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, key)
+        return omx_clap_host_preset_load_key(clap, CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL, key) == 0
             ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
     return omx_clap_host_preset_load(clap, key) == 0 ? SUCCESS : ERR_LV2_INVALID_PRESET_URI;
 }
