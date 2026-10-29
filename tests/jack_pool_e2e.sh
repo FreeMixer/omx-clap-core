@@ -6,7 +6,9 @@
 # the host once per mode and adds tests/fake_pool.clap, whose process() asks for FAKE_POOL_TASKS tasks every block.
 # With on the host makes one helper thread per core of its affinity mask but one (named omx-pool-<core>, at most 63),
 # and after a few seconds of blocks the helpers have run: their CPU time in /proc is not zero. With qualified (the
-# default, no option) and off it makes none. Nothing here touches the PipeWire of the session that runs it.
+# default, no option) and off it makes none. Where the JACK thread is real-time and the namespace may not give the
+# helpers its SCHED_FIFO priority, on makes none either and the host says so in one line, which is checked instead.
+# Nothing here touches the PipeWire of the session that runs it.
 #
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
 # JACK_E2E_PORT:    the socket port (default 5566); the feedback port is the next one
@@ -106,7 +108,13 @@ for mode in on qualified off; do
     sleep 3
     n=$(helpers "$hpid")
     ran=$(helpers_ran "$hpid")
-    if [ "$mode" = on ]; then
+    refused=$(grep -o 'thread pool: serial: SCHED_FIFO [0-9]* refused.*' "$runtime/host-$mode.log" | head -1)
+    if [ "$mode" = on ] && [ -n "$refused" ]; then
+        # the JACK thread is real-time and this namespace may not give the helpers its priority: serial, said once
+        [ "$n" -eq 0 ] && [ "$(grep -c 'thread pool: serial:' "$runtime/host-$mode.log")" -eq 1 ]
+        step $? "on: the JACK thread's priority is refused here, so no helper ($n) and one line says why: $refused"
+        echo "     on: the spread itself is not proven in this namespace (make test-thread-pool proves it)"
+    elif [ "$mode" = on ]; then
         [ "$n" -eq "$want" ]
         step $? "on: $n helper threads for $cores cores (want $want)"
         [ "$want" -eq 0 ] || [ "$ran" -ge 1 ]
