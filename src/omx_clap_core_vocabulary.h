@@ -42,6 +42,12 @@
 #define OMX_HOSTING_LATENCY_RESOLVED "hosting.latency.resolved"
 #define OMX_HOSTING_LATENCY_UNMEASURED "hosting.latency.unmeasured"
 
+/* HOSTING_MEMORY_CODES (data/hosting/memory.json) */
+#define OMX_HOSTING_MEMORY_ABOVE_CEILING "hosting.memory.above-ceiling" ///< the measured figure passes the host's budget for one instance or for all its plugins; the params name the figure, the ceiling, and whether the ceiling is provisional
+#define OMX_HOSTING_MEMORY_UNMEASURED "hosting.memory.unmeasured" ///< no figure at the host's rate and quantum, so the plugin is not known to fit; a missing figure never reads as fitting
+#define OMX_HOSTING_MEMORY_WITHIN_CEILING "hosting.memory.within-ceiling" ///< the measured figure fits a budget that was itself measured on that kind of host
+#define OMX_HOSTING_MEMORY_WITHIN_PROVISIONAL_CEILING "hosting.memory.within-provisional-ceiling" ///< the measured figure is under a budget not yet measured on that kind of host, so this says the figure and the ceiling, not that the plugin fits
+
 /* HOSTING_OUTPUT_CODES (data/hosting/output.json) */
 #define OMX_HOSTING_OUTPUT_NON_FINITE "hosting.output.non-finite" ///< the plugin produced non-finite output
 
