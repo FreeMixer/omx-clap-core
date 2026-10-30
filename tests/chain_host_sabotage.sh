@@ -137,9 +137,10 @@ arm head-remove src/effects.c 's/^        if (effect->chain)$/        if (0)/' \
 arm width src/effects.c 's/if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)/if (0)/' \
     'the refusals formed no chain 8'
 
-# 8. a note port only on the head: a member with one taken
-arm note-port src/effects.c 's/if (i > 0 \&\& (effect->midi_port || effect->midi_out_port))/if (0)/' \
-    'chain 8 15 13 -> '
+# 8. a member's note port goes with its client when it joins (#400): the port of the closed client left in the instance,
+# which the head's cycle would read
+arm note-port src/effects.c 's/^    effect->midi_port = effect->midi_out_port = NULL;$/    (void)0;/' \
+    'a member with a note port joins'
 
 # 9. a member of another chain: taken into this one as well
 arm other-chain src/effects.c 's/if (effect->chain \&\& effect->chain != chain)/if (0)/' \
@@ -158,7 +159,7 @@ arm rt-callee src/effects.c '/^static void transport_block/,/^}/s/^    struct om
 arm rt-core src/clap_chain.c '/^int omx_clap_chain_process/,/^}/s/^    uint32_t s;$/&\n\n    free(malloc(1));/' \
     "the host's chain cycle names an allocator"
 
-# 12. a member with an auxiliary port is refused as a member with a note port is: taken
+# 12. a member with an auxiliary port is refused: taken
 arm aux-port src/effects.c 's/if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))/if (0)/' \
     'a member with a side chain is refused'
 

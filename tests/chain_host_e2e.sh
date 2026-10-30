@@ -23,7 +23,7 @@
 #   8 remove of the head: pass in a client of its own; a line of one member
 #
 # and every refusal (a member it does not hold, one named twice, a word that is no number, a member or a head of
-# another width, a member with a note port or an auxiliary port, a member of another chain) answers its code and
+# another width, a member with an auxiliary port, a member of another chain) answers its code and
 # changes no node.
 # The last line is a CHAIN-HOST json; exit 0 only when every step held.
 #
@@ -380,11 +380,9 @@ expect chain "add $sidechain 16" "resp 16"
 expect chain "add $auxout 17" "resp 17"
 expect chain "chain 8 15 14" "resp -902"
 expect chain "chain 8 14 15" "resp -902"
-expect chain "chain 8 15 13" "resp -902"
 expect chain "chain 8 15 10" "resp -902"
-expect chain "chain 7 10 11 12 13" "resp -902"
-# an auxiliary port goes with its client as a note port does: a member's side chain would read silence, its auxiliary
-# output reach nothing, so the line is refused and says why; a head keeps its own
+# an auxiliary port goes with its client: a member's side chain would read silence, its auxiliary output reach nothing,
+# so the line is refused and says why; a head keeps its own
 expect chain "chain 8 15 16" "resp -902"
 grep -q "^chain 8: effect_16 has an auxiliary port" "$runtime/chain.log"
 step $? "a member with a side chain is refused: $(grep "^chain 8: effect_16" "$runtime/chain.log" | tail -1)"
@@ -399,6 +397,18 @@ expect chain "chain 8 16 15" "resp 0"
 wait_nodes 5; step $? "a head with a side chain keeps it: chain 8 16 15 is one node ($(nodes))"
 expect chain "chain 8 16" "resp 0"
 wait_nodes 6; step $? "chain 8 16: 15 in a client of its own again ($(nodes))"
+# a member with a note port is no refusal (#400: an effect whose atom port supports MIDI is a plugin with a note input, a
+# third-party LV2 effect among them): the line forms, the member's note port goes with its client, the note verbs still
+# reach it, and it gets the port again in a client of its own
+expect chain "chain 9 15 13" "resp 0"
+wait_nodes 5; step $? "a member with a note port joins: chain 9 15 13 is one node ($(nodes))"
+expect chain "note_on 13 0 60 100" "resp 0"
+expect chain "note_off 13 0 60 0" "resp 0"
+expect chain "chain 9 15" "resp 0"
+wait_nodes 6; step $? "chain 9 15: 13 in a client of its own again ($(nodes))"
+for _ in $(seq 50); do timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$" && break; sleep 0.1; done
+timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$"
+step $? "13 has its note port again"
 for i in 13 14 15 16 17; do expect chain "remove $i" "resp 0"; done
 [ "$(nodes)" = 1 ]; step $? "after the refusals: one node ($(nodes))"
 
