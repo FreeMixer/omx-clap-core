@@ -3643,7 +3643,11 @@ int effects_state_load(const char *dir)
             continue;
         ret = clap_state_load(g_effects[i].clap, filename);
         if (ret != SUCCESS)
+        {
+            // state_load answers one code for every instance: stderr names the one that refused, and its file
+            fprintf(stderr, "state_load: effect_%d refused %s (%d)\n", i, filename, ret);
             error = ret;
+        }
     }
     return error;
 }
