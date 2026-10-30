@@ -130,9 +130,10 @@ expect "remote_pages 9" "resp -3"
 ! grep -q "^$id remote_controls.get past the count" "$log"
 step $? "a page past the count is refused without asking the plugin"
 
-# param_info: a parameter of a plugin with no parameter contract falls back to qualification; what is not a parameter
-# (a read-only one, an unknown id, the host's bypass) is -103
-expect "param_info 0 0" "resp $OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP"
+# param_info: a parameter of a plugin with no parameter contract is described by its clap.params alone (unit none, the
+# range and default, stepped for IS_STEPPED, the symbol param_<id>); what is not a parameter (a read-only one, an
+# unknown id, the host's bypass) is -103
+expect "param_info 0 0" "resp 0 none stepped 0 4096 64 1 param_0"
 expect "param_info 0 1" "resp -103"
 expect "param_info 0 99" "resp -103"
 expect "param_info 0 :bypass" "resp -103"
@@ -156,6 +157,27 @@ contract_host() {
     exec 3<>"/dev/tcp/127.0.0.1/$port"
     exec 4<>"/dev/tcp/127.0.0.1/$((port + 1))"
 }
+
+# a plugin that carries none of our extensions (FAKE_STANDARD: twelve writable parameters, module Main/Timing and Stats,
+# no clap.remote-controls): param_info and the pages are answered from clap.params
+FAKE_STANDARD=1 "$host" -n -p "$((port + 8))" -f "$((port + 9))" >"$runtime/host-standard.log" 2>&1 &
+pids+=($!)
+protocol_wait_ready "$runtime/host-standard.log"
+step $? "omx-clap-host with FAKE_STANDARD ready on port $((port + 8))"
+exec 3>&- 4>&-
+exec 3<>"/dev/tcp/127.0.0.1/$((port + 8))"
+exec 4<>"/dev/tcp/127.0.0.1/$((port + 9))"
+expect "add clap:$fake#org.omx-clap-host.test.sidechain 0" "resp 0"
+expect "remote_pages 0" "resp 3"
+expect "remote_page_get 0 0" 'resp 0 0 "Main" "Timing" 0 - - - - - - -'
+expect "remote_page_get 0 1" 'resp 0 1 "" "Stats" 1 2 3 4 5 6 7 8'
+expect "remote_page_get 0 2" 'resp 0 2 "" "Stats 2" 9 10 11 - - - - -'
+expect "remote_page_get 0 3" "resp -902"
+expect "param_info 0 0" "resp 0 none stepped 0 4096 64 1 param_0"
+expect "param_info 0 4" "resp 0 none linear 0 1 0.5 0 param_4"
+expect "param_info 0 5" "resp 0 none stepped 0 1 0.5 1 param_5"
+expect "param_info 0 12" "resp -103"
+expect "quit" "resp 0"
 
 contract_host good
 expect "add $uri 0" "resp 0"
