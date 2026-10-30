@@ -106,6 +106,29 @@ export const HOSTING_LATENCY_CODES = {
 };
 
 /**
+ * The hosting codes of the memory dimension: hosting.memory.*, what a qualifier, a host or the console read of a plugin's measured memory against a host's budget, by code, never by prose.
+ * @see data/hosting/memory.json
+ */
+export const HOSTING_MEMORY_CODES = {
+  "memoryAboveCeiling": {
+    "code": "hosting.memory.above-ceiling",
+    "doc": "the measured figure passes the host's budget for one instance or for all its plugins; the params name the figure, the ceiling, and whether the ceiling is provisional"
+  },
+  "memoryUnmeasured": {
+    "code": "hosting.memory.unmeasured",
+    "doc": "no figure at the host's rate and quantum, so the plugin is not known to fit; a missing figure never reads as fitting"
+  },
+  "memoryWithinCeiling": {
+    "code": "hosting.memory.within-ceiling",
+    "doc": "the measured figure fits a budget that was itself measured on that kind of host"
+  },
+  "memoryWithinProvisionalCeiling": {
+    "code": "hosting.memory.within-provisional-ceiling",
+    "doc": "the measured figure is under a budget not yet measured on that kind of host, so this says the figure and the ceiling, not that the plugin fits"
+  }
+};
+
+/**
  * The hosting codes of the output dimension: hosting.output.*, the verdict and refusal codes a qualifier, a host or the console write and read by code, never by prose (docs/data-layout.md).
  * @see data/hosting/output.json
  */
