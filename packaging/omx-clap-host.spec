@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.25.0
+Version:        0.25.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,15 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.1-1
+- The hosting codes of the memory dimension, hosting.memory.*, for a
+  qualifier to read a plugin's measured memory against a host's budget
+  (plugin-qualify#114).
+- The preset reader refuses a number JSON does not allow, 1. and 1.e3
+  (#338).
+- plugin-hostd is floored at 0.5.0, and the note-queue-full test reads its
+  code from the header (#167).
+
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.0-1
 - omx-clap-host describes a plugin from our extensions first, then from the
   standard CLAP params: a plugin without our extensions gets its parameters,

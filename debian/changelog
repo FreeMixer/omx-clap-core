@@ -1,3 +1,15 @@
+omx-clap-host (0.25.1) unstable; urgency=medium
+
+  * The hosting codes of the memory dimension, hosting.memory.*, for a
+    qualifier to read a plugin's measured memory against a host's budget
+    (plugin-qualify#114).
+  * The preset reader refuses a number JSON does not allow, 1. and 1.e3
+    (#338).
+  * plugin-hostd is floored at 0.5.0, and the note-queue-full test reads its
+    code from the header (#167).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 30 Oct 2026 20:00:00 +0100
+
 omx-clap-host (0.25.0) unstable; urgency=medium
 
   * omx-clap-host describes a plugin from our extensions first, then from the
