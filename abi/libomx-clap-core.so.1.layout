@@ -1,4 +1,4 @@
-version 0.24.3
+version 0.25.0
 member struct clap_host_meters ) 0 8 void (*changed)(const clap_host_t *)
 size struct clap_host_meters 8
 member struct clap_meter_info id 0 4 clap_id id
