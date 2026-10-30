@@ -181,43 +181,7 @@ bad:
 }
 
 static int parse_value(struct pj_in *in, struct pj *v);
-
-/* whether `s` is one RFC 8259 number, start to end: all pj_parse reads as a number ("1." and "1.e5" are not one, and the
- * file holding them is refused) */
-static int number_is_strict(const char *s)
-{
-    if (*s == '-')
-        s++;
-    if (*s == '0')
-        s++;
-    else
-    {
-        if (*s < '1' || *s > '9')
-            return 0;
-        while (*s >= '0' && *s <= '9')
-            s++;
-    }
-    if (*s == '.')
-    {
-        s++;
-        if (*s < '0' || *s > '9')
-            return 0;
-        while (*s >= '0' && *s <= '9')
-            s++;
-    }
-    if (*s == 'e' || *s == 'E')
-    {
-        s++;
-        if (*s == '+' || *s == '-')
-            s++;
-        if (*s < '0' || *s > '9')
-            return 0;
-        while (*s >= '0' && *s <= '9')
-            s++;
-    }
-    return *s == '\0';
-}
-
+static int number_is_strict(const char *s);
 static int parse_number(struct pj_in *in, struct pj *v)
 {
     const char *s = in->p;
@@ -457,6 +421,42 @@ static void number_shortest(char *text, size_t size, double num)
         if (strtod(text, NULL) == num)
             break;
     }
+}
+
+/* whether `s` is one RFC 8259 number, start to end: all pj_parse reads as a number ("1." and "1.e5" are not one,
+ * and a file holding them is refused) */
+static int number_is_strict(const char *s)
+{
+    if (*s == '-')
+        s++;
+    if (*s == '0')
+        s++;
+    else
+    {
+        if (*s < '1' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    if (*s == '.')
+    {
+        s++;
+        if (*s < '0' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    if (*s == 'e' || *s == 'E')
+    {
+        s++;
+        if (*s == '+' || *s == '-')
+            s++;
+        if (*s < '0' || *s > '9')
+            return 0;
+        while (*s >= '0' && *s <= '9')
+            s++;
+    }
+    return *s == '\0';
 }
 
 int pj_number(struct pj *v, double num)
