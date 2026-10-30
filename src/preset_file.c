@@ -181,7 +181,7 @@ bad:
 }
 
 static int parse_value(struct pj_in *in, struct pj *v);
-
+static int number_is_strict(const char *s);
 static int parse_number(struct pj_in *in, struct pj *v)
 {
     const char *s = in->p;
@@ -201,7 +201,7 @@ static int parse_number(struct pj_in *in, struct pj *v)
     memcpy(v->str, in->p, len);
     v->str[len] = '\0';
     v->num = strtod(v->str, &end);
-    if (*end != '\0' || !isfinite(v->num))
+    if (!number_is_strict(v->str) || *end != '\0' || !isfinite(v->num))
         return -1;
     v->type = PJ_NUMBER;
     in->p = s;
@@ -423,8 +423,8 @@ static void number_shortest(char *text, size_t size, double num)
     }
 }
 
-/* whether `s` is one RFC 8259 number, start to end: the grammar pj_parse's lax reader also accepts (a trailing '.',
- * a '.' straight into 'e') fails this */
+/* whether `s` is one RFC 8259 number, start to end: all pj_parse reads as a number ("1." and "1.e5" are not one,
+ * and a file holding them is refused) */
 static int number_is_strict(const char *s)
 {
     if (*s == '-')
