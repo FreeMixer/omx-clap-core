@@ -29,11 +29,11 @@ How to read the tables
 - **offered, untested** (host-side) and **read, untested** (plugin-side): the code does it and no
   test exercises it yet. That is not supported.
 - **refused**: the plugin is not opened, with the hosting code named.
-- **out of scope**: ruled out, with the ruling. The console draws every panel itself, so a
+- **out of scope**: decided against, with the reason. The console draws every panel itself, so a
   plugin's own window and every extension that only serves one is out of scope there; the
   standalone omx-clap-host alone shows a plugin's window, on request (`clap.gui`).
 - **unsupported**: not done; the issue that plans it, when one does.
-- **unruled (#207)**: a draft nobody has ruled on yet. #207 asks for the ruling.
+- **undecided (#207)**: a draft not decided yet. #207 asks for the decision.
 - **asked on msi**: how many of the hosted plugins on the desk asked the host for the id and were
   not given it ([Measured](#measured)). The probe counts only the asks the host does not answer,
   so an offered id reads "offered" there, and "—" means no plugin asked.
@@ -87,15 +87,15 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 | `clap.surround.draft/4` | supported: answered as the final id, the same object (`tests/clap_host_test.c:t_surround_ambisonic`) | read, untested: asked when the plugin lacks the final id | offered, not counted | |
 | `clap.ambisonic/3` | supported: `changed` is a ports rescan, reported once, never a restart (`tests/clap_host_test.c:t_surround_ambisonic`) | supported: `get_config` gives an ambisonic port's ordering and normalisation, ACN and SN3D assumed without it or when it answers false; `is_config_supported` asked by `omx_clap_host_request_layout` (`tests/clap_host_test.c:t_surround_ambisonic`, `tests/clap_host_test.c:t_request_layout`) | offered | refused: a configuration the plugin does not support `hosting.topology.ambisonic-config` (`tests/clap_host_test.c:t_request_layout`); a channel count that is no (order+1)² `hosting.topology.port-too-wide` (`tests/clap_host_test.c:t_surround_ambisonic`) |
 | `clap.ambisonic.draft/3` | supported: answered as the final id, the same object (`tests/clap_host_test.c:t_surround_ambisonic`) | read, untested: asked when the plugin lacks the final id | offered, not counted | |
-| `clap.context-menu/1` | out of scope: the console draws its own menus (ruled 2026-10-19, #95) | out of scope: the same ruling | 62 | |
-| `clap.context-menu.draft/0` | out of scope: the same ruling | out of scope: the same ruling | 63 | |
+| `clap.context-menu/1` | out of scope: the console draws its own menus (decided in #95) | out of scope: the same decision | 62 | |
+| `clap.context-menu.draft/0` | out of scope: the same decision | out of scope: the same decision | 63 | |
 | `clap.event-registry` | offered, untested: `query` answers false for every space, the host reads no event space but CLAP's core one | — | offered | |
-| `clap.gui` | supported in omx-clap-host, offered in every build (Wayland needs no library of the host's, X11 needs xcb): `request_resize` resizes the host's window, `request_show` and `request_hide` show and hide it, `closed` hides a floating window or forgets a destroyed one, `resize_hints_changed` reads `can_resize` again (`make test-jack-window`, `make test-jack-window-wl`); the library offers the caller's object, `omx_clap_host_offer_gui`, and none by default (`tests/clap_ext_test.c`, `tests/clap_host_test.c`). Out of scope in the console, which draws every panel from the plugin's parameters (GUI ruling 2026-10-19) | supported in omx-clap-host, on request (`show_external_ui`, `-S`), the first API the plugin offers whose display answers: Wayland floating, the plugin's own toplevel (`create("wayland", true)`, `suggest_title`, `show`, `hide`, `destroy`) (`make test-jack-window-wl`); then X11 embedded, in a window of the host's titled with the plugin's name (`create`, `set_scale` 1.0, `can_resize`, `get_size`, `set_parent`, `show`, `hide`, `destroy`; a resize of the host's window is `adjust_size` then `set_size`); then X11 floating (`suggest_title`), also for a plugin that offers X11 embedded with no `set_parent` (`make test-jack-window`). A build without xcb tries Wayland alone. Out of scope in the console | offered in omx-clap-host | refused by code, `resp -404`: no display that answers for any API the plugin offers `hosting.window.no-display`, neither a Wayland window nor an X11 one the build shows `hosting.window.unsupported`, the plugin's call answered false `hosting.window.refused` (`make test-jack-window` and `make test-jack-window-wl` for the first two) |
+| `clap.gui` | supported in omx-clap-host, offered in every build (Wayland needs no library of the host's, X11 needs xcb): `request_resize` resizes the host's window, `request_show` and `request_hide` show and hide it, `closed` hides a floating window or forgets a destroyed one, `resize_hints_changed` reads `can_resize` again (`make test-jack-window`, `make test-jack-window-wl`); the library offers the caller's object, `omx_clap_host_offer_gui`, and none by default (`tests/clap_ext_test.c`, `tests/clap_host_test.c`). Out of scope in the console, which draws every panel from the plugin's parameters (the GUI decision) | supported in omx-clap-host, on request (`show_external_ui`, `-S`), the first API the plugin offers whose display answers: Wayland floating, the plugin's own toplevel (`create("wayland", true)`, `suggest_title`, `show`, `hide`, `destroy`) (`make test-jack-window-wl`); then X11 embedded, in a window of the host's titled with the plugin's name (`create`, `set_scale` 1.0, `can_resize`, `get_size`, `set_parent`, `show`, `hide`, `destroy`; a resize of the host's window is `adjust_size` then `set_size`); then X11 floating (`suggest_title`), also for a plugin that offers X11 embedded with no `set_parent` (`make test-jack-window`). A build without xcb tries Wayland alone. Out of scope in the console | offered in omx-clap-host | refused by code, `resp -404`: no display that answers for any API the plugin offers `hosting.window.no-display`, neither a Wayland window nor an X11 one the build shows `hosting.window.unsupported`, the plugin's call answered false `hosting.window.refused` (`make test-jack-window` and `make test-jack-window-wl` for the first two) |
 | `clap.latency` | supported: `changed`, then the restart the plugin asks for, runs on the control thread (`tests/clap_host_test.c:fake_plugin_checks`) | supported: read at every activate (`tests/clap_host_test.c:fake_plugin_checks`) | offered | omx-clap-host publishes it on the plugin's JACK ports. The LV2 adapter serves it (`lv2/tests/lv2_clap_test.c:t_latency_hold`) |
 | `clap.log` | supported: the plugin's lines reach the host's log, one per tick through `omx_clap_host_log_take`, a plugin that logs every tick sharing it with the host's own lines (`tests/clap_host_test.c:unoffered_starve`) | — | offered | |
 | `clap.note-name` | supported: `changed` read once through `omx_clap_host_note_names_changed` (`tests/clap_host_test.c:synth_host_details_checks`) | supported: each name with its port, key and channel (`tests/clap_host_test.c:synth_host_details_checks`) | offered | omx-clap-scan lists them (`doc/reference.md`, Scanning) |
 | `clap.note-ports` | supported: `supported_dialects` answers CLAP, MIDI, MIDI MPE and MIDI 2.0 where the configuration admits note inputs; `rescan` taken by the tick, a full rescan while active asks for a restart (`tests/clap_host_test.c:synth_host_details_checks`) | supported: one note input admitted and its dialect chosen, note outputs read (`tests/clap_host_test.c:fake_plugin_checks`, `tests/clap_host_test.c:synth_checks`, `tests/clap_host_test.c:synth_out_all`) | offered | refused `hosting.clap.note-input`: note ports the configuration does not admit (`tests/clap_host_test.c:synth_checks`). The LV2 adapter serves it for an instrument (`lv2/tests/lv2_clap_test.c:t_instrument`) |
-| `clap.param-indication/4` | — | unsupported: ruled supported (#95), the console shows mapping and automation state; #187 | — | |
+| `clap.param-indication/4` | — | unsupported: to be supported (#95), the console shows mapping and automation state; #187 | — | |
 | `clap.param-indication.draft/4` | — | unsupported: the same, #187 | — | |
 | `clap.params` | supported: `rescan` read once through `omx_clap_host_params_rescanned`, `clear` with `CLAP_PARAM_CLEAR_ALL` drops the host's read-back of the parameter (`tests/clap_host_test.c:mover_checks`); `request_flush` is taken and nothing reads it yet | supported: the parameters read, written, read back, the plugin's own changes and gestures, modulation (`tests/clap_host_test.c:mover_checks`, `tests/clap_core_test.c:t_roster_whole_or_refused`, `make test-jack-params`) | offered | the LV2 adapter serves it (`lv2/tests/lv2_clap_test.c:t_fixture`) |
 | `clap.posix-fd-support` | supported: a descriptor registered, polled by the tick without waiting (`tests/clap_ext_test.c`); the limit of 16 (`OMX_CLAP_FDS`) is untested | supported: `on_fd` with what each is ready for (`tests/clap_ext_test.c`) | offered | in the host since #90 |
@@ -118,27 +118,27 @@ open for the extensions `instance_create` in `src/clap_host.c` reads, and later 
 
 | extension | host-side | plugin-side | asked on msi | note |
 |---|---|---|---|---|
-| `clap.background-activation/1` | — | unruled (#207) | — | |
-| `clap.background-progress/1` | unruled (#207) | — | 3 | |
-| `clap.background-state-context/1` | — | unruled (#207) | — | |
+| `clap.background-activation/1` | — | undecided (#207) | — | |
+| `clap.background-progress/1` | undecided (#207) | — | 3 | |
+| `clap.background-state-context/1` | — | undecided (#207) | — | |
 | `clap.extensible-audio-ports/1` | — | unsupported: #92 | — | |
-| `clap.flush-events/1` | unruled (#207) | unruled (#207) | 3 | |
+| `clap.flush-events/1` | undecided (#207) | undecided (#207) | 3 | |
 | `clap.gain-adjustment-metering/0` | — | supported in omx-clap-host only: read on the audio thread after `process()` when the plugin has no `clap.meters/1` (`make test-jack-meters`) | — | not read in process ([Surfaces](#surfaces), `docs/meters.md`) |
-| `clap.mini-curve-display/3` | unsupported: ruled supported (#95), the console's panels draw EQ and dynamics curves; #188 | unsupported: #188 | 33 | |
-| `clap.octave-number/1` | — | unruled (#207) | — | |
-| `clap.param-hovered/1` | unruled (#207) | — | 3 | |
-| `clap.params-origin/1` | unruled (#207) | unruled (#207) | 3 | |
-| `clap.project-location/2` | — | unruled (#207) | — | |
-| `clap.resource-directory/1` | unsupported: ruled P3 (2026-10-19, #95) | unsupported: the same | 62 | |
-| `clap.scratch-memory/1` | unruled: not on #207's list; plugin-qualify#116 wants it as a resource-profile term | — | 33 | |
-| `clap.transport-control/1` | unruled (#207) | — | — | the spelling of `clap-devel` 1.2.7 (CI's); 1.2.10 spells `/2` |
-| `clap.transport-control/2` | unruled (#207) | — | 3 | |
-| `clap.triggers/1` | unruled (#207) | unruled (#207) | — | |
+| `clap.mini-curve-display/3` | unsupported: to be supported (#95), the console's panels draw EQ and dynamics curves; #188 | unsupported: #188 | 33 | |
+| `clap.octave-number/1` | — | undecided (#207) | — | |
+| `clap.param-hovered/1` | undecided (#207) | — | 3 | |
+| `clap.params-origin/1` | undecided (#207) | undecided (#207) | 3 | |
+| `clap.project-location/2` | — | undecided (#207) | — | |
+| `clap.resource-directory/1` | unsupported: P3 (decided in #95) | unsupported: the same | 62 | |
+| `clap.scratch-memory/1` | undecided: not on #207's list; plugin-qualify#116 wants it as a resource-profile term | — | 33 | |
+| `clap.transport-control/1` | undecided (#207) | — | — | the spelling of `clap-devel` 1.2.7 (CI's); 1.2.10 spells `/2` |
+| `clap.transport-control/2` | undecided (#207) | — | 3 | |
+| `clap.triggers/1` | undecided (#207) | undecided (#207) | — | |
 | `clap.tuning/2` | unsupported: the host has no tuning of its own to share yet, #186 | unsupported: #186 | — | |
-| `clap.undo/4` | out of scope: the console keeps its own undo (ruled 2026-10-19, #95) | — | 35 | |
-| `clap.undo_context/4` | — | out of scope: the same ruling | — | |
-| `clap.undo_delta/4` | — | out of scope: the same ruling | — | |
-| `clap.webview/3` | out of scope: a plugin's own UI, as `clap.gui` (GUI ruling 2026-10-19) | out of scope: the same | 33 | |
+| `clap.undo/4` | out of scope: the console keeps its own undo (decided in #95) | — | 35 | |
+| `clap.undo_context/4` | — | out of scope: the same decision | — | |
+| `clap.undo_delta/4` | — | out of scope: the same decision | — | |
+| `clap.webview/3` | out of scope: a plugin's own UI, as `clap.gui` (the GUI decision) | out of scope: the same | 33 | |
 
 ### Factories
 
@@ -149,8 +149,8 @@ A factory is what a plugin file's entry hands out by id; the host asks the entry
 | `clap.plugin-factory` | — | supported: every plugin is opened through it (`tests/clap_host_test.c`, `tests/clap_scan_test.c`) | — | the LV2 adapter's entry serves one per bundle (`lv2/tests/lv2_clap_test.c:t_entry`) |
 | `clap.preset-discovery-factory/2` | — | supported: every provider created, each location read, `PLUGIN` locations through `get_metadata`, `FILE` ones walked (`tests/clap_host_test.c:synth_presets_checks`) | — | the LV2 adapter's entry serves one for the bundle's presets (`lv2/tests/lv2_clap_test.c:t_preset_list`) |
 | `clap.preset-discovery-factory/draft-2` | — | read, untested: asked when the entry lacks the final id | — | |
-| `clap.plugin-invalidation-factory/1` | — | unruled (#207) | — | |
-| `clap.plugin-state-converter-factory/1` | — | unruled (#207) | — | |
+| `clap.plugin-invalidation-factory/1` | — | undecided (#207) | — | |
+| `clap.plugin-state-converter-factory/1` | — | undecided (#207) | — | |
 
 ### Ids outside the headers
 
@@ -213,7 +213,7 @@ Measured
 
 A desk measurement, not a CI result: `make clap-coverage` added every CLAP plugin installed on msi,
 one at a time, to this tree's omx-clap-host in a private namespace with a PipeWire of its own, and
-read the answer and the host's log of ids it did not offer. Run on 2026-10-20 with the host built
+read the answer and the host's log of ids it did not offer. Run with the host built
 on this change over main `a5d0dba`; re-run it to measure again, from a fresh output directory (the
 probe resumes from the last one).
 
@@ -241,13 +241,13 @@ The ids the hosted plugins asked for most and were not given:
 | `clap.resource-directory/1` | 67 | unsupported, P3 |
 | `clap.undo/4` | 38 | out of scope |
 | `clap.mini-curve-display/3` | 36 | unsupported, #188 |
-| `clap.scratch-memory/1` | 36 | unruled |
+| `clap.scratch-memory/1` | 36 | undecided |
 | `clap.webview/3` | 36 | out of scope |
 
 Gaps
 ----
 
-In the order #196 gives them, with what the desk measured and where each stands today:
+In the order #196 gives them, with what the desk measured and where each stands:
 
 1. **`clap.thread-pool`**: in the host, host-side and plugin-side (#90, `tests/clap_ext_test.c`); the pool of helper threads, gated per plugin by its qualification (#395, docs/thread-pool.md, `tests/thread_pool_test.c`).
    The probe counts only ids the host does not offer, so no plugin is counted for it.
@@ -260,7 +260,7 @@ In the order #196 gives them, with what the desk measured and where each stands 
    (`omx_clap_host_tick`, every idle pass of omx-clap-host) calls `on_timer` for each timer due and
    `on_fd` for each descriptor ready. No plugin is refused for lacking either.
 5. **`clap.note-name`**: in the host, host-side and plugin-side (`tests/clap_host_test.c:synth_host_details_checks`).
-6. **`clap.scratch-memory/1`**: not offered; 36 hosted plugins asked. Unruled, and not on #207's
+6. **`clap.scratch-memory/1`**: not offered; 36 hosted plugins asked. Undecided, and not on #207's
    list; plugin-qualify#116 wants it as a resource-profile term.
 7. **`clap.audio-ports-config`, `clap.surround`, `clap.ambisonic`**: the #92 work carries the
    plugin-side of all three and the host-side of surround and ambisonic; #263 carries the host-side

@@ -2,7 +2,7 @@
 
 Two questions, from omx-clap-core#287. First, which parts of the LV2 adapter are format-neutral and could be shared by
 a second adapter? Second, what would that second adapter cost if it were VST3, the realistic candidate? (AU is
-macOS-only, so it cannot be tested on our Linux CI or rig.) The operator's ruling of 2026-10-20 decides the outcome:
+macOS-only, so it cannot be tested on our Linux CI or rig.) The decision on the outcome:
 **no VST3 adapter unless it has a demonstrated advantage, but we must know we could host it, and keep the results.**
 The spike is therefore kept on the branch `spike/vst3-feasibility` (not for merge, not for deletion). This report
 holds the numbers.
@@ -23,14 +23,14 @@ report extends.
   worker loop, path containment, atom byte helpers, the rtmempool pool) have no VST3 consumer.
 - Of the three simplification candidates, **#280 moves the seam the right way**. #279 and #281 are LV2-internal and
   leave the seam where it is.
-- Audio-thread indirection today: the shim adds **one indirect call per cycle plus one per MIDI-out event**. Every
+- Audio-thread indirection: the shim adds **one indirect call per cycle plus one per MIDI-out event**. Every
   other indirect call on the audio path is the CLAP host's or the plugin's own (objdump, 1.5). A shared layer must add
   none.
 - No other omx library (omx-dsp, plugin-hostd, omx-plugins) holds code that would replace a shared layer (1.6).
 - A VST3 adapter needs **no C++**. Steinberg's generated C API works: the spike is 477 code lines of C11 that hosts an
   LSP effect end to end. The SDK is **MIT** and the C API **BSD-3-Clause**, both usable in a GPL-3.0-or-later host.
 - The cost: about **2200 NLOC on the format side** plus tests and C fixtures, about **6200 lines** in all. At the pace
-  `lv2/` grew, that is about **3 weeks of lane time with the seam, 2.5 without**.
+  `lv2/` grew, that is about **3 weeks of work with the seam, 2.5 without**.
 - The demand is thin. In the distribution repositories, **64 open-source plugin packages are VST3-only on Linux** (no
   LV2 or CLAP build), none of them one we use. Among closed-source vendors, **6 ship Linux VST3 without CLAP or LV2**:
   ToneBoosters, Loomer, Renoise Redux, Tracktion BioTek/F'em, Bertom Audio, DDMF. Two of them have activation a
@@ -197,11 +197,11 @@ pointer, `shim_is_audio` (lv2_clap.c:965), is called only when the plugin calls 
 the shared layer follows. Its audio-thread half is `static inline` in a header compiled into each format's shim, and
 the format hooks are direct calls to that format's functions, bound when it is compiled, with no vtable. The
 acceptance test is this objdump count: no indirect call beyond the CLAP host's and the plugin's own. The split could
-even remove the two the shim has today.
+even remove the two the shim has.
 
 ### 1.6 Is anything in another omx library reusable instead?
 
-No. Each repository was cloned at its default branch on 2026-10-20 and searched for a ring, a worker, a parameter
+No. Each repository was cloned at its default branch and searched for a ring, a worker, a parameter
 table, event-to-MIDI conversion, a state stream, a scanner and a refusal vocabulary:
 
 - **omx-dsp** (bf94f78) is DSP. `omx_wetdry.h` is already the crossfade `hosted_stage.h` uses. `omx_note_map.h` maps
@@ -344,9 +344,9 @@ same class.
 2. **Cost.** About 2200 NLOC on the format side, which is about 3600 lines (at 0990c30 `lv2/` has 1.62 lines per NLOC:
    7851 lines, 4833 NLOC). On top come about 2000 lines of tests (there, the LV2 tests are 7566 lines against 7851 of
    adapter, `wc -l lv2/tests/*`) and about 600 of C fixtures: **about 6200 lines** in all. The adapter code of `lv2/`
-   grew from 2871 to 7851 lines between 2026-10-07 and 2026-10-20 (`git ls-tree` and `wc -l` at 5da3b2e and 0990c30),
+   grew from 2871 to 7851 lines in two weeks (`git ls-tree` and `wc -l` at 5da3b2e and 0990c30),
    partly by moving code rather than writing it. At that pace the format side is about 2 weeks. With tests and fixtures
-   in parallel lanes, the adapter is **about 2.5 weeks of lane time**. Cutting the seam first (moving 1161 NLOC behind
+   in parallel, the adapter is **about 2.5 weeks of work**. Cutting the seam first (moving 1161 NLOC behind
    about 25 hooks, with the LV2 tests as the oracle) adds **about half a week**, so about 3 weeks in all.
 3. **Does it validate the abstraction?** Partly, and that part was measured. Every VST3 task above maps onto an
    existing shim function group, so the seam drawn in 1.5 holds for the CLAP face. It does not hold for `lv2/core`:
@@ -415,7 +415,7 @@ Any one of these reopens it:
    allows loading in a third-party host. Three such plugins asked for make the case; one is enough if it fills a role
    nothing we host fills.
 2. **A second non-CLAP adapter is approved for another reason.** Then cut the seam (1.5) first, whatever the format.
-3. **A dual-format vendor drops CLAP and LV2 on Linux** for a plugin we host today.
+3. **A dual-format vendor drops CLAP and LV2 on Linux** for a plugin we host.
 
 The re-check is `tools/adapter-seam.sh --vst3-packages` for the repositories, and section 3.2 for the vendors.
 

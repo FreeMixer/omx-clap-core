@@ -1,9 +1,9 @@
-# The CPU idle hold bench, 2026-10-20
+# The CPU idle hold bench
 
 What #296 buys, measured: the same plugins through mod-host, omx-clap-host (CLAP and the LV2 adapter), the
 in-process tier, plugin-hostd and jalv, with `/dev/cpu_dma_latency` held at nothing, at 10 us (C1 only, the shipped
-default) and at 0 (no idle state), on the desk (msi). It is the idle-state arm the October 15 bench
-([bench-hosting-paths-2026-10-15.md](bench-hosting-paths-2026-10-15.md), follow-up of the 16th) promised for #105,
+default) and at 0 (no idle state), on the desk (msi). It is the idle-state arm the hosting paths bench
+([bench-hosting-paths-2026-10-15.md](bench-hosting-paths-2026-10-15.md), its follow-up) promised for #105,
 run on the library's own hold instead of one held from outside. The raw rows are in
 [bench-idle-hold-2026-10-20/](bench-idle-hold-2026-10-20/): `runs.csv` (one row per run, with the hold and the
 device's answer), `plugins.csv` (one row per plugin per run), `power.csv` (one row per run with an energy counter),
@@ -29,7 +29,7 @@ harness (below).
 | `clap`, `adapter` | omx-clap-host, `--idle-hold=<off\|us>`: the library's own hold |
 | `inproc-clap`, `inproc-lv2` | `bench/inproc.c` through `omx_clap_host_configure` (`OMX_BENCH_IDLE_HOLD`): the same library call the engine's in-process tier makes |
 | `hostd` | plugin-hostd 0.6.0 with its LV2 worker omx-clap-host (this tree's binary, the adapter, every plugin in one pool worker), the option passed by a wrapper the daemon spawns; the daemon itself links no library |
-| `modhost`, `jalv` | nothing of their own: the bench keeps the same request open on the device for the run (a python holder), as an operator's playbook would |
+| `modhost`, `jalv` | nothing of their own: the bench keeps the same request open on the device for the run (a python holder), as a setup script would |
 
 `hold off` is the machine at rest: tuned's throughput-performance profile holds the device at 4000 us, which refuses
 no state (C3 exits in 1048 us). The `device us` column is what the device read with every plugin active, the
@@ -116,8 +116,8 @@ RSS = the same processes with every plugin loaded. The CLAP rows carry seven plu
 
 - **The hold at 10 us cuts the cycle end three to five times on every path, and mod-host's lead is gone.** With the
   hold off, mod-host and plugin-hostd end their cycles at 224 to 235 us where omx-clap-host and the in-process tier
-  take 324 to 392 (96 kHz). At 10 the six paths sit between 72 and 103 us; at 0 between 26 and 43. The operator's
-  reading of the October bench holds: mod-host's advantage was the cores its extra clients kept awake, and once no
+  take 324 to 392 (96 kHz). At 10 the six paths sit between 72 and 103 us; at 0 between 26 and 43. The reading of the
+  hosting paths bench holds: mod-host's advantage was the cores its extra clients kept awake, and once no
   core sleeps past C1 the hosts are equal within one plugin set. The two CLAP rows stay about 30 us above the LV2
   rows at every hold; that is the CLAP paths' own cost, not an idle effect.
 - **Overruns go with it.** 14 to 39 per 30 s with the hold off at 96 kHz / 128, 0 to 1 at 10.

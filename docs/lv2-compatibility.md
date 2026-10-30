@@ -23,7 +23,7 @@ is not supported, each for its reason:
 - `bufsz:fixedBlockLength` in the console: the console's engine does not promise one block length,
   so it does not declare it; omx-clap-host does, since under JACK every cycle is the buffer size.
 - `instance-access` and `data-access`, refused on purpose: only a plugin's own UI needs them, and
-  the console never shows one (GUI ruling 2026-10-19).
+  the console never shows one (the GUI decision).
 - Native LV2 desktop UIs (`ui:X11UI`, `ui:GtkUI`, `ui:Qt5UI`): not hosted. The console draws a
   panel from the plugin's parameters, and omx-clap-host shows a plugin's own window for CLAP
   plugins only. modgui is planned in the console.
@@ -50,7 +50,7 @@ How to read the matrix
   `make test-lv2`.
 - **lossy** means the feature works, but not exactly as the LV2 specification describes it; the
   cell says how it differs.
-- **refused on purpose** means a ruling keeps it out; the cell names the ruling.
+- **refused on purpose** means a decision keeps it out; the cell names it.
 - **unsupported** means it is not done; the cell says why, and where it is planned.
 - `tests/clap_lv2_identity.sh` runs one plugin through mod-host as the reference of the
   omx-clap-host rows below; it proves the output, not the features.
@@ -163,7 +163,7 @@ Features and extensions
 | Presets (`pset:Preset`) | supported: `clap.preset-load` with the preset's URI as the load key, held and applied as a state load is (`lv2_clap_test` preset); a preset that applies to another plugin is refused. Listed through the preset-discovery factory the entry offers: one provider, the bundle a `PLUGIN` location, each `pset:Preset` by its `rdfs:label` with its URI as the load key, for the plugin it applies to (`lv2_clap_test` preset list) | not tested |
 | Denormals | supported: flush-to-zero and denormals-are-zero set again after every run of the plugin, so a plugin that clears them does not slow the host's next stage (`lv2_run_test` mxcsr, on x86) | not tested |
 | The host's `clap.log` and `clap.thread-check` | supported: the adapter writes its counters (`midi_in_dropped`, `respond_strikes`, `patch_dropped`, `make_path_refused`, the refused block lengths) and its refusals to the host's log, and asks the host's thread check which role a call is on (`lv2_clap_test` worker and make-path, `lv2_host_test` worker) | not tested |
-| `instance-access`, `data-access` | refused on purpose: only a plugin's own UI needs them, and the console never shows one (GUI ruling 2026-10-19). Neither is in the configured list, so a plugin that requires one is refused `hosting.features.missing` by the rule of the last row; no fixture requires these two | unsupported: the same worker, the same refusal; not tested through the daemon |
+| `instance-access`, `data-access` | refused on purpose: only a plugin's own UI needs them, and the console never shows one (the GUI decision). Neither is in the configured list, so a plugin that requires one is refused `hosting.features.missing` by the rule of the last row; no fixture requires these two | unsupported: the same worker, the same refusal; not tested through the daemon |
 | Required features outside the configured list | refused with `hosting.features.missing` before the binary is opened (`lv2_host_test` without worker:schedule, with no list and without loadDefaultState; `lv2_clap_test` refusals) | not tested |
 | lilv loaded only when the first bundle is opened | supported: a missing lilv refuses the bundle and is retried next time (`lv2_host_test` lazy) | not tested |
 
@@ -197,5 +197,5 @@ Plugin GUIs
 | LV2 | in-process (`libomx-clap-lv2`) | plugin-hostd |
 |---|---|---|
 | modgui | unsupported, planned: the console draws an imported modgui once its importer and panel renderer land; until then the console shows its generated panel. Our own plugins' modgui is generated and checked (FreeMixer/omx-plugins `tools/modgui-test.sh` with `tools/modgui-gen.mjs --check`) for hosts that draw it | unsupported: plugin-hostd has no window verb, and `panel_get` answers no panel for an LV2 plugin |
-| Native LV2 desktop UIs (`ui:X11UI`, `ui:GtkUI`, `ui:Qt5UI`) | unsupported: the console draws every panel from the plugin's parameters (GUI ruling 2026-10-19), and omx-clap-host's `show_external_ui` shows a CLAP plugin's own window only (`clap.gui`, [clap-compatibility.md](clap-compatibility.md)) | unsupported: plugin-hostd has no window verb |
+| Native LV2 desktop UIs (`ui:X11UI`, `ui:GtkUI`, `ui:Qt5UI`) | unsupported: the console draws every panel from the plugin's parameters (the GUI decision), and omx-clap-host's `show_external_ui` shows a CLAP plugin's own window only (`clap.gui`, [clap-compatibility.md](clap-compatibility.md)) | unsupported: plugin-hostd has no window verb |
 | No GUI | the console's panel generated from the plugin's parameters | the same |

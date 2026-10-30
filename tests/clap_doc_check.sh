@@ -9,7 +9,7 @@
 #      cell. A missing id is named. Rows for ids the installed headers lack (an older CLAP than the desk's) are kept
 #      and listed, never failed;
 #   2. every id row has exactly 5 cells, and its host-side and plugin-side cells start with one status word:
-#      supported, lossy, offered, untested, read, untested, refused, out of scope, unruled, unsupported, or "—" where
+#      supported, lossy, offered, untested, read, untested, refused, out of scope, undecided, unsupported, or "—" where
 #      CLAP has no such half;
 #   3. every table cell of the page that says "supported" names a test, and every test it names exists:
 #      `tests/<file>` or `lv2/tests/<file>` tracked by git, with `:<function>` a function the file defines when
@@ -98,7 +98,7 @@ check() { # <page>; prints the counts on success
   ids=$(header_ids)
   [ -n "$ids" ] || { echo "clap_doc_check: $inc/clap spells no id" >&2; return 2; }
 
-  local n_rows=0 n_sup=0 n_lossy=0 n_untested=0 n_refused=0 n_oos=0 n_unruled=0 n_unsup=0 n_none=0
+  local n_rows=0 n_sup=0 n_lossy=0 n_untested=0 n_refused=0 n_oos=0 n_undecided=0 n_unsup=0 n_none=0
   while IFS= read -r line; do
     # the closing separator keeps an empty last cell: read drops one empty field after the last separator
     IFS=$'\037' read -r -a cells <<< "$line"$'\037'
@@ -122,7 +122,7 @@ check() { # <page>; prints the counts on success
           "offered, untested"*|"read, untested"*) n_untested=$((n_untested + 1)) ;;
           refused*) n_refused=$((n_refused + 1)) ;;
           "out of scope"*) n_oos=$((n_oos + 1)) ;;
-          unruled*) n_unruled=$((n_unruled + 1)) ;;
+          undecided*) n_undecided=$((n_undecided + 1)) ;;
           unsupported*) n_unsup=$((n_unsup + 1)) ;;
           "—"*) n_none=$((n_none + 1)) ;;
           *) echo "clap_doc_check: $id: cell $n has no status word: '${cell:0:60}'" >&2; bad=1 ;;
@@ -156,7 +156,7 @@ check() { # <page>; prints the counts on success
   [ $bad -eq 0 ] || return 1
   echo "clap_doc_check: $(wc -l <<< "$ids") header ids, each a row; $n_rows id rows ($(( n_rows - $(wc -l <<< "$ids") )) beyond the headers);" \
        "cells: $n_sup supported, $n_lossy lossy, $n_untested offered or read untested, $n_refused refused, $n_oos out of scope," \
-       "$n_unruled unruled, $n_unsup unsupported, $n_none no such half"
+       "$n_undecided undecided, $n_unsup unsupported, $n_none no such half"
 }
 
 if [ $self -eq 1 ]; then

@@ -2,8 +2,8 @@ Presets in the worker
 =====================
 
 What omx-clap-host does with presets, for CLAP plugins and for LV2 plugins through the adapter: list a plugin's own
-presets, load one, save the instance into a preset file and load that file again. The ruling is plugin-hostd#131's
-comment "PRESETS IN THE HOST" (2026-10-22); this page is the worker's side of it (omx-clap-core#219). The host never
+presets, load one, save the instance into a preset file and load that file again. The design is plugin-hostd#131's
+(presets in the host); this page is the worker's side of it (omx-clap-core#219). The host never
 decides a path or a name: both arrive as arguments. Where files live, user banks, rename and delete are the consumer's.
 
 Verbs
