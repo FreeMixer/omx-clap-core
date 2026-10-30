@@ -1,3 +1,13 @@
+omx-clap-host (0.24.3) unstable; urgency=medium
+
+  * preset_load answers an error when the plugin did not load the preset (its
+    on_error, or a false from the load), and a key's path may hold a space
+    written %20 (#401).
+  * omx-clap-host answers pin_layout: the layout an instance has after init,
+    which plugin-hostd 0.15 records in a pin that has none yet (#383).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 30 Oct 2026 02:30:00 +0100
+
 omx-clap-host (0.24.2) unstable; urgency=medium
 
   * preset_load of an unknown location in mod-host's form (a preset URI, not a

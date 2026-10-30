@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.24.2
+Version:        0.24.3
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.3-1
+- preset_load answers an error when the plugin did not load the preset (its
+  on_error, or a false from the load), and a key's path may hold a space
+  written %%20 (#401).
+- omx-clap-host answers pin_layout: the layout an instance has after init,
+  which plugin-hostd 0.15 records in a pin that has none yet (#383).
+
 * Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.2-1
 - preset_load of an unknown location in mod-host's form (a preset URI, not a
   key of preset_get) answers the bare code again, as mod-host does, for a CLAP
