@@ -892,14 +892,17 @@ test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/f
 # of its own (tests/host_verbs_e2e.sh): data/ installed into build/verbs-contract as the package installs it, unless
 # OMX_CONTRACT_PATH names the contract directories to read (the packaging job's installed one)
 HOST_VERBS_CONTRACT = $(abspath build/verbs-contract)
-PLUGIN_HOSTD_VERSION = $(shell sed -n 's/^Version: *//p' $(PLUGIN_HOSTD_DIR)/packaging/plugin-hostd.spec)
+# the plugin-hostd tree whose data/ is the package read beside this one: the checkout of PLUGIN_HOSTD_DIR, or the release
+# checkout CI names (the tag that ships the verbs file)
+PLUGIN_HOSTD_CONTRACT_DIR ?= $(PLUGIN_HOSTD_DIR)
+PLUGIN_HOSTD_VERSION = $(shell sed -n 's/^Version: *//p' $(PLUGIN_HOSTD_CONTRACT_DIR)/packaging/plugin-hostd.spec)
 .PHONY: test-host-verbs test-host-verbs-sabotage host-verbs-contract
 host-verbs-contract:
 	rm -rf $(HOST_VERBS_CONTRACT)
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(HOST_VERBS_CONTRACT)
 	@# every other package that names omx-clap-host in its verbs file (plugin-hostd's: chain, preset_list, ...) is read too (#361)
-	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PLUGIN_HOSTD_DIR)/data/verbs.json || { echo "host-verbs-contract: no plugin-hostd checkout at $(PLUGIN_HOSTD_DIR) (PLUGIN_HOSTD_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
-	sh $(INSTALL_CONTRACT_DIR) plugin-hostd $(PLUGIN_HOSTD_VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PLUGIN_HOSTD_DIR)/data $(HOST_VERBS_CONTRACT) data
+	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PLUGIN_HOSTD_CONTRACT_DIR)/data/verbs.json && test -n "$(PLUGIN_HOSTD_VERSION)" || { echo "host-verbs-contract: no plugin-hostd checkout at $(PLUGIN_HOSTD_CONTRACT_DIR) (PLUGIN_HOSTD_CONTRACT_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
+	sh $(INSTALL_CONTRACT_DIR) plugin-hostd $(PLUGIN_HOSTD_VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PLUGIN_HOSTD_CONTRACT_DIR)/data $(HOST_VERBS_CONTRACT) data
 test-host-verbs: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_e2e.sh
 
