@@ -27,17 +27,17 @@
  *
  * The grammar, as the reader reads a file: one JSON value (RFC 8259) and whitespace around it, with four differences.
  * Arrays and objects nest JSON_DEPTH_MAX (32) deep at most. A string holds no \u0000, and a \u escape of a surrogate
- * is a pair, high then low. A number is an optional '-' and a digit, a 0 not followed by another digit, then the
- * longest run of digits, '.', 'e', 'E', '+' and '-', which strtod reads whole to a finite value: "1." and "1.e5" are
- * numbers. A number's text is that run, its value what strtod reads. A string's byte under 0x20 is refused, but every
+ * is a pair, high then low. A number is one RFC 8259 number: an optional '-', a 0 or a digit 1 to 9 and digits, an
+ * optional fraction of '.' and one digit or more, an optional exponent; the longest run of digits, '.', 'e', 'E', '+'
+ * and '-' must be exactly one, and strtod reads it to a finite value. "1." and "1.e5" are refused, with the file. A
+ * number's text is that run, its value what strtod reads. A string's byte under 0x20 is refused, but every
  * other byte is taken whole, invalid UTF-8 included: the reader does not validate a string's encoding.
  *
  * The writer's format: compact, no whitespace; pretty, each item on a line of its own indented two spaces for each
  * level, ": " after a member name, the closing bracket on a line of its own under its opener unless the container is
  * empty, and a newline at the end. A string escapes '"' and '\\' with a backslash, a newline, tab and carriage return as
- * \n, \t and \r, and every other byte under 0x20 as \u00xx in lower case; a number is written as its own text when that
- * text is already one RFC 8259 number, or as the shortest text of the same value when it is not (a lax "1." or
- * "1.e5" in, a strict number of the same value out).
+ * \n, \t and \r, and every other byte under 0x20 as \u00xx in lower case; a number is written as its own text, which
+ * the reader took only when it is one RFC 8259 number.
  */
 
 #include <math.h>
@@ -269,7 +269,7 @@ static int ex_number(struct ex *in, const struct pj *v)
     memcpy(in->scratch, in->p, (size_t)(s - in->p));
     in->scratch[s - in->p] = '\0';
     num = strtod(in->scratch, &end);
-    if (*end != '\0' || !isfinite(num))
+    if (!number_is_strict(in->scratch) || *end != '\0' || !isfinite(num))
         return -1;
     if (v && (v->type != PJ_NUMBER || strcmp(v->str, in->scratch) != 0 || memcmp(&v->num, &num, sizeof(num)) != 0))
         in->differs = 1;
