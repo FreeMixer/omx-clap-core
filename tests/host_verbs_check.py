@@ -76,7 +76,7 @@ EXAMPLES = {
 
 # a verb a package declares of this host that the host answers in an open change, with that change: the check names it
 # and skips it, and fails the day the host answers it, so the entry goes with the change that lands it
-PENDING = {'pin_layout': 'FreeMixer/omx-clap-core#383'}
+PENDING = {}
 
 failures = 0
 
