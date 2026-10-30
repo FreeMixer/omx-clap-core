@@ -137,10 +137,13 @@ arm head-remove src/effects.c 's/^        if (effect->chain)$/        if (0)/' \
 arm width src/effects.c 's/if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)/if (0)/' \
     'the refusals formed no chain 8'
 
-# 8. a member's note port goes with its client when it joins (#400): the port of the closed client left in the instance,
-# which the head's cycle would read
-arm note-port src/effects.c 's/^    effect->midi_port = effect->midi_out_port = NULL;$/    (void)0;/' \
-    'a member with a note port joins'
+# 8. a member with a note port is no refusal (#400): the refusal of the first version taken back
+arm note-port src/effects.c 's/^        if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))$/        if (i > 0 \&\& (effect->midi_port || effect->midi_out_port || effect->aux_in_count || effect->aux_out_count))/' \
+    'chain: chain 9 15 13 -> '
+
+# 8b. and the member gets its note port again in a client of its own: the client made ready for it registers none
+arm note-port-back src/effects.c 's/^        \&\& !(own->midi_in = jack_port_register(.*$/        \&\& 0)/' \
+    '13 has its note port again'
 
 # 9. a member of another chain: taken into this one as well
 arm other-chain src/effects.c 's/if (effect->chain \&\& effect->chain != chain)/if (0)/' \
