@@ -10,7 +10,7 @@ was measured (#395).
 XT 1.4.0 does not offer `clap.thread-pool` (no `CLAP_EXT_THREAD_POOL` in its extension list, no `request_exec` in its
 source), and none of the 489 plugin descriptors on the Raspberry Pi 5 of the measurement mentions the extension. For
 every other plugin the cores are used by placement: one worker per instrument or chain, pinned across the cores
-(plugin-hostd#226, not yet built). That, not the pool, is what the Pi gains from today. The pool is the host behaviour
+(plugin-hostd#226, not yet built). That, not the pool, is what the Pi gains from first. The pool is the host behaviour
 the extension specifies, and the gate by qualification stands for the plugins that use it.
 
 ## Two paths

@@ -1,4 +1,4 @@
-# A chain of plugins in one JACK client, Stage 0, 2026-10-21
+# A chain of plugins in one JACK client, Stage 0
 
 The gate of #302: N plugins in series in ONE JACK client of omx-clap-host, against the same N plugins in N clients
 linked in series, bit for bit and by the bench's numbers. A prototype in `src/effects.c` and `bench/` alone: the
@@ -53,7 +53,7 @@ differing sample reported, and the latency each arm's last output port reports e
 N-client arms against each other first: a plugin that is not deterministic between two instances of itself shows
 there, not as the chain's difference.
 
-## The bar (operator's ruling, 2026-10-21)
+## The bar
 
 The chain passes when it is bit-identical with one client per plugin and makes nothing worse (cycle-end p99,
 overruns, xruns at every hold); any measurable cycle-end saving at hold 10 passes.
@@ -181,7 +181,7 @@ N=4, omx-eq8 omx-comp omx-deesser omx-delay (CLAP), the same way ([bench-chain-2
   graph (`ulimit -r` 0). #105's question, whether the saving is the idle-state exit, is open until the same bench runs
   on the desk at off, 10 and 0.
 
-The question for the operator: do two N=4 rows whose median overruns are one higher (12 against 11, 5 against 4),
+The open question: do two N=4 rows whose median overruns are one higher (12 against 11, 5 against 4),
 within the spread of three repetitions, count as "worse" under the bar? If they do, the gate needs those two rows run
 again with more repetitions, or on the desk under FIFO, before S1. If they do not, the chain passes: bit-identical, a
 saving in every row, and nothing worse.

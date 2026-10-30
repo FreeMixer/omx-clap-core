@@ -1,14 +1,14 @@
 Audio layouts: every port a plugin declares, described; the carrier judges the fit
 ================================================================================
 
-Status: design, 2026-10-20, for issue #92 under the operator's ruling of the same day (support all LV2 and CLAP
-plugins; develop what is missing). Builds on #183/#184 (pass-through tools, sources) and the instruments spec of
-openmixer (its instruments-on-channels design of 2026-10-06, §7.2 ruled 2026-10-19).
+Status: design, for issue #92, under the decision to support all LV2 and CLAP plugins and develop what is
+missing. Builds on #183/#184 (pass-through tools, sources) and the instruments spec of
+openmixer (its instruments-on-channels design, §7.2 decided).
 
 Intent
 ------
 
-Today the host admits one main input and one main output of the same width, mono or stereo, plus up to eight
+Before this design the host admits one main input and one main output of the same width, mono or stereo, plus up to eight
 auxiliary inputs and outputs of one or two channels, and refuses everything else with two codes:
 `hosting.topology.wider-than-strip` and the topology code for extra inputs fed silence (removed, #297). On the desk's 975 LV2 plugins
 that refuses 84 that mod-host hosts: 51 with inputs beyond the main pair (side chains, mixers, meters, matrix
@@ -17,7 +17,7 @@ mixers, patchbays, up to 64 inputs) and 33 whose main pair differs in width or w
 surround or ambisonic main port is refused the same way, and the host never reads the extensions that describe
 such ports or offer alternative layouts.
 
-The ruling: every layout a plugin declares is supported. Inputs beyond the main one are the host's auxiliary
+The decision: every layout a plugin declares is supported. Inputs beyond the main one are the host's auxiliary
 inputs, silent until something binds them. A main port of any width is carried where the carrier has that many
 channels. A layout the carrier cannot carry is refused with a named code, never silently and never folded down.
 A mono output on a stereo strip is carried to both sides, as a mono input is (§7.2).
@@ -40,7 +40,7 @@ Goals
    the carrier judges that.
 4. Every refusal is a code in `data/hosting.json`, rendered, named in the PR's Codes line and posted to
    omx-contract#119's vocabulary.
-5. Nothing the existing carriers read changes meaning: a mono or stereo plugin on a stereo lane behaves as today,
+5. Nothing the existing carriers read changes meaning: a mono or stereo plugin on a stereo lane behaves as before,
    bit-identically; the JACK port names of the main pair stay `in_<k>`, `out_<k>`.
 
 Non-goals
@@ -55,7 +55,7 @@ Non-goals
   reported once through `omx_clap_host_ports_rescanned`, never answered by a restart; the carrier re-describes the
   plugin inactive through `omx_clap_host_request_layout` and activates it again. A restart whose deactivate raised a
   rescan stops there, inactive, answering `OMX_CLAP_RESTART_RESCANNED`.
-- ev:EventPort (#52), control-only plugins and the ll-plugins bundles: their own lanes, in that order, after this.
+- ev:EventPort (#52), control-only plugins and the ll-plugins bundles: their own changes, in that order, after this.
 
 Anti-goals
 ----------
@@ -90,12 +90,12 @@ the only numbers in this design.
 
 There is exactly one main port per side, or none: a plugin with no main input is a source (#184); an LV2
 plugin with no main output is a pass-through tool (#183, the shim's own process copies the input through). A
-native CLAP plugin with aux outputs and no main output keeps today's refusal, `hosting.topology.no-audio-output`:
+native CLAP plugin with aux outputs and no main output keeps its refusal, `hosting.topology.no-audio-output`:
 no desk plugin has that shape, and carrying the input through would be new real-time code in the core, which is
-its own issue (#211), not this lane's.
+its own issue (#211), not this design's.
 
 The main pair may differ in width. `in->in_channels` and `in->channels` are already two fields; the refusal
-`main_in != main_out` goes. On a two-leg lane: a mono input reads the left leg (as a mono plugin does today), a
+`main_in != main_out` goes. On a two-leg lane: a mono input reads the left leg (as a mono plugin does), a
 stereo output writes both legs, a mono output writes both legs (§7.2), a stereo input reads both. The library's
 two-leg run (`omx_clap_host_run(in, l, r, n)`) keeps its signature and does this; it refuses at activation, with
 `wider-than-strip`, a plugin whose main port is wider than two on either side, since that lane is the two-leg
@@ -114,7 +114,7 @@ by every unbound aux input channel, one scratch block per aux output channel, an
 side. Allocated at activation from the description, never on the process thread.
 
 Aux inputs: `omx_clap_host_bind_aux_input(in, port, bufs[], channels, frames)` takes one buffer per channel
-(today `l, r`). Unbound reads silence. Aux outputs are handed their scratch and otherwise unconnected, as today;
+(before, `l, r`). Unbound reads silence. Aux outputs are handed their scratch and otherwise unconnected, as before;
 `omx_clap_host_bind_aux_output(in, port, bufs[], channels)` lets a carrier read them (the band outputs of a
 crossover, the per-track outputs of an instrument). omx-clap-host registers a JACK port per aux channel.
 
@@ -131,14 +131,14 @@ Read, per side: `pg:mainInput`/`pg:mainOutput` on the plugin, `pg:group` on each
 2. **No main group, but groups**: the first group in port order is the main port; the rest and every ungrouped
    port are auxiliary as in 1. (lsp ab_tester_x2_mono: two mono groups, main a, aux b.)
 3. **No groups at all**: when the side has at most two ports, they are the main port (one mono, two stereo), as
-   today. When it has more than two and the other side's main is exactly as wide (its main group's members by
+   before. When it has more than two and the other side's main is exactly as wide (its main group's members by
    rule 1 or 2, else its ungrouped ports; side chains and aux groups never count), the side is one main port of that
    width (gareus surround meters, sisco, matrixmixer i8o8, essp, lufsmetermultichannel, patchbay N→N, mixtri,
    noise_generator_x4). Otherwise the first two ports are the main port and the rest are mono aux ports (xfade
    4→2: main a pair, aux b pair; sc3 3→2: main a pair, aux the side chain; bodeShifterCV 2→3: main pair out, aux
    the shift; surroundEncoder 4→2: main pair, aux C and S). A plugin that means a wider main declares a group.
 4. Side-chain ports (`isSideChain`/`sideChainOf`) are auxiliary whatever rule applies, grouped by their group as
-   today.
+   before.
 5. CV ports stay what they are: mono aux ports after the audio ones.
 
 A mono input and a stereo output are two main ports of different widths, admitted (rule 1 for the 13 true-stereo
@@ -167,7 +167,7 @@ a group of a type the table lacks, orders by port index with kind unknown. The C
 
 LV2 port groups declare no normalisation. A full-order ambisonic group is exposed by the shim as a CLAP
 ambisonic port with ordering ACN and normalisation SN3D, the AmbiX convention, recorded below as a decision; the
-description says `normalisation: assumed`. No desk plugin declares a surround or ambisonic group today; the
+description says `normalisation: assumed`. No desk plugin declares a surround or ambisonic group; the
 table is exercised by fixtures.
 
 CLAP: the extensions
@@ -259,8 +259,8 @@ Left to the builder
   carries its Codes line and the fixtures it adds; the coverage count goes on the last.
 - Whether `aux_in_<p>_<k>` carries the port's name as JACK metadata (`pretty-name`): nice, not required.
 
-Decisions taken here, for the operator to check
------------------------------------------------
+Decisions taken here
+--------------------
 
 - **A new soname major.** The stage and instance structs resize (`in_ptrs[2]`, `aux_in_bound[8][2]`, the aux
   arrays), and `omx_clap_host_bind_aux_input` changes shape; the repository's own rule (`clap_host.h`,
@@ -268,13 +268,13 @@ Decisions taken here, for the operator to check
   re-recorded, and the console's `pipewire-native` rebuilt in the same deploy, which the settle gate does. The
   alternative, carrying the old entry points and fixed arrays beside the new, is the back-compat the house rules
   forbid.
-- **Base**: the lane stacks on #210's branch (`fix/184-generators-no-input`) until #210 is on main, then main
+- **Base**: the work stacks on #210's branch (`fix/184-generators-no-input`) until #210 is on main, then main
   is merged in; its first PR edits the same functions and the same codes table, and the coverage baseline is
   #210's 823.
 - **`lane_channels`** in the host config, default 2, so the console is safe with the library alone.
 - **Masks and configurations are asked only in `request_layout`**, with the carrier's wish; the open-time
   description never asks the plugin whether it likes its own layout.
-- **A native CLAP plugin with no main output but aux outputs stays refused** (`no-audio-output`) in this lane.
+- **A native CLAP plugin with no main output but aux outputs stays refused** (`no-audio-output`) in this change.
 
 - Rule 3 for ungrouped ports (N→N is a wide main; otherwise the first two are the main and the rest mono aux).
   mod-host presents ungrouped ports flat, so any rule is ours; this one keeps every N→N multichannel tool whole

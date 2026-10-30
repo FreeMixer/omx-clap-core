@@ -270,7 +270,7 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   by default), a fresh pair of hosts each time, and wants it IDENTICAL to mod-host every time: a client cycle that
   passes dry where it should have run the plugin shows only on the runs where JACK's threads collide.
 
-### What a member costs (r1, 2026-10-25)
+### What a member costs (r1)
 
 `bench/chain-cost.sh`: N instances of `tests/fault-0.clap` (a -20 dB pad) in one omx-clap-host, one client each
 against one chain, a PipeWire of its own at 48000 Hz, quantum 128, forced; three repetitions

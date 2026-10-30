@@ -1,4 +1,4 @@
-# Hosting paths bench, 2026-10-15
+# Hosting paths bench
 
 The first measurement for #82: what it costs to host the same plugins through mod-host, omx-clap-host, omx-clap-host
 with libomx-clap-lv2, and in-process the way the engine hosts them. The raw rows are in
@@ -30,7 +30,7 @@ pipewire-jack-audio-connection-kit-devel, on r1.
 | `inproc-clap` | the CLAP build in a native PipeWire filter's own process callback through libomx-clap-core |
 | `inproc-lv2` | the LV2 build the same way, opened through libomx-clap-lv2 |
 
-**Path 3 is a stand-in.** omx-clap-host cannot load an LV2 plugin today (#96: it only takes `clap:<file>#<id>`, and
+**Path 3 is a stand-in.** omx-clap-host cannot load an LV2 plugin in this bench (#96: it only takes `clap:<file>#<id>`, and
 nothing in it calls libomx-clap-lv2). The bench gives it `build/bench/omx-lv2-bridge.clap`, a bench-only `.clap`
 (`bench/lv2_bridge.c`) that links libomx-clap-lv2 and hands the LV2 plugins of the bundles in `OMX_BENCH_LV2_BUNDLES`
 over as CLAP plugins. So `adapter` measures the adapter's code inside an unmodified omx-clap-host process, loaded
@@ -82,7 +82,7 @@ unit impulse four times a second; a direct link carries the same impulse as the 
 
 r1: Intel Core Ultra 9 285K, 24 threads, Fedora 44 kernel 7.2.9, cpufreq governor `powersave` (intel_pstate),
 PipeWire 1.6.9, in a rootless privileged podman container. The data threads ran SCHED_FIFO 55 (rtprio limit 70 in the
-container). r1 is a shared build machine: its load average was 2.8 to 3.3 through the run (k3s, CI, other agents), and
+container). r1 is a shared build machine: its load average was 2.8 to 3.3 through the run (k3s, CI, other jobs), and
 nothing was pinned or isolated. omx-clap-host and the bench tools were built from this branch (main a06b7bf plus the
 bench).
 
@@ -228,7 +228,7 @@ The node's duration (pw-profiler: active -> finished) is the plugin plus everyth
   before the measured runs saw a 163 ms graph stall while omx-clap-host was dying; the nine measured crash runs did
   not reproduce it, so it is noted and not claimed. The 150 to 175 ms is the core dump: omx-clap-core#102.
 
-## Follow-up: what the whole-graph figure measures (2026-10-16)
+## Follow-up: what the whole-graph figure measures
 
 The same harness on r1, 96 kHz, quantum 128, 20-second windows, each figure one run (two or three where listed), with
 two additions kept outside this tree: per-thread CPU and run-queue wait from `/proc`, and `/dev/cpu_dma_latency` held
@@ -278,7 +278,7 @@ runs a plugin; with idle states refused the paths are equal. Its price is memory
 omx-clap-host) and a slower start.
 libomx-clap-lv2 through omx-clap-host is comparable to mod-host per plugin and lighter in memory, but omx-clap-host
 cannot load LV2 yet (#96) and the adapter refuses common LV2 plugins with non-MIDI atom ports (#84), so mod-host cannot
-be retired today. In-process costs the plugin's inline time and nothing else, and saves the per-plugin node, but a
+be retired yet. In-process costs the plugin's inline time and nothing else, and saves the per-plugin node, but a
 crash there takes the console's audio with it, where out of process the graph lives and a respawn sounds within
 0.1 s. Recommendation for plugin-hostd's default worker: omx-clap-host, out of process, for CLAP plugins now and for
 LV2 plugins once #96 lands and the adapter admits them; mod-host stays as the LV2 fallback for what the adapter
