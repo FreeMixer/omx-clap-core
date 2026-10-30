@@ -137,9 +137,13 @@ arm head-remove src/effects.c 's/^        if (effect->chain)$/        if (0)/' \
 arm width src/effects.c 's/if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)/if (0)/' \
     'the refusals formed no chain 8'
 
-# 8. a note port only on the head: a member with one taken
-arm note-port src/effects.c 's/if (i > 0 \&\& (effect->midi_port || effect->midi_out_port))/if (0)/' \
-    'chain 8 15 13 -> '
+# 8. a member with a note port is no refusal (#400): the refusal of the first version taken back
+arm note-port src/effects.c 's/^        if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))$/        if (i > 0 \&\& (effect->midi_port || effect->midi_out_port || effect->aux_in_count || effect->aux_out_count))/' \
+    'chain: chain 9 15 13 -> '
+
+# 8b. and the member gets its note port again in a client of its own: the client made ready for it registers none
+arm note-port-back src/effects.c 's/^        \&\& !(own->midi_in = jack_port_register(.*$/        \&\& 0)/' \
+    '13 has its note port again'
 
 # 9. a member of another chain: taken into this one as well
 arm other-chain src/effects.c 's/if (effect->chain \&\& effect->chain != chain)/if (0)/' \
@@ -158,7 +162,7 @@ arm rt-callee src/effects.c '/^static void transport_block/,/^}/s/^    struct om
 arm rt-core src/clap_chain.c '/^int omx_clap_chain_process/,/^}/s/^    uint32_t s;$/&\n\n    free(malloc(1));/' \
     "the host's chain cycle names an allocator"
 
-# 12. a member with an auxiliary port is refused as a member with a note port is: taken
+# 12. a member with an auxiliary port is refused: taken
 arm aux-port src/effects.c 's/if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))/if (0)/' \
     'a member with a side chain is refused'
 
@@ -170,24 +174,37 @@ arm move src/effects.c 's/^    if (j < n_kept \&\& (ret = chain_order(chain, kep
 arm member-bypass src/effects.c 's/^    omx_clap_host_bypass(g_effects\[effect_id\]\.clap, value);$/    if (!g_effects[effect_id].chain || g_effects[effect_id].chain->head == \&g_effects[effect_id])\n        omx_clap_host_bypass(g_effects[effect_id].clap, value);/' \
     'p2b left: gain, a member, bypassed in both'
 
-# 15. the members' walk on JACK's thread and every change of the members are ordered by g_chain_members: the lock gone,
-# ThreadSanitizer sees the walk and the changes race (make test-chain-host-tsan)
-arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/;s/pthread_mutex_trylock(\&g_chain_members) == 0/1/' \
-    'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
+# 15. the members' walk on JACK's thread and every change of the members are ordered by g_chain_members. The probe, in
+# a copy only: a change that holds the lock (chain_extract, step 7's remove of a member) names a block size for its head
+# as the buffer-size callback does, from its own thread, which is a try of a held mutex; the walk must leave that size
+# to the control thread (resize_named kept). With the lock gone the walk runs under the change and the size is consumed:
+# the host logs a FAIL line and the e2e's last step names it. No timing: the try and the hold are on one thread, so
+# the arm turns red on every run, where ThreadSanitizer saw the race only when the stress happened to meet it.
+lock_probe='/^static void chain_extract(chain_t \*chain, effect_t \*effect)$/i\
+static void lock_probe(chain_t *chain)\
+{\
+    effect_t *head = atomic_load_explicit(&chain->members[0], memory_order_relaxed);\
+\
+    if (!head || !head->jack_client || atomic_load_explicit(&head->chain_run, memory_order_relaxed) != chain)\
+        return;\
+    chain_followers_each(head, jack_get_buffer_size(head->jack_client));\
+    if (!atomic_load_explicit(&head->resize_named, memory_order_acquire))\
+        fprintf(stderr, "%s%c", "FAIL a block size named while a change held g_chain_members was walked under it", 10);\
+}\
 
-# 15a. the same, one site: g_chain_members gone from the walk on JACK's thread (chain_followers_each), which tries the
-# lock (taken as had, the try gone), every other site kept. The thread-init callback and the relayout take no lock (no
-# JACK thread writes an audio role: 16, 16b). Four sites the stress cannot turn red, measured (2026-10-25, 40 rounds):
-# chain_order, chain_extract and chain_insert, which the stress runs every round, write only the members and the count,
-# which are atomics, so ThreadSanitizer sees no race without the lock (what the lock keeps is a walk that never sees the
-# members half shifted, which no sanitizer measures; chain_insert was red while it also wrote the joining member's
-# role, green twice, 0 races, since that role reads its head's slot); and chain_end (red while JACK's walk read
-# chain_run before a lock it waited on; green twice, 0 races, since the walk reads it under the lock it only tries:
-# what the lock keeps is a walk that loaded chain_run just before chain_end cleared it never reading the slot chain_end
-# then clears, a window of a few loads)
+/^static void chain_extract(/,/^}/s/^    \(pthread_mutex_lock(&g_chain_members);\|(void)0;\)$/&\n    lock_probe(chain);/'
+
+# the probe alone, the lock kept: green, so the arms below are red on the lock and not on the probe
+keep lock-probe src/effects.c "$lock_probe" '^ok   the hosts logged no FAIL line'
+
+# the lock gone at every site
+arm lock src/effects.c 's/^\( *\)pthread_mutex_\(un\)\{0,1\}lock(\&g_chain_members);$/\1(void)0;/;s/pthread_mutex_trylock(\&g_chain_members) == 0/1/'"
+$lock_probe" 'walked under it'
+
+# 15a. the same, one site: the walk on JACK's thread (chain_followers_each) takes the try as had, every other site kept
 lock_site() {
-    arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/{s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/;s/pthread_mutex_trylock(\\&g_chain_members) == 0/1/}" \
-        'ThreadSanitizer reports [0-9]+ data race' test-chain-host-tsan
+    arm "lock-$1" src/effects.c "/^static [a-z_ ]*\\<$1(/,/^}/{s/^\\( *\\)pthread_mutex_\\(un\\)\\{0,1\\}lock(\\&g_chain_members);\$/\\1(void)0;/;s/pthread_mutex_trylock(\\&g_chain_members) == 0/1/}
+$lock_probe" 'walked under it'
 }
 for site in chain_followers_each; do lock_site "$site"; done
 
