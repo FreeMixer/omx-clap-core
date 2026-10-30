@@ -18,6 +18,9 @@ set -u
 here=$(cd "$(dirname "$0")" && pwd)
 . "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
+# the refusal's number is the vocabulary header's, never a literal of this script
+note_full=$(sed -n 's/^#define OMX_REPLY_HOST_NOTE_QUEUE_FULL_RESP[[:space:]]*(\(-[0-9]*\)).*/\1/p' "$root/src/omx_clap_core_vocabulary.h")
+case $note_full in -[0-9]*) ;; *) echo "no OMX_REPLY_HOST_NOTE_QUEUE_FULL_RESP in src/omx_clap_core_vocabulary.h" >&2; exit 2 ;; esac
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5561}
 synth=$here/fake_synth.clap
@@ -190,18 +193,18 @@ expect "note_drops 0" "resp 0 0 0 0 0"
 expect "note_drops 1" "resp 0 0 0 0 0"
 expect "note_drops 7" "resp -3"
 
-# a graph that runs no cycle drains no note: the queue fills, and a verb with no room answers -517 and queues nothing
+# a graph that runs no cycle drains no note: the queue fills, and a verb with no room answers the note-queue-full code and queues nothing
 kill -STOP "$pw_pid"
 full=0 queued=0
 for _ in $(seq 600); do
     case $(send "note_on 0 0 60 100") in
         "resp 0") queued=$((queued + 1)) ;;
-        "resp -517") full=$((full + 1)) ;;
+        "resp $note_full") full=$((full + 1)) ;;
     esac
 done
 [ "$full" -gt 0 ] && [ "$queued" -gt 0 ] && [ $((queued + full)) -eq 600 ]
-step $? "with the graph stopped, $queued note_on are queued and the other $full answer -517 (the note queue is full)"
-expect "all_notes_off 0" "resp -517"
+step $? "with the graph stopped, $queued note_on are queued and the other $full answer $note_full (the note queue is full)"
+expect "all_notes_off 0" "resp $note_full"
 kill -CONT "$pw_pid"
 sleep 0.5
 expect "all_notes_off 0" "resp 0"
