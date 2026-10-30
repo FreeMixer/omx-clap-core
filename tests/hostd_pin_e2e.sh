@@ -27,8 +27,8 @@ fbport=$((port + 1))
 layout_pin=$here/clap_layout_pin
 id=org.omx-clap-host.test.passthrough
 
-: "${PHD_ERR_PIN_ABSENT:?}" "${PHD_ERR_PIN_BINARY_MISMATCH:?}" "${PHD_ERR_PIN_LAYOUT_MISMATCH:?}" "${PHD_VERB_PIN_SET:?}" \
-  "${PHD_VERB_PIN_CLEAR:?}" "${PHD_READY_LINE:?}" "${PHD_PIN_MODE_STRICT:?}"
+: "${OMX_REPLY_HOST_PIN_ABSENT_RESP:?}" "${OMX_REPLY_PLUGIN_HOSTD_PIN_BINARY_MISMATCH_RESP:?}" "${OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP:?}" "${OMX_VERB_PIN_SET:?}" \
+  "${OMX_VERB_PIN_CLEAR:?}" "${PHD_READY_LINE:?}" "${PHD_PIN_MODE_STRICT:?}"
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     for f in "$daemon" "$host" "$here/fake.clap" "$layout_pin"; do
@@ -91,6 +91,8 @@ clap_host $OMX_CLAP_HOST
 state_root $runtime
 require_pins 1
 pin_mode $PHD_PIN_MODE_STRICT
+# the scan an add runs (plugin-hostd 0.15) loads the plugin in a process of its own; the counts below are the worker's
+probe $runtime/no-probe
 EOF
 
 PROTOCOL_TIMEOUT=10
@@ -113,16 +115,16 @@ exec 3<>"/dev/tcp/127.0.0.1/$port"
 exec 4<>"/dev/tcp/127.0.0.1/$fbport"
 
 # unpinned: the daemon refuses and no worker sees it
-expect "add $uri 0" "resp $PHD_ERR_PIN_ABSENT"
+expect "add $uri 0" "resp $OMX_REPLY_HOST_PIN_ABSENT_RESP"
 [ "$(logged init)" -eq 0 ]; step $? "no plugin code ran for the unpinned add"
 
 # a wrong digest of the binary: the daemon refuses before any worker
-expect "$PHD_VERB_PIN_SET $uri fake.clap=$(printf '%064d' 0) $pin" "resp 0"
-expect "add $uri 0" "resp $PHD_ERR_PIN_BINARY_MISMATCH"
+expect "$OMX_VERB_PIN_SET $uri fake.clap=$(printf '%064d' 0) $pin" "resp 0"
+expect "add $uri 0" "resp $OMX_REPLY_PLUGIN_HOSTD_PIN_BINARY_MISMATCH_RESP"
 [ "$(logged init)" -eq 0 ]; step $? "no plugin code ran for the swapped binary"
 
 # the true pin: the worker checks the layout and the plugin loads, is activated and processes
-expect "$PHD_VERB_PIN_SET $uri fake.clap=$digest $pin" "resp 0"
+expect "$OMX_VERB_PIN_SET $uri fake.clap=$digest $pin" "resp 0"
 expect "add $uri 0" "resp 0"
 for _ in $(seq 30); do [ "$(logged process)" -ge 1 ] && break; sleep 0.1; done
 [ "$(logged activate)" -eq 1 ] && [ "$(logged process)" -eq 1 ]
@@ -130,8 +132,8 @@ step $? "the pinned instance was activated and processes ($(logged activate) act
 in_graph 0; step $? "effect_0 is in the graph"
 
 # the right binary with a layout pin the plugin does not have: the worker destroys it before activate
-expect "$PHD_VERB_PIN_SET $uri fake.clap=$digest $other" "resp 0"
-expect "add $uri 1" "resp $PHD_ERR_PIN_LAYOUT_MISMATCH"
+expect "$OMX_VERB_PIN_SET $uri fake.clap=$digest $other" "resp 0"
+expect "add $uri 1" "resp $OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP"
 sleep 0.5
 [ "$(logged init)" -eq 2 ] && [ "$(logged destroy)" -eq 1 ]
 step $? "the refused instance was created and destroyed in the worker ($(logged init) init, $(logged destroy) destroy)"
@@ -139,8 +141,8 @@ step $? "the refused instance was created and destroyed in the worker ($(logged 
 step $? "and never activated nor processed: the counts are instance 0's ($(logged activate) activate, $(logged process) process)"
 ! in_graph 1; step $? "effect_1 is not in the graph"
 
-expect "$PHD_VERB_PIN_CLEAR $uri" "resp 0"
-expect "add $uri 1" "resp $PHD_ERR_PIN_ABSENT"
+expect "$OMX_VERB_PIN_CLEAR $uri" "resp 0"
+expect "add $uri 1" "resp $OMX_REPLY_HOST_PIN_ABSENT_RESP"
 expect "remove 0" "resp 0"
 expect "quit" "resp 0"
 

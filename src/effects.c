@@ -223,6 +223,7 @@ typedef struct {
     jack_client_t *client;
     jack_port_t *inputs[CLAP_HOST_PORT_CHANNELS];
     jack_port_t *outputs[CLAP_HOST_PORT_CHANNELS];
+    jack_port_t *midi_in, *midi_out;    // the note ports of a plugin that has them
 } own_client_t;
 
 /* a client of its own a chain line stopped (members_stop): the instance and its main ports' links as they were, pairs of
@@ -598,6 +599,14 @@ static void process_gated(effect_t *effect, const float *const *inputs, float *c
         publish_gain_adjustment(effect, runs);
     if (effect->midi_out_port)
         notes_out(effect, nframes);
+    else if (effect->clap->note_outputs)
+    {
+        // a chain member's note output has no port: what the plugin sent out is dropped
+        struct omx_clap_note_out_event dropped[NOTES_OUT_CHUNK];
+
+        while (omx_clap_host_notes_out(effect->clap, dropped, NOTES_OUT_CHUNK) > 0)
+            ;
+    }
 }
 
 /* a chain's member, in the head's cycle: the instance inside its own gate, as its own client's cycle runs it */
@@ -1812,10 +1821,9 @@ static void callbacks_set(effect_t *effect)
     jack_set_latency_callback(effect->jack_client, latency, effect);
 }
 
-/* a client of its own made ready for a chain's member, under the name the instance had: opened and its main ports
- * registered, but neither activated nor the instance's yet, so the head's cycle may still run the member meanwhile. A
- * member has no note port and no auxiliary port (effects_chain), so its main ports are all it registers. SUCCESS, or
- * the error with nothing left open. */
+/* a client of its own made ready for a chain's member, under the name the instance had: opened and its main and note
+ * ports registered, but neither activated nor the instance's yet, so the head's cycle may still run the member
+ * meanwhile. A member has no auxiliary port (effects_chain). SUCCESS, or the error with nothing left open. */
 static int client_ready(const effect_t *effect, own_client_t *own)
 {
     int error;
@@ -1825,6 +1833,12 @@ static int client_ready(const effect_t *effect, own_client_t *own)
     if (!own->client)
         return ERR_JACK_CLIENT_CREATION;
     error = main_ports_register_on(own->client, effect->in_ports, effect->out_ports, own->inputs, own->outputs);
+    if (error == SUCCESS && effect->clap->note_inputs
+        && !(own->midi_in = jack_port_register(own->client, MIDI_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0)))
+        error = ERR_JACK_PORT_REGISTER;
+    if (error == SUCCESS && effect->clap->note_outputs
+        && !(own->midi_out = jack_port_register(own->client, MIDI_OUT_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0)))
+        error = ERR_JACK_PORT_REGISTER;
     if (error != SUCCESS)
     {
         jack_client_close(own->client);
@@ -1849,11 +1863,14 @@ static int client_take(effect_t *effect, own_client_t *own)
     own->client = NULL;
     memcpy(effect->input_ports, own->inputs, sizeof(effect->input_ports));
     memcpy(effect->output_ports, own->outputs, sizeof(effect->output_ports));
+    effect->midi_port = own->midi_in;
+    effect->midi_out_port = own->midi_out;
     callbacks_set(effect);
     if (jack_activate(effect->jack_client) != 0)
     {
         jack_client_close(effect->jack_client);
         effect->jack_client = NULL;
+        effect->midi_port = effect->midi_out_port = NULL;
         memset(effect->input_ports, 0, sizeof(effect->input_ports));
         memset(effect->output_ports, 0, sizeof(effect->output_ports));
         return ERR_JACK_CLIENT_ACTIVATION;
@@ -2013,6 +2030,9 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
     effect->jack_client = chain->head->jack_client;
     memset(effect->input_ports, 0, sizeof(effect->input_ports));
     memset(effect->output_ports, 0, sizeof(effect->output_ports));
+    // a member's note ports went with its client: its note verbs reach it through the ring, midi_in is never read, and
+    // what it sends out is dropped
+    effect->midi_port = effect->midi_out_port = NULL;
     ret = chain_insert(chain, effect, position);
     if (ret == 0)
         return SUCCESS;
@@ -2912,13 +2932,6 @@ int effects_chain(int id, const int *instances, int n)
                     effect->in_ports, effect->out_ports, head->instance, head->out_ports);
             return ERR_INVALID_OPERATION;
         }
-        // a note port goes with its client: only the head keeps its own
-        if (i > 0 && (effect->midi_port || effect->midi_out_port))
-        {
-            fprintf(stderr, "chain %d: effect_%d has a note port, which only the chain's first member keeps\n", id,
-                    instances[i]);
-            return ERR_INVALID_OPERATION;
-        }
         // an auxiliary port goes with its client too: a member's side chain would read silence and its auxiliary
         // outputs reach nothing, so only the head keeps its own
         if (i > 0 && (effect->aux_in_count || effect->aux_out_count))
@@ -3307,6 +3320,22 @@ static int preset_identity(const effect_t *effect, const char **id, const char *
     return 0;
 }
 
+/* pin_layout: the layout the instance has after init, as plugin-hostd records it in a pin that has none yet
+ * ("resp 0 omx-layout/1:<sha256>"); the same fingerprint pin_expect checks and a preset file carries */
+int effects_pin_layout(int effect_id, char *reply, size_t size)
+{
+    const char *id, *version;
+    char fingerprint[sizeof(PHD_PIN_LAYOUT_SCHEME) + PHD_SHA256_HEX_LEN + 2];
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (!g_effects[effect_id].clap ||
+        preset_identity(&g_effects[effect_id], &id, &version, fingerprint, sizeof(fingerprint)) != 0)
+        return ERR_INVALID_OPERATION;
+    snprintf(reply, size, "resp 0 %s", fingerprint);
+    return SUCCESS;
+}
+
 /* the name param_set takes for a parameter row: an LV2 control port's symbol, else the CLAP id in decimal */
 static const char *preset_symbol(const effect_t *effect, clap_id id, char *buf, size_t size)
 {
@@ -3614,7 +3643,11 @@ int effects_state_load(const char *dir)
             continue;
         ret = clap_state_load(g_effects[i].clap, filename);
         if (ret != SUCCESS)
+        {
+            // state_load answers one code for every instance: stderr names the one that refused, and its file
+            fprintf(stderr, "state_load: effect_%d refused %s (%d)\n", i, filename, ret);
             error = ret;
+        }
     }
     return error;
 }
@@ -3920,15 +3953,18 @@ int effects_track_info(int effect_id, const char *name, const char *color, const
     return SUCCESS;
 }
 
-/* remote_pages: the plugin's page count, 0 without clap.remote-controls */
+/* remote_pages: the plugin's page count from clap.remote-controls; without that extension the pages made of its
+ * clap.params (omx_clap_host_standard_pages), never the two together; an LV2 plugin through the adapter keeps 0 */
 int effects_remote_pages(int effect_id)
 {
-    const struct omx_clap_instance *clap;
+    struct omx_clap_instance *clap;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
-    return clap->remote_controls ? (int)clap->remote_controls->count(clap->plugin) : 0;
+    if (clap->remote_controls)
+        return (int)clap->remote_controls->count(clap->plugin);
+    return g_effects[effect_id].lv2_entry ? 0 : (int)omx_clap_host_standard_pages(clap);
 }
 
 /* a name a plugin reports as one quoted word: a byte below 0x20 a space, cut at the last whole UTF-8 character within
@@ -3969,8 +4005,15 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
     memset(&info, 0, sizeof(info));
-    if (!clap->remote_controls || page < 0 || (uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
-        !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+    if (page < 0)
+        return ERR_INVALID_OPERATION;
+    if (clap->remote_controls)
+    {
+        if ((uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
+            !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+            return ERR_INVALID_OPERATION;
+    }
+    else if (g_effects[effect_id].lv2_entry || omx_clap_host_standard_page(clap, (uint32_t)page, &info) != 0)
         return ERR_INVALID_OPERATION;
     info.section_name[sizeof(info.section_name) - 1] = '\0';
     info.page_name[sizeof(info.page_name) - 1] = '\0';
@@ -3990,8 +4033,9 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
 }
 
 /* param_info: -103 for what is not a parameter param_set takes; -511 for a parameter of a plugin whose
- * org.openmixer.param-contract/1 is absent or broke a rule (the controller falls back to qualification); else the unit,
- * the scale and the step the contract gives, the range and the default clap.params gives, and the contract's symbol */
+ * org.openmixer.param-contract/1 broke a rule (the controller falls back to qualification); else the unit, the scale
+ * and the step the contract gives, the range and the default clap.params gives, and the contract's symbol. A plugin
+ * with no contract at all is described by clap.params alone (omx_clap_host_param_described), never by a mixture */
 int effects_param_info(int effect_id, const char *symbol, char *reply, size_t size)
 {
     struct omx_clap_param_meaning m;
@@ -4004,7 +4048,7 @@ int effects_param_info(int effect_id, const char *symbol, char *reply, size_t si
         return ERR_INSTANCE_NON_EXISTS;
     if (param_of(&g_effects[effect_id], symbol, &id, &lv2) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
-    if (omx_clap_host_param_meaning(g_effects[effect_id].clap, id, &m) != 0
+    if (omx_clap_host_param_described(g_effects[effect_id].clap, id, &m) < 0
         || omx_clap_param_number(m.min, min, sizeof(min)) < 0 || omx_clap_param_number(m.max, max, sizeof(max)) < 0
         || omx_clap_param_number(m.def, def, sizeof(def)) < 0 || omx_clap_param_number(m.step, step, sizeof(step)) < 0)
         return OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP;

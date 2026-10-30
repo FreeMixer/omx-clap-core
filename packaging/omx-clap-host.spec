@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.24.2
+Version:        0.25.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,24 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.0-1
+- omx-clap-host describes a plugin from our extensions first, then from the
+  standard CLAP params: a plugin without our extensions gets its parameters,
+  their meaning and remote pages from clap.params. The library adds
+  omx_clap_host_param_described, omx_clap_host_standard_pages and
+  omx_clap_host_standard_page (#391).
+- A chain line forms with a member that has a note port; the chain lock is
+  held to its rule by a sabotage arm that fails on every run (#400).
+- The host verbs check reads plugin-hostd's own declarations, from the
+  release it builds against (0.15.1), and drives chain with two members (#361).
+
+* Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.3-1
+- preset_load answers an error when the plugin did not load the preset (its
+  on_error, or a false from the load), and a key's path may hold a space
+  written %%20 (#401).
+- omx-clap-host answers pin_layout: the layout an instance has after init,
+  which plugin-hostd 0.15 records in a pin that has none yet (#383).
+
 * Thu Oct 29 2026 Pau Aliagas <linuxnow@gmail.com> - 0.24.2-1
 - preset_load of an unknown location in mod-host's form (a preset URI, not a
   key of preset_get) answers the bare code again, as mod-host does, for a CLAP

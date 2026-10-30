@@ -35,8 +35,8 @@ frames=${FRAMES:-24000}
 feeder=$here/jack_identity
 preroll=4
 
-: "${PHD_READY_LINE:?}" "${PHD_VERB_CHAIN:?}" "${PHD_EVENT_CHAIN_FORMED:?}" "${PHD_EVENT_INSTANCE_QUARANTINED:?}" \
-  "${PHD_VERB_WORKER_LIST:?}" "${PHD_PLACE_CHAIN_PREFIX:?}"
+: "${PHD_READY_LINE:?}" "${OMX_VERB_CHAIN:?}" "${PHD_EVENT_CHAIN_FORMED:?}" "${PHD_EVENT_INSTANCE_QUARANTINED:?}" \
+  "${OMX_VERB_WORKER_LIST:?}" "${PHD_PLACE_CHAIN_PREFIX:?}"
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     for f in "$daemon" "$host" "$feeder" "$here/fake_compressor.clap" "$here/fault-14.clap" "$here/fault-0.clap"; do
@@ -144,7 +144,7 @@ expect 5 "add $comp 31" "resp 31"
 wait_nodes "effect_0 effect_1 effect_2 "; step $? "three instances, three nodes: $(nodes)"
 
 # 1. the chain: one worker, one node
-expect 3 "$PHD_VERB_CHAIN 5 0 1 2" "resp 0"
+expect 3 "$OMX_VERB_CHAIN 5 0 1 2" "resp 0"
 event "^$PHD_EVENT_CHAIN_FORMED 5 w[0-9]+ 0,1,2$"; step $? "the daemon formed chain 5: $(grep "^$PHD_EVENT_CHAIN_FORMED" "$runtime/events.log" | tail -1)"
 wait_nodes "effect_0 "; step $? "chain 5 is one node: $(nodes)"
 
@@ -229,8 +229,9 @@ for _ in $(seq 200); do
     sleep 0.1
 done
 [ "${blocks:-0}" -ge 200 ]; step $? "gain has run ${blocks:-0} blocks in the chain"
-# the chain's worker's pid, out of worker_list's w<k>:<pid>:<format>:<state>:<place>:<members>
-chain_pid() { send 3 "$PHD_VERB_WORKER_LIST" | tr ' ' '\n' | awk -F: -v place="${PHD_PLACE_CHAIN_PREFIX%:}" '$5 == place && $6 == 5 { print $2 }'; }
+# the chain's worker's pid, out of worker_list's w<k>:<pid>:<format>:<state>:<core>:<pool>:<place>:<members>; the place
+# holds a colon (chain:5), so the record is read from the right
+chain_pid() { send 3 "$OMX_VERB_WORKER_LIST" | tr ' ' '\n' | awk -F: -v place="${PHD_PLACE_CHAIN_PREFIX%:}" 'NF >= 9 && $(NF-2) == place && $(NF-1) == 5 { print $2 }'; }
 pid_before=$(chain_pid)
 reply=$(send 3 "param_set 1 0 0.95")
 step 0 "daemon: param_set 1 0 0.95 -> $reply (the write that aborts gain)"
@@ -242,7 +243,7 @@ wait_nodes "effect_0 effect_1 "; step $? "the chain one node, gain one of its ow
 pid_after=$(chain_pid)
 [ -n "$pid_before" ] && [ -n "$pid_after" ] && [ "$pid_before" != "$pid_after" ] && ! kill -0 "$pid_before" 2>/dev/null
 step $? "the chain's worker died and was spawned again: pid $pid_before, then $pid_after"
-list=$(send 3 "$PHD_VERB_WORKER_LIST")
+list=$(send 3 "$OMX_VERB_WORKER_LIST")
 echo "$list" | tr '\n' ' ' | grep -q "$PHD_PLACE_CHAIN_PREFIX""5"; step $? "worker_list names the chain's worker: $(echo "$list" | tr '\n' ' ')"
 reply=$(send 3 "param_get 1 0")
 case $reply in "resp 0 "*) step 0 "the quarantined gain answers in its own worker: param_get 1 0 -> $reply" ;;

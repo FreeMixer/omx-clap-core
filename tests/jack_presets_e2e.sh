@@ -136,6 +136,9 @@ check(doc.get('format') == 'org.openmixer.preset/2' and doc.get('name') == 'My P
 plugin = doc.get('plugin', {})
 check(plugin.get('id') == 'org.omx-clap-host.test.mover' and plugin.get('version') is not None
       and str(plugin.get('fingerprint', '')).startswith('omx-layout/1:'), 'its plugin is the mover with a version and a layout fingerprint: %s' % plugin)
+# pin_layout (plugin-hostd asks it after an add whose pin has no layout yet) answers the fingerprint the file carries
+check(ask('pin_layout 3') == 'resp 0 ' + str(plugin.get('fingerprint')), 'pin_layout 3 answers the layout the preset file names: %s' % ask('pin_layout 3'))
+check(ask('pin_layout 9') == 'resp -3', 'pin_layout of an instance that does not exist answers -3')
 check(rows.get('0') == 0.3125 and '3' in rows, 'level is written as 0.3125 exactly, trim beside it: %s' % rows)
 check(ask('param_set 3 0 0.875') == 'resp 0', 'level moved to 0.875')
 r = ask('preset_load 3 "%s"' % saved)

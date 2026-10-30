@@ -46,8 +46,8 @@
 #include "protocol.h"
 #include "effects.h"
 #include "host_verbs.h"
-// preset_list and preset_get are plugin-hostd's verbs, optional for this host: their formats from its declaration,
-// which plugin-hostd 0.13 and later install; a build against older headers answers neither (omx-clap-core#383)
+// preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from its
+// declaration, which plugin-hostd 0.13 and later install; a build against older headers answers none (omx-clap-core#383)
 #if __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
 #include <plugin-hostd/plugin_hostd_host_verbs.h>
 #endif
@@ -332,6 +332,19 @@ static void remote_page_get_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+#ifdef OMX_VERB_PIN_LAYOUT_FMT
+static void pin_layout_cb(proto_t *proto)
+{
+    char reply[SOCKET_MSG_BUFFER_SIZE];
+    int resp = effects_pin_layout(atoi(proto->list[1]), reply, sizeof(reply));
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else
+        protocol_response_int(resp, proto);
+}
+#endif
+
 #ifdef OMX_VERB_PRESET_GET_FMT
 static void preset_list_cb(proto_t *proto)
 {
@@ -470,11 +483,13 @@ static void term_signal(int sig)
 /* mod-host's verbs this host does not answer, -902 each. host_dispatch_register_unsupported registers these and also the
  * nine this host answers itself (set_bpm, set_bpb, transport, transport_sync, monitor_output, track_info, remote_pages,
  * remote_page_get, param_info): a second entry under a verb is dead, and the protocol library's table holds
- * PROTOCOL_MAX_COMMANDS entries and drops any past it in silence, which with the note verbs was quit itself. */
+ * PROTOCOL_MAX_COMMANDS entries and drops any past it in silence, which with the note verbs was quit itself, and with
+ * pin_layout was quit again. preset_save is not here: this host answers it (preset_save_cb, registered first), so an
+ * entry here would be a dead one, and the 64 a mod-host protocol library before FreeMixer/mod-host#6 holds are full. */
 static void register_unsupported(void)
 {
     static const char *const commands[] = {
-        EFFECT_PRESET_SAVE, EFFECT_PRESET_SHOW, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
+        EFFECT_PRESET_SHOW, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
         MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
         CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
         FEATURE_ENABLE, OUTPUT_DATA_READY,
@@ -500,6 +515,9 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(OMX_VERB_PARAM_INFO_FMT, param_info_cb);
+#ifdef OMX_VERB_PIN_LAYOUT_FMT
+    protocol_add_command(OMX_VERB_PIN_LAYOUT_FMT, pin_layout_cb);
+#endif
 #ifdef OMX_VERB_PRESET_GET_FMT
     protocol_add_command(OMX_VERB_PRESET_LIST_FMT, preset_list_cb);
     protocol_add_command(OMX_VERB_PRESET_GET_FMT, preset_get_cb);

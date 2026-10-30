@@ -31,6 +31,7 @@ import os
 import re
 import socket
 import sys
+import tempfile
 
 sys.path.insert(0, os.environ.get('PLUGIN_HOSTD_TESTS_LIB') or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'plugin-hostd', 'tests', 'lib'))
 import plugin_hostd_client  # noqa: E402  plugin-hostd-tests' lib/plugin_hostd_client.py
@@ -40,7 +41,7 @@ OWNER = 'omx-clap-core'
 # a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
 # once any installed package declares it, the socket checks it as declared
 # (preset_save is registered in plugin-hostd#131's form, <N> <file> <name...>, not mod-host's four-word one)
-AWAITING = {'chain': 'plugin-hostd', 'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd', 'preset_save': 'plugin-hostd'}
+AWAITING = {'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd', 'preset_save': 'plugin-hostd'}
 
 # per verb: the words after the verb of a well-formed line, and malformed lines with the code each must answer.
 # {fx} is the passthrough instance (no note input, two remote pages, a parameter contract), {synth} the synth.
@@ -67,11 +68,15 @@ EXAMPLES = {
     'note_drops': (['{synth}'], [(['9'], 'instanceNonExists')]),
     'note_out_drops': (['{synth}'], [(['9'], 'instanceNonExists')]),
     # the verbs of plugin-hostd's package that name this host, checked once that package is installed beside this one
-    'chain': (['1', '{fx}'], [(['x', '{fx}'], 'invalidOperation')]),
+    'chain': (['1', '{fx}', '{fx2}'], [(['x', '{fx}'], 'invalidOperation'), (['1', '{fx}', '{fx}'], 'invalidOperation')]),
     'preset_list': (['{fx}'], []),
     'preset_get': (['{fx}', '0'], []),
     'pin_layout': (['{fx}'], []),
 }
+
+# a verb a package declares of this host that the host answers in an open change, with that change: the check names it
+# and skips it, and fails the day the host answers it, so the entry goes with the change that lands it
+PENDING = {}
 
 failures = 0
 
@@ -215,6 +220,9 @@ def main():
     if not mine:
         print('host_verbs_check: no verb of %s for %s under %s' % (OWNER, HOST, o.contract_path), file=sys.stderr)
         return 2
+    # a package the host's registrations lean on must be installed, else its verbs are never driven (#361)
+    step('plugin-hostd' in packages(o.contract_path), "plugin-hostd's package is installed under %s: its verbs file declares chain of %s"
+         % (o.contract_path, HOST))
     print('host_verbs_check: %d verbs name %s, %d of them %s\'s, from %s' % (len(verbs), HOST, len(mine), OWNER, o.contract_path))
 
     # the reverse: what the host registers is what is declared for it
@@ -239,12 +247,13 @@ def main():
          % (OWNER, sorted(mine - registered) or 'none', sorted(registered - mine) or 'none'))
 
     host = Host(int(o.port))
-    fx, synth = '0', '1'
+    fx, synth, fx2 = '0', '1', '2'
     for line, want in (('add clap:%s#org.omx-clap-host.test.passthrough %s' % (o.fake, fx), 'resp ' + fx),
-                       ('add clap:%s#org.omx-clap-host.test.synth %s' % (o.synth, synth), 'resp ' + synth)):
+                       ('add clap:%s#org.omx-clap-host.test.synth %s' % (o.synth, synth), 'resp ' + synth),
+                       ('add clap:%s#org.omx-clap-host.test.passthrough %s' % (o.fake, fx2), 'resp ' + fx2)):
         got = host.send(line)
         step(got == want, '%s -> %s' % (line, got))
-    subst = {'fx': fx, 'synth': synth, 'scheme': o.layout_scheme, 'pin': o.layout_scheme + ':' + '0' * 64}
+    subst = {'fx': fx, 'fx2': fx2, 'synth': synth, 'scheme': o.layout_scheme, 'pin': o.layout_scheme + ':' + '0' * 64}
 
     for v in verbs:
         name, level, codes = v['verb'], v['level'], v['codes']
@@ -254,6 +263,10 @@ def main():
         good, bad = EXAMPLES[name]
         line = ' '.join([name] + fitted(v['format'], [a.format(**subst) for a in good]))
         got = host.send(line)
+        if name in PENDING:
+            step(not shape(got, v['reply']), '%s -> %s: pending %s (answers nothing declared yet; the entry goes when it does)'
+                 % (line, got, PENDING[name]))
+            continue
         refused = 'invalidOperation' in codes and got == 'resp %d' % codes['invalidOperation']
         if level == 'required':
             step(shape(got, v['reply']), '%s (required) -> %s: the shape of "%s"' % (line, got, v['reply']))
@@ -270,6 +283,12 @@ def main():
                 continue
             got = host.send(line)
             step(got == 'resp %d' % codes[code], '%s -> %s: %s, resp %d' % (line, got, code, codes[code]))
+
+    # the chain the loop formed, its members' state saved and loaded back (plugin-hostd's checkpoint does the same)
+    with tempfile.TemporaryDirectory() as tmp:
+        for verb in ('state_save', 'state_load'):
+            got = host.send('%s %s' % (verb, tmp))
+            step(got == 'resp 0', '%s %s after the chain -> %s' % (verb, tmp, got))
 
     print('host_verbs_check: %s' % ('held' if failures == 0 else '%d failures' % failures))
     return 1 if failures else 0

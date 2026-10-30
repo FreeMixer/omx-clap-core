@@ -71,6 +71,7 @@ int effects_set_parameter(int effect_id, const char *control_symbol, float value
 int effects_get_parameter(int effect_id, const char *control_symbol, float *value);
 int effects_preset_load(int effect_id, const char *location);
 /* preset_list: the count of the plugin's own presets, listed again and kept for preset_get */
+int effects_pin_layout(int effect_id, char *reply, size_t size);
 int effects_preset_list(int effect_id);
 /* preset_get: one row of the last preset_list, "resp 0 <load_key> <name>", into `reply` */
 int effects_preset_get(int effect_id, int index, char *reply, size_t size);

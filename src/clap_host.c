@@ -2169,6 +2169,124 @@ int omx_clap_host_param_meaning(struct omx_clap_instance *in, clap_id id, struct
     return 0;
 }
 
+int omx_clap_host_param_described(struct omx_clap_instance *in, clap_id id, struct omx_clap_param_meaning *meaning)
+{
+    clap_param_info_t info;
+
+    if (in->contract)
+        return omx_clap_host_param_meaning(in, id, meaning) == 0 ? OMX_CLAP_PARAM_FROM_CONTRACT : -1;
+    // a contract the host does not trust is a plugin that spoke and broke a rule: none of its parameters is read from
+    // clap.params in its place, so the controller falls back to qualification as it always did
+    if (strcmp(in->contract_why, "absent") != 0 || info_of(in, id, &info) != 0)
+        return -1;
+    memset(meaning, 0, sizeof(*meaning));
+    meaning->id = id;
+    snprintf(meaning->symbol, sizeof(meaning->symbol), "param_%u", id);
+    meaning->unit = 0;
+    meaning->scale = (info.flags & (CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM)) ? 2 : 0;
+    meaning->step = meaning->scale == 2 ? 1.0 : 0.0;
+    meaning->min = info.min_value;
+    meaning->max = info.max_value;
+    meaning->def = info.default_value;
+    meaning->flags = info.flags;
+    return OMX_CLAP_PARAM_FROM_STANDARD;
+}
+
+/* the standard pages: the rows in get_info order, grouped by their module path in the order each module first appears,
+ * CLAP_REMOTE_CONTROLS_COUNT to a page. `want` is the page to fill into `page` (when not NULL); the count of pages in `*count`.
+ * -1 when the rows cannot be read whole or allocated. */
+static int standard_pages(struct omx_clap_instance *in, uint32_t want, clap_remote_controls_page_t *page, uint32_t *count)
+{
+    char (*names)[CLAP_PATH_SIZE] = NULL;
+    clap_id *ids = NULL;
+    uint32_t *module = NULL;
+    uint32_t n, i, k, rows = 0, modules = 0, pages = 0;
+    int rc = -1;
+
+    *count = 0;
+    n = in->params ? param_count_of(in, NULL) : 0;
+    if (n == 0)
+        return 0;
+    names = calloc(n, sizeof(*names));
+    ids = calloc(n, sizeof(*ids));
+    module = calloc(n, sizeof(*module));
+    if (!names || !ids || !module)
+        goto out;
+    for (i = 0; i < n; i++)
+    {
+        clap_param_info_t info;
+        char path[CLAP_PATH_SIZE];
+
+        memset(&info, 0, sizeof(info));
+        if (!in->params->get_info(in->plugin, i, &info))
+            goto out;
+        if (!is_row(&info))
+            continue;
+        snprintf(path, sizeof(path), "%.*s", (int)sizeof(info.module), info.module);
+        for (k = 0; k < modules && strcmp(names[k], path) != 0; k++)
+            ;
+        if (k == modules)
+            memcpy(names[modules++], path, sizeof(path));
+        ids[rows] = info.id;
+        module[rows++] = k;
+    }
+    for (k = 0; k < modules; k++)
+    {
+        uint32_t seen = 0, slot = 0, chunk = 0;
+        const char *slash;
+
+        for (i = 0; i < rows; i++)
+        {
+            if (module[i] != k)
+                continue;
+            if (seen % CLAP_REMOTE_CONTROLS_COUNT == 0)
+            {
+                slot = 0;
+                chunk = seen / CLAP_REMOTE_CONTROLS_COUNT;
+                if (pages == want && page)
+                {
+                    int j;
+
+                    memset(page, 0, sizeof(*page));
+                    page->page_id = pages;
+                    slash = strrchr(names[k], '/');
+                    snprintf(page->section_name, sizeof(page->section_name), "%.*s", slash ? (int)(slash - names[k]) : 0, names[k]);
+                    snprintf(page->page_name, sizeof(page->page_name), chunk ? "%s %u" : "%s",
+                             slash ? slash + 1 : names[k], chunk + 1);
+                    for (j = 0; j < CLAP_REMOTE_CONTROLS_COUNT; j++)
+                        page->param_ids[j] = CLAP_INVALID_ID;
+                }
+                pages++;
+            }
+            if (pages - 1 == want && page && slot < CLAP_REMOTE_CONTROLS_COUNT)
+                page->param_ids[slot] = ids[i];
+            slot++;
+            seen++;
+        }
+    }
+    *count = pages;
+    rc = 0;
+out:
+    free(names);
+    free(ids);
+    free(module);
+    return rc;
+}
+
+uint32_t omx_clap_host_standard_pages(struct omx_clap_instance *in)
+{
+    uint32_t count;
+
+    return standard_pages(in, UINT32_MAX, NULL, &count) == 0 ? count : 0u;
+}
+
+int omx_clap_host_standard_page(struct omx_clap_instance *in, uint32_t index, clap_remote_controls_page_t *page)
+{
+    uint32_t count;
+
+    return standard_pages(in, index, page, &count) == 0 && index < count ? 0 : -1;
+}
+
 int omx_clap_host_resource_hints(const struct omx_clap_instance *in, omx_resource_hints_t *hints, const char **why)
 {
     if (hints)

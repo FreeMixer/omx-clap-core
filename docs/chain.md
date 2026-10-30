@@ -134,9 +134,12 @@ connections, and again without a member after that member's `remove`. omx-clap-h
 The members run in ONE JACK client: the client of the first member the line names, the chain's head. The head's main
 input ports are the chain's input and its main output ports the chain's output; its note ports and auxiliary ports
 stay its own. Every other member closes its own client, so it has no port and is no node of the graph: a chain of N
-plugins is one node, beside the host's own client (`omx-clap-host`, the frame clock, no port). A member's auxiliary
-ports would go with its client as its note ports do, its side chain reading silence and its auxiliary outputs reaching
-nothing, so a member with one is refused (below); the head keeps its own. A controller connects a chain by its head's
+plugins is one node, beside the host's own client (`omx-clap-host`, the frame clock, no port). A member's note ports
+go with its client too, and a line does not refuse for them (#400: a third-party LV2 effect such as Calf's declares an atom
+port that supports MIDI, so it has a note input): the note verbs still reach the member through its ring, its note output
+is dropped, and it gets its note ports again in a client of its own when it leaves. A member's auxiliary ports would
+go with its client, its side chain reading silence and its auxiliary outputs reaching nothing, so a member with one is
+refused (below); the head keeps its own. A controller connects a chain by its head's
 ports.
 
 The head's process callback runs the library's chain (`omx_clap_chain_process`). Each member, the head too, is a stage
@@ -156,12 +159,21 @@ chain's sum between them.
 ### What a line may name
 
 Every member is an instance this host holds, named once and in no other chain of this host, and of the chain's width:
-its main input and its main output as wide as the head's main output. No member but the head has a note port or an
+its main input and its main output as wide as the head's main output. No member but the head has an
 auxiliary port (its port would go with its client; stderr says `chain <chain>: effect_<n> has an auxiliary port (<in>
 in, <out> out), which only the chain's first member keeps`). Anything else answers `resp -902` with the reason on
 stderr, or `resp -3` for an instance this host does not hold, and changes nothing: the members run one client each,
 which plugin-hostd takes as no failure. The protocol has no code of its own for these refusals; the reason is the
 stderr line. A line of one member is a chain of one: the head in its own client, run through the chain.
+
+### The declaration, and the refusal behind plugin-hostd (#361)
+
+plugin-hostd's verbs file declares `chain` of omx-clap-host as `required`, and this host implements it: a line of two
+or more members answers `resp 0`. `make test-host-verbs` installs plugin-hostd's package (`PLUGIN_HOSTD_DIR`) beside
+this one and drives that line, so a host that refuses it, or a build without that package, goes red. A `resp -902`
+the daemon logs (`refused chain <n> ...`) is one of the refusals above, whose reason this host writes to its own
+stderr just before; the daemon's stderr alone does not name it. `state_load` answers one code for the whole directory;
+the host's stderr names the instance and file that refused (`state_load: effect_<n> refused <file> (<code>)`).
 
 ### Changes while it runs
 

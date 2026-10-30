@@ -892,10 +892,17 @@ test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/f
 # of its own (tests/host_verbs_e2e.sh): data/ installed into build/verbs-contract as the package installs it, unless
 # OMX_CONTRACT_PATH names the contract directories to read (the packaging job's installed one)
 HOST_VERBS_CONTRACT = $(abspath build/verbs-contract)
+# the plugin-hostd tree whose data/ is the package read beside this one: the checkout of PLUGIN_HOSTD_DIR, or the release
+# checkout CI names (the tag that ships the verbs file)
+PLUGIN_HOSTD_CONTRACT_DIR ?= $(PLUGIN_HOSTD_DIR)
+PLUGIN_HOSTD_VERSION = $(shell sed -n 's/^Version: *//p' $(PLUGIN_HOSTD_CONTRACT_DIR)/packaging/plugin-hostd.spec)
 .PHONY: test-host-verbs test-host-verbs-sabotage host-verbs-contract
 host-verbs-contract:
 	rm -rf $(HOST_VERBS_CONTRACT)
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(HOST_VERBS_CONTRACT)
+	@# every other package that names omx-clap-host in its verbs file (plugin-hostd's: chain, preset_list, ...) is read too (#361)
+	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PLUGIN_HOSTD_CONTRACT_DIR)/data/verbs.json && test -n "$(PLUGIN_HOSTD_VERSION)" || { echo "host-verbs-contract: no plugin-hostd checkout at $(PLUGIN_HOSTD_CONTRACT_DIR) (PLUGIN_HOSTD_CONTRACT_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
+	sh $(INSTALL_CONTRACT_DIR) plugin-hostd $(PLUGIN_HOSTD_VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PLUGIN_HOSTD_CONTRACT_DIR)/data $(HOST_VERBS_CONTRACT) data
 test-host-verbs: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_e2e.sh
 
@@ -913,8 +920,8 @@ HOST_INFO_DECLARED = $(foreach n,OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP OMX_HOST_
 HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
 # what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
 phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
-PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE PHD_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED PHD_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
-PHD_DECLARED = $(foreach n,PHD_ERR_PIN_ABSENT PHD_ERR_PIN_BINARY_MISMATCH PHD_ERR_PIN_LAYOUT_MISMATCH PHD_VERB_PIN_EXPECT PHD_VERB_PIN_SET PHD_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE PHD_ERR_NO_PARAM_CONTRACT PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
+PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE OMX_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED OMX_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
+PHD_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_PLUGIN_HOSTD_PIN_BINARY_MISMATCH_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT OMX_VERB_PIN_SET OMX_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
 
 tests/jack_meter_source: tests/jack_meter_source.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack)
