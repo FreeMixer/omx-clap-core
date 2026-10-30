@@ -90,6 +90,8 @@
  * stepped; the read-only three, no unit, stepped), whole with "good", and with one rule broken otherwise: "fingerprint" (R4, the stated fingerprint is off by one digit), "missing" (R1,
  * no entry for parameter 3), "duplicate" (R1, two entries named activations), "symbol" (R2, a symbol starting with a
  * digit), "step" (R2, a stepped parameter whose step is 2).
+ * FAKE_STANDARD makes every plugin describe itself through clap.params alone, twelve writable parameters (0 latency in
+ * the module "Main/Timing", 1..11 in "Stats", 5 an enum), for the host to answer param_info and the pages from.
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
  * "<id> destroy" to, which outlives an instance the host destroyed, and "<id> process off the audio role" once when
  * the host's thread-check says process() runs off it.
@@ -526,19 +528,36 @@ static bool note_ports_get(const clap_plugin_t *plugin, uint32_t index, bool is_
 
 static const clap_plugin_note_ports_t g_note_ports = { note_ports_count, note_ports_get };
 
+/* FAKE_STANDARD: a plugin that says what it has through clap.params alone - twelve writable parameters, the first in
+ * module "Main/Timing", the other eleven in "Stats" (4 continuous, 5 an enum), none of them in the contract */
+static int standard_set(void)
+{
+    return getenv("FAKE_STANDARD") != NULL;
+}
+
 static uint32_t params_count(const clap_plugin_t *plugin)
 {
     (void)plugin;
-    return 4;
+    return standard_set() ? 12 : 4;
 }
 
 static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_param_info_t *info)
 {
     (void)plugin;
-    if (index > 3)
+    if (index > (standard_set() ? 11u : 3u))
         return false;
     memset(info, 0, sizeof(*info));
     info->id = index;
+    if (standard_set())
+    {
+        info->flags = index < 4 ? CLAP_PARAM_IS_STEPPED : index == 5 ? CLAP_PARAM_IS_STEPPED | CLAP_PARAM_IS_ENUM : 0;
+        info->min_value = 0.0;
+        info->max_value = index == 0 ? LATENCY_MAX : index < 4 ? 1e9 : 1.0;
+        info->default_value = index == 0 ? layout_default() : index < 4 ? 0.0 : 0.5;
+        snprintf(info->name, sizeof(info->name), index == 0 ? "latency" : "standard %u", index);
+        strcpy(info->module, index == 0 ? "Main/Timing" : "Stats");
+        return true;
+    }
     info->flags = CLAP_PARAM_IS_STEPPED | (index ? CLAP_PARAM_IS_READONLY : 0);
     info->min_value = 0.0;
     info->max_value = index ? 1e9 : LATENCY_MAX;
@@ -551,7 +570,10 @@ static bool params_get_value(const clap_plugin_t *plugin, clap_id id, double *va
 {
     const fake_t *fake = plugin->plugin_data;
     if (id > 3)
-        return false;
+    {
+        *value = 0.0;
+        return standard_set() && id < 12;
+    }
     *value = id == 0 ? fake->latency_param : (id == 1 ? fake->activations : (id == 2 ? fake->process_calls : fake->host_preset_load));
     return true;
 }
