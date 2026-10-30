@@ -223,6 +223,7 @@ typedef struct {
     jack_client_t *client;
     jack_port_t *inputs[CLAP_HOST_PORT_CHANNELS];
     jack_port_t *outputs[CLAP_HOST_PORT_CHANNELS];
+    jack_port_t *midi_in, *midi_out;    // the note ports of a plugin that has them
 } own_client_t;
 
 /* a client of its own a chain line stopped (members_stop): the instance and its main ports' links as they were, pairs of
@@ -598,6 +599,14 @@ static void process_gated(effect_t *effect, const float *const *inputs, float *c
         publish_gain_adjustment(effect, runs);
     if (effect->midi_out_port)
         notes_out(effect, nframes);
+    else if (effect->clap->note_outputs)
+    {
+        // a chain member's note output has no port: what the plugin sent out is dropped
+        struct omx_clap_note_out_event dropped[NOTES_OUT_CHUNK];
+
+        while (omx_clap_host_notes_out(effect->clap, dropped, NOTES_OUT_CHUNK) > 0)
+            ;
+    }
 }
 
 /* a chain's member, in the head's cycle: the instance inside its own gate, as its own client's cycle runs it */
@@ -1812,10 +1821,9 @@ static void callbacks_set(effect_t *effect)
     jack_set_latency_callback(effect->jack_client, latency, effect);
 }
 
-/* a client of its own made ready for a chain's member, under the name the instance had: opened and its main ports
- * registered, but neither activated nor the instance's yet, so the head's cycle may still run the member meanwhile. A
- * member has no note port and no auxiliary port (effects_chain), so its main ports are all it registers. SUCCESS, or
- * the error with nothing left open. */
+/* a client of its own made ready for a chain's member, under the name the instance had: opened and its main and note
+ * ports registered, but neither activated nor the instance's yet, so the head's cycle may still run the member
+ * meanwhile. A member has no auxiliary port (effects_chain). SUCCESS, or the error with nothing left open. */
 static int client_ready(const effect_t *effect, own_client_t *own)
 {
     int error;
@@ -1825,6 +1833,12 @@ static int client_ready(const effect_t *effect, own_client_t *own)
     if (!own->client)
         return ERR_JACK_CLIENT_CREATION;
     error = main_ports_register_on(own->client, effect->in_ports, effect->out_ports, own->inputs, own->outputs);
+    if (error == SUCCESS && effect->clap->note_inputs
+        && !(own->midi_in = jack_port_register(own->client, MIDI_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0)))
+        error = ERR_JACK_PORT_REGISTER;
+    if (error == SUCCESS && effect->clap->note_outputs
+        && !(own->midi_out = jack_port_register(own->client, MIDI_OUT_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0)))
+        error = ERR_JACK_PORT_REGISTER;
     if (error != SUCCESS)
     {
         jack_client_close(own->client);
@@ -1849,11 +1863,14 @@ static int client_take(effect_t *effect, own_client_t *own)
     own->client = NULL;
     memcpy(effect->input_ports, own->inputs, sizeof(effect->input_ports));
     memcpy(effect->output_ports, own->outputs, sizeof(effect->output_ports));
+    effect->midi_port = own->midi_in;
+    effect->midi_out_port = own->midi_out;
     callbacks_set(effect);
     if (jack_activate(effect->jack_client) != 0)
     {
         jack_client_close(effect->jack_client);
         effect->jack_client = NULL;
+        effect->midi_port = effect->midi_out_port = NULL;
         memset(effect->input_ports, 0, sizeof(effect->input_ports));
         memset(effect->output_ports, 0, sizeof(effect->output_ports));
         return ERR_JACK_CLIENT_ACTIVATION;
@@ -2013,6 +2030,9 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
     effect->jack_client = chain->head->jack_client;
     memset(effect->input_ports, 0, sizeof(effect->input_ports));
     memset(effect->output_ports, 0, sizeof(effect->output_ports));
+    // a member's note ports went with its client: its note verbs reach it through the ring, midi_in is never read, and
+    // what it sends out is dropped
+    effect->midi_port = effect->midi_out_port = NULL;
     ret = chain_insert(chain, effect, position);
     if (ret == 0)
         return SUCCESS;
@@ -2910,13 +2930,6 @@ int effects_chain(int id, const int *instances, int n)
         {
             fprintf(stderr, "chain %d: effect_%d (%u in, %u out) is not as wide as effect_%d's output (%u)\n", id, instances[i],
                     effect->in_ports, effect->out_ports, head->instance, head->out_ports);
-            return ERR_INVALID_OPERATION;
-        }
-        // a note port goes with its client: only the head keeps its own
-        if (i > 0 && (effect->midi_port || effect->midi_out_port))
-        {
-            fprintf(stderr, "chain %d: effect_%d has a note port, which only the chain's first member keeps\n", id,
-                    instances[i]);
             return ERR_INVALID_OPERATION;
         }
         // an auxiliary port goes with its client too: a member's side chain would read silence and its auxiliary
