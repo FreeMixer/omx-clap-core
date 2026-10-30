@@ -11,7 +11,7 @@ Build-Depends: debhelper-compat (= 13),
                libmod-host-protocol-dev,
                libomxdsp-dev (>= 0.18.0),
                libomx-contract-dev (>= 3.3.0),
-               plugin-hostd-dev (>= 0.4.0~),
+               plugin-hostd-dev (>= 0.5.0~),
                pkgconf,
                python3
 Standards-Version: 4.6.2

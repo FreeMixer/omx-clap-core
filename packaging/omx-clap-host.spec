@@ -12,7 +12,7 @@ BuildRequires: make
 BuildRequires: pkgconfig
 BuildRequires: pkgconfig(mod-host-protocol)
 # plugin-hostd's pin.h: the layout fingerprint pin_expect names, one implementation, plugin-hostd's
-BuildRequires: pkgconfig(plugin-hostd) >= 0.4.0
+BuildRequires: pkgconfig(plugin-hostd) >= 0.5.0
 BuildRequires: clap-devel
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
