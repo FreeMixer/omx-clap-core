@@ -367,8 +367,10 @@ jobs:
       - name: Test the verbs the declarations name for this host
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            make test-host-verbs
-            make test-host-verbs-sabotage
+            # plugin-hostd's verbs file (chain of omx-clap-host) is read from the checkout of the release that ships it
+            # (PLUGIN_HOSTD_TESTS_REF, /tmp/plugin-hostd-tests), not from the v0.7.0 one of the headers; absent, the target fails
+            make test-host-verbs PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd-tests
+            make test-host-verbs-sabotage PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd-tests
           else
             echo "::warning::test-host-verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
