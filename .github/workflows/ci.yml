@@ -679,8 +679,11 @@ jobs:
             return 1
           }
           dnf_retry --setopt=install_weak_deps=False pipewire iproute util-linux python3 \
-            mod-host-rpms/mod-host-protocol-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
+            mod-host-rpms/mod-host-protocol-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm \
+            plugin-hostd-rpms/plugin-hostd-contract-[0-9]*.noarch.rpm
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
+          # plugin-hostd's verbs file names this host too (chain: required), and the check reads it (#361)
+          rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd/verbs.json | grep -q '^plugin-hostd-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd-tests/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \

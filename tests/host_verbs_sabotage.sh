@@ -77,5 +77,20 @@ declared owed '/"noteDrops": {/,/"since"/ s/"omx-clap-host": "required"/"omx-cla
 hosted handler '/protocol_add_command(OMX_VERB_NOTE_DROPS_FMT, note_drops_cb);/d' 'missing \[.note_drops.\]'
 hosted undeclared 's/protocol_add_command(OMX_VERB_NOTE_DROPS_FMT, note_drops_cb);/&\n    protocol_add_command("note_peaks %i", note_drops_cb);/' 'registered "note_peaks %i": a verb with no declaration'
 
+# plugin-hostd's package left out of the contract path: its verbs file, which declares chain of this host, is not read
+nopkg=$root/build/sabotage-host-verbs-nopkg
+rm -rf "$nopkg" "$nopkg.log"
+mkdir -p "$nopkg"
+src=$(for d in ${OMX_CONTRACT_PATH//:/ }; do [ -f "$d/3/plugin-hostd/verbs.json" ] && { echo "$d"; break; }; done)
+if [ -z "$src" ]; then
+    echo "FAIL nopkg: no plugin-hostd/verbs.json under $OMX_CONTRACT_PATH"; failures=$((failures + 1))
+else
+    cp -r "$src/3" "$nopkg/" && rm -rf "$nopkg/3/plugin-hostd"
+    OMX_CONTRACT_PATH=$nopkg "$root/tests/host_verbs_e2e.sh" >"$nopkg.log" 2>&1
+    judge nopkg "$nopkg.log" "plugin-hostd's package is installed" $?
+fi
+# a chain line of two members refused, as the report of #361 has it
+hosted chain2 's/resp = effects_chain(id, instances, n);/resp = n > 1 ? ERR_INVALID_OPERATION : effects_chain(id, instances, n);/' 'chain 1 0 2 \(required\)'
+
 [ "$failures" -eq 0 ] || { echo "host verbs sabotage: $failures arms did not hold"; exit 1; }
-echo "host verbs sabotage: 4 arms, each red on its check"
+echo "host verbs sabotage: 6 arms, each red on its check"
