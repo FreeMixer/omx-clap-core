@@ -3936,15 +3936,18 @@ int effects_track_info(int effect_id, const char *name, const char *color, const
     return SUCCESS;
 }
 
-/* remote_pages: the plugin's page count, 0 without clap.remote-controls */
+/* remote_pages: the plugin's page count from clap.remote-controls; without that extension the pages made of its
+ * clap.params (omx_clap_host_standard_pages), never the two together; an LV2 plugin through the adapter keeps 0 */
 int effects_remote_pages(int effect_id)
 {
-    const struct omx_clap_instance *clap;
+    struct omx_clap_instance *clap;
 
     if (!instance_exist(effect_id))
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
-    return clap->remote_controls ? (int)clap->remote_controls->count(clap->plugin) : 0;
+    if (clap->remote_controls)
+        return (int)clap->remote_controls->count(clap->plugin);
+    return g_effects[effect_id].lv2_entry ? 0 : (int)omx_clap_host_standard_pages(clap);
 }
 
 /* a name a plugin reports as one quoted word: a byte below 0x20 a space, cut at the last whole UTF-8 character within
@@ -3985,8 +3988,15 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
     memset(&info, 0, sizeof(info));
-    if (!clap->remote_controls || page < 0 || (uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
-        !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+    if (page < 0)
+        return ERR_INVALID_OPERATION;
+    if (clap->remote_controls)
+    {
+        if ((uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
+            !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+            return ERR_INVALID_OPERATION;
+    }
+    else if (g_effects[effect_id].lv2_entry || omx_clap_host_standard_page(clap, (uint32_t)page, &info) != 0)
         return ERR_INVALID_OPERATION;
     info.section_name[sizeof(info.section_name) - 1] = '\0';
     info.page_name[sizeof(info.page_name) - 1] = '\0';
@@ -4006,8 +4016,9 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
 }
 
 /* param_info: -103 for what is not a parameter param_set takes; -511 for a parameter of a plugin whose
- * org.openmixer.param-contract/1 is absent or broke a rule (the controller falls back to qualification); else the unit,
- * the scale and the step the contract gives, the range and the default clap.params gives, and the contract's symbol */
+ * org.openmixer.param-contract/1 broke a rule (the controller falls back to qualification); else the unit, the scale
+ * and the step the contract gives, the range and the default clap.params gives, and the contract's symbol. A plugin
+ * with no contract at all is described by clap.params alone (omx_clap_host_param_described), never by a mixture */
 int effects_param_info(int effect_id, const char *symbol, char *reply, size_t size)
 {
     struct omx_clap_param_meaning m;
@@ -4020,7 +4031,7 @@ int effects_param_info(int effect_id, const char *symbol, char *reply, size_t si
         return ERR_INSTANCE_NON_EXISTS;
     if (param_of(&g_effects[effect_id], symbol, &id, &lv2) != 0 || !omx_clap_host_param_is_row(g_effects[effect_id].clap, id))
         return ERR_LV2_INVALID_PARAM_SYMBOL;
-    if (omx_clap_host_param_meaning(g_effects[effect_id].clap, id, &m) != 0
+    if (omx_clap_host_param_described(g_effects[effect_id].clap, id, &m) < 0
         || omx_clap_param_number(m.min, min, sizeof(min)) < 0 || omx_clap_param_number(m.max, max, sizeof(max)) < 0
         || omx_clap_param_number(m.def, def, sizeof(def)) < 0 || omx_clap_param_number(m.step, step, sizeof(step)) < 0)
         return OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP;

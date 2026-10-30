@@ -1053,6 +1053,27 @@ OMX_CLAP_EXPORT int omx_clap_host_param_contract(struct omx_clap_instance *in, u
  * plugin or an id clap.params does not list. Control thread. */
 OMX_CLAP_EXPORT int omx_clap_host_param_meaning(struct omx_clap_instance *in, clap_id id, struct omx_clap_param_meaning *meaning);
 
+/** Where omx_clap_host_param_described took a parameter's meaning from. */
+#define OMX_CLAP_PARAM_FROM_CONTRACT 1  ///< the plugin's org.openmixer.param-contract/1, as omx_clap_host_param_meaning
+#define OMX_CLAP_PARAM_FROM_STANDARD 2  ///< clap.params alone: the plugin carries no contract
+
+/** What parameter `id` means, from one source and never a mixture: the contract when the plugin carries a trusted one
+ * (the answer of omx_clap_host_param_meaning, OMX_CLAP_PARAM_FROM_CONTRACT); else, when the plugin offers none at all,
+ * clap.params alone (OMX_CLAP_PARAM_FROM_STANDARD): unit none, scale stepped with step 1 for CLAP_PARAM_IS_STEPPED or
+ * CLAP_PARAM_IS_ENUM and linear with step 0 otherwise, the range and default get_info gives, the symbol "param_<id>"
+ * (CLAP has no other stable name). -1 for an id clap.params does not list and for a plugin whose contract broke a rule,
+ * which stays uncontracted as a whole. Control thread. */
+OMX_CLAP_EXPORT int omx_clap_host_param_described(struct omx_clap_instance *in, clap_id id, struct omx_clap_param_meaning *meaning);
+
+/** The pages of a plugin without clap.remote-controls, made from clap.params: the rows grouped by their module path in
+ * the order each module first appears, CLAP_REMOTE_CONTROLS_COUNT to a page. The count of pages (0 without a row). */
+OMX_CLAP_EXPORT uint32_t omx_clap_host_standard_pages(struct omx_clap_instance *in);
+
+/** The `index`-th such page: 0 with `*page` filled (page_id the index, section_name the module path above its last
+ * "/", page_name the last component, followed by " 2", " 3" for a module of more than one page, and the slots after the
+ * last row CLAP_INVALID_ID), or -1 for an index past the count. */
+OMX_CLAP_EXPORT int omx_clap_host_standard_page(struct omx_clap_instance *in, uint32_t index, clap_remote_controls_page_t *page);
+
 /** The name of an OMX_CLAP_PARAM_UNITS code ("db", "hz", "semitone12TET"), NULL for a code the table does not hold. */
 OMX_CLAP_EXPORT const char *omx_clap_param_unit_name(uint32_t unit);
 
