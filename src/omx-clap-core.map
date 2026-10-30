@@ -26,6 +26,7 @@ OMX_CLAP_CORE_0
     omx_clap_host_param_compare;
     omx_clap_host_param_count;
     omx_clap_host_param_deliver;
+    omx_clap_host_param_described;
     omx_clap_host_param_flush;
     omx_clap_host_param_is_row;
     omx_clap_host_param_read;
@@ -44,6 +45,8 @@ OMX_CLAP_CORE_0
     omx_clap_host_set_audio_thread;
     omx_clap_host_set_rate;
     omx_clap_host_settle;
+    omx_clap_host_standard_page;
+    omx_clap_host_standard_pages;
     omx_clap_host_state_load;
     omx_clap_host_state_save;
     omx_clap_host_stop;

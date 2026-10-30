@@ -907,6 +907,66 @@ static void unoffered_checks(const char *path)
     unoffered_overflow(path);
 }
 
+/* a plugin without our extensions, described by clap.params alone (FAKE_STANDARD): param_described answers the standard
+ * meaning, one with the contract answers the contract's, one whose contract broke a rule answers nothing; the pages are
+ * made of the module paths, 8 rows to a page */
+static void standard_checks(const char *path)
+{
+    struct omx_clap_instance *instance;
+    struct omx_clap_param_meaning m, c;
+    clap_remote_controls_page_t page;
+
+    setenv("FAKE_STANDARD", "1", 1);
+    contract_open(path, NULL, &instance);
+    if (instance)
+    {
+        CHECK(omx_clap_host_param_described(instance, 0, &m) == OMX_CLAP_PARAM_FROM_STANDARD && m.id == 0
+              && strcmp(m.symbol, "param_0") == 0 && m.unit == 0 && m.scale == 2 && m.step == 1.0 && m.min == 0.0
+              && m.max == 4096.0 && m.def == 64.0 && (m.flags & CLAP_PARAM_IS_STEPPED),
+              "standard: parameter 0 is stepped, step 1, 0..4096, default 64, unit none");
+        CHECK(omx_clap_host_param_described(instance, 4, &m) == OMX_CLAP_PARAM_FROM_STANDARD && m.scale == 0 && m.step == 0.0
+              && m.min == 0.0 && m.max == 1.0 && m.def == 0.5 && strcmp(m.symbol, "param_4") == 0,
+              "standard: parameter 4 is linear, step 0, 0..1, default 0.5");
+        CHECK(omx_clap_host_param_described(instance, 5, &m) == OMX_CLAP_PARAM_FROM_STANDARD && m.scale == 2 && m.step == 1.0,
+              "standard: an enum is stepped");
+        CHECK(omx_clap_host_param_described(instance, 99, &m) == -1, "standard: nothing for an id clap.params does not list");
+        CHECK(omx_clap_host_param_meaning(instance, 0, &m) == -1, "standard: the contract's own reading still says none");
+        CHECK(omx_clap_host_standard_pages(instance) == 3, "standard: three pages (%u)", omx_clap_host_standard_pages(instance));
+        CHECK(omx_clap_host_standard_page(instance, 0, &page) == 0 && page.page_id == 0 && strcmp(page.section_name, "Main") == 0
+              && strcmp(page.page_name, "Timing") == 0 && page.param_ids[0] == 0 && page.param_ids[1] == CLAP_INVALID_ID
+              && page.param_ids[7] == CLAP_INVALID_ID,
+              "standard: page 0 is Main/Timing, parameter 0 alone");
+        CHECK(omx_clap_host_standard_page(instance, 1, &page) == 0 && page.page_id == 1 && strcmp(page.section_name, "") == 0
+              && strcmp(page.page_name, "Stats") == 0 && page.param_ids[0] == 1 && page.param_ids[7] == 8,
+              "standard: page 1 is Stats, parameters 1 to 8");
+        CHECK(omx_clap_host_standard_page(instance, 2, &page) == 0 && strcmp(page.page_name, "Stats 2") == 0
+              && page.param_ids[0] == 9 && page.param_ids[2] == 11 && page.param_ids[3] == CLAP_INVALID_ID,
+              "standard: page 2 is Stats 2, parameters 9 to 11");
+        CHECK(omx_clap_host_standard_page(instance, 3, &page) == -1, "standard: no page 3");
+        omx_clap_host_close(instance);
+    }
+
+    // a plugin with our contract answers exactly what its contract says, whatever clap.params also holds
+    unsetenv("FAKE_STANDARD");
+    contract_open(path, "good", &instance);
+    if (instance)
+    {
+        CHECK(omx_clap_host_param_described(instance, 0, &m) == OMX_CLAP_PARAM_FROM_CONTRACT
+              && omx_clap_host_param_meaning(instance, 0, &c) == 0 && memcmp(&m, &c, sizeof(m)) == 0
+              && strcmp(m.symbol, "latency") == 0,
+              "contracted: described is the contract's meaning, byte for byte");
+        omx_clap_host_close(instance);
+    }
+    // and one whose contract broke a rule is not read from clap.params in its place
+    contract_open(path, "fingerprint", &instance);
+    if (instance)
+    {
+        CHECK(omx_clap_host_param_described(instance, 0, &m) == -1, "broken contract: no description, not even a standard one");
+        omx_clap_host_close(instance);
+    }
+    unsetenv("FAKE_CONTRACT");
+}
+
 static void contract_checks(const char *path)
 {
     struct omx_clap_instance *instance;
@@ -942,6 +1002,8 @@ static void contract_checks(const char *path)
         CHECK(omx_clap_host_param_meaning(instance, 99, &m) == -1, "good: no meaning for an id clap.params does not list");
         omx_clap_host_close(instance);
     }
+
+    standard_checks(path);
 
     contract_refused(path, "fingerprint", "R4");
     contract_refused(path, "missing", "R1");
