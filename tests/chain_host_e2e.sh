@@ -534,6 +534,10 @@ off=$(grep -c -x -F "org.omx-clap-host.test.passthrough process off the audio ro
 [ "${ran:-0}" -gt 0 ] && [ "${off:-0}" = 0 ]
 step $? "pass ran on the audio role from its first cycle, in its own client and in the chain: ${off:-0} of ${ran:-0} instances off it"
 
+# a host that saw a guard broken says so in its log (the lock probe of tests/chain_host_sabotage.sh)
+logged=$(grep -h -m 1 '^FAIL' "$runtime/chain.log" "$runtime/series.log" 2>/dev/null | head -1)
+[ -z "$logged" ]; step $? "the hosts logged no FAIL line${logged:+: ${logged#FAIL }}"
+
 echo "chain host: $failures failed"
 printf 'CHAIN-HOST {"frames":%d,"latency_chain":"%s","latency_series":"%s","failures":%d}\n' "$frames" "$lat_chain" \
     "$lat_series" "$failures"
