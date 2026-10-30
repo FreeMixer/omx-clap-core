@@ -20,10 +20,10 @@ concurrency:
 
 env:
   # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
-  PLUGIN_HOSTD_REF: v0.7.0
+  PLUGIN_HOSTD_REF: v0.15.0
   # plugin-hostd-tests' lib/ (protocol.sh, plugin_hostd_client.py), which every e2e script and bench sources, from the release
   # tag that first ships it; the headers and the daemon above stay at their own tag
-  PLUGIN_HOSTD_TESTS_REF: v0.13.0
+  PLUGIN_HOSTD_TESTS_REF: v0.15.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
 
@@ -555,7 +555,7 @@ jobs:
       - name: Install plugin-hostd-devel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False plugin-hostd-rpms/plugin-hostd-devel-[0-9]*.noarch.rpm
+          dnf install -y --setopt=install_weak_deps=False plugin-hostd-rpms/plugin-hostd-devel-[0-9]*.noarch.rpm plugin-hostd-rpms/plugin-hostd-contract-[0-9]*.noarch.rpm
           pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-rpm@v1
@@ -818,7 +818,7 @@ jobs:
       - name: Install plugin-hostd-dev
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends ./plugin-hostd-debs/plugin-hostd-dev_*.deb
+          apt-get install -y --no-install-recommends ./plugin-hostd-debs/plugin-hostd-dev_*.deb ./plugin-hostd-debs/plugin-hostd-contract_*_all.deb
           pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-deb@v1
@@ -835,7 +835,8 @@ jobs:
       - name: A consumer builds against libomx-clap-core-dev and runs on libomx-clap-core1
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends ./debs/libomx-clap-core1_*.deb ./debs/libomx-clap-core-dev_*.deb ./debs/omx-clap-core-contract_*_all.deb
+          # plugin-hostd-contract brought the channel's omx-clap-core-contract; this build's (a ~git version) replaces it
+          apt-get install -y --no-install-recommends --allow-downgrades ./debs/libomx-clap-core1_*.deb ./debs/libomx-clap-core-dev_*.deb ./debs/omx-clap-core-contract_*_all.deb
           pkg-config --modversion omx-clap-core | tee v.txt
           grep -qx "$(cat VERSION)" v.txt
           gcc -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(make -s print-version-num)u -o /tmp/consumer tests/core_link_test.c $(pkg-config --cflags --libs omx-clap-core) -lm
