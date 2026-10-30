@@ -19,11 +19,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # plugin-hostd's protocol and pin headers, and the daemon the pin test runs behind, from this release tag
-  PLUGIN_HOSTD_REF: v0.7.0
-  # plugin-hostd-tests' lib/ (protocol.sh, plugin_hostd_client.py), which every e2e script and bench sources, from the release
-  # tag that first ships it; the headers and the daemon above stay at their own tag
-  PLUGIN_HOSTD_TESTS_REF: v0.13.0
+  # plugin-hostd from the release we ship: its protocol and pin headers, the daemon the pin test runs behind, the verbs
+  # file the host verbs test reads and the tests' lib/ (protocol.sh, plugin_hostd_client.py) all come from this one tag
+  PLUGIN_HOSTD_REF: v0.15.1
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
 
@@ -166,8 +164,7 @@ jobs:
           make -C /tmp/plugin-hostd install_protocol PREFIX=/opt/plugin-hostd
           make -C /tmp/plugin-hostd plugin-hostd
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
-          PLUGIN_HOSTD_REF=$PLUGIN_HOSTD_TESTS_REF .github/plugin-hostd.sh /tmp/plugin-hostd-tests
-          echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd-tests/tests/lib" >> "$GITHUB_ENV"
+          echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
       - name: Build
@@ -367,10 +364,9 @@ jobs:
       - name: Test the verbs the declarations name for this host
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            # plugin-hostd's verbs file (chain of omx-clap-host) is read from the checkout of the release that ships it
-            # (PLUGIN_HOSTD_TESTS_REF, /tmp/plugin-hostd-tests), not from the v0.7.0 one of the headers; absent, the target fails
-            make test-host-verbs PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd-tests
-            make test-host-verbs-sabotage PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd-tests
+            # plugin-hostd's verbs file (chain of omx-clap-host), from the checkout the headers were built from
+            make test-host-verbs PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd
+            make test-host-verbs-sabotage PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd
           else
             echo "::warning::test-host-verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
@@ -401,7 +397,7 @@ jobs:
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             touch src/main.c
-            make test-jack-presets PLUGIN_HOSTD_VERBS_DIR=/tmp/plugin-hostd-tests/include
+            make test-jack-presets PLUGIN_HOSTD_VERBS_DIR=/tmp/plugin-hostd/include
           else
             echo "::warning::test-jack-presets SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
@@ -537,7 +533,6 @@ jobs:
       - name: Fetch plugin-hostd
         run: |
           .github/plugin-hostd.sh /tmp/plugin-hostd
-          PLUGIN_HOSTD_REF=$PLUGIN_HOSTD_TESTS_REF .github/plugin-hostd.sh /tmp/plugin-hostd-tests
 
       # plugin-hostd's spec gates its check BuildRequires (omx-clap-host-tests) behind `%bcond_without check`; the
       # user macro turns the check off for builddep and rpmbuild alike, so the channel's libomx-clap-core 0.10.0
@@ -688,7 +683,7 @@ jobs:
           rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd/verbs.json | grep -q '^plugin-hostd-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd-tests/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
+            PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
               ./tests/host_verbs_e2e.sh
           else
             echo "::warning::the installed verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
