@@ -163,6 +163,15 @@ stderr, or `resp -3` for an instance this host does not hold, and changes nothin
 which plugin-hostd takes as no failure. The protocol has no code of its own for these refusals; the reason is the
 stderr line. A line of one member is a chain of one: the head in its own client, run through the chain.
 
+### The declaration, and the refusal behind plugin-hostd (#361)
+
+plugin-hostd's verbs file declares `chain` of omx-clap-host as `required`, and this host implements it: a line of two
+or more members answers `resp 0`. `make test-host-verbs` installs plugin-hostd's package (`PLUGIN_HOSTD_DIR`) beside
+this one and drives that line, so a host that refuses it, or a build without that package, goes red. A `resp -902`
+the daemon logs (`refused chain <n> ...`) is one of the refusals above, whose reason this host writes to its own
+stderr just before; the daemon's stderr alone does not name it. `state_load` answers one code for the whole directory;
+the host's stderr names the instance and file that refused (`state_load: effect_<n> refused <file> (<code>)`).
+
 ### Changes while it runs
 
 Every change is the library's acknowledged step (`omx_clap_chain_add`, `omx_clap_chain_remove`,
