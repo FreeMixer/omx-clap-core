@@ -345,6 +345,9 @@ and
 .BI "remote_page_get " "N page"
 read
 .BR clap.remote\-controls ,
+or, for a plugin without it, pages made of its
+.B clap.params
+(one per module path, eight parameters to a page),
 and the feedback port carries
 .BI "remote_pages_changed " N
 when the plugin changes its pages,
@@ -360,8 +363,18 @@ and its
 .BR clap.params ,
 and
 .B "resp \-511"
-for a plugin that offers no such contract or one that breaks a rule, which
-the log names.
+for a plugin whose contract breaks a rule, which the log names. A plugin that
+offers no contract at all is described by its
+.B clap.params
+alone (unit
+.BR none ,
+scale
+.B stepped
+for a stepped or enum parameter and
+.B linear
+otherwise, symbol
+.BR param_ id ),
+never by a mixture of the two.
 .BI "chain " "chain N" " [" N ...]
 is plugin\-hostd's: the instances, in this order, run in one JACK client, the
 first one's, whose main input ports are the chain's input and main output

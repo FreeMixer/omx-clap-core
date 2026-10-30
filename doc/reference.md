@@ -1018,8 +1018,12 @@ as `omx_clap_core_host_verbs.h`), answered from the plugin:
   `clap.track-info` `changed`; the host's `get` answers from that copy. A word
   outside that grammar, or a name longer than 255 bytes, answers `resp -902`
   and changes nothing.
-- `remote_pages <N>` answers the page count of `clap.remote-controls`, 0 for a
-  plugin without it. `remote_page_get <N> <page>` answers
+- `remote_pages <N>` answers the page count of `clap.remote-controls`. A plugin
+  without it is described by its `clap.params` instead (never both): one page
+  per module path in the order each first appears, eight rows to a page, the
+  module's last component the page name (followed by ` 2`, ` 3` past the first
+  page) and what is above it the section; the page id is the page's index. A
+  LV2 plugin through the adapter has none. `remote_page_get <N> <page>` answers
   `resp 0 <page_id> "<section>" "<page_name>" <s1> ... <s8>`, each slot the id
   `param_set` takes, or `-` for an empty slot and for an id `param_set` would
   refuse. A plugin's call of the host's `changed` writes
@@ -1028,12 +1032,16 @@ as `omx_clap_core_host_verbs.h`), answered from the plugin:
   `resp 0 <unit> <scale> <min> <max> <default> <step> <stable_symbol>`. The
   unit, the scale, the step and the symbol come from the plugin's
   `org.openmixer.param-contract/1` (`omx_clap_ext.h`); the range and the
-  default from `clap.params` when asked. The unit is a name of the contract's
+  default from `clap.params` when asked. A plugin that offers no contract at
+  all is answered from `clap.params` alone, never a mixture of the two: unit
+  `none`, scale `stepped` and step 1 for `CLAP_PARAM_IS_STEPPED` or
+  `CLAP_PARAM_IS_ENUM` (`linear` and 0 otherwise), its range and default, and
+  the symbol `param_<id>`. The unit is a name of the contract's
   table (`none`, LV2's local names `s`, `ms`, `db`, `hz`, `semitone12TET` and
   the rest, then `dbfs`, `dbu`, `ratio`, `lufs`), the scale `linear`, `log` or
   `stepped`, and each number the shortest decimal that reads back to the same
   double (`0.10000000149011612`, `1e-7`). The host reads and checks the
-  contract once, at `add`: a plugin that offers none, or whose contract breaks
+  contract once, at `add`: a plugin whose contract breaks
   one rule (an id with no entry, two entries with one symbol, a malformed
   symbol, unit, scale or step, a fingerprint that is not the one the host
   computes), answers `resp -511`
@@ -1050,7 +1058,11 @@ as `omx_clap_core_host_verbs.h`), answered from the plugin:
 
   The same reading is libomx-clap-core's: `omx_clap_host_param_contract` says
   whether the contract holds (or which rule it broke) and
-  `omx_clap_host_param_meaning` what one parameter means;
+  `omx_clap_host_param_meaning` what one parameter means from the contract,
+  `omx_clap_host_param_described` the same with the `clap.params` fallback above
+  (`OMX_CLAP_PARAM_FROM_CONTRACT` or `OMX_CLAP_PARAM_FROM_STANDARD`), and
+  `omx_clap_host_standard_pages` and `omx_clap_host_standard_page` the pages
+  above;
   `omx_clap_param_unit_name`, `omx_clap_param_scale_name` and
   `omx_clap_param_number` write the words and numbers above.
 
