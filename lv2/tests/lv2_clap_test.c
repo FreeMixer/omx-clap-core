@@ -3407,6 +3407,34 @@ static void mi_clap_note(struct midi_in *m, uint16_t type, uint32_t time, int16_
     e->velocity = velocity;
 }
 
+/* An instrument whose TTL says lv2:default 0 for its volume, and whose own volume is 0.5: under the CLAP face, as
+ * omx-clap-host drives it, a held note sounds at the plugin's level (the shape of Surge XT's LV2: 775 parameters, every
+ * TTL default 0). */
+static void t_instrument_ttl_default(double rate)
+{
+    struct midi_in mi;
+    struct rig g;
+    float in[BLOCK], out_l[BLOCK], out_r[BLOCK], peak = 0.0f;
+    uint32_t b, k;
+
+    if (rig_up(&g, g_patch, FIXTURE_PATCH_URI "#synth", rate, BLOCK) != 0)
+        return;
+    memset(in, 0, sizeof(in));
+    midi_in_init(&mi);
+    mi_clap_note(&mi, CLAP_EVENT_NOTE_ON, 0, 0, 0, 60, 0.8);
+    for (b = 0; b < 256; b++)
+    {
+        process_with(&g, in, in, out_l, out_r, BLOCK, &mi.list, &OUT_EVENTS);
+        mi.n = 0;
+        for (k = 0; k < BLOCK; k++)
+            if (fabsf(out_l[k]) > peak)
+                peak = fabsf(out_l[k]);
+    }
+    CHECK(peak > 0.0f && fabs(20.0 * log10(peak) - -6.0206) < 0.05,
+          "instrument %.0f: the held note sounds at the plugin's own volume, -6.02 dBFS (%g dBFS)", rate, peak > 0.0f ? 20.0 * log10(peak) : -INFINITY);
+    rig_down(&g);
+}
+
 static int probe_midi_is(const struct lv2_atom_probe *pr, uint32_t k, int64_t frame, uint8_t a, uint8_t b, uint8_t c)
 {
     return k < pr->n_midi && pr->midi_frame[k] == frame && pr->midi_size[k] == 3 && pr->midi[k][0] == a && pr->midi[k][1] == b
@@ -4160,6 +4188,7 @@ int main(int argc, char **argv)
         t_preset_list(RATES[r]);
         t_live(RATES[r]);
         t_patch(RATES[r]);
+        t_instrument_ttl_default(RATES[r]);
         t_latency_hold(RATES[r]);
         t_fixed_block(RATES[r]);
         t_inplace(RATES[r]);
