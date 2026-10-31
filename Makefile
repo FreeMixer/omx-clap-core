@@ -256,7 +256,7 @@ LIBEXECDIR = $(PREFIX)/libexec
 UDEVDIR = $(PREFIX)/lib/udev/rules.d
 # the test fixtures, in a directory of their own so no plugin scanner finds them
 TESTDIR = $(LIBEXECDIR)/$(PROG)/tests
-TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/fake_state.clap tests/fault-14.clap tests/jack_meter_source tests/jack_identity \
+TEST_FIXTURES = tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap tests/jack_meter_source tests/jack_identity \
     tests/socket_conformance.py
 
 # the library, its headers, the pkg-config file and the export list: what a program that hosts CLAP plugins builds against

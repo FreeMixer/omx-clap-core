@@ -1,5 +1,7 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+/* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ *
  * A stereo pass-through with one parameter, kept in its state, whose state.load answers false while it processes, as
  * most of omx-plugins do: the state must reach it with no cycle running it (docs/chain.md, state_load).
  *

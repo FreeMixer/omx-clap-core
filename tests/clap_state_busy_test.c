@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /*
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ *
  * state.load is a main-thread call, and a plugin may answer false while it processes, as most of omx-plugins do: the
  * host loads a state, or a preset, with the instance out of processing and runs it again after (tests/fake_state.clap).
  *
