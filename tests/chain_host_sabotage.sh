@@ -138,7 +138,7 @@ arm width src/effects.c 's/if (effect->in_ports != head->out_ports || effect->ou
     'the refusals formed no chain 8'
 
 # 8. a member with a note port is no refusal (#400): the refusal of the first version taken back
-arm note-port src/effects.c 's/^        if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))$/        if (i > 0 \&\& (effect->midi_port || effect->midi_out_port || effect->aux_in_count || effect->aux_out_count))/' \
+arm note-port src/effects.c 's/^        \/\/ one width end to end: every member.s main input and output as wide as the head.s main output$/        if (i > 0 \&\& (effect->midi_port || effect->midi_out_port))\n            return ERR_INVALID_OPERATION;\n&/' \
     'chain: chain 9 15 13 -> '
 
 # 8b. and the member gets its note port again in a client of its own: the client made ready for it registers none
