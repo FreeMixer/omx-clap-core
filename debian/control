@@ -8,7 +8,7 @@ Build-Depends: debhelper-compat (= 13),
                lv2-dev,
                libjack-jackd2-dev | libjack-dev,
                libxcb1-dev,
-               libmod-host-protocol-dev,
+               libmod-host-protocol-dev (>= 0.1.0-8~omx),
                libomxdsp-dev (>= 0.18.0),
                libomx-contract-dev (>= 3.3.0),
                plugin-hostd-dev (>= 0.5.0~),
@@ -20,7 +20,7 @@ Rules-Requires-Root: no
 
 Package: omx-clap-host
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: libmod-host-protocol0 (>= 0.1.0-8~omx), ${shlibs:Depends}, ${misc:Depends}
 Recommends: liblilv-0-0
 Description: use CLAP and LV2 plugins on a JACK rig, driven like mod-host
  omx-clap-host hosts CLAP and LV2 plugins in a live JACK or PipeWire rig.

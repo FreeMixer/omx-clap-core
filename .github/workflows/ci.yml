@@ -155,7 +155,8 @@ jobs:
       - name: Every source names its licence
         run: bash tests/spdx-check.sh
 
-      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@v1
+      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
+      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -524,7 +525,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@v1
+      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
+      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
 
       # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, come from the OpenMixer channel
       - name: Add the OpenMixer repository
@@ -571,6 +573,7 @@ jobs:
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libmod-host-protocol.so.0' requires.txt
+            grep -qx 'mod-host-protocol(.*) >= 0.10.6.f14a230-11.3' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
             # the window links libxcb, so the package requires it (#180)
@@ -795,7 +798,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: FreeMixer/.github/.github/actions/deb-deps@v1
+      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
+      - uses: FreeMixer/.github/.github/actions/deb-deps@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
 
       # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the OpenMixer channel
       - name: Add the OpenMixer repository
@@ -938,6 +942,7 @@ jobs:
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
             ./dep-debs/libmod-host-protocol0_*.deb
           dpkg -s libmod-host-protocol0 | grep '^Status: install ok installed'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libmod-host-protocol0 (>= 0.1.0-8~omx)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'

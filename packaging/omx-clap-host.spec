@@ -10,7 +10,8 @@ Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
-BuildRequires: pkgconfig(mod-host-protocol)
+# the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise; a floor only
+BuildRequires: mod-host-protocol-devel >= 0.10.6.f14a230-11.3
 # plugin-hostd's pin.h: the layout fingerprint pin_expect names, one implementation, plugin-hostd's
 BuildRequires: pkgconfig(plugin-hostd) >= 0.5.0
 BuildRequires: clap-devel
@@ -31,6 +32,7 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
+Requires: mod-host-protocol%{?_isa} >= 0.10.6.f14a230-11.3
 # an LV2 plugin is a lilv instance, mapped by the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
 
