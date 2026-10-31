@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.25.4
+Version:        0.26.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -180,6 +180,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.0-1
+- chain_expect <instance> <chain>: the next add of the instance joins that chain
+  at its end, in the head's client, with no JACK client of its own. plugin-hostd
+  sends it for each member after a chain's first, so a chain added one plugin at
+  a time no longer opens a client per member and closes it again
+  (plugin-hostd#348). An add that cannot join answers -902 and leaves nothing.
+
 * Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.4-1
 - A state or a preset loads with the plugin out of processing. Most omx plugins
   refuse a load while they process, so a parameter went back to its default when
