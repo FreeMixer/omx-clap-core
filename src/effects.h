@@ -65,6 +65,7 @@ int effects_add(const char *uri, int instance, const char *client_name);
 /* the hosting.* code of the last effects_add that failed with one, "" when it named none */
 const char *effects_add_reason(void);
 int effects_pin_expect(int instance, const char *layout);
+int effects_chain_expect(int instance, int chain);
 int effects_remove(int effect_id);
 int effects_bypass(int effect_id, int value);
 int effects_set_parameter(int effect_id, const char *control_symbol, float value);

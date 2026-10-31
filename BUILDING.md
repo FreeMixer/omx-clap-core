@@ -385,7 +385,7 @@ packages ship them in `omx-clap-core-contract`.
 The verbs omx-clap-host answers past mod-host's are declared in
 `data/verbs.json`, a `verbs` item of omx-contract's schema (3.3.0): the ones it
 shares with plugin-hostd (`track_info`, `remote_pages`, `remote_page_get`,
-`param_info`, `pin_expect`, `note_input`, `note_on`, `note_off`,
+`param_info`, `pin_expect`, `chain_expect`, `note_input`, `note_on`, `note_off`,
 `all_notes_off`) and its own (`audio_ports`, `hide_external_ui`, `idle_hold`,
 `note_drops`, `note_out_drops`), each with its format, its reply, the refusal
 codes it answers (`HOST_REPLY_CODES`) and what each host owes it. Their render,

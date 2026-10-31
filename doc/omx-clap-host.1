@@ -187,7 +187,7 @@ answered with
 .B resp
 .I code
 using mod\-host's codes:
-.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", "
+.BR add ", " remove ", " bypass ", " param_set ", " param_get ", " monitor_output ", " pin_expect ", " chain_expect ", "
 .BR track_info ", " remote_pages ", " remote_page_get ", " param_info ", " chain ", " audio_ports ", "
 .BR show_external_ui ", " hide_external_ui ", "
 .BR preset_load ", " state_save ", " state_load ", " connect ", " disconnect ", " cpu_load ", " idle_hold ", " note_drops ", " note_out_drops ", "
@@ -320,6 +320,19 @@ and when it differs destroys the instance and answers
 .BR "resp \-510" ;
 a scheme the host does not know answers
 .BR "resp \-508" .
+.BI "chain_expect " "N chain"
+is plugin\-hostd's: the next
+.B add
+of instance
+.I N
+joins chain
+.I chain
+at its end, in the head's client, with no client of its own; that
+.B add
+answers
+.B "resp \-902"
+and leaves nothing when this host runs no such chain or the plugin is not as
+wide as the head's output.
 .BI "audio_ports " N
 answers on one line
 .BR "resp 0" ,

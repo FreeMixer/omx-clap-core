@@ -32,6 +32,7 @@
 */
 
 #include <ctype.h>
+#include <limits.h>
 #include <getopt.h>
 #include <signal.h>
 #include <stdatomic.h>
@@ -107,6 +108,7 @@ static const char g_help_msg[] =
     "param_get <instance_number> <param_id>\n"
     "monitor_output <instance_number> <output_symbol>\n"
     OMX_VERB_PIN_EXPECT " <instance_number> <scheme>:<sha256>\n"
+    OMX_VERB_CHAIN_EXPECT " <instance_number> <chain>\n"
     OMX_VERB_TRACK_INFO " <instance_number> <name> <#RRGGBB|" HOST_WORD_NONE "> [bus|return|master]\n"
     OMX_VERB_REMOTE_PAGES " <instance_number>\n"
     OMX_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
@@ -292,6 +294,19 @@ static int chain_word(const char *word, long limit, int *out)
         return 0;
     *out = (int)value;
     return 1;
+}
+
+/* chain_expect <instance> <chain>: the chain the next add of the instance joins. A word that is no number is refused
+ * as chain's are; a number outside the instance table is the instance's refusal */
+static void chain_expect_cb(proto_t *proto)
+{
+    char *end;
+    long instance = strtol(proto->list[1], &end, 10);
+    int chain, resp = ERR_INVALID_OPERATION;
+
+    if (proto->list_count == 3 && proto->list[1][0] && *end == '\0' && chain_word(proto->list[2], INT32_MAX, &chain))
+        resp = effects_chain_expect(instance < INT_MIN || instance > INT_MAX ? -1 : (int)instance, chain);
+    protocol_response_int(resp, proto);
 }
 
 /* chain <chain> <instance> [<instance> ...], as plugin-hostd sends it to a worker that runs chains in one client: each
@@ -511,6 +526,7 @@ static int host_init(int socket_port, int feedback_port)
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
+    protocol_add_command(OMX_VERB_CHAIN_EXPECT_FMT, chain_expect_cb);
     protocol_add_command(OMX_VERB_TRACK_INFO_FMT, track_info_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
