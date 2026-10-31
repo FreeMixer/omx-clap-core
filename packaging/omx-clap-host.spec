@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.25.1
+Version:        0.25.2
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -178,6 +178,14 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.2-1
+- The LV2 adapter sends a patch parameter only once the host has written it
+  or the plugin has reported it, not every lv2:default on a new instance's
+  first block. Surge XT's TTL says 0 for all 775 of them, and its LV2 gave
+  digital silence; it now reads as under jalv (#433).
+- A state or preset restored into a new LV2 instance is not overwritten by
+  those values (#433).
+
 * Fri Oct 30 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.1-1
 - The hosting codes of the memory dimension, hosting.memory.*, for a
   qualifier to read a plugin's measured memory against a host's budget

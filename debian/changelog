@@ -1,3 +1,14 @@
+omx-clap-host (0.25.2) unstable; urgency=medium
+
+  * The LV2 adapter sends a patch parameter only once the host has written it
+    or the plugin has reported it, not every lv2:default on a new instance's
+    first block. Surge XT's TTL says 0 for all 775 of them, and its LV2 gave
+    digital silence; it now reads as under jalv (#433).
+  * A state or preset restored into a new LV2 instance is not overwritten by
+    those values (#433).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 31 Oct 2026 02:41:43 +0100
+
 omx-clap-host (0.25.1) unstable; urgency=medium
 
   * The hosting codes of the memory dimension, hosting.memory.*, for a
