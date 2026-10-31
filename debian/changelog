@@ -1,3 +1,15 @@
+omx-clap-host (0.25.4) unstable; urgency=medium
+
+  * A state or a preset loads with the plugin out of processing. Most
+    omx plugins refuse a load while they process, so a parameter went back
+    to its default when a chain formed or a worker restarted, and a preset
+    load was refused (#438).
+  * A chain's member keeps its auxiliary ports, on the head's client, so a
+    plugin with a side chain such as omx-keyed-gate runs in a chain
+    (plugin-hostd#342).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 31 Oct 2026 15:47:35 +0100
+
 omx-clap-host (0.25.3) unstable; urgency=medium
 
   * Requires libmod-host-protocol0 0.1.0-8~omx or newer: the host's ports
