@@ -131,7 +131,7 @@ static void t_structure(void)
     lv2_plugin_close(p);
 }
 
-/* ---- the block: the defaults are sent once, the echo is read back, the audio follows the gain ---- */
+/* ---- the block: nothing is sent until the host writes, the echo is read back, the audio follows the gain ---- */
 
 static void t_block(void)
 {
@@ -148,14 +148,11 @@ static void t_block(void)
     for (i = 0; i < BLOCK; i++)
         ramp_in[i] = 0.25f * sinf(0.3f * (float)i);
     run_block(in, ramp_in, ramp_out);
-    CHECK(bits_equal(ramp_out, ramp_in, BLOCK), "patch: the first block carries the defaults, so the gain is 1 and the audio passes");
-    CHECK(echoed(p, in, "gain", &v) && v == 1.0f, "patch: the plugin received gain 1 and echoed it as patch:Set (%g)", v);
-    CHECK(echoed(p, in, "mode", &v) && v == 0.0f, "patch: the plugin received mode 0 and echoed it as patch:Put (%g)", v);
-    CHECK(echoed(p, in, "flag", &v) && v == 0.0f, "patch: the plugin received flag 0 and echoed it as a boolean (%g)", v);
-    CHECK(echoed(p, in, "level", &v) && v == -1e9f, "patch: level, at its default, was received and echoed (%g)", v);
-    run_block(in, ramp_in, ramp_out);
-    CHECK(!echoed(p, in, "gain", &v) && !echoed(p, in, "mode", &v) && !echoed(p, in, "level", &v),
-          "patch: a block without writes carries no patch:Set, so nothing is echoed");
+    CHECK(bits_equal(ramp_out, ramp_in, BLOCK), "patch: the plugin's own gain 1 passes the audio on the first block");
+    CHECK(!echoed(p, in, "gain", &v) && !echoed(p, in, "mode", &v) && !echoed(p, in, "flag", &v) && !echoed(p, in, "level", &v),
+          "patch: the first block carries no patch:Set: a value nobody set stays the plugin's");
+    CHECK(lv2_instance_patch_get(in, (uint32_t)gain_j) == 1.0f, "patch: what the host reads before any report is the TTL's default (%g)",
+          lv2_instance_patch_get(in, (uint32_t)gain_j));
 
     lv2_instance_patch_write(in, (uint32_t)gain_j, 0.5f);
     CHECK(lv2_instance_patch_get(in, (uint32_t)gain_j) == 0.5f, "patch: a write is the value the host reads back at once");
@@ -169,13 +166,17 @@ static void t_block(void)
     lv2_instance_patch_write(in, (uint32_t)index_of(p, "flag"), 1.0f);
     lv2_instance_patch_write(in, (uint32_t)index_of(p, "level"), -3.25f);
     run_block(in, ramp_in, ramp_out);
-    CHECK(echoed(p, in, "mode", &v) && v == 2.0f, "patch: an integer written is received as an integer (%g)", v);
+    CHECK(echoed(p, in, "mode", &v) && v == 2.0f, "patch: an integer written is received as an integer, and echoed as patch:Put (%g)", v);
     CHECK(echoed(p, in, "flag", &v) && v == 1.0f, "patch: a boolean written is received as a boolean (%g)", v);
     CHECK(echoed(p, in, "level", &v) && v == -3.25f, "patch: a float written is received exactly (%g)", v);
     CHECK(bits_equal(ramp_out, scratch, BLOCK), "patch: the mode and the flag do not change the audio");
     CHECK(lv2_instance_patch_get(in, (uint32_t)index_of(p, "mode")) == 2.0f, "patch: the value read after the echo is the one written");
 
-    /* a new handle (a rate change) receives the last values again, as the first block did */
+    run_block(in, ramp_in, ramp_out);
+    CHECK(!echoed(p, in, "gain", &v) && !echoed(p, in, "mode", &v) && !echoed(p, in, "level", &v),
+          "patch: a block without writes carries no patch:Set, so nothing is echoed");
+
+    /* a new handle (a rate change) receives the last values again */
     CHECK(lv2_instance_activate(in, 96000.0, 1, BLOCK, why) == 0, "patch: the instance re-activates at a new rate (%s)", why);
     run_block(in, ramp_in, ramp_out);
     CHECK(echoed(p, in, "gain", &v) && v == 0.5f, "patch: a new handle is sent the last gain again (%g)", v);
@@ -189,6 +190,81 @@ static void t_block(void)
 
         lv2_instance_counters(in, &c);
         CHECK(c.patch_dropped == 0, "patch: a block that fits drops nothing (%u)", c.patch_dropped);
+    }
+    lv2_instance_free(in);
+    lv2_plugin_close(p);
+}
+
+/* ---- an instrument whose TTL's lv2:default is not its state: heard at its own level until the host writes ---- */
+
+/* the peak of `blocks` blocks, in dBFS; -inf for digital silence */
+static double peak_dbfs(struct lv2_instance *in, uint32_t blocks)
+{
+    float peak = 0.0f;
+    uint32_t b, i;
+
+    memset(ramp_in, 0, sizeof(ramp_in));
+    for (b = 0; b < blocks; b++)
+    {
+        run_block(in, ramp_in, ramp_out);
+        for (i = 0; i < BLOCK; i++)
+            if (fabsf(ramp_out[i]) > peak)
+                peak = fabsf(ramp_out[i]);
+    }
+    return peak > 0.0f ? 20.0 * log10(peak) : -INFINITY;
+}
+
+static void t_ttl_default_is_not_state(void)
+{
+    static const uint8_t note_on[3] = { 0x90, 60, 100 };
+    char why[LV2_CORE_WHY_MAX] = "";
+    struct lv2_plugin *p = open_fx(FX_URI "#synth", why);
+    struct lv2_instance *in = p ? lv2_instance_new(p) : NULL;
+    const int volume = p ? index_of(p, "volume") : -1;
+    double db;
+
+    CHECK(in != NULL && volume >= 0 && p->patches[volume].def == 0.0f, "ttl default: the instrument opens, its volume's lv2:default is 0 (%s)", why);
+    if (!in || volume < 0)
+        return;
+    CHECK(lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "ttl default: an instance activates (%s)", why);
+    db = peak_dbfs(in, 4);
+    CHECK(isinf(db) && db < 0.0, "ttl default: no note, digital silence (%g dBFS)", db);
+    CHECK(lv2_instance_midi_in_add(in, 0, note_on, 3) == 0, "ttl default: the note goes in");
+    db = peak_dbfs(in, 64);
+    CHECK(fabs(db - -6.0206) < 0.05, "ttl default: a held note sounds at the plugin's own volume 0.5, -6.02 dBFS (%g dBFS)", db);
+
+    lv2_instance_patch_write(in, (uint32_t)volume, 0.25f);
+    db = peak_dbfs(in, 64);
+    CHECK(fabs(db - -12.0412) < 0.05, "ttl default: a volume the host writes moves it, -12.04 dBFS (%g dBFS)", db);
+
+    /* a new handle: what the host wrote goes again, what it never wrote is left to the plugin */
+    CHECK(lv2_instance_activate(in, 96000.0, 1, BLOCK, why) == 0, "ttl default: the instance re-activates at a new rate (%s)", why);
+    CHECK(lv2_instance_midi_in_add(in, 0, note_on, 3) == 0, "ttl default: the note goes in again");
+    db = peak_dbfs(in, 64);
+    CHECK(fabs(db - -12.0412) < 0.05, "ttl default: the new handle has the written volume and its own drive, -12.04 dBFS (%g dBFS)", db);
+
+    /* a saved state into a fresh instance: no lv2:default overwrites what it restored */
+    {
+        char *text = lv2_instance_state_save(in);
+        struct lv2_instance *other = lv2_instance_new(p);
+
+        CHECK(text != NULL && other != NULL && lv2_instance_state_load(other, text, why) == 0, "ttl default: the state saved at volume 0.25 loads (%s)", why);
+        CHECK(lv2_instance_activate(other, 48000.0, 1, BLOCK, why) == 0, "ttl default: the fresh instance activates (%s)", why);
+        CHECK(lv2_instance_midi_in_add(other, 0, note_on, 3) == 0, "ttl default: the note goes into it");
+        db = peak_dbfs(other, 64);
+        CHECK(fabs(db - -12.0412) < 0.05, "ttl default: the fresh instance sounds at the volume the state holds, -12.04 dBFS (%g dBFS)", db);
+
+        /* a value written before a load does not outlive it */
+        lv2_instance_patch_write(other, (uint32_t)volume, 0.125f);
+        db = peak_dbfs(other, 64);
+        CHECK(fabs(db - -18.0618) < 0.05, "ttl default: a written volume moves it, -18.06 dBFS (%g dBFS)", db);
+        CHECK(lv2_instance_state_load(other, text, why) == 0, "ttl default: the state loads over the written volume (%s)", why);
+        CHECK(lv2_instance_activate(other, 96000.0, 1, BLOCK, why) == 0, "ttl default: a new handle takes the state (%s)", why);
+        CHECK(lv2_instance_midi_in_add(other, 0, note_on, 3) == 0, "ttl default: the note goes into the new handle");
+        db = peak_dbfs(other, 64);
+        CHECK(fabs(db - -12.0412) < 0.05, "ttl default: the state wins over the value written before it, -12.04 dBFS (%g dBFS)", db);
+        lv2_instance_free(other);
+        free(text);
     }
     lv2_instance_free(in);
     lv2_plugin_close(p);
@@ -247,9 +323,11 @@ static void t_drops(void)
     CHECK(in != NULL && lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "patch drop: an instance activates (%s)", why);
     if (!in)
         return;
+    for (j = 0; j < p->n_patches; j++)
+        lv2_instance_patch_write(in, j, p->patches[j].def);
     run_block(in, ramp_in, ramp_out);
     lv2_instance_counters(in, &c);
-    CHECK(c.patch_dropped == p->n_patches - 1u, "patch drop: the first block fits one event and drops the other %u, counted (%u)", p->n_patches - 1u, c.patch_dropped);
+    CHECK(c.patch_dropped == p->n_patches - 1u, "patch drop: a block fits one event and drops the other %u, counted (%u)", p->n_patches - 1u, c.patch_dropped);
     for (j = 0; j < p->n_patches; j++)
         echoes += echoed(p, in, p->patches[j].symbol, &v);
     CHECK(echoes == 1, "patch drop: exactly one event reached the plugin (%d)", echoes);
@@ -277,6 +355,7 @@ int main(int argc, char **argv)
     t_structure();
     t_block();
     t_emitted();
+    t_ttl_default_is_not_state();
     printf("%s\n", g_failures == 0 ? "lv2 patch test ok" : "lv2 patch test FAILED");
     return g_failures == 0 ? 0 : 1;
 }

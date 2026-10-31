@@ -245,6 +245,8 @@ struct lv2_instance
     LV2_URID *patch_key;            // per patch parameter: the URID of its property
     float *patch_pending;           // the value a host write carries into the next block
     uint8_t *patch_dirty;           // 1 when the next block carries patch_pending
+    atomic_uchar *patch_known;      // 1 once the host wrote the value or the plugin reported it: only such a value goes
+                                    // to a new handle. lv2:default says nothing of a new handle's state, the plugin's own.
     _Atomic uint32_t *patch_shown;  // per patch parameter, as bits: the host's value, or the last output's
     uint8_t *patch_out_flag;        // the last run's output set the parameter
     float *patch_out_value;
@@ -1057,6 +1059,7 @@ static void patch_out_value(struct lv2_instance *in, LV2_URID key, uint32_t vtyp
             in->patch_out_flag[j] = 1;
             in->patch_out_value[j] = v;
             in->patch_pending[j] = v;
+            atomic_store_explicit(&in->patch_known[j], 1, memory_order_relaxed);
             atomic_store_explicit(&in->patch_shown[j], float_bits(v), memory_order_relaxed);
         }
         return;
@@ -1510,10 +1513,11 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     ports_connect(in, max_frames);
     if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->state_ptrs) != 0)
         goto drop;
-    // a new handle has never seen a patch value: the first block sends every parameter's value, as the host last had it,
-    // and every text the host wrote
-    if (p->n_patches)
-        memset(in->patch_dirty, 1, p->n_patches);
+    // a new handle has never seen a patch value: the first block sends each value the host wrote or the plugin reported,
+    // and every text the host wrote. A value nobody has set stays the plugin's: a TTL's lv2:default need not be its state
+    // (a generated TTL can say 0 for every parameter, the volume among them), and sending it would mute the plugin.
+    for (k = 0; k < p->n_patches; k++)
+        in->patch_dirty[k] = atomic_load_explicit(&in->patch_known[k], memory_order_relaxed);
     for (k = 0; k < p->n_texts; k++)
     {
         struct text_slot *t = &in->texts[k];
@@ -1582,6 +1586,7 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->patch_key = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_key));
     in->patch_pending = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_pending));
     in->patch_dirty = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_dirty));
+    in->patch_known = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_known));
     in->patch_shown = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_shown));
     in->patch_out_flag = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_flag));
     in->patch_out_value = calloc(p->n_patches ? p->n_patches : 1u, sizeof(*in->patch_out_value));
@@ -1589,7 +1594,7 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->text_key = calloc(p->n_texts ? p->n_texts : 1u, sizeof(*in->text_key));
     in->text_mem = calloc(p->n_texts ? 3u * (size_t)p->n_texts : 1u, LV2_CORE_TEXT_MAX);
     if (!in->controls || !in->shown || (inst_on(in, F_WORKER) && !in->ring_mem) || !in->patch_key
-        || !in->patch_pending || !in->patch_dirty || !in->patch_shown || !in->patch_out_flag || !in->patch_out_value
+        || !in->patch_pending || !in->patch_dirty || !in->patch_known || !in->patch_shown || !in->patch_out_flag || !in->patch_out_value
         || !in->texts || !in->text_key || !in->text_mem)
     {
         lv2_instance_free(in);
@@ -1817,6 +1822,7 @@ void lv2_instance_free(struct lv2_instance *in)
     free(in->patch_key);
     free(in->patch_pending);
     free(in->patch_dirty);
+    free(in->patch_known);
     free(in->patch_shown);
     free(in->patch_out_flag);
     free(in->patch_out_value);
@@ -1861,6 +1867,15 @@ char *lv2_instance_state_save(struct lv2_instance *in)
                                  in->dir, in->saved_dir);
 }
 
+/* a state holds the plugin's values: no value set before it goes to the handle it is applied to */
+static void patch_forget_known(struct lv2_instance *in)
+{
+    uint32_t j;
+
+    for (j = 0; j < in->plugin->n_patches; j++)
+        atomic_store_explicit(&in->patch_known[j], 0, memory_order_relaxed);
+}
+
 int lv2_instance_state_restore_live(struct lv2_instance *in, const char *text, char why[LV2_CORE_WHY_MAX])
 {
     char *copy;
@@ -1885,6 +1900,7 @@ int lv2_instance_state_restore_live(struct lv2_instance *in, const char *text, c
     }
     for (k = 0; k < in->plugin->n_controls; k++)
         atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
+    patch_forget_known(in);
     // the state stays held, applied already: a later instantiation (a new rate) applies it again
     free(in->state_text);
     in->state_text = copy;
@@ -1913,6 +1929,7 @@ int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[
         lv2_why_set(why, LV2_CODE_STATE_UNREADABLE);
         return -1;
     }
+    patch_forget_known(in);
     free(in->state_text);
     in->state_text = copy;
     in->state_dirty = 1;
@@ -1971,6 +1988,7 @@ void lv2_instance_patch_write(struct lv2_instance *in, uint32_t j, float value)
         return;
     in->patch_pending[j] = value;
     in->patch_dirty[j] = 1;
+    atomic_store_explicit(&in->patch_known[j], 1, memory_order_relaxed);
     atomic_store_explicit(&in->patch_shown[j], float_bits(value), memory_order_relaxed);
 }
 
