@@ -354,7 +354,7 @@ export const HOSTING_TOPOLOGY_CODES = {
   },
   "topologyNoAudioOutput": {
     "code": "hosting.topology.no-audio-output",
-    "doc": "the plugin has no audio output"
+    "doc": "the host has nothing of the plugin to carry: a CLAP plugin with an audio input or an auxiliary port and no main output, an LV2 plugin with no port at all (any other plugin with no audio output is hosted as a pass-through tool)"
   },
   "topologyPortTooWide": {
     "code": "hosting.topology.port-too-wide",
