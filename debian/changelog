@@ -1,3 +1,14 @@
+omx-clap-host (0.26.0) unstable; urgency=medium
+
+  * chain_expect <instance> <chain>: the next add of the instance joins
+    that chain at its end, in the head's client, with no JACK client of its
+    own. plugin-hostd sends it for each member after a chain's first, so a
+    chain added one plugin at a time no longer opens a client per member and
+    closes it again (plugin-hostd#348). An add that cannot join answers -902
+    and leaves nothing behind.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 31 Oct 2026 23:10:21 +0100
+
 omx-clap-host (0.25.4) unstable; urgency=medium
 
   * A state or a preset loads with the plugin out of processing. Most
