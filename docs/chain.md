@@ -200,6 +200,13 @@ activated again or built again.
 - A line with another head: the members it leaves out, and the new head when it is a member now, get clients of their
   own; the members it names again move straight from the old walk to the new one; the old head runs alone in its
   client again, or, when the line names it as a member, joins; the chain forms again in the new head's client.
+- An `add` that `chain_expect <instance> <chain>` named just before it joins that chain at its end, in the head's
+  client, one walk: no client of its own is opened, registered or activated, so the graph never sees a node for it.
+  plugin-hostd sends it for each member after a chain's first (plugin-hostd#348), and the line that follows, the
+  chain's order with the new member, changes no walk. An add into a chain this host does not run, or of a plugin not
+  as wide as the head's output, answers `resp -902` and leaves nothing of the plugin; an expectation is spent by the
+  add it was sent for. On r1, 24 plugins added into one chain took 887 ms with an add and a line each (the client each
+  add opened and the line closed), against 470 ms for mod-host's 24 clients.
 - `remove` of a member that is not the head takes it out of the walk, the chain closing around it, then frees it.
   `remove` of the head gives every other member a client of its own and frees the head with its client; plugin-hostd's
   next line forms the chain again.

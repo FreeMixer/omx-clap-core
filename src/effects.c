@@ -244,6 +244,8 @@ typedef struct {
 static effect_t g_effects[MAX_INSTANCES];
 // the layout digest pin_expect named for the next add of an instance, empty when none
 static char g_layout_pins[MAX_INSTANCES][PHD_SHA256_HEX_LEN + 1];
+// the chain chain_expect named for the next add of an instance, plus one: 0 when none
+static int g_chain_expects[MAX_INSTANCES];
 static jack_client_t *g_jack_global_client;
 // the xruns JACK reported to this worker, and what of them the feedback port has been told (#371)
 static xrun_report_t g_xruns;
@@ -851,9 +853,11 @@ static void aux_ports_forget(effect_t *effect)
         memset(effect->aux_out_ports, 0, effect->aux_out_count * sizeof(*effect->aux_out_ports));
 }
 
-/* one side's auxiliary ports of the description kept, their widths and a JACK port each, then registered
- * (aux_ports_register): SUCCESS, ERR_MEMORY_ALLOCATION or ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle runs. */
-static int aux_register(effect_t *effect, bool is_input)
+/* one side's auxiliary ports of the description kept, their widths and a JACK port each, then registered on the
+ * instance's own client (aux_ports_register) when it has one; a member added into a chain gets them on the head's as it
+ * joins (aux_ports_on_head): SUCCESS, ERR_MEMORY_ALLOCATION or ERR_JACK_PORT_REGISTER. Before jack_activate: no cycle
+ * runs. */
+static int aux_register(effect_t *effect, bool is_input, bool own_client)
 {
     const struct omx_clap_instance *clap = effect->clap;
     const uint32_t n = is_input ? clap->aux_inputs : clap->aux_outputs;
@@ -886,7 +890,7 @@ static int aux_register(effect_t *effect, bool is_input)
         effect->aux_in_count = count, effect->aux_in_n = n;
     else
         effect->aux_out_count = count, effect->aux_out_n = n;
-    return aux_ports_register(effect, is_input);
+    return own_client ? aux_ports_register(effect, is_input) : SUCCESS;
 }
 
 /* whether the description's auxiliary ports are still the ones registered at add, port by port and width by width */
@@ -2722,7 +2726,8 @@ int effects_add(const char *uri, int instance, const char *client_name)
     char pin[PHD_SHA256_HEX_LEN + 1];
     const char *id, *lv2_uri;
     effect_t *effect;
-    int error;
+    chain_t *chain = NULL;
+    int error, expect, k;
 
     g_add_reason[0] = '\0';
     lv2_uri = lv2_uri_of(uri);
@@ -2735,17 +2740,36 @@ int effects_add(const char *uri, int instance, const char *client_name)
     if (instance_exist(instance))
         return ERR_INSTANCE_ALREADY_EXISTS;
 
-    // a pin is for the one add that follows it
+    // a pin is for the one add that follows it, and so is a chain
     memcpy(pin, g_layout_pins[instance], sizeof(pin));
     g_layout_pins[instance][0] = '\0';
+    expect = g_chain_expects[instance];
+    g_chain_expects[instance] = 0;
+    for (k = 0; expect && k < CHAINS_MAX && !chain; k++)
+        if (g_chains[k].id == expect - 1 && g_chains[k].head)
+            chain = &g_chains[k];
+    if (expect && !chain)
+    {
+        fprintf(stderr, "effect_%d: chain %d is not running here\n", instance, expect - 1);
+        return ERR_INVALID_OPERATION;
+    }
 
     effect = &g_effects[instance];
     memset(effect, 0, sizeof(effect_t));
     effect->instance = instance;
 
+    if (chain)
+    {
+        // a member added into a chain runs in the head's client from the start: no client of its own is opened, and
+        // the name is the one it opens under if it ever leaves (client_back)
+        effect->jack_client = chain->head->jack_client;
+        if (client_name && client_name[0])
+            snprintf(effect->client_name, sizeof(effect->client_name), "%s", client_name);
+        else
+            snprintf(effect->client_name, sizeof(effect->client_name), "effect_%i", instance);
+    }
     // with the name JACK gave it: a member that leaves a chain opens its client again under it (client_back)
-    effect->jack_client = open_jack_client(instance, client_name, effect->client_name, sizeof(effect->client_name));
-    if (!effect->jack_client)
+    else if (!(effect->jack_client = open_jack_client(instance, client_name, effect->client_name, sizeof(effect->client_name))))
     {
         fprintf(stderr, "can't get jack client\n");
         return ERR_JACK_CLIENT_CREATION;
@@ -2786,8 +2810,16 @@ int effects_add(const char *uri, int instance, const char *client_name)
 
     effect->in_ports = effect->clap->in_channels;
     effect->out_ports = effect->clap->channels;
-    if ((error = main_ports_register(effect)) != SUCCESS || (error = aux_register(effect, true)) != SUCCESS
-        || (error = aux_register(effect, false)) != SUCCESS)
+    // one width end to end, as a chain line asks of every member
+    if (chain && (effect->in_ports != chain->head->out_ports || effect->out_ports != chain->head->out_ports))
+    {
+        fprintf(stderr, "chain %d: effect_%d (%u in, %u out) is not as wide as effect_%d's output (%u)\n", chain->id,
+                instance, effect->in_ports, effect->out_ports, chain->head->instance, chain->head->out_ports);
+        error = ERR_INVALID_OPERATION;
+        goto error;
+    }
+    if ((!chain && (error = main_ports_register(effect)) != SUCCESS) || (error = aux_register(effect, true, !chain)) != SUCCESS
+        || (error = aux_register(effect, false, !chain)) != SUCCESS)
         goto error;
     if (aux_blocks(effect, jack_get_buffer_size(effect->jack_client)) != 0)
     {
@@ -2795,10 +2827,11 @@ int effects_add(const char *uri, int instance, const char *client_name)
         goto error;
     }
 
+    // a member has no note port: its note verbs reach it through the ring, as they do a member that joined by a line
     if (effect->clap->note_inputs)
     {
-        effect->midi_port = jack_port_register(effect->jack_client, MIDI_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsInput, 0);
-        if (!effect->midi_port)
+        if (!chain && !(effect->midi_port = jack_port_register(effect->jack_client, MIDI_PORT_NAME, JACK_DEFAULT_MIDI_TYPE,
+                                                               JackPortIsInput, 0)))
         {
             error = ERR_JACK_PORT_REGISTER;
             goto error;
@@ -2811,7 +2844,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
         }
     }
 
-    if (effect->clap->note_outputs)
+    if (effect->clap->note_outputs && !chain)
     {
         effect->midi_out_port = jack_port_register(effect->jack_client, MIDI_OUT_PORT_NAME, JACK_DEFAULT_MIDI_TYPE, JackPortIsOutput, 0);
         if (!effect->midi_out_port)
@@ -2821,7 +2854,8 @@ int effects_add(const char *uri, int instance, const char *client_name)
         }
     }
 
-    callbacks_set(effect);
+    if (!chain)
+        callbacks_set(effect);
 
     // --thread-pool on: the plugin's tasks go to the process's pool, its helpers at the JACK thread's priority (#395)
     if (g_thread_pool == EFFECTS_THREAD_POOL_ON)
@@ -2845,13 +2879,27 @@ int effects_add(const char *uri, int instance, const char *client_name)
     omx_clap_host_set_transport(effect->clap, &effect->transport_src);
     omx_clap_host_arm(effect->clap);
 
-    if (jack_activate(effect->jack_client) != 0)
+    if (chain)
+    {
+        // into the walk at its end: the head's thread runs it from the next walk the library publishes
+        effect->latency_published = omx_clap_host_latency(effect->clap);
+        fprintf(stderr, "effect_%i: latency %u frames\n", instance, effect->latency_published);
+        if ((k = chain_insert(chain, effect, atomic_load_explicit(&chain->count, memory_order_relaxed))) != 0)
+        {
+            fprintf(stderr, "chain %d: effect_%d cannot join it (%d)\n", chain->id, instance, k);
+            error = ERR_INVALID_OPERATION;
+            goto error;
+        }
+        chain_say(chain);
+    }
+    else if (jack_activate(effect->jack_client) != 0)
     {
         fprintf(stderr, "can't activate jack_client\n");
         error = ERR_JACK_CLIENT_ACTIVATION;
         goto error;
     }
-    publish_latency(effect);
+    else
+        publish_latency(effect);
     idle_hold_say_once();
     if (g_show_ui)
     {
@@ -2865,12 +2913,24 @@ int effects_add(const char *uri, int instance, const char *client_name)
     return instance;
 
 error:
+    // the head's client is not this instance's to close
+    if (chain)
+        effect->jack_client = NULL;
     instance_free(effect);
     return error;
 }
 
 /* the layout pin the next add of an instance checks: "<scheme>:<sha256>", a scheme this host does not know refused as no
  * pin at all */
+/* the chain the next add of the instance joins in the head's client (effects_add): SUCCESS or ERR_INSTANCE_INVALID */
+int effects_chain_expect(int instance, int chain)
+{
+    if (!INSTANCE_IS_VALID(instance))
+        return ERR_INSTANCE_INVALID;
+    g_chain_expects[instance] = chain + 1;
+    return SUCCESS;
+}
+
 int effects_pin_expect(int instance, const char *layout)
 {
     char scheme[32], hex[PHD_SHA256_HEX_LEN + 1];

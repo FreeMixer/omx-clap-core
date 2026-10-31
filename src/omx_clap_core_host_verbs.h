@@ -70,6 +70,13 @@ struct omx_host_verb {
 #define OMX_VERB_PIN_EXPECT_CODES_COUNT 3u
 #define OMX_VERB_PIN_EXPECT_CODES_INIT { -1, -902, -508 } /* reply.host.instance-invalid, reply.host.invalid-operation, reply.host.pin-absent */
 
+/* OMX_CLAP_CORE_SHARED_VERBS.chainExpect (data/verbs.json): The chain the next add of the instance joins, at its end, in the head's client: no client of its own is opened or activated. That add answers invalidOperation, and nothing of the plugin stays, when the host runs no such chain or the plugin is not as wide as the head's output; plugin-hostd sends it for each member after a chain's first, and a worker that refuses the verb gets the add and the chain line instead. */
+#define OMX_VERB_CHAIN_EXPECT "chain_expect"
+#define OMX_VERB_CHAIN_EXPECT_FMT "chain_expect %i %i"
+#define OMX_VERB_CHAIN_EXPECT_REPLY "resp 0"
+#define OMX_VERB_CHAIN_EXPECT_CODES_COUNT 2u
+#define OMX_VERB_CHAIN_EXPECT_CODES_INIT { -1, -902 } /* reply.host.instance-invalid, reply.host.invalid-operation */
+
 /* OMX_CLAP_CORE_SHARED_VERBS.noteInput (data/verbs.json): Whether the instance takes notes: the name of its note input on its worker's jack client, - for a plugin that takes none. */
 #define OMX_VERB_NOTE_INPUT "note_input"
 #define OMX_VERB_NOTE_INPUT_FMT "note_input %i"
@@ -133,7 +140,7 @@ struct omx_host_verb {
 #define OMX_VERB_NOTE_OUT_DROPS_CODES_COUNT 1u
 #define OMX_VERB_NOTE_OUT_DROPS_CODES_INIT { -3 } /* reply.host.instance-non-exists */
 
-#define OMX_CLAP_CORE_HOST_VERB_COUNT 14u
+#define OMX_CLAP_CORE_HOST_VERB_COUNT 15u
 
 /* Every verb, in the order of its items, with what each host owes it. */
 static inline const struct omx_host_verb *omx_clap_core_host_verbs(void) {
@@ -143,6 +150,7 @@ static inline const struct omx_host_verb *omx_clap_core_host_verbs(void) {
     { OMX_VERB_REMOTE_PAGE_GET, OMX_VERB_REMOTE_PAGE_GET_FMT, OMX_VERB_REMOTE_PAGE_GET_REPLY, { OMX_HOST_VERB_OPTIONAL, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },
     { OMX_VERB_PARAM_INFO, OMX_VERB_PARAM_INFO_FMT, OMX_VERB_PARAM_INFO_REPLY, { OMX_HOST_VERB_OPTIONAL, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },
     { OMX_VERB_PIN_EXPECT, OMX_VERB_PIN_EXPECT_FMT, OMX_VERB_PIN_EXPECT_REPLY, { OMX_HOST_VERB_UNSUPPORTED, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },
+    { OMX_VERB_CHAIN_EXPECT, OMX_VERB_CHAIN_EXPECT_FMT, OMX_VERB_CHAIN_EXPECT_REPLY, { OMX_HOST_VERB_UNSUPPORTED, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },
     { OMX_VERB_NOTE_INPUT, OMX_VERB_NOTE_INPUT_FMT, OMX_VERB_NOTE_INPUT_REPLY, { OMX_HOST_VERB_OPTIONAL, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },
     { OMX_VERB_NOTE_ON, OMX_VERB_NOTE_ON_FMT, OMX_VERB_NOTE_ON_REPLY, { OMX_HOST_VERB_OPTIONAL, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },
     { OMX_VERB_NOTE_OFF, OMX_VERB_NOTE_OFF_FMT, OMX_VERB_NOTE_OFF_REPLY, { OMX_HOST_VERB_OPTIONAL, OMX_HOST_VERB_REQUIRED, OMX_HOST_VERB_UNSUPPORTED } },

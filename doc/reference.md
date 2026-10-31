@@ -1005,6 +1005,10 @@ plugin-hostd's `pin.h`, and when it differs destroys the instance and answers
 processes nothing. A pin is spent by the `add` it was sent for. A scheme the
 host does not know answers `resp -508` (`reply.host.pin-absent`) and pins nothing.
 
+`chain_expect <N> <chain>`, declared beside it, names the chain the next `add` of instance `N` joins: that add borrows
+the head's client and enters the walk at its end, with no client of its own (docs/chain.md). It answers `resp -902`
+and leaves nothing when the host runs no such chain or the plugin is not as wide as the head's output.
+
 
 Strip and controls
 ------------------

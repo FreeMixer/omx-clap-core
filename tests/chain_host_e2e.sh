@@ -21,6 +21,7 @@
 #     silent), the order before it another output
 #   6 a line with another head: the chain in gain's client       7 remove of a member: the chain closes around it
 #   8 remove of the head: pass in a client of its own; a line of one member
+#   9 an add chain_expect names joins the chain at its end with no client of its own; one that cannot join is refused
 #
 # and every refusal (a member it does not hold, one named twice, a word that is no number, a member or a head of
 # another width, a member of another chain) answers its code and changes no node. A member's auxiliary ports go to the
@@ -548,6 +549,38 @@ play p8 chain=11,11 series=21,21
 same "p8 left: pass alone, a chain of one" "$runtime/p8.chain.l" "$runtime/p8.series.l"
 same "p8 right" "$runtime/p8.chain.r" "$runtime/p8.series.r"
 unlink_all
+
+# 9. an add plugin-hostd expects into the chain (chain_expect) joins it at its end in the head's client: no node of its
+# own ever, before or after the reply, and the chain's line that follows changes no walk; one that cannot join (no such
+# chain, another width) is refused at the add and leaves nothing behind
+expect chain "chain_expect 13 7" "resp 0"
+expect chain "add $gain 13" "resp 13"
+[ "$(nodes)" = 1 ]; step $? "chain_expect 13 7, add 13: still one node when the add answers ($(nodes))"
+sleep 0.3
+[ "$(nodes)" = 1 ] && ! has_ports 13; step $? "and after: no node and no port of effect_13 ($(nodes))"
+readback 7 | grep -q "^chain 7: effect_11 effect_13 in effect_11's client"
+step $? "the read-back names effect_13 after effect_11: $(readback 7)"
+walk_before=$(walk_of 7)
+expect chain "chain 7 11 13" "resp 0"
+[ "$(walk_of 7)" = "$walk_before" ]; step $? "plugin-hostd's line after it publishes no walk: walk ${walk_before:-?} to $(walk_of 7)"
+# effect_22 still has the gain phase 2 gave it: the member added into the chain is given the same, through its own number
+expect chain "param_set 13 0 0.3" "resp 0"
+sleep 0.3
+series 21 22
+play p9 chain=11,11 series=21,22
+same "p9 left: gain added into the chain after pass" "$runtime/p9.chain.l" "$runtime/p9.series.l"
+same "p9 right" "$runtime/p9.chain.r" "$runtime/p9.series.r"
+unlink_all
+expect chain "chain_expect 14 7" "resp 0"
+expect chain "add $widen 14" "resp -902"
+expect chain "chain_expect 14 8" "resp 0"
+expect chain "add $pass 14" "resp -902"
+[ "$(nodes)" = 1 ]; step $? "an add into a chain it cannot join is refused and makes no node ($(nodes))"
+expect chain "add $pass 14" "resp 14"
+wait_nodes 2; step $? "the expectation was for one add: the next add of 14 is a client of its own ($(nodes))"
+expect chain "remove 14" "resp 0"
+expect chain "remove 13" "resp 0"
+[ "$(nodes)" = 1 ]; step $? "remove 13: the chain closes around it ($(nodes))"
 
 expect chain "remove -1" "resp 0"
 expect chain "quit" "resp 0"
