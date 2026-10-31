@@ -162,9 +162,13 @@ arm rt-callee src/effects.c '/^static void transport_block/,/^}/s/^    struct om
 arm rt-core src/clap_chain.c '/^int omx_clap_chain_process/,/^}/s/^    uint32_t s;$/&\n\n    free(malloc(1));/' \
     "the host's chain cycle names an allocator"
 
-# 12. a member with an auxiliary port is refused: taken
-arm aux-port src/effects.c 's/if (i > 0 \&\& (effect->aux_in_count || effect->aux_out_count))/if (0)/' \
-    'a member with a side chain is refused'
+# 12. a member's auxiliary ports are on the head's client, under the name it has alone too, and leave with it
+arm aux-port src/effects.c 's/^        aux_ports_on_head(effect, head->jack_client);$/        ;/' \
+    'the side chain of member 16 is'
+arm aux-connect src/effects.c "s/^        if (len \&\& client_borrowed(effect) .*/        if (0)/" \
+    'connect effect_10:out_1 effect_16:aux_in_1_1'
+arm aux-leave src/effects.c '/^static void chain_extract/,/^}/s/^        aux_ports_off_head(effect, chain->head->jack_client);$/        ;/' \
+    'and the head.s client no longer holds it'
 
 # 13. a move takes the line's order: the kept members' order never published, the walk left in the old one
 arm move src/effects.c 's/^    if (j < n_kept \&\& (ret = chain_order(chain, kept, n_kept)) != 0)$/    if (0)/' \
