@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.25.2
+Version:        0.25.3
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -180,6 +180,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.3-1
+- Requires mod-host-protocol 0.10.6.f14a230-11.3 or newer: the host's ports
+  listen on 127.0.0.1 and are not reached from another machine
+  (plugin-hostd#333).
+
 * Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.2-1
 - The LV2 adapter sends a patch parameter only once the host has written it
   or the plugin has reported it, not every lv2:default on a new instance's

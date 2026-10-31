@@ -1,3 +1,11 @@
+omx-clap-host (0.25.3) unstable; urgency=medium
+
+  * Requires libmod-host-protocol0 0.1.0-8~omx or newer: the host's ports
+    listen on 127.0.0.1 and are not reached from another machine
+    (plugin-hostd#333).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 31 Oct 2026 09:57:15 +0100
+
 omx-clap-host (0.25.2) unstable; urgency=medium
 
   * The LV2 adapter sends a patch parameter only once the host has written it
