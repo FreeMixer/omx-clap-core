@@ -14,3 +14,8 @@
     a lv2:Plugin ;
     lv2:binary <omx-patch-fixture.so> ;
     rdfs:seeAlso <omx-patch-fixture.ttl> .
+
+<urn:openmixer:test:patch-fixture#synth>
+    a lv2:Plugin ;
+    lv2:binary <omx-patch-fixture.so> ;
+    rdfs:seeAlso <omx-patch-fixture.ttl> .
