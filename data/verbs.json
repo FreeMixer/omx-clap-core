@@ -99,7 +99,7 @@
   "OMX_CLAP_CORE_SHARED_VERBS": {
     "kind": "verbs",
     "since": "0.22.0",
-    "doc": "The verbs omx-clap-host and plugin-hostd both answer by instance, and the layout pin plugin-hostd sends its worker before an add: declared once, rendered for both hosts.",
+    "doc": "The verbs omx-clap-host and plugin-hostd both answer by instance, and the layout pin and the chain plugin-hostd send its worker before an add: declared once, rendered for both hosts.",
     "verbs": {
       "trackInfo": {
         "verb": "track_info",
@@ -219,6 +219,24 @@
         },
         "since": "0.22.0",
         "doc": "The layout pin <scheme>:<sha256> the next add of the instance checks after init and before activate; plugin-hostd sends it to a worker of a format that checks layouts, and refuses the add with any other answer than resp 0."
+      },
+      "chainExpect": {
+        "verb": "chain_expect",
+        "format": "chain_expect %i %i",
+        "reply": "resp 0",
+        "codes": [
+          {
+            "ref": "HOST_REPLY_CODES.instanceInvalid"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
+          }
+        ],
+        "implementedBy": {
+          "omx-clap-host": "required"
+        },
+        "since": "0.26.0",
+        "doc": "The chain the next add of the instance joins, at its end, in the head's client: no client of its own is opened or activated. That add answers invalidOperation, and nothing of the plugin stays, when the host runs no such chain or the plugin is not as wide as the head's output; plugin-hostd sends it for each member after a chain's first, and a worker that refuses the verb gets the add and the chain line instead."
       },
       "noteInput": {
         "verb": "note_input",

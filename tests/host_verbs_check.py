@@ -54,6 +54,7 @@ EXAMPLES = {
     'param_info': (['{fx}', '0'], [(['{fx}', '99'], 'paramSymbolInvalid'), (['9', '0'], 'instanceNonExists')]),
     'pin_expect': (['7', '{pin}'], [(['7', '{scheme}:zz'], 'invalidOperation'), (['7', 'omx-layout/0:' + '0' * 64], 'pinAbsent'),
                                     (['-1', '{pin}'], 'instanceInvalid')]),
+    'chain_expect': (['7', '7'], [(['7', 'x'], 'invalidOperation'), (['-1', '7'], 'instanceInvalid')]),
     'note_input': (['{synth}'], [(['x'], 'invalidOperation'), (['9'], 'instanceNonExists')]),
     'note_on': (['{synth}', '0', '60', '100'], [(['{fx}', '0', '60', '100'], 'noNoteInput'),
                                                 (['{synth}', '16', '60', '100'], 'invalidOperation'),
