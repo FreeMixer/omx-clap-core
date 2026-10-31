@@ -23,8 +23,8 @@
 #   8 remove of the head: pass in a client of its own; a line of one member
 #
 # and every refusal (a member it does not hold, one named twice, a word that is no number, a member or a head of
-# another width, a member with an auxiliary port, a member of another chain) answers its code and
-# changes no node.
+# another width, a member of another chain) answers its code and changes no node. A member's auxiliary ports go to the
+# head's client under its name, and come back when it leaves.
 # The last line is a CHAIN-HOST json; exit 0 only when every step held.
 #
 # OMX_CLAP_HOST: the binary (default ./omx-clap-host); FRAMES: frames per phase (default 24000)
@@ -381,14 +381,6 @@ expect chain "add $auxout 17" "resp 17"
 expect chain "chain 8 15 14" "resp -902"
 expect chain "chain 8 14 15" "resp -902"
 expect chain "chain 8 15 10" "resp -902"
-# an auxiliary port goes with its client: a member's side chain would read silence, its auxiliary output reach nothing,
-# so the line is refused and says why; a head keeps its own
-expect chain "chain 8 15 16" "resp -902"
-grep -q "^chain 8: effect_16 has an auxiliary port" "$runtime/chain.log"
-step $? "a member with a side chain is refused: $(grep "^chain 8: effect_16" "$runtime/chain.log" | tail -1)"
-expect chain "chain 8 15 17" "resp -902"
-grep -q "^chain 8: effect_17 has an auxiliary port" "$runtime/chain.log"
-step $? "a member with an auxiliary output is refused: $(grep "^chain 8: effect_17" "$runtime/chain.log" | tail -1)"
 [ "$(nodes)" = 6 ]; step $? "the refusals changed no node: the chain and five of their own ($(nodes))"
 # a refusal forms nothing: no read-back of chain 8 (a head of another width refused only when its member would join
 # answers the same code, but has formed the chain first)
@@ -409,6 +401,41 @@ wait_nodes 6; step $? "chain 9 15: 13 in a client of its own again ($(nodes))"
 for _ in $(seq 50); do timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$" && break; sleep 0.1; done
 timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$"
 step $? "13 has its note port again"
+# a member's auxiliary ports go to the head's client under the member's name, and come back when it leaves
+in_ports() { timeout 10 pw-link -i 2>/dev/null; }
+out_ports() { timeout 10 pw-link -o 2>/dev/null; }
+wait_port() {
+    local list=$1 port=$2
+    for _ in $(seq 50); do "$list" | grep -q -x "$port" && return 0; sleep 0.1; done
+    return 1
+}
+# 16 heads chain 8, alone: free it
+expect chain "remove 16" "resp 0"
+expect chain "add $sidechain 16" "resp 16"
+expect chain "chain 9 15 16 17" "resp 0"
+wait_nodes 4; step $? "a member with a side chain and one with an auxiliary output join: chain 9 15 16 17 is one node ($(nodes))"
+wait_port in_ports effect_15:effect_16_aux_in_1_1; step $? "the side chain of member 16 is effect_15:effect_16_aux_in_1_1"
+wait_port out_ports effect_15:effect_17_aux_out_1_2; step $? "the auxiliary output of member 17 is effect_15:effect_17_aux_out_1_2"
+# the name it had alone still finds the port: a replayed connect names that one
+expect chain "connect effect_10:out_1 effect_16:aux_in_1_1" "resp 0"
+linked effect_10:out_1 effect_15:effect_16_aux_in_1_1; step $? "connect to effect_16:aux_in_1_1 reaches the member's port on the head's client"
+expect chain "disconnect effect_10:out_1 effect_16:aux_in_1_1" "resp 0"
+# a line that leaves 16 out: its port leaves the head's client and is its own client's again
+expect chain "chain 9 15 17" "resp 0"
+wait_port in_ports effect_16:aux_in_1_1; step $? "16 has effect_16:aux_in_1_1 again in a client of its own"
+! in_ports | grep -q -x effect_15:effect_16_aux_in_1_1; step $? "and the head's client no longer holds it"
+# a member made the head: its port is its own client's
+expect chain "chain 9 17 15" "resp 0"
+wait_port out_ports effect_17:aux_out_1_2; step $? "member 17 made the head has effect_17:aux_out_1_2"
+! out_ports | grep -q -x effect_15:effect_17_aux_out_1_2; step $? "and the old head's client no longer holds it"
+# a head made a member: the other way round
+expect chain "chain 9 15 17" "resp 0"
+wait_port out_ports effect_15:effect_17_aux_out_1_2; step $? "17 a member again: effect_15:effect_17_aux_out_1_2"
+# remove of the member: its ports go with it
+expect chain "remove 17" "resp 0"
+for _ in $(seq 50); do out_ports | grep -q -x effect_15:effect_17_aux_out_1_2 || break; sleep 0.1; done
+! out_ports | grep -q -x effect_15:effect_17_aux_out_1_2; step $? "remove of member 17 takes its port off the head's client"
+expect chain "add $auxout 17" "resp 17"
 for i in 13 14 15 16 17; do expect chain "remove $i" "resp 0"; done
 [ "$(nodes)" = 1 ]; step $? "after the refusals: one node ($(nodes))"
 

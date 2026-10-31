@@ -137,9 +137,12 @@ stay its own. Every other member closes its own client, so it has no port and is
 plugins is one node, beside the host's own client (`omx-clap-host`, the frame clock, no port). A member's note ports
 go with its client too, and a line does not refuse for them (#400: a third-party LV2 effect such as Calf's declares an atom
 port that supports MIDI, so it has a note input): the note verbs still reach the member through its ring, its note output
-is dropped, and it gets its note ports again in a client of its own when it leaves. A member's auxiliary ports would
-go with its client, its side chain reading silence and its auxiliary outputs reaching nothing, so a member with one is
-refused (below); the head keeps its own. A controller connects a chain by its head's
+is dropped, and it gets its note ports again in a client of its own when it leaves. A member's auxiliary ports,
+a side chain among them, move to the head's client as `<head client>:<member client>_aux_in_<p>_<k>` and
+`_aux_out_<p>_<k>`, and the `connect` and `disconnect` verbs also take the name it has alone (`<member client>:aux_in_<p>_<k>`), which is what a replay
+repeats: an unconnected side chain reads silence as it does alone, and a connected one is the member's own, bit for bit.
+They go back to a client of its own when it leaves, and a link does not move with them: `plugin-hostd` replays its connections,
+another controller connects again. The head keeps its own. A controller connects a chain by its head's
 ports.
 
 The head's process callback runs the library's chain (`omx_clap_chain_process`). Each member, the head too, is a stage
@@ -159,11 +162,10 @@ chain's sum between them.
 ### What a line may name
 
 Every member is an instance this host holds, named once and in no other chain of this host, and of the chain's width:
-its main input and its main output as wide as the head's main output. No member but the head has an
-auxiliary port (its port would go with its client; stderr says `chain <chain>: effect_<n> has an auxiliary port (<in>
-in, <out> out), which only the chain's first member keeps`). Anything else answers `resp -902` with the reason on
-stderr, or `resp -3` for an instance this host does not hold, and changes nothing: the members run one client each,
-which plugin-hostd takes as no failure. The protocol has no code of its own for these refusals; the reason is the
+its main input and its main output as wide as the head's main output. Anything else answers `resp -902` with the reason on
+stderr, or `resp -3` for an instance this host does not hold, and changes nothing: the members run one client each.
+plugin-hostd then ends the chain and runs each member in a worker of its own, and answers its own `chain` with `resp -501`.
+The protocol has no code of its own for these refusals; the reason is the
 stderr line. A line of one member is a chain of one: the head in its own client, run through the chain.
 
 ### The declaration, and the refusal behind plugin-hostd (#361)
@@ -231,7 +233,8 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   linked in series bit for bit and differs from them in another order; the latency is the sum; a bypass and a parameter
   still reach one member, the head's and a member's bypass both; a member's removal, a member left out, added and
   moved (in one walk, the read-back's walk one more), and a new head each give the output of the chain built that way,
-  bit for bit; every refusal, a member with an auxiliary port among them, changes nothing. The client's process
+  bit for bit; every refusal changes nothing; a member's auxiliary ports are on the head's client, a connect by the name
+  it has alone reaches them, and they leave with it (`make test-jack-fake`: the side chain and the auxiliary output carry their levels in a chain). The client's process
   callback and every function of this tree it reaches (`tests/rt_reach.py`) name no allocator, sleep, lock or printf.
 - `make test-chain-host-tsan` (`tests/chain_host_tsan.sh`): the host and the core under ThreadSanitizer, 40 rounds of
   joins, a move, a member freed and added again, another head and the first one back, while the quantum changes all
@@ -260,7 +263,7 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   client each.
 - `make test-chain-host-sabotage` (`tests/chain_host_sabotage.sh`) breaks each guard of the host's chain in a copy of
   the tree and sees the test red on the check that names it: among them an allocation in a function the cycle calls
-  and one in the core's `omx_clap_chain_process`, a member with an auxiliary port taken, a move's order never
+  and one in the core's `omx_clap_chain_process`, a member's auxiliary ports not made on the head's client, the verbs not finding them by the name they have alone, or their leaving not done, a move's order never
   published, a member's bypass that reaches the head alone, `g_chain_members` gone from every site and from the
   members' walk alone (each ThreadSanitizer's red), the thread-init callback's store into the slot gone and a joining
   member left on its own slot (each red on pass, `tests/fake.clap`, saying it ran off the audio role). Four sites no

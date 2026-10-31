@@ -581,7 +581,7 @@ static void process_gated(effect_t *effect, const float *const *inputs, float *c
             jack_midi_clear_buffer(jack_port_get_buffer(effect->midi_out_port, nframes));
         return;
     }
-    // a chain member's auxiliary inputs have no port: they read silence, as an unconnected port of its own would
+    // an auxiliary input whose port JACK would not make on a chain's client reads silence, as an unconnected port would
     for (c = 0; c < effect->aux_in_count; c++)
         if (effect->aux_in_ports[c])
             memcpy(effect->aux_in_bufs[c], jack_port_get_buffer(effect->aux_in_ports[c], nframes), nframes * sizeof(float));
@@ -798,6 +798,57 @@ static int aux_ports_register(effect_t *effect, bool is_input)
                 return ERR_JACK_PORT_REGISTER;
         }
     return SUCCESS;
+}
+
+/* A chain's member has no client of its own, so its auxiliary ports go on the head's: <client>_aux_in_<p>_<k>, so that
+ * two members' never meet. Control thread, before the member enters the walk. A port JACK will not make stays NULL, said
+ * on stderr: its channel reads silence and writes nothing, and the member runs. */
+static void aux_ports_on_head(effect_t *effect, jack_client_t *head)
+{
+    int side;
+
+    for (side = 0; side < 2; side++)
+    {
+        const bool is_input = side == 0;
+        const uint32_t n = is_input ? effect->aux_in_n : effect->aux_out_n;
+        const uint32_t *widths = is_input ? effect->aux_in_widths : effect->aux_out_widths;
+        jack_port_t **jack = is_input ? effect->aux_in_ports : effect->aux_out_ports;
+        uint32_t p, k, c = 0;
+
+        for (p = 0; p < n; p++)
+            for (k = 0; k < widths[p]; k++, c++)
+            {
+                char short_name[LAYOUT_PORT_NAME_SIZE], name[sizeof(effect->client_name) + sizeof(short_name) + 1];
+
+                layout_port_name(short_name, is_input, p, k);
+                snprintf(name, sizeof(name), "%s_%s", effect->client_name, short_name);
+                jack[c] = jack_port_register(head, name, JACK_DEFAULT_AUDIO_TYPE, is_input ? JackPortIsInput : JackPortIsOutput, 0);
+                if (!jack[c])
+                    fprintf(stderr, "effect_%d: its auxiliary port %s cannot be made on its chain's client\n", effect->instance, name);
+            }
+    }
+}
+
+/* a member's auxiliary ports given up by the head's client: the walk no longer runs it */
+static void aux_ports_off_head(effect_t *effect, jack_client_t *head)
+{
+    uint32_t c;
+
+    for (c = 0; c < effect->aux_in_count; c++)
+        if (effect->aux_in_ports[c])
+            jack_port_unregister(head, effect->aux_in_ports[c]);
+    for (c = 0; c < effect->aux_out_count; c++)
+        if (effect->aux_out_ports[c])
+            jack_port_unregister(head, effect->aux_out_ports[c]);
+}
+
+/* the instance holds no auxiliary port any more: the client they were on closed, or gave them up */
+static void aux_ports_forget(effect_t *effect)
+{
+    if (effect->aux_in_ports)
+        memset(effect->aux_in_ports, 0, effect->aux_in_count * sizeof(*effect->aux_in_ports));
+    if (effect->aux_out_ports)
+        memset(effect->aux_out_ports, 0, effect->aux_out_count * sizeof(*effect->aux_out_ports));
 }
 
 /* one side's auxiliary ports of the description kept, their widths and a JACK port each, then registered
@@ -1823,7 +1874,7 @@ static void callbacks_set(effect_t *effect)
 
 /* a client of its own made ready for a chain's member, under the name the instance had: opened and its main and note
  * ports registered, but neither activated nor the instance's yet, so the head's cycle may still run the member
- * meanwhile. A member has no auxiliary port (effects_chain). SUCCESS, or the error with nothing left open. */
+ * meanwhile: its auxiliary ports, which that cycle reads, come over in client_take. SUCCESS, or the error with nothing left open. */
 static int client_ready(const effect_t *effect, own_client_t *own)
 {
     int error;
@@ -1865,12 +1916,17 @@ static int client_take(effect_t *effect, own_client_t *own)
     memcpy(effect->output_ports, own->outputs, sizeof(effect->output_ports));
     effect->midi_port = own->midi_in;
     effect->midi_out_port = own->midi_out;
+    aux_ports_forget(effect);
+    // a port JACK will not make stays NULL: its channel reads silence and writes nothing
+    if (aux_ports_register(effect, true) != SUCCESS || aux_ports_register(effect, false) != SUCCESS)
+        fprintf(stderr, "effect_%d: an auxiliary port cannot be made on its own client\n", effect->instance);
     callbacks_set(effect);
     if (jack_activate(effect->jack_client) != 0)
     {
         jack_client_close(effect->jack_client);
         effect->jack_client = NULL;
         effect->midi_port = effect->midi_out_port = NULL;
+        aux_ports_forget(effect);
         memset(effect->input_ports, 0, sizeof(effect->input_ports));
         memset(effect->output_ports, 0, sizeof(effect->output_ports));
         return ERR_JACK_CLIENT_ACTIVATION;
@@ -1958,12 +2014,18 @@ static int chain_insert(chain_t *chain, effect_t *effect, uint32_t position)
     atomic_store_explicit(&chain->count, count + 1, memory_order_relaxed);
     pthread_mutex_unlock(&g_chain_members);
     effect->chain = chain;
+    if (effect != head)
+        aux_ports_on_head(effect, head->jack_client);
     ret = omx_clap_chain_add(chain->walk, &member, position, &effect->chain_member);
     if (ret == OMX_CLAP_CHAIN_OK)
         return 0;
     effect->chain = NULL;
     if (effect != head)
+    {
+        aux_ports_off_head(effect, head->jack_client);
+        aux_ports_forget(effect);
         omx_clap_host_name_slot(effect->clap, &effect->thread_named);
+    }
     pthread_mutex_lock(&g_chain_members);
     for (i = position; i < count; i++)
         atomic_store_explicit(&chain->members[i], atomic_load_explicit(&chain->members[i + 1], memory_order_relaxed),
@@ -2002,6 +2064,11 @@ static void chain_extract(chain_t *chain, effect_t *effect)
     uint32_t i, k;
 
     omx_clap_chain_remove(chain->walk, effect->chain_member);
+    if (effect != chain->head)
+    {
+        aux_ports_off_head(effect, chain->head->jack_client);
+        aux_ports_forget(effect);
+    }
     pthread_mutex_lock(&g_chain_members);
     for (i = 0, k = 0; i < count; i++)
     {
@@ -2030,6 +2097,8 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
     effect->jack_client = chain->head->jack_client;
     memset(effect->input_ports, 0, sizeof(effect->input_ports));
     memset(effect->output_ports, 0, sizeof(effect->output_ports));
+    // its auxiliary ports went with its client too: chain_insert makes them again on the head's
+    aux_ports_forget(effect);
     // a member's note ports went with its client: its note verbs reach it through the ring, midi_in is never read, and
     // what it sends out is dropped
     effect->midi_port = effect->midi_out_port = NULL;
@@ -2219,6 +2288,7 @@ static void chain_reload(chain_t *chain, effect_t *const *out, const uint32_t *p
         out[n]->jack_client = chain->head->jack_client;
         memset(out[n]->input_ports, 0, sizeof(out[n]->input_ports));
         memset(out[n]->output_ports, 0, sizeof(out[n]->output_ports));
+        aux_ports_forget(out[n]);
         // the place it left a moment ago, in a walk of the same width: the library takes it back
         (void)chain_insert(chain, out[n], place[n]);
     }
@@ -2930,14 +3000,6 @@ int effects_chain(int id, const int *instances, int n)
         {
             fprintf(stderr, "chain %d: effect_%d (%u in, %u out) is not as wide as effect_%d's output (%u)\n", id, instances[i],
                     effect->in_ports, effect->out_ports, head->instance, head->out_ports);
-            return ERR_INVALID_OPERATION;
-        }
-        // an auxiliary port goes with its client too: a member's side chain would read silence and its auxiliary
-        // outputs reach nothing, so only the head keeps its own
-        if (i > 0 && (effect->aux_in_count || effect->aux_out_count))
-        {
-            fprintf(stderr, "chain %d: effect_%d has an auxiliary port (%u in, %u out), which only the chain's first member "
-                    "keeps\n", id, instances[i], effect->aux_in_count, effect->aux_out_count);
             return ERR_INVALID_OPERATION;
         }
     }
@@ -3652,9 +3714,33 @@ int effects_state_load(const char *dir)
     return error;
 }
 
+#define PORT_NAME_NOW_SIZE  512
+
+/* the name a port has in the graph now: a chain member's auxiliary port is named as it is alone (effect_<n>:aux_in_1_1),
+ * which is what a controller knows and a replay repeats, and it is on the head's client (aux_ports_on_head); any other
+ * name as it is */
+static const char *port_now(const char *name, char *buf, size_t size)
+{
+    int i;
+
+    for (i = 0; i < MAX_INSTANCES; i++)
+    {
+        const effect_t *effect = &g_effects[i];
+        const size_t len = strlen(effect->client_name);
+
+        if (len && client_borrowed(effect) && !strncmp(name, effect->client_name, len) && !strncmp(name + len, ":aux_", 5))
+        {
+            snprintf(buf, size, "%s:%s_%s", effect->chain->head->client_name, effect->client_name, name + len + 1);
+            return buf;
+        }
+    }
+    return name;
+}
+
 int effects_connect(const char *portA, const char *portB)
 {
-    int ret = jack_connect(g_jack_global_client, portA, portB);
+    char a[PORT_NAME_NOW_SIZE], b[PORT_NAME_NOW_SIZE];
+    int ret = jack_connect(g_jack_global_client, port_now(portA, a, sizeof(a)), port_now(portB, b, sizeof(b)));
 
     if (ret != 0 && ret != EEXIST)
         return ERR_JACK_PORT_CONNECTION;
@@ -3663,7 +3749,9 @@ int effects_connect(const char *portA, const char *portB)
 
 int effects_disconnect(const char *portA, const char *portB)
 {
-    if (jack_disconnect(g_jack_global_client, portA, portB) != 0)
+    char a[PORT_NAME_NOW_SIZE], b[PORT_NAME_NOW_SIZE];
+
+    if (jack_disconnect(g_jack_global_client, port_now(portA, a, sizeof(a)), port_now(portB, b, sizeof(b))) != 0)
         return ERR_JACK_PORT_DISCONNECTION;
     return SUCCESS;
 }

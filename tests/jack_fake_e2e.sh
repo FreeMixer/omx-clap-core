@@ -140,6 +140,23 @@ expect "bypass 1 0" "resp 0"
 sleep 0.3
 w=$(level effect_1:aux_out_1_1); near "${w%% *}" 0.125 0.0001; step $? "the bypass off, effect_1:aux_out_1_1 carries 0.125 again ($w)"
 
+# in a chain the ports are the head's client's and carry the same: the side chain's 0.5 reaches the chain's output, the
+# auxiliary output's 0.125 its own port, bit for bit as they do alone
+expect "add clap:$fake#org.omx-clap-host.test.passthrough 5" "resp 5"
+expect "chain 3 5 0 1" "resp 0"
+for _ in $(seq 50); do graph_has effect_5:effect_0_aux_in_1_1 && break; sleep 0.1; done
+graph_has effect_5:effect_0_aux_in_1_1 && ! graph_has effect_0:aux_in_1_1; step $? "member 0's side chain is effect_5:effect_0_aux_in_1_1"
+expect "connect jack_meter_source:out_l effect_0:aux_in_1_1" "resp 0"
+sleep 0.3
+w=$(level effect_5:out_1); near "${w%% *}" 0.5 0.0001 && near "${w##* }" 0.5 0.0001; step $? "effect_5:out_1 is the member's side chain added, 0.5 ($w)"
+w=$(level effect_5:effect_1_aux_out_1_1); near "${w%% *}" 0.125 0.0001 && near "${w##* }" 0.125 0.0001; step $? "effect_5:effect_1_aux_out_1_1 carries member 1's 0.125 ($w)"
+expect "chain 3 5" "resp 0"
+for _ in $(seq 50); do graph_has effect_0:aux_in_1_1 && break; sleep 0.1; done
+graph_has effect_0:aux_in_1_1 && graph_has effect_1:aux_out_1_1 && ! graph_has effect_5:effect_0_aux_in_1_1; step $? "out of the chain, each has its own ports again"
+sleep 0.3
+w=$(level effect_1:aux_out_1_1); near "${w%% *}" 0.125 0.0001; step $? "effect_1:aux_out_1_1 carries 0.125 in its own client again ($w)"
+expect "remove 5" "resp 0"
+
 for i in 2 1 0; do expect "remove $i" "resp 0"; done
 ! graph_has effect_0:aux_in_1_1 && ! graph_has effect_1:aux_out_1_1 && ! graph_has effect_2:aux_in_1_4; step $? "no auxiliary port after remove"
 expect "quit" "resp 0"

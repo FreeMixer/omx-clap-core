@@ -1,7 +1,6 @@
 # the chain identity fixture (tests/chain_identity.sh, make test-chain-identity): the fake plugins of this tree alone.
 # passthrough reports 64 frames of latency, so the chain reports their sum; comp cuts a block that peaks at 0.1 or more
-# by 6 dB, so its place in the chain shows in the output. A member with an auxiliary port is refused by the chain line
-# (docs/chain.md), so none is here.
+# by 6 dB, so its place in the chain shows in the output.
 # name	clap file	clap id	lv2 bundle	lv2 uri
 pass-a	tests/fake.clap	org.omx-clap-host.test.passthrough	-	-
 comp	tests/fake_compressor.clap	org.omx-clap-host.test.compressor	-	-
