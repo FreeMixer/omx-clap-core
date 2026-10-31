@@ -4,6 +4,7 @@ tests/clap_host_test
 tests/clap_ext_test
 tests/resource_hints_test
 tests/clap_unoffered_test
+tests/clap_state_busy_test
 tests/idle_hold_test
 tests/clap_chain_test
 tests/clap_chain_tsan
@@ -27,6 +28,7 @@ tests/jack_transport_ctl
 tests/fake_transport.clap
 tests/jack_notes_out_probe
 tests/fake_compressor.clap
+tests/fake_state.clap
 tests/fake_gui.clap
 tests/fake_gui_wl.clap
 tests/fake_panel.clap

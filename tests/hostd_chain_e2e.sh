@@ -39,7 +39,7 @@ preroll=4
   "${OMX_VERB_WORKER_LIST:?}" "${PHD_PLACE_CHAIN_PREFIX:?}"
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
-    for f in "$daemon" "$host" "$feeder" "$here/fake_compressor.clap" "$here/fault-14.clap" "$here/fault-0.clap"; do
+    for f in "$daemon" "$host" "$feeder" "$here/fake_compressor.clap" "$here/fake_state.clap" "$here/fault-14.clap" "$here/fault-0.clap"; do
         [ -e "$f" ] || { echo "missing '$f'" >&2; exit 2; }
     done
     export JACK_E2E_INSIDE=1 PLUGIN_HOSTD=$(readlink -f "$daemon") OMX_CLAP_HOST=$(readlink -f "$host") JACK_E2E_PORT=$port
@@ -258,6 +258,25 @@ same "p2 right" "$runtime/p2.chain.r" "$runtime/p2.series.r"
 ! cmp -s "$runtime/p2.chain.l" "$runtime/p2.other.l"; step $? "p2: pad then comp is another output"
 grep -h "peak_" "$runtime/p1.feed" "$runtime/p2.feed" | sed 's/^/     /'
 unlink_all
+
+# 4. a member's value set before the chain forms: its state reaches the plugin, whose load answers false while it
+# processes, when the chain forms and again when a worker killed outright comes back
+state="clap:$here/fake_state.clap#org.omx-clap-host.test.state"
+expect 3 "add $state 3" "resp 3"
+expect 3 "add $state 4" "resp 4"
+expect 3 "param_set 3 0 7.5" "resp 0"
+expect 3 "param_get 3 0" "resp 0 7.5000"
+# the value leaves the ledger once the checkpoint of the move holds it: only the state can bring it back
+expect 3 "$OMX_VERB_CHAIN 6 3 4" "resp 0"
+event "^$PHD_EVENT_CHAIN_FORMED 6 w[0-9]+ 3,4$"; step $? "chain 6 formed: $(grep "^$PHD_EVENT_CHAIN_FORMED 6" "$runtime/events.log" | tail -1)"
+expect 3 "param_get 3 0" "resp 0 7.5000"
+! grep -q "refused 'state_load" "$runtime/daemon.log"; step $? "no worker refused the state: $(grep "refused 'state_load" "$runtime/daemon.log" | tail -1)"
+pid6=$(send 3 "$OMX_VERB_WORKER_LIST" | tr ' ' '\n' | awk -F: '$(NF-1) == "6" && $(NF-2) == "chain" { print $2 }')
+[ -n "$pid6" ] && kill -9 "$pid6"; step $? "kill -9 chain 6's worker, pid $pid6"
+got=
+for _ in $(seq 100); do got=$(send 3 "param_get 3 0"); [ "$got" = "resp 0 7.5000" ] && break; sleep 0.1; done
+[ "$got" = "resp 0 7.5000" ]; step $? "after the kill the value is back: param_get 3 0 -> $got"
+! grep -q "refused 'state_load" "$runtime/daemon.log"; step $? "and no worker refused the state"
 
 expect 3 "remove -1" "resp 0"
 expect 5 "remove -1" "resp 0"

@@ -3733,14 +3733,42 @@ int omx_clap_host_state_save(struct omx_clap_instance *in, void *buf, size_t cap
     return 0;
 }
 
+/* state.load and preset-load's from_location are main-thread calls and a plugin may answer false while it processes, as
+ * most of omx-plugins do, so a running instance is taken out of processing first: the cycles pass its lane through, with the plugin active and its
+ * tails kept (a deactivate would lose them, and an LV2 plugin's activate loads its default state). 1 when it was: it runs
+ * again with state_load_done. A cycle may turn ARMED into PROCESSING while wait_stopped looks, hence the loop. */
+static int state_load_begin(struct omx_clap_instance *in)
+{
+    uint32_t st = atomic_load(&in->stage.state);
+    int stopped = 0;
+
+    while (in->active && (st == OMX_CLAP_ARMED || st == OMX_CLAP_PROCESSING || st == OMX_CLAP_STOPPING))
+    {
+        wait_stopped(in);
+        stopped = 1;
+        st = atomic_load(&in->stage.state);
+    }
+    return stopped;
+}
+
+static void state_load_done(struct omx_clap_instance *in, int stopped)
+{
+    if (stopped)
+        omx_clap_arm(&in->stage);
+}
+
 int omx_clap_host_state_load(struct omx_clap_instance *in, const void *buf, size_t len)
 {
     struct bounded_stream b = { NULL, buf, len, len, 0, 0 };
     const clap_istream_t is = { &b, istream_read };
+    int stopped, ok;
 
     if (!in->state || !buf)
         return -1;
-    return in->state->load(in->plugin, &is) ? 0 : -1;
+    stopped = state_load_begin(in);
+    ok = in->state->load(in->plugin, &is);
+    state_load_done(in, stopped);
+    return ok ? 0 : -1;
 }
 
 int omx_clap_host_state_save_context(struct omx_clap_instance *in, uint32_t context, void *buf, size_t cap, size_t *len)
@@ -3764,12 +3792,16 @@ int omx_clap_host_state_load_context(struct omx_clap_instance *in, uint32_t cont
     struct bounded_stream b = { NULL, buf, len, len, 0, 0 };
     const clap_istream_t is = { &b, istream_read };
     const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+    int stopped, ok;
 
     if (!in || !buf || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
         return -1;
     if (!ext || !ext->load)
         return omx_clap_host_state_load(in, buf, len);
-    return ext->load(in->plugin, &is, context) ? 0 : -1;
+    stopped = state_load_begin(in);
+    ok = ext->load(in->plugin, &is, context);
+    state_load_done(in, stopped);
+    return ok ? 0 : -1;
 }
 
 int omx_clap_host_set_render(struct omx_clap_instance *in, int32_t mode)
@@ -3792,11 +3824,13 @@ uint32_t omx_clap_host_tail(const struct omx_clap_instance *in)
  * (Surge XT does for a file it cannot open): the load is done only when it answered true and reported no error */
 static int preset_from_location(struct omx_clap_instance *in, uint32_t location_kind, const char *location, const char *load_key)
 {
-    int ok;
+    int ok, stopped;
 
     g_preset_failed = 0;
     g_preset_loading = in;
+    stopped = state_load_begin(in);
     ok = in->preset_load->from_location(in->plugin, location_kind, location, load_key);
+    state_load_done(in, stopped);
     g_preset_loading = NULL;
     return ok && !g_preset_failed ? 0 : -1;
 }

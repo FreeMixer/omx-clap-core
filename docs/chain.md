@@ -176,6 +176,9 @@ this one and drives that line, so a host that refuses it, or a build without tha
 the daemon logs (`refused chain <n> ...`) is one of the refusals above, whose reason this host writes to its own
 stderr just before; the daemon's stderr alone does not name it. `state_load` answers one code for the whole directory;
 the host's stderr names the instance and file that refused (`state_load: effect_<n> refused <file> (<code>)`).
+A plugin may answer false to a state load while it processes, as most of omx-plugins do, so the core takes a running
+instance out of processing for the load: its cycles pass the lane through for those blocks, with the plugin active and
+its tails kept, and the next cycle runs it again.
 
 ### Changes while it runs
 
