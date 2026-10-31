@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.25.3
+Version:        0.25.4
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -180,6 +180,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.4-1
+- A state or a preset loads with the plugin out of processing. Most omx plugins
+  refuse a load while they process, so a parameter went back to its default when
+  a chain formed or a worker restarted, and a preset load was refused (#438).
+- A chain's member keeps its auxiliary ports, on the head's client, so a plugin
+  with a side chain such as omx-keyed-gate runs in a chain (plugin-hostd#342).
+
 * Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.25.3-1
 - Requires mod-host-protocol 0.10.6.f14a230-11.3 or newer: the host's ports
   listen on 127.0.0.1 and are not reached from another machine
