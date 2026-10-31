@@ -563,6 +563,9 @@ step $? "the read-back names effect_13 after effect_11: $(readback 7)"
 walk_before=$(walk_of 7)
 expect chain "chain 7 11 13" "resp 0"
 [ "$(walk_of 7)" = "$walk_before" ]; step $? "plugin-hostd's line after it publishes no walk: walk ${walk_before:-?} to $(walk_of 7)"
+# effect_22 still has the gain phase 2 gave it: the member added into the chain is given the same, through its own number
+expect chain "param_set 13 0 0.3" "resp 0"
+sleep 0.3
 series 21 22
 play p9 chain=11,11 series=21,22
 same "p9 left: gain added into the chain after pass" "$runtime/p9.chain.l" "$runtime/p9.series.l"
