@@ -63,6 +63,13 @@ step() {
     fi
 }
 
+# what the host declares it runs, one word a line: a planner reads this, not a version (omx-clap-core#447)
+caps=$("$host" --capabilities 2>/dev/null)
+for c in chain_expect mono_in_stereo; do
+    printf '%s\n' "$caps" | grep -qx "$c"
+    step $? "--capabilities declares $c"
+done
+
 runtime=$(mktemp -d /tmp/omx-chain-host.XXXXXX)
 export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH=$runtime/pulse
 unset DBUS_SESSION_BUS_ADDRESS
