@@ -1,3 +1,16 @@
+omx-clap-host (0.26.1) unstable; urgency=medium
+
+  * A mono member runs inside a stereo chain: its input is the sum of both
+    channels and its output goes to both, as Zynthian wires a mono plugin
+    between stereo ones. The run stays one worker instead of three (#361).
+  * --capabilities prints what a planner may ask of the host, one word a
+    line: chain_expect and mono_in_stereo. A planner reads it instead of the
+    version.
+  * An option the host does not know is now an error. Before, it was
+    ignored and the host started on the rest.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 01 Nov 2026 07:30:17 +0100
+
 omx-clap-host (0.26.0) unstable; urgency=medium
 
   * chain_expect <instance> <chain>: the next add of the instance joins
