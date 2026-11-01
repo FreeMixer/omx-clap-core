@@ -19,6 +19,7 @@ uint64_t abi_breaks_int(uint64_t a);
 uint64_t abi_breaks_fp(uint64_t a);
 uint64_t abi_breaks_fpctl(uint64_t a);
 double abi_doubles(double d);
+_Bool abi_low_byte_false(uint64_t a);
 
 #if defined(__aarch64__)
 #define INT_REG "x19"
@@ -34,7 +35,9 @@ __asm__(".text\n.p2align 2\n"
         ".globl abi_breaks_fp\nabi_breaks_fp:\n fmov d15, xzr\n add x0, x0, #1\n ret\n"
         /* FZ, bit 24: the flush-to-zero a plugin sets for its denormals and leaves set */
         ".globl abi_breaks_fpctl\nabi_breaks_fpctl:\n mrs x9, fpcr\n orr x9, x9, #(1 << 24)\n msr fpcr, x9\n add x0, x0, #1\n ret\n"
-        ".globl abi_doubles\nabi_doubles:\n fadd d0, d0, d0\n ret\n");
+        ".globl abi_doubles\nabi_doubles:\n fadd d0, d0, d0\n ret\n"
+        /* a bool false with garbage above its low byte, which the convention leaves undefined */
+        ".globl abi_low_byte_false\nabi_low_byte_false:\n mov x0, #0x0100\n movk x0, #0xdead, lsl #16\n ret\n");
 static uint64_t fpctl(void) { uint64_t v; __asm__ volatile("mrs %0, fpcr" : "=r"(v)); return v; }
 #elif defined(__x86_64__)
 #define INT_REG "rbx"
@@ -46,7 +49,9 @@ __asm__(".text\n.p2align 4\n"
         ".globl abi_breaks_fp\nabi_breaks_fp:\n movq $0xdead, %r15\n leaq 1(%rdi), %rax\n ret\n"
         /* FZ, bit 15: the flush-to-zero a plugin sets for its denormals and leaves set */
         ".globl abi_breaks_fpctl\nabi_breaks_fpctl:\n subq $8, %rsp\n stmxcsr (%rsp)\n orl $0x8000, (%rsp)\n ldmxcsr (%rsp)\n addq $8, %rsp\n leaq 1(%rdi), %rax\n ret\n"
-        ".globl abi_doubles\nabi_doubles:\n addsd %xmm0, %xmm0\n ret\n");
+        ".globl abi_doubles\nabi_doubles:\n addsd %xmm0, %xmm0\n ret\n"
+        /* a bool false with garbage above its low byte, which the convention leaves undefined */
+        ".globl abi_low_byte_false\nabi_low_byte_false:\n movabsq $0xdead0100, %rax\n ret\n");
 #define FP_REG "r15"
 #define FP_BIT (OMX_ABI_R12 << 3)   /* r15: x86-64 keeps no floating-point register across a call */
 typedef uint64_t last_t;
@@ -122,7 +127,16 @@ int main(void)
     omx_abi_g(&g, "deactivate", (const void *)abi_breaks_fpctl, 1, 0, 0, 0, 0, 0);
     CHECK(omx_abi_guard_first(&g, &c) && c.mask == INT_BIT && c.block == 3 && strcmp(c.call, "process") == 0,
           "the first clobber is kept: its registers, its call and its block");
-    CHECK(g.report.calls == 2 && g.report.ever == (INT_BIT | FPCTL_BIT), "and a later one is counted, not kept");
+    CHECK(atomic_load(&g.calls) == 2 && atomic_load(&g.ever) == (INT_BIT | FPCTL_BIT), "and a later one is counted, not kept");
+
+    /* the call macros keep the guarded call's own result type: a bool from its low byte, a pointer whole */
+    uint64_t (*const keeps)(uint64_t) = abi_keeps;
+    CHECK(OMX_ABI_CALL(&g, "keeps", keeps, 41) == 42, "OMX_ABI_CALL returns the call's own value");
+    CHECK(OMX_ABI_CALL(&g, "low", abi_low_byte_false, 0) == 0, "a bool result is read from its low byte alone");
+    const char *(*const name)(unsigned) = omx_abi_reg_name;
+    CHECK(OMX_ABI_CALL(NULL, "name", name, 0u) == omx_abi_reg_name(0), "a pointer result comes back whole");
+    OMX_ABI_VCALL(&g, "breaks", abi_breaks_int, 1);
+    CHECK(atomic_load(&g.calls) == 3, "OMX_ABI_VCALL records like any other");
 
     CHECK(omx_abi_call6(NULL, (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0) == 2, "a NULL report is allowed");
     CHECK(strcmp(omx_abi_reg_name(0), INT_REG) == 0 && omx_abi_reg_name(OMX_ABI_REGS) == NULL, "the names of the bits");

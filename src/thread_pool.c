@@ -149,13 +149,13 @@ static void run_task(struct pool_helper *self, struct omx_clap_instance *in, uin
 
     if (!self)
     {
-        in->thread_pool->exec(in->plugin, index);
+        OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "thread_pool.exec", in->thread_pool->exec, in->plugin, index);
         atomic_fetch_add_explicit(&g_tasks_audio, 1u, memory_order_relaxed);
         return;
     }
     t0 = pool_now_ns();
     atomic_store_explicit(&self->running, in, memory_order_relaxed);
-    in->thread_pool->exec(in->plugin, index);
+    OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "thread_pool.exec", in->thread_pool->exec, in->plugin, index);
     atomic_store_explicit(&self->running, NULL, memory_order_relaxed);
     atomic_fetch_add_explicit(&self->tasks, 1u, memory_order_relaxed);
     atomic_fetch_add_explicit(&self->busy_ns, pool_now_ns() - t0, memory_order_relaxed);

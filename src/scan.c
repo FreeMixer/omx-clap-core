@@ -272,20 +272,20 @@ static void put_enum_labels(FILE *out, const struct omx_clap_instance *instance,
 static void put_remote_controls(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_t *p = instance->plugin;
-    const clap_plugin_remote_controls_t *rc = p->get_extension(p, CLAP_EXT_REMOTE_CONTROLS);
+    const clap_plugin_remote_controls_t *rc = OMX_ABI_CALL(NULL, "get_extension", p->get_extension, p, CLAP_EXT_REMOTE_CONTROLS);
     uint32_t count, i, k;
     int first = 1;
 
     if (!rc)
-        rc = p->get_extension(p, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
-    count = rc ? rc->count(p) : 0;
+        rc = OMX_ABI_CALL(NULL, "get_extension", p->get_extension, p, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
+    count = rc ? OMX_ABI_CALL(NULL, "rc.count", rc->count, p) : 0;
     fputs("\"remote_controls\":[", out);
     for (i = 0; i < count; i++)
     {
         clap_remote_controls_page_t page;
 
         memset(&page, 0, sizeof(page));
-        if (!rc->get(p, i, &page))
+        if (!OMX_ABI_CALL(NULL, "rc.get", rc->get, p, i, &page))
             continue;
         page.section_name[sizeof(page.section_name) - 1] = '\0';
         page.page_name[sizeof(page.page_name) - 1] = '\0';
@@ -582,7 +582,7 @@ static void put_note_names(FILE *out, struct omx_clap_instance *instance)
 static void put_voice_info(FILE *out, struct omx_clap_instance *instance)
 {
     const clap_plugin_t *plugin = instance->plugin;
-    const clap_plugin_voice_info_t *ext = plugin->get_extension(plugin, CLAP_EXT_VOICE_INFO);
+    const clap_plugin_voice_info_t *ext = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_VOICE_INFO);
     clap_voice_info_t info;
     bool read;
 
@@ -590,7 +590,7 @@ static void put_voice_info(FILE *out, struct omx_clap_instance *instance)
                                                                    SCAN_MAX_FRAMES, 0, SCAN_RATE)))
         return;
     memset(&info, 0, sizeof(info));
-    read = ext->get(plugin, &info) && info.voice_count >= 1 && info.voice_count <= info.voice_capacity;
+    read = OMX_ABI_CALL(NULL, "ext.get", ext->get, plugin, &info) && info.voice_count >= 1 && info.voice_count <= info.voice_capacity;
     omx_abi_g(NULL, "deactivate", (const void *)plugin->deactivate, OMX_ABI_A(plugin), 0, 0, 0, 0, 0);
     if (!read)
         return;

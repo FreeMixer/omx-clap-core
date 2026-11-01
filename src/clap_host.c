@@ -151,11 +151,11 @@ static struct omx_clap_binary *binary_adopt(const char *path, void *so, const cl
             dlclose(so);
         return NULL;
     }
-    factory = (const clap_plugin_factory_t *)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+    factory = (const clap_plugin_factory_t *)OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
     if (!factory)
     {
         snprintf(reason, reason_size, "no plugin factory in %s", path);
-        entry->deinit();
+        omx_abi_g(NULL, "entry.deinit", (const void *)entry->deinit, 0, 0, 0, 0, 0, 0);
         if (so)
             dlclose(so);
         return NULL;
@@ -294,7 +294,7 @@ static void binary_unref(struct omx_clap_binary *binary)
         }
     }
 
-    binary->entry->deinit();
+    omx_abi_g(NULL, "entry.deinit", (const void *)binary->entry->deinit, 0, 0, 0, 0, 0, 0);
     if (binary->so)
         dlclose(binary->so);
     free(binary->path);
@@ -679,7 +679,7 @@ static bool host_request_exec(const clap_host_t *host, uint32_t num_tasks)
     if (!in->pool_held ||
         thread_pool_run(in, num_tasks, (uint64_t)((double)in->max_block * 1e9 / in->rate), &late) != 0)
         for (uint32_t i = 0; i < num_tasks; i++)
-            in->thread_pool->exec(in->plugin, i);
+            OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "thread_pool.exec", in->thread_pool->exec, in->plugin, i);
     if (late)
         atomic_fetch_add_explicit(&in->pool_late, 1u, memory_order_relaxed);
     in->in_exec = 0;
@@ -939,7 +939,7 @@ static const char *reread_note_input(struct omx_clap_instance *in)
 
     in->note_ports_stale = 0;
     if (!g_config.note_inputs)
-        return in->note_ports && in->note_ports->count(in->plugin, true) > 0 ? CLAP_HOST_CODE_NOTE_INPUT : NULL;
+        return in->note_ports && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "note_ports.count", in->note_ports->count, in->plugin, true) > 0 ? CLAP_HOST_CODE_NOTE_INPUT : NULL;
     in->note_inputs = 0;
     code = read_note_input(in);
     if (!code && in->note_inputs != inputs)
@@ -1003,7 +1003,7 @@ static const char *read_layout(const struct omx_clap_instance *in, struct omx_cl
                 port->map[c] = (uint8_t)c;
             return NULL;
         }
-        if (in->surround->get_channel_map(in->plugin, is_input, index, port->map, CLAP_HOST_PORT_CHANNELS) != port->channels)
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "surround.get_channel_map", in->surround->get_channel_map, in->plugin, is_input, index, port->map, CLAP_HOST_PORT_CHANNELS) != port->channels)
             return CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN;
         for (c = 0; c < port->channels; c++)
             if (port->map[c] > CLAP_SURROUND_TSR)
@@ -1019,7 +1019,7 @@ static const char *read_layout(const struct omx_clap_instance *in, struct omx_cl
         if (root * root != port->channels)      // order = root - 1: (order+1)² channels, nothing in between
             return CLAP_HOST_CODE_PORT_TOO_WIDE;
         port->ambisonic_assumed = 1;
-        if (in->ambisonic && in->ambisonic->get_config && in->ambisonic->get_config(in->plugin, is_input, index, &config))
+        if (in->ambisonic && in->ambisonic->get_config && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ambisonic.get_config", in->ambisonic->get_config, in->plugin, is_input, index, &config))
             port->ambisonic_assumed = 0;
         else
             config = (clap_ambisonic_config_t){ CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
@@ -1117,11 +1117,11 @@ static const char *describe_ports(struct omx_clap_instance *in)
         placement_of(&in->main_in, true);
         placement_of(&in->main_out, false);
     }
-    if (!g_config.note_inputs && in->note_ports && in->note_ports->count(in->plugin, true) > 0)
+    if (!g_config.note_inputs && in->note_ports && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "note_ports.count", in->note_ports->count, in->plugin, true) > 0)
         return CLAP_HOST_CODE_NOTE_INPUT;
     in->channels = in->main_out.channels;
     in->in_channels = in->main_in.channels;
-    in->note_outputs = in->note_ports ? in->note_ports->count(in->plugin, false) : 0;
+    in->note_outputs = in->note_ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "note_ports.count", in->note_ports->count, in->plugin, false) : 0;
     return NULL;
 }
 
@@ -1210,12 +1210,12 @@ static const char *request_supported(const struct omx_clap_instance *in, const c
                 return CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN;
             mask |= (uint64_t)1 << map[c];
         }
-        if (in->surround && in->surround->is_channel_mask_supported && !in->surround->is_channel_mask_supported(in->plugin, mask))
+        if (in->surround && in->surround->is_channel_mask_supported && !OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "surround.is_channel_mask_supported", in->surround->is_channel_mask_supported, in->plugin, mask))
             return CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN;
     }
     else if (!strcmp(r->port_type, CLAP_PORT_AMBISONIC))
     {
-        if (in->ambisonic && in->ambisonic->is_config_supported && !in->ambisonic->is_config_supported(in->plugin, r->port_details))
+        if (in->ambisonic && in->ambisonic->is_config_supported && !OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ambisonic.is_config_supported", in->ambisonic->is_config_supported, in->plugin, r->port_details))
             return CLAP_HOST_CODE_AMBISONIC_CONFIG;
     }
     return NULL;
@@ -1343,14 +1343,14 @@ static unsigned flag_byte(const bool *flag)
  * bit is clear is unknown and kept 0, whatever the plugin left in it. */
 static void resource_hints_read(struct omx_clap_instance *in)
 {
-    const omx_clap_plugin_resource_hints_t *ext = in->plugin->get_extension(in->plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT);
+    const omx_clap_plugin_resource_hints_t *ext = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, OMX_CLAP_EXT_RESOURCE_HINTS_DRAFT);
     omx_resource_hints_t h, *out = &in->resource_hints;
     uint32_t d, i;
 
     memset(out, 0, sizeof(*out));
     in->resource_hints_why = NULL;
     memset(&h, 0, sizeof(h));
-    if (!ext || !ext->get || !ext->get(in->plugin, &h))
+    if (!ext || !ext->get || !OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.get", ext->get, in->plugin, &h))
         return;
     // refused by the codes of HOSTING_RESOURCE_HINTS_CODES (data/hosting/resource-hints.json)
     d = h.declared;
@@ -1381,6 +1381,7 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->bin = bin;
     in->desc = desc;
     in->main_thread = pthread_self();
+    in->stage.guard_off = OMX_CLAP_GUARD_OFF;  // the stage's process records into the instance's guard
     in->host.clap_version = (clap_version_t)CLAP_VERSION_INIT;
     in->host.host_data = in;
     in->host.name = g_config.name;
@@ -1393,50 +1394,50 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->host.request_callback = host_request_callback;
     for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
         in->fds[i].fd = -1;     // before init, which may register one
-    in->plugin = bin->factory->create_plugin(bin->factory, &in->host, desc->id);
-    if (!in->plugin || !OMX_ABI_BOOL(omx_abi_g(&in->stage.abi, "init", (const void *)in->plugin->init, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0)))
+    in->plugin = OMX_ABI_CALL(NULL, "factory.create_plugin", bin->factory->create_plugin, bin->factory, &in->host, desc->id);
+    if (!in->plugin || !OMX_ABI_BOOL(omx_abi_g(OMX_ABI_GUARD_OF(in), "init", (const void *)in->plugin->init, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0)))
     {
         if (in->plugin)
-            omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+            omx_abi_g(OMX_ABI_GUARD_OF(in), "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         unoffered_forget(in);
         binary_unref(bin);
         free(in);
         *out = NULL;
         return -1;
     }
-    in->params = in->plugin->get_extension(in->plugin, CLAP_EXT_PARAMS);
-    in->latency = in->plugin->get_extension(in->plugin, CLAP_EXT_LATENCY);
-    in->audio_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS);
-    in->note_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_NOTE_PORTS);
-    in->state = in->plugin->get_extension(in->plugin, CLAP_EXT_STATE);
-    in->timer_support = in->plugin->get_extension(in->plugin, CLAP_EXT_TIMER_SUPPORT);
-    in->fd_support = in->plugin->get_extension(in->plugin, CLAP_EXT_POSIX_FD_SUPPORT);
-    in->thread_pool = in->plugin->get_extension(in->plugin, CLAP_EXT_THREAD_POOL);
-    in->tail = in->plugin->get_extension(in->plugin, CLAP_EXT_TAIL);
-    in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD);
+    in->params = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_PARAMS);
+    in->latency = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_LATENCY);
+    in->audio_ports = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_AUDIO_PORTS);
+    in->note_ports = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_NOTE_PORTS);
+    in->state = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_STATE);
+    in->timer_support = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_TIMER_SUPPORT);
+    in->fd_support = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_POSIX_FD_SUPPORT);
+    in->thread_pool = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_THREAD_POOL);
+    in->tail = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_TAIL);
+    in->preset_load = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_PRESET_LOAD);
     if (!in->preset_load)
-        in->preset_load = in->plugin->get_extension(in->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
-    in->surround = in->plugin->get_extension(in->plugin, CLAP_EXT_SURROUND);
+        in->preset_load = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_PRESET_LOAD_COMPAT);
+    in->surround = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_SURROUND);
     if (!in->surround)
-        in->surround = in->plugin->get_extension(in->plugin, CLAP_EXT_SURROUND_COMPAT);
-    in->ambisonic = in->plugin->get_extension(in->plugin, CLAP_EXT_AMBISONIC);
+        in->surround = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_SURROUND_COMPAT);
+    in->ambisonic = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_AMBISONIC);
     if (!in->ambisonic)
-        in->ambisonic = in->plugin->get_extension(in->plugin, CLAP_EXT_AMBISONIC_COMPAT);
-    in->configurable_audio_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS);
+        in->ambisonic = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_AMBISONIC_COMPAT);
+    in->configurable_audio_ports = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS);
     if (!in->configurable_audio_ports)
-        in->configurable_audio_ports = in->plugin->get_extension(in->plugin, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS_COMPAT);
-    in->audio_ports_config = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_CONFIG);
+        in->configurable_audio_ports = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_CONFIGURABLE_AUDIO_PORTS_COMPAT);
+    in->audio_ports_config = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_AUDIO_PORTS_CONFIG);
     if (g_config.track_info)
     {
-        in->track_info = in->plugin->get_extension(in->plugin, CLAP_EXT_TRACK_INFO);
+        in->track_info = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_TRACK_INFO);
         if (!in->track_info)
-            in->track_info = in->plugin->get_extension(in->plugin, CLAP_EXT_TRACK_INFO_COMPAT);
+            in->track_info = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_TRACK_INFO_COMPAT);
     }
     if (g_config.remote_controls)
     {
-        in->remote_controls = in->plugin->get_extension(in->plugin, CLAP_EXT_REMOTE_CONTROLS);
+        in->remote_controls = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_REMOTE_CONTROLS);
         if (!in->remote_controls)
-            in->remote_controls = in->plugin->get_extension(in->plugin, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
+            in->remote_controls = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_REMOTE_CONTROLS_COMPAT);
     }
     resource_hints_read(in);
     *out = in;
@@ -1461,7 +1462,7 @@ static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
 {
     uint32_t n;
 
-    n = in->params ? in->params->count(in->plugin) : 0;
+    n = in->params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.count", in->params->count, in->plugin) : 0;
     if (raw)
         *raw = n;
     return n > CLAP_HOST_PARAM_COUNT_MAX ? CLAP_HOST_PARAM_COUNT_MAX : n;
@@ -1476,7 +1477,7 @@ _Static_assert(OMX_CLAP_METER_KIND_OTHER == CLAP_METER_KIND_OTHER && OMX_CLAP_ME
 
 static void meters_read(struct omx_clap_instance *in)
 {
-    const clap_plugin_meters_t *meters = in->plugin->get_extension(in->plugin, CLAP_EXT_METERS);
+    const clap_plugin_meters_t *meters = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_METERS);
     clap_meter_info_t info;
     uint32_t n, i;
 
@@ -1484,7 +1485,7 @@ static void meters_read(struct omx_clap_instance *in)
     in->meter_count = 0;
     if (!meters || !meters->count || !meters->get_info || !meters->get_values)
         return;
-    n = meters->count(in->plugin);
+    n = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "meters.count", meters->count, in->plugin);
     if (n > OMX_CLAP_METER_COUNT_MAX)
         return;
     for (i = 0; i < n; i++)
@@ -1492,7 +1493,7 @@ static void meters_read(struct omx_clap_instance *in)
         struct omx_clap_meter *m = &in->meter[i];
 
         memset(&info, 0, sizeof(info));
-        if (!meters->get_info(in->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "meters.get_info", meters->get_info, in->plugin, i, &info))
             return;
         info.name[sizeof(info.name) - 1] = '\0';
         if (info.name[0] == '\0' || info.channel_count == 0 || info.channel_count > OMX_CLAP_METER_CHANNELS_MAX)
@@ -1574,14 +1575,14 @@ static void contract_recheck(struct omx_clap_instance *in)
 static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX])
 {
     const clap_plugin_descriptor_t *desc = NULL;
-    const uint32_t n = bin->factory->get_plugin_count(bin->factory);
+    const uint32_t n = OMX_ABI_CALL(NULL, "factory.get_plugin_count", bin->factory->get_plugin_count, bin->factory);
     struct omx_clap_instance *in;
     const char *refused;
     uint32_t rows, reported, i;
 
     for (i = 0; i < n; i++)
     {
-        const clap_plugin_descriptor_t *d = bin->factory->get_plugin_descriptor(bin->factory, i);
+        const clap_plugin_descriptor_t *d = OMX_ABI_CALL(NULL, "factory.get_plugin_descriptor", bin->factory->get_plugin_descriptor, bin->factory, i);
 
         if (d && (id == NULL || (d->id && strcmp(d->id, id) == 0)))
         {
@@ -1605,7 +1606,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     refused = describe_ports(in);
     if (refused)
     {
-        omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         unoffered_forget(in);
         binary_unref(bin);
         free(in);
@@ -1617,7 +1618,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     if (rows && !in->shadow)
     {
         // whole or refused: never an instance whose read-back table is missing
-        omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         unoffered_forget(in);
         binary_unref(bin);
         free(in);
@@ -1799,6 +1800,7 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     bounce.max_block = max_block;
     if (omx_clap_stage_init(&in->stage, &bounce, in->recs, in->rec_cap) != 0)
         return -1;
+    in->stage.guard_off = OMX_CLAP_GUARD_OFF;    // the stage init cleared it: the process records into the instance's guard
     // the plugin's output events go to the instance's sink, which keeps its values and gestures
     in->param_out.stage = &in->stage;
     in->stage.out_events.ctx = &in->param_out;
@@ -1864,7 +1866,7 @@ static int bind_stage(struct omx_clap_instance *in)
 static void publish_latency(struct omx_clap_instance *in)
 {
     // a pass-through tool's latency applies to its notes alone: the audio it does not touch has none
-    omx_clap_publish_latency(&in->stage, in->latency && !in->passthrough ? in->latency->get(in->plugin) : 0u);
+    omx_clap_publish_latency(&in->stage, in->latency && !in->passthrough ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "latency.get", in->latency->get, in->plugin) : 0u);
 }
 
 /* no cycle came to stop the stage: the control thread stops it in the cycle's place */
@@ -1887,7 +1889,7 @@ static int wait_stopped(struct omx_clap_instance *in)
 
             omx_clap_host_take_role(in, &role);
             if (role.state == OMX_CLAP_STOPPING && in->plugin->stop_processing)
-                omx_abi_g(&in->stage.abi, "stop_processing", (const void *)in->plugin->stop_processing, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+                omx_abi_g(OMX_ABI_GUARD_OF(in), "stop_processing", (const void *)in->plugin->stop_processing, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
             omx_clap_host_release_role(in, &role, OMX_CLAP_STOPPED);
             return 0;
         }
@@ -1919,7 +1921,7 @@ static int info_of(struct omx_clap_instance *in, clap_id id, clap_param_info_t *
     for (i = 0; i < n; i++)
     {
         memset(info, 0, sizeof(*info));
-        if (in->params->get_info(in->plugin, i, info) && info->id == id)
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_info", in->params->get_info, in->plugin, i, info) && info->id == id)
             return 0;
     }
     return -1;
@@ -2048,7 +2050,7 @@ int omx_clap_host_track_info_set(struct omx_clap_instance *in, const char *name,
     }
     in->track_set = 1;
     if (in->track_info)
-        in->track_info->changed(in->plugin);
+        OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "track_info.changed", in->track_info->changed, in->plugin);
     return 0;
 }
 
@@ -2070,7 +2072,7 @@ int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index,
  * breaks the extension's own rule names no ceiling. */
 static void voice_info_ask(struct omx_clap_instance *in)
 {
-    const clap_plugin_voice_info_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_VOICE_INFO);
+    const clap_plugin_voice_info_t *ext = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_VOICE_INFO);
     clap_voice_info_t info;
 
     in->voice_info_read = 0;
@@ -2080,7 +2082,7 @@ static void voice_info_ask(struct omx_clap_instance *in)
     if (!ext || !ext->get)
         return;
     memset(&info, 0, sizeof(info));
-    if (!ext->get(in->plugin, &info) || info.voice_count < 1 || info.voice_count > info.voice_capacity)
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.get", ext->get, in->plugin, &info) || info.voice_count < 1 || info.voice_count > info.voice_capacity)
         return;
     in->voice_count = info.voice_count;
     in->voice_capacity = info.voice_capacity;
@@ -2103,7 +2105,7 @@ int omx_clap_host_voice_info(const struct omx_clap_instance *in, uint32_t *count
 
 static const clap_plugin_note_name_t *note_name_of(struct omx_clap_instance *in)
 {
-    const clap_plugin_note_name_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_NOTE_NAME) : NULL;
+    const clap_plugin_note_name_t *ext = in ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_NOTE_NAME) : NULL;
 
     return ext && ext->count && ext->get ? ext : NULL;
 }
@@ -2112,7 +2114,7 @@ uint32_t omx_clap_host_note_name_count(struct omx_clap_instance *in)
 {
     const clap_plugin_note_name_t *ext = note_name_of(in);
 
-    return ext ? ext->count(in->plugin) : 0;
+    return ext ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.count", ext->count, in->plugin) : 0;
 }
 
 int omx_clap_host_note_name(struct omx_clap_instance *in, uint32_t index, clap_note_name_t *name)
@@ -2120,10 +2122,10 @@ int omx_clap_host_note_name(struct omx_clap_instance *in, uint32_t index, clap_n
     const clap_plugin_note_name_t *ext = note_name_of(in);
     clap_note_name_t got;
 
-    if (!ext || !name || index >= ext->count(in->plugin))
+    if (!ext || !name || index >= OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.count", ext->count, in->plugin))
         return -1;
     memset(&got, 0, sizeof(got));
-    if (!ext->get(in->plugin, index, &got))
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.get", ext->get, in->plugin, index, &got))
         return -1;
     got.name[sizeof(got.name) - 1] = '\0';      // a plugin that fills every byte still reads as a string
     *name = got;
@@ -2219,7 +2221,7 @@ static int standard_pages(struct omx_clap_instance *in, uint32_t want, clap_remo
         char path[CLAP_PATH_SIZE];
 
         memset(&info, 0, sizeof(info));
-        if (!in->params->get_info(in->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_info", in->params->get_info, in->plugin, i, &info))
             goto out;
         if (!is_row(&info))
             continue;
@@ -2360,7 +2362,7 @@ uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, do
     if (channels == 0)
         return 0;
     // the plugin writes into the library's own array, never past the meter's declared channels into the caller's
-    n = in->meters->get_values(in->plugin, id, read, channels);
+    n = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "meters.get_values", in->meters->get_values, in->plugin, id, read, channels);
     if (n > channels)
         n = channels;
     if (n > capacity)
@@ -2637,7 +2639,7 @@ static void crawl_metadata(struct preset_crawl *c, const clap_preset_discovery_p
     c->location_flags = flags;
     c->location = location;
     c->open = 0;
-    provider->get_metadata(provider, kind, location, &c->receiver);
+    OMX_ABI_VCALL(NULL, "provider.get_metadata", provider->get_metadata, provider, kind, location, &c->receiver);
     preset_flush(c);
 }
 
@@ -2720,7 +2722,7 @@ static void crawl_path(struct preset_crawl *c, const clap_preset_discovery_provi
 /* every preset of one provider: init declares its filetypes and locations, then each location is crawled */
 static void crawl_provider(struct preset_crawl *c, const clap_preset_discovery_factory_t *factory, const char *id)
 {
-    const clap_preset_discovery_provider_t *provider = factory->create(factory, &c->indexer, id);
+    const clap_preset_discovery_provider_t *provider = OMX_ABI_CALL(NULL, "factory.create", factory->create, factory, &c->indexer, id);
     uint32_t i;
 
     if (!provider)
@@ -2752,12 +2754,12 @@ static int presets_of(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, v
     uint32_t i, count;
     int listed;
 
-    factory = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID);
+    factory = OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PRESET_DISCOVERY_FACTORY_ID);
     if (!factory)
-        factory = entry->get_factory(CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT);
+        factory = OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PRESET_DISCOVERY_FACTORY_ID_COMPAT);
     // a plugin that answers every factory id with its plugin factory (SpectMorph 0.6.1 does) hands back a table of the
     // same shape: its create makes a plugin, not a provider, and calling that plugin's init with an indexer crashes it
-    if (!factory || factory == entry->get_factory(CLAP_PLUGIN_FACTORY_ID) || !factory->count || !factory->get_descriptor || !factory->create)
+    if (!factory || factory == OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID) || !factory->count || !factory->get_descriptor || !factory->create)
         return -1;
     c = calloc(1, sizeof(*c));
     if (!c)
@@ -2771,10 +2773,10 @@ static int presets_of(const clap_plugin_entry_t *entry, omx_clap_preset_fn fn, v
                                                                receiver_add_feature, receiver_add_extra_info };
     c->fn = fn;
     c->ctx = ctx;
-    count = factory->count(factory);
+    count = OMX_ABI_CALL(NULL, "factory.count", factory->count, factory);
     for (i = 0; i < count && !c->stopped; i++)
     {
-        const clap_preset_discovery_provider_descriptor_t *desc = factory->get_descriptor(factory, i);
+        const clap_preset_discovery_provider_descriptor_t *desc = OMX_ABI_CALL(NULL, "factory.get_descriptor", factory->get_descriptor, factory, i);
 
         if (desc && desc->id)
             crawl_provider(c, factory, desc->id);
@@ -2817,12 +2819,12 @@ int omx_clap_host_entry_presets(const clap_plugin_entry_t *entry, omx_clap_prese
 
 uint32_t omx_clap_host_binary_count(const struct omx_clap_binary *binary)
 {
-    return binary->factory->get_plugin_count(binary->factory);
+    return OMX_ABI_CALL(NULL, "factory.get_plugin_count", binary->factory->get_plugin_count, binary->factory);
 }
 
 const clap_plugin_descriptor_t *omx_clap_host_binary_descriptor(const struct omx_clap_binary *binary, uint32_t index)
 {
-    return binary->factory->get_plugin_descriptor(binary->factory, index);
+    return OMX_ABI_CALL(NULL, "factory.get_plugin_descriptor", binary->factory->get_plugin_descriptor, binary->factory, index);
 }
 
 uint32_t omx_clap_host_binaries_open(void)
@@ -2923,7 +2925,7 @@ void omx_clap_host_close(struct omx_clap_instance *in)
     omx_clap_host_stop(in);
     if (in->active)
         omx_clap_host_deactivate(in);
-    omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+    omx_abi_g(OMX_ABI_GUARD_OF(in), "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     unoffered_forget(in);
     binary_unref(in->bin);
     free(in->shadow);
@@ -2989,24 +2991,24 @@ static bool aux_bound(const struct omx_clap_port *ports, const uint32_t *base, f
 /* the plugin's audio-ports-activation, NULL when it has none to call */
 static const clap_plugin_audio_ports_activation_t *ports_activation(struct omx_clap_instance *in)
 {
-    const clap_plugin_audio_ports_activation_t *ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION);
+    const clap_plugin_audio_ports_activation_t *ext = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION);
 
     if (!ext)
-        ext = in->plugin->get_extension(in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
+        ext = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_AUDIO_PORTS_ACTIVATION_COMPAT);
     return ext && ext->set_active && in->audio_ports ? ext : NULL;
 }
 
 /* the clap.audio-ports index of auxiliary port `aux` of a side, UINT32_MAX when the plugin no longer lists it */
 static uint32_t aux_port_index(struct omx_clap_instance *in, bool is_input, uint32_t aux)
 {
-    const uint32_t count = in->audio_ports->count(in->plugin, is_input);
+    const uint32_t count = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "audio_ports.count", in->audio_ports->count, in->plugin, is_input);
 
     for (uint32_t i = 0, k = 0; i < count; i++)
     {
         clap_audio_port_info_t info;
 
         memset(&info, 0, sizeof(info));
-        if (!in->audio_ports->get(in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "audio_ports.get", in->audio_ports->get, in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
             continue;
         if (k++ == aux)
             return i;
@@ -3024,28 +3026,28 @@ static void ports_activate(struct omx_clap_instance *in)
     for (int dir = 0; dir < 2; dir++)
     {
         const bool is_input = dir == 0;
-        const uint32_t count = in->audio_ports->count(in->plugin, is_input);
+        const uint32_t count = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "audio_ports.count", in->audio_ports->count, in->plugin, is_input);
 
         for (uint32_t i = 0; i < count; i++)
         {
             clap_audio_port_info_t info;
 
             memset(&info, 0, sizeof(info));
-            if (!in->audio_ports->get(in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
+            if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "audio_ports.get", in->audio_ports->get, in->plugin, i, is_input, &info) || (info.flags & CLAP_AUDIO_PORT_IS_MAIN))
                 continue;
             if (is_input)
             {
                 const bool bound = aux < in->aux_inputs && aux_bound(in->aux_in, in->aux_in_base, in->aux_in_bound, aux);
 
                 aux++;
-                ext->set_active(in->plugin, true, i, bound, 32);
+                OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "ext.set_active", ext->set_active, in->plugin, true, i, bound, 32);
             }
             else
             {
                 const bool bound = aux_out < in->aux_outputs && aux_bound(in->aux_out, in->aux_out_base, in->aux_out_bound, aux_out);
 
                 aux_out++;
-                ext->set_active(in->plugin, false, i, bound, 32);
+                OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "ext.set_active", ext->set_active, in->plugin, false, i, bound, 32);
             }
         }
     }
@@ -3101,7 +3103,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     // a ports rescan the plugin made before is not this activate's to answer: a re-read of the description is
     // (request_layout); what stands here is what the warm-up's own cycle below must leave as it found it
     pending = atomic_load_explicit(&in->ports_rescan_requested, memory_order_relaxed);
-    if (!OMX_ABI_BOOL(omx_abi_gd(&in->stage.abi, "activate", (const void *)in->plugin->activate, OMX_ABI_A(in->plugin), 1, OMX_ABI_A(max_block), 0, rate)))
+    if (!OMX_ABI_BOOL(omx_abi_gd(OMX_ABI_GUARD_OF(in), "activate", (const void *)in->plugin->activate, OMX_ABI_A(in->plugin), 1, OMX_ABI_A(max_block), 0, rate)))
     {
         drop_bounce(in);
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
@@ -3138,9 +3140,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
          */
         // what stood before and what the first activate raised stay; only the warm-up's own deactivate is dropped
         pending |= atomic_load_explicit(&in->ports_rescan_requested, memory_order_relaxed);
-        omx_abi_g(&in->stage.abi, "deactivate", (const void *)in->plugin->deactivate, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "deactivate", (const void *)in->plugin->deactivate, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         atomic_store_explicit(&in->ports_rescan_requested, pending, memory_order_relaxed);
-        if (!OMX_ABI_BOOL(omx_abi_gd(&in->stage.abi, "activate", (const void *)in->plugin->activate, OMX_ABI_A(in->plugin), 1, OMX_ABI_A(max_block), 0, rate)))
+        if (!OMX_ABI_BOOL(omx_abi_gd(OMX_ABI_GUARD_OF(in), "activate", (const void *)in->plugin->activate, OMX_ABI_A(in->plugin), 1, OMX_ABI_A(max_block), 0, rate)))
         {
             in->active = 0;
             drop_bounce(in);
@@ -3168,7 +3170,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
         char line[256];
 
         snprintf(line, sizeof(line), "%s: passthrough: host (no audio port: the strip's audio passes through untouched; the plugin's %u frames of latency apply to its notes alone)",
-                 in->desc->id, in->latency ? in->latency->get(in->plugin) : 0u);
+                 in->desc->id, in->latency ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "latency.get", in->latency->get, in->plugin) : 0u);
         log_to_ring(in, line);
     }
     // active for good: the process's idle hold counts it (#296)
@@ -3264,7 +3266,7 @@ void omx_clap_host_stop(struct omx_clap_instance *in)
         in->audio_thread = pthread_self();
         in->audio_role_held = 1;
         if (in->plugin->stop_processing)
-            omx_abi_g(&in->stage.abi, "stop_processing", (const void *)in->plugin->stop_processing, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+            omx_abi_g(OMX_ABI_GUARD_OF(in), "stop_processing", (const void *)in->plugin->stop_processing, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     }
     in->audio_role_held = 0;
     atomic_store_explicit(&in->stage.h.rendered_wet, 0, memory_order_relaxed);
@@ -3318,7 +3320,7 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
 
     if (!in || !in->active)
         return;
-    omx_abi_g(&in->stage.abi, "deactivate", (const void *)in->plugin->deactivate, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+    omx_abi_g(OMX_ABI_GUARD_OF(in), "deactivate", (const void *)in->plugin->deactivate, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     in->active = 0;
     if (in->idle_held)
     {
@@ -3331,13 +3333,8 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
         thread_pool_release();
     }
     drop_bounce(in);
-    {
-        // the guard is the instance's for its life: a clobber recorded before this deactivate is still read after it
-        const struct omx_abi_guard abi = in->stage.abi;
-
-        memset(&in->stage, 0, sizeof(in->stage));
-        in->stage.abi = abi;
-    }
+    memset(&in->stage, 0, sizeof(in->stage));
+    in->stage.guard_off = OMX_CLAP_GUARD_OFF;    // the guard is the instance's, for its life: a clobber is read after this
     for (i = 0; i < in->shadow_n; i++)
         in->shadow[i].valid = 0;
     in->shadow_n = 0;
@@ -3365,7 +3362,7 @@ uint32_t omx_clap_host_thread_pool_late(const struct omx_clap_instance *in)
 
 int omx_clap_host_abi_clobber(const struct omx_clap_instance *in, struct omx_abi_clobber *out)
 {
-    return in && out ? omx_abi_guard_first(&in->stage.abi, out) : 0;
+    return in && out ? omx_abi_guard_first(&in->abi, out) : 0;
 }
 
 int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
@@ -3402,7 +3399,7 @@ void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
     if (in->stage.need_reset)
     {
         if (in->plugin->reset)
-            omx_abi_g(&in->stage.abi, "reset", (const void *)in->plugin->reset, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+            omx_abi_g(OMX_ABI_GUARD_OF(in), "reset", (const void *)in->plugin->reset, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         omx_clap_note_ids_reset(&in->note_ids);     // the plugin's voices are gone, and with them every id
         omx_hosted_count(&in->stage.resets, 1);
         in->stage.need_reset = 0;
@@ -3455,10 +3452,10 @@ static int aux_activation_refresh(struct omx_clap_instance *in, bool is_input, u
     if (!ext)
         return 0;
     index = aux_port_index(in, is_input, aux);
-    if (index != UINT32_MAX && ext->can_activate_while_processing && ext->can_activate_while_processing(in->plugin))
+    if (index != UINT32_MAX && ext->can_activate_while_processing && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.can_activate_while_processing", ext->can_activate_while_processing, in->plugin))
     {
         omx_clap_host_take_role(in, &role);
-        done = ext->set_active(in->plugin, is_input, index, now, 32);
+        done = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.set_active", ext->set_active, in->plugin, is_input, index, now, 32);
         omx_clap_host_release_role(in, &role, role.state);
         if (done)
             return 0;
@@ -3527,7 +3524,7 @@ static int roster_walk(struct omx_clap_instance *in, uint32_t want, struct omx_c
         clap_param_info_t info;
 
         memset(&info, 0, sizeof(info));
-        if (!in->params->get_info(in->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_info", in->params->get_info, in->plugin, i, &info))
             return -1;
         if (!is_row(&info))
             continue;
@@ -3582,7 +3579,7 @@ int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_par
         clap_param_info_t info;
 
         memset(&info, 0, sizeof(info));
-        if (!in->params->get_info(in->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_info", in->params->get_info, in->plugin, i, &info))
         {
             free(out);
             if (why)
@@ -3634,7 +3631,7 @@ int omx_clap_host_param_flush(struct omx_clap_instance *in)
     while (omx_clap_queue_pending(&in->stage.queue) > 0)
     {
         omx_clap_drain(&in->stage);
-        omx_abi_g(&in->stage.abi, "params.flush", (const void *)in->params->flush, OMX_ABI_A(in->plugin), OMX_ABI_A(&in->stage.in_events),
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "params.flush", (const void *)in->params->flush, OMX_ABI_A(in->plugin), OMX_ABI_A(&in->stage.in_events),
                   OMX_ABI_A(&in->stage.out_events), 0, 0, 0);
         in->stage.n_events = 0;
     }
@@ -3651,7 +3648,7 @@ void omx_clap_host_param_deliver(struct omx_clap_instance *in)
     while (omx_clap_queue_pending(&in->stage.queue) > 0)
     {
         omx_clap_drain(&in->stage);
-        omx_abi_g(&in->stage.abi, "params.flush", (const void *)in->params->flush, OMX_ABI_A(in->plugin), OMX_ABI_A(&in->stage.in_events),
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "params.flush", (const void *)in->params->flush, OMX_ABI_A(in->plugin), OMX_ABI_A(&in->stage.in_events),
                   OMX_ABI_A(&in->stage.out_events), 0, 0, 0);
         in->stage.n_events = 0;
     }
@@ -3678,7 +3675,7 @@ int omx_clap_host_param_read(struct omx_clap_instance *in, clap_id id, double *v
 {
     if (!in->params || !value)
         return -1;
-    return in->params->get_value(in->plugin, id, value) ? 0 : -1;
+    return OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_value", in->params->get_value, in->plugin, id, value) ? 0 : -1;
 }
 
 int omx_clap_host_param_is_row(struct omx_clap_instance *in, clap_id id)
@@ -3743,7 +3740,7 @@ int omx_clap_host_state_save(struct omx_clap_instance *in, void *buf, size_t cap
 
     if (!in->state || !buf || !len)
         return -1;
-    if (!in->state->save(in->plugin, &os) || b.overflow)
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "state.save", in->state->save, in->plugin, &os) || b.overflow)
         return -1;
     *len = b.len;
     return 0;
@@ -3782,7 +3779,7 @@ int omx_clap_host_state_load(struct omx_clap_instance *in, const void *buf, size
     if (!in->state || !buf)
         return -1;
     stopped = state_load_begin(in);
-    ok = in->state->load(in->plugin, &is);
+    ok = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "state.load", in->state->load, in->plugin, &is);
     state_load_done(in, stopped);
     return ok ? 0 : -1;
 }
@@ -3791,13 +3788,13 @@ int omx_clap_host_state_save_context(struct omx_clap_instance *in, uint32_t cont
 {
     struct bounded_stream b = { buf, NULL, cap, 0, 0, 0 };
     const clap_ostream_t os = { &b, ostream_write };
-    const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+    const clap_plugin_state_context_t *ext = in ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
 
     if (!in || !buf || !len || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
         return -1;
     if (!ext || !ext->save)
         return omx_clap_host_state_save(in, buf, cap, len);
-    if (!ext->save(in->plugin, &os, context) || b.overflow)
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.save", ext->save, in->plugin, &os, context) || b.overflow)
         return -1;
     *len = b.len;
     return 0;
@@ -3807,7 +3804,7 @@ int omx_clap_host_state_load_context(struct omx_clap_instance *in, uint32_t cont
 {
     struct bounded_stream b = { NULL, buf, len, len, 0, 0 };
     const clap_istream_t is = { &b, istream_read };
-    const clap_plugin_state_context_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
+    const clap_plugin_state_context_t *ext = in ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_STATE_CONTEXT) : NULL;
     int stopped, ok;
 
     if (!in || !buf || context < CLAP_STATE_CONTEXT_FOR_PRESET || context > CLAP_STATE_CONTEXT_FOR_PROJECT)
@@ -3815,20 +3812,20 @@ int omx_clap_host_state_load_context(struct omx_clap_instance *in, uint32_t cont
     if (!ext || !ext->load)
         return omx_clap_host_state_load(in, buf, len);
     stopped = state_load_begin(in);
-    ok = ext->load(in->plugin, &is, context);
+    ok = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.load", ext->load, in->plugin, &is, context);
     state_load_done(in, stopped);
     return ok ? 0 : -1;
 }
 
 int omx_clap_host_set_render(struct omx_clap_instance *in, int32_t mode)
 {
-    const clap_plugin_render_t *ext = in ? in->plugin->get_extension(in->plugin, CLAP_EXT_RENDER) : NULL;
+    const clap_plugin_render_t *ext = in ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, CLAP_EXT_RENDER) : NULL;
 
     if (!ext || !ext->set || (mode != CLAP_RENDER_REALTIME && mode != CLAP_RENDER_OFFLINE))
         return -1;
-    if (mode == CLAP_RENDER_OFFLINE && ext->has_hard_realtime_requirement && ext->has_hard_realtime_requirement(in->plugin))
+    if (mode == CLAP_RENDER_OFFLINE && ext->has_hard_realtime_requirement && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.has_hard_realtime_requirement", ext->has_hard_realtime_requirement, in->plugin))
         return -1;
-    return ext->set(in->plugin, mode) ? 0 : -1;
+    return OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ext.set", ext->set, in->plugin, mode) ? 0 : -1;
 }
 
 uint32_t omx_clap_host_tail(const struct omx_clap_instance *in)
@@ -3845,7 +3842,7 @@ static int preset_from_location(struct omx_clap_instance *in, uint32_t location_
     g_preset_failed = 0;
     g_preset_loading = in;
     stopped = state_load_begin(in);
-    ok = in->preset_load->from_location(in->plugin, location_kind, location, load_key);
+    ok = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "preset_load.from_location", in->preset_load->from_location, in->plugin, location_kind, location, load_key);
     state_load_done(in, stopped);
     g_preset_loading = NULL;
     return ok && !g_preset_failed ? 0 : -1;
@@ -3930,7 +3927,8 @@ int omx_clap_host_param_text(struct omx_clap_instance *in, clap_id id, double va
     if (!out || size == 0 || !in->params || !in->params->value_to_text || info_of(in, id, &info) != 0)
         return -1;
     out[0] = '\0';
-    if (!in->params->value_to_text(in->plugin, id, value, out, size))
+    if (!OMX_ABI_BOOL(omx_abi_gd(OMX_ABI_GUARD_OF(in), "params.value_to_text", (const void *)in->params->value_to_text, OMX_ABI_A(in->plugin),
+                                 OMX_ABI_A(id), OMX_ABI_A(out), OMX_ABI_A(size), value)))
         return -1;
     out[size - 1] = '\0';  // the plugin's own buffer use: read no further than what it was given
     return 0;
@@ -3943,7 +3941,7 @@ int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const ch
 
     if (!text || !value || !in->params || !in->params->text_to_value || info_of(in, id, &info) != 0)
         return -1;
-    if (!in->params->text_to_value(in->plugin, id, text, &v) || !isfinite(v))
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.text_to_value", in->params->text_to_value, in->plugin, id, text, &v) || !isfinite(v))
         return -1;
     *value = v;
     return 0;
@@ -3952,7 +3950,7 @@ int omx_clap_host_param_parse(struct omx_clap_instance *in, clap_id id, const ch
 /* the plugin's tail, as the RT's sleep reads it: 0 with no extension */
 static void tail_read(struct omx_clap_instance *in)
 {
-    atomic_store_explicit(&in->tail_frames, in->tail && in->tail->get ? in->tail->get(in->plugin) : 0u, memory_order_relaxed);
+    atomic_store_explicit(&in->tail_frames, in->tail && in->tail->get ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "tail.get", in->tail->get, in->plugin) : 0u, memory_order_relaxed);
 }
 
 /* every timer that is due gets its on_timer, once, and its next due time a period on (from now when the tick ran late) */
@@ -3974,7 +3972,7 @@ static void timers_serve(struct omx_clap_instance *in)
         if (t->due_ns <= now)
             t->due_ns = now + (uint64_t)t->period_ms * 1000000u;
         if (in->timer_support && in->timer_support->on_timer)
-            in->timer_support->on_timer(in->plugin, t->id);
+            OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "timer_support.on_timer", in->timer_support->on_timer, in->plugin, t->id);
     }
 }
 
@@ -4007,7 +4005,7 @@ static void fds_serve(struct omx_clap_instance *in)
             flags |= CLAP_POSIX_FD_ERROR;
         // a descriptor the plugin unregistered from an earlier on_fd of this same tick is not called
         if (flags && fd_slot(in, p[k].fd) >= 0 && in->fd_support && in->fd_support->on_fd)
-            in->fd_support->on_fd(in->plugin, p[k].fd, flags);
+            OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "fd_support.on_fd", in->fd_support->on_fd, in->plugin, p[k].fd, flags);
     }
 }
 
@@ -4042,7 +4040,7 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     timers_serve(in);
     fds_serve(in);
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
-        omx_abi_g(&in->stage.abi, "on_main_thread", (const void *)in->plugin->on_main_thread, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "on_main_thread", (const void *)in->plugin->on_main_thread, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     // an unoffered id has its turn ahead of the plugin's line, which waits in log_ring for the next free slot: the ids
     // are each said once, so a plugin that logs every tick neither starves them nor is starved for long
     if (!atomic_load_explicit(&in->log_fresh, memory_order_acquire) && unoffered_say(in))

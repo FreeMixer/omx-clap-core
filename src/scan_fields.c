@@ -689,16 +689,16 @@ static void clap_panel(const struct omx_clap_instance *in)
 static void clap_active(const struct omx_clap_instance *in)
 {
     const clap_plugin_t *plugin = in->plugin;
-    const clap_plugin_voice_info_t *voice = plugin->get_extension(plugin, CLAP_EXT_VOICE_INFO);
+    const clap_plugin_voice_info_t *voice = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_VOICE_INFO);
     clap_voice_info_t info;
 
     if ((!in->latency && !(voice && voice->get)) || !OMX_ABI_BOOL(omx_abi_gd(NULL, "activate", (const void *)plugin->activate,
                                                                                          OMX_ABI_A(plugin), 1, FIELDS_MAX_FRAMES, 0, FIELDS_RATE)))
         return;
     if (in->latency && in->latency->get)
-        record_number("plugin", "clap_plugin_latency.get", in->latency->get(plugin));
+        record_number("plugin", "clap_plugin_latency.get", OMX_ABI_CALL(NULL, "latency.get", in->latency->get, plugin));
     memset(&info, 0, sizeof(info));
-    if (voice && voice->get && voice->get(plugin, &info))
+    if (voice && voice->get && OMX_ABI_CALL(NULL, "voice.get", voice->get, plugin, &info))
     {
         record_number("plugin", "clap_voice_info.voice_count", info.voice_count);
         record_number("plugin", "clap_voice_info.voice_capacity", info.voice_capacity);
@@ -749,10 +749,10 @@ static int fields_clap(const char *path, const char *id)
     for (f = desc->features; f && *f; f++)
         record_text("plugin", "clap_plugin_descriptor.features", NAMED(g_features, *f));
     for (i = 0; i < sizeof(g_extensions) / sizeof(g_extensions[0]); i++)
-        if (in->plugin->get_extension(in->plugin, g_extensions[i].value))
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, g_extensions[i].value))
             record("plugin", "clap_plugin.get_extension", g_extensions[i].name);
     for (f = g_omx_extensions; *f; f++)
-        if (in->plugin->get_extension(in->plugin, *f))
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, *f))
             record("plugin", "clap_plugin.get_extension", *f);
     clap_params(in);
     clap_audio_ports(in, true);

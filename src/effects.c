@@ -488,7 +488,8 @@ static void publish_gain_adjustment(effect_t *effect, uint32_t runs_before)
     uint32_t bits;
 
     if (atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed) != runs_before)
-        value = (float)effect->gain_adjustment->get(effect->clap->plugin);
+        value = (float)omx_abi_gf(OMX_ABI_GUARD_OF(effect->clap), "gain_adjustment.get", (const void *)effect->gain_adjustment->get,
+                                  OMX_ABI_A(effect->clap->plugin), 0, 0, 0);
     memcpy(&bits, &value, sizeof(bits));
     atomic_store_explicit(&effect->gain_adjustment_bits, bits, memory_order_relaxed);
 }
@@ -1097,11 +1098,11 @@ static int lv2_candidate(const char *bundle, void *ctx)
         snprintf(search->why, sizeof(search->why), "%s", why);
         return 0;
     }
-    factory = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
-    count = factory ? factory->get_plugin_count(factory) : 0;
+    factory = OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
+    count = factory ? OMX_ABI_CALL(NULL, "factory.get_plugin_count", factory->get_plugin_count, factory) : 0;
     for (i = 0; i < count; i++)
     {
-        const clap_plugin_descriptor_t *desc = factory->get_plugin_descriptor(factory, i);
+        const clap_plugin_descriptor_t *desc = OMX_ABI_CALL(NULL, "factory.get_plugin_descriptor", factory->get_plugin_descriptor, factory, i);
 
         if (desc && desc->id && strcmp(desc->id, search->uri) == 0)
         {
@@ -1590,7 +1591,7 @@ static int output_param_add(effect_t *effect, const lv2_param_t *param)
 static int outputs_build(effect_t *effect)
 {
     const clap_plugin_t *plugin = effect->clap->plugin;
-    const clap_plugin_meters_t *meters = plugin->get_extension(plugin, CLAP_EXT_METERS);
+    const clap_plugin_meters_t *meters = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_METERS);
     const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
     clap_meter_info_t info;
     uint32_t count, i, c;
@@ -1598,11 +1599,11 @@ static int outputs_build(effect_t *effect)
     if (meters && meters->count && meters->get_info && meters->get_values)
     {
         effect->meters = meters;
-        count = meters->count(plugin);
+        count = OMX_ABI_CALL(NULL, "meters.count", meters->count, plugin);
         for (i = 0; i < count; i++)
         {
             memset(&info, 0, sizeof(info));
-            if (!meters->get_info(plugin, i, &info))
+            if (!OMX_ABI_CALL(NULL, "meters.get_info", meters->get_info, plugin, i, &info))
             {
                 fprintf(stderr, "%s: meter %u has no info\n", effect->clap->desc->id, i);
                 return -1;
@@ -1629,7 +1630,7 @@ static int outputs_build(effect_t *effect)
         return 0;
     }
 
-    gain_adjustment = plugin->get_extension(plugin, CLAP_EXT_GAIN_ADJUSTMENT_METERING);
+    gain_adjustment = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_GAIN_ADJUSTMENT_METERING);
     if (gain_adjustment && gain_adjustment->get)
     {
         if (output_add(effect, GAIN_ADJUSTMENT_SYMBOL, 1, CLAP_INVALID_ID, 0, 1) != 0)
@@ -1808,7 +1809,8 @@ static void outputs_notify(effect_t *effect)
             {
                 read = 1;
                 read_meter = output->meter;
-                have = effect->meters->get_values(effect->clap->plugin, output->meter, values, output->channels);
+                have = OMX_ABI_CALL(OMX_ABI_GUARD_OF(effect->clap), "meters.get_values", effect->meters->get_values,
+                                    effect->clap->plugin, output->meter, values, output->channels);
             }
             if (output->channel >= have)
                 continue;
