@@ -466,13 +466,13 @@ test-transport-tsan: tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/fa
 
 tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 # the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
 # control thread publishes, and build into the other
 tests/clap_chain_tsan: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 test-chain-tsan: tests/clap_chain_tsan tests/fake.clap tests/fake_compressor.clap
 	TSAN_OPTIONS=halt_on_error=1 ./tests/clap_chain_tsan $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
@@ -491,7 +491,7 @@ test-cycle-gate-sabotage: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $
 	! cmp -s src/cycle_gate.h build/cycle-gate-sabotage/cycle_gate.h
 	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
 	    -Wextra -Werror -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u \
-	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) -ldl -lpthread -lm
+	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 	! TSAN_OPTIONS=halt_on_error=1 ./build/cycle-gate-sabotage/test $(abspath tests/fake.clap) > build/cycle-gate-sabotage/log 2>&1
 	grep -q 'ThreadSanitizer: data race' build/cycle-gate-sabotage/log
 
@@ -615,7 +615,7 @@ tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_S
 
 tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
-	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 # the core compiled into the test, so it holds the unoffered table's flag where it lives: the library exports nothing for it
 tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
@@ -661,7 +661,7 @@ tests/thread_pool_bench: tests/thread_pool_bench.c $(CORE_SO)
 # completion count and the pool's start and end against the audio thread and the control thread (needs libtsan)
 tests/thread_pool_tsan: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 tests/fake_pool_tsan.clap: tests/fake_pool.c
 	$(CC) $(CLAP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -fPIC -fvisibility=hidden -pthread -Wall -Wextra -Werror -fsanitize=thread -shared -o $@ $< -lm
@@ -677,7 +677,7 @@ test-thread-pool-sabotage: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC
 	! cmp -s src/thread_pool.c build/thread-pool-sabotage/thread_pool.c
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o build/thread-pool-sabotage/test $< \
-	    $(filter-out src/thread_pool.c,$(CORE_SRC)) build/thread-pool-sabotage/thread_pool.c -ldl -lpthread -lm
+	    $(filter-out src/thread_pool.c,$(CORE_SRC)) build/thread-pool-sabotage/thread_pool.c src/abi_guard.S -ldl -lpthread -lm
 	! ./build/thread-pool-sabotage/test $(abspath tests/fake_pool.clap) > build/thread-pool-sabotage/log 2>&1
 	grep -q '^FAIL 40 requests, every task done before request_exec returned' build/thread-pool-sabotage/log || \
 	    { n=$$(nproc); if [ "$$n" -lt 2 ]; then echo "skip one core: the sabotage needs a helper"; else cat build/thread-pool-sabotage/log; exit 1; fi; }
@@ -983,7 +983,7 @@ test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake
 build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2_LIB) $(PROTOCOL_LIB)
 	mkdir -p build/tsan
 	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
-	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) $(LV2_LIB) \
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) src/abi_guard.S $(LV2_LIB) \
 	    $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
 
 test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap

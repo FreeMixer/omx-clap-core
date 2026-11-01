@@ -17,6 +17,10 @@
       "stabilityCrashedAttributed": {
         "code": "hosting.stability.crashed-attributed-plugin"
       },
+      "stabilityCalleeSavedClobbered": {
+        "code": "hosting.stability.callee-saved-clobbered",
+        "doc": "the plugin returned from a call with a callee-saved register changed (0.26.2): the host's guard put it back, but not the other members' state in the same process, so the plugin runs only in a worker of its own"
+      },
       "stabilityCrashedLive": {
         "code": "hosting.stability.crashed-live-on-this-rig",
         "doc": "the plugin crashed live on this rig"
