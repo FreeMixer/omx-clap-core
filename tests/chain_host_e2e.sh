@@ -69,6 +69,12 @@ for c in chain_expect mono_in_stereo; do
     printf '%s\n' "$caps" | grep -qx "$c"
     step $? "--capabilities declares $c"
 done
+# an option the host does not know ends it with an error and starts nothing: a planner that asks an older host for an
+# option it lacks must not get a running host in answer (0.26.0 forked one and said 0)
+timeout 10 "$host" --no-such-option >/dev/null 2>&1
+rc=$?
+[ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]
+step $? "an unknown option is an error, not a start"
 
 runtime=$(mktemp -d /tmp/omx-chain-host.XXXXXX)
 export XDG_RUNTIME_DIR=$runtime PIPEWIRE_RUNTIME_DIR=$runtime PULSE_RUNTIME_PATH=$runtime/pulse
