@@ -866,7 +866,7 @@ test-jack-pool: $(PROG) tests/fake_pool.clap
 # the xruns line over jack in the same kind of namespace (#371): the xrun callback the host registered, called by a
 # preloaded test double (PipeWire's libjack calls it only when the driver reports an xrun, which a private daemon with no
 # sound card never does), and the line on the feedback port: its grammar, its count, its once a second
-test-jack-xruns: $(PROG) tests/jack_xrun_shim.so
+test-jack-xruns: $(PROG) tests/jack_xrun_shim.so tests/fake.clap
 	OMX_HOST_EVENTS_XRUNS='$(call host_declared,OMX_HOST_EVENTS_XRUNS)' ./tests/jack_xruns_e2e.sh
 
 # the sabotage of the host's side of it: each guard of src/effects.c broken in a copy of the tree, the test red on the check

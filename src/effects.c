@@ -203,6 +203,7 @@ typedef struct EFFECT_T {
     double rate;                            // the graph's rate when the instance was added
     struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
     struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
+    int own_active;                         // its own client is active: it can carry the host's xruns and frame clock
 } effect_t;
 
 static void presets_forget(effect_t *effect);
@@ -246,7 +247,21 @@ static effect_t g_effects[MAX_INSTANCES];
 static char g_layout_pins[MAX_INSTANCES][PHD_SHA256_HEX_LEN + 1];
 // the chain chain_expect named for the next add of an instance, plus one: 0 when none
 static int g_chain_expects[MAX_INSTANCES];
+/* The client that carries the host's xrun count and frame clock: an instance's own client while the host runs one,
+ * else the host's global client "omx-clap-host", which has no port and exists only while no instance client can carry
+ * them. Every client the host owns registers the xrun callback before it is active, and only the carrier's counts; the
+ * role moves to a client already active before the one that carried it stops, and the global client is active before
+ * the last instance client stops, so the count and the clock have no gap. A host just started opens the global client
+ * after GLOBAL_AFTER_MS with no instance, or at once when a verb needs the clock: a worker plugin-hostd starts is sent its
+ * add first and never opens one. */
+#define GLOBAL_AFTER_MS 200
 static jack_client_t *g_jack_global_client;
+static _Atomic(jack_client_t *) g_carrier;
+static int xrun_cb(void *arg);
+static void client_started(effect_t *effect);
+static void client_stopping(effect_t *effect);
+static int g_global_retire;     // the global client is closed at the next idle tick, an instance client carrying
+static uint64_t g_started_ms;
 // the xruns JACK reported to this worker, and what of them the feedback port has been told (#371)
 static xrun_report_t g_xruns;
 // the hosting.* code of the last add that failed with one, "" otherwise: the add reply carries it
@@ -988,7 +1003,10 @@ static void instance_free(effect_t *effect)
     // the client goes first: no cycle can run the stage while the plugin is stopped and destroyed. A chain member's is
     // its head's: it left the chain's walk first (chain_drop)
     if (effect->jack_client && !client_borrowed(effect))
+    {
+        client_stopping(effect);
         jack_client_close(effect->jack_client);
+    }
     if (effect->clap)
     {
         // the plugin's window goes before the plugin: clap.gui's destroy, then the host's window
@@ -1874,6 +1892,8 @@ static void callbacks_set(effect_t *effect)
     jack_set_process_callback(effect->jack_client, process, effect);
     jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
     jack_set_latency_callback(effect->jack_client, latency, effect);
+    // every client the host owns hears every xrun; the carrier's alone counts (xrun_cb)
+    jack_set_xrun_callback(effect->jack_client, xrun_cb, effect->jack_client);
 }
 
 /* a client of its own made ready for a chain's member, under the name the instance had: opened and its main and note
@@ -1935,6 +1955,7 @@ static int client_take(effect_t *effect, own_client_t *own)
         memset(effect->output_ports, 0, sizeof(effect->output_ports));
         return ERR_JACK_CLIENT_ACTIVATION;
     }
+    client_started(effect);
     publish_latency(effect);
     return SUCCESS;
 }
@@ -2107,7 +2128,10 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
     int ret;
 
     if (effect->jack_client)
+    {
+        client_stopping(effect);
         jack_client_close(effect->jack_client);
+    }
     effect->jack_client = chain->head->jack_client;
     memset(effect->input_ports, 0, sizeof(effect->input_ports));
     memset(effect->output_ports, 0, sizeof(effect->output_ports));
@@ -2127,7 +2151,12 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
 /* the cycles of a member-to-be's own client stopped: 0, or JACK's refusal with the client as it was */
 static int member_stop(effect_t *effect)
 {
-    return jack_deactivate(effect->jack_client);
+    int ret;
+
+    client_stopping(effect);
+    if ((ret = jack_deactivate(effect->jack_client)) != 0)
+        client_started(effect);
+    return ret;
 }
 
 /* a stopped client's links given up: run again (members_start) or closed as it joins */
@@ -2199,17 +2228,21 @@ static void members_start(int id, stopped_t *stopped, uint32_t n)
         uint32_t k;
 
         if (jack_activate(client) != 0)
+        {
             fprintf(stderr, "chain %d: effect_%d's own client cannot be run again; its %u link(s) are lost\n", id,
                     again->effect->instance, again->n_links);
-        else
-            for (k = 0; k < again->n_links; k++)
-            {
-                const int ret = jack_connect(client, again->links[2 * k], again->links[2 * k + 1]);
+            links_forget(again);
+            continue;
+        }
+        client_started(again->effect);
+        for (k = 0; k < again->n_links; k++)
+        {
+            const int ret = jack_connect(client, again->links[2 * k], again->links[2 * k + 1]);
 
-                if (ret != 0 && ret != EEXIST)
-                    fprintf(stderr, "chain %d: effect_%d's link %s -> %s cannot be made again (%d)\n", id,
-                            again->effect->instance, again->links[2 * k], again->links[2 * k + 1], ret);
-            }
+            if (ret != 0 && ret != EEXIST)
+                fprintf(stderr, "chain %d: effect_%d's link %s -> %s cannot be made again (%d)\n", id,
+                        again->effect->instance, again->links[2 * k], again->links[2 * k + 1], ret);
+        }
         links_forget(again);
     }
 }
@@ -2298,7 +2331,10 @@ static void chain_reload(chain_t *chain, effect_t *const *out, const uint32_t *p
     while (n-- > 0)
     {
         if (out[n]->jack_client)
+        {
+            client_stopping(out[n]);
             jack_client_close(out[n]->jack_client);
+        }
         out[n]->jack_client = chain->head->jack_client;
         memset(out[n]->input_ports, 0, sizeof(out[n]->input_ports));
         memset(out[n]->output_ports, 0, sizeof(out[n]->output_ports));
@@ -2605,11 +2641,109 @@ static void configure_lv2(void)
         fprintf(stderr, "the LV2 adapter refused its configuration: %s; no LV2 plugin can be added\n", why);
 }
 
-// JACK's xrun callback, on a thread of its own: it counts and writes nothing, effects_idle writes the line
+// JACK's xrun callback, on a thread of its own, registered on every client the host owns with that client as its
+// argument: JACK tells every client of every xrun, and the carrier's alone counts. It writes nothing; effects_idle does
 static int xrun_cb(void *arg)
 {
-    xrun_report_note(arg);
+    if (arg == atomic_load_explicit(&g_carrier, memory_order_acquire))
+        xrun_report_note(&g_xruns);
     return 0;
+}
+
+static uint64_t now_ms(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000u + (uint64_t)t.tv_nsec / 1000000u;
+}
+
+/* the global client opened and made the carrier, active, with no port and no process callback, so that its frame clock
+ * runs: SUCCESS, or the error with no global client */
+static int global_open(void)
+{
+    if (g_jack_global_client)
+        return SUCCESS;
+    g_jack_global_client = jack_client_open("omx-clap-host", JackNoStartServer, NULL);
+    if (!g_jack_global_client)
+    {
+        fprintf(stderr, "can't get jack client\n");
+        return ERR_JACK_CLIENT_CREATION;
+    }
+    // its xrun callback is set before it is active, so that no xrun is missed between the two
+    jack_set_xrun_callback(g_jack_global_client, xrun_cb, g_jack_global_client);
+    if (jack_activate(g_jack_global_client) != 0)
+    {
+        fprintf(stderr, "can't activate jack client\n");
+        jack_client_close(g_jack_global_client);
+        g_jack_global_client = NULL;
+        return ERR_JACK_CLIENT_ACTIVATION;
+    }
+    atomic_store_explicit(&g_carrier, g_jack_global_client, memory_order_release);
+    g_global_retire = 0;
+    return SUCCESS;
+}
+
+/* the client the host's verbs ask JACK through, the carrier's; a host with none opens its global client now */
+static jack_client_t *host_client(void)
+{
+    jack_client_t *c = atomic_load_explicit(&g_carrier, memory_order_acquire);
+
+    if (!c && global_open() == SUCCESS)
+        c = g_jack_global_client;
+    return c;
+}
+
+/* an instance's own client is active: it carries the count and the clock when the global client did, or none did */
+static void client_started(effect_t *effect)
+{
+    jack_client_t *c = atomic_load_explicit(&g_carrier, memory_order_acquire);
+
+    effect->own_active = 1;
+    if (!c || c == g_jack_global_client)
+    {
+        atomic_store_explicit(&g_carrier, effect->jack_client, memory_order_release);
+        g_global_retire = g_jack_global_client != NULL;
+    }
+}
+
+/* an instance's own client is about to stop or close: when it carries, the role goes first to another instance's own
+ * client that is active, else to the global client, opened and active before this one stops */
+static void client_stopping(effect_t *effect)
+{
+    int k;
+
+    if (!effect->own_active)
+        return;
+    effect->own_active = 0;
+    if (atomic_load_explicit(&g_carrier, memory_order_acquire) != effect->jack_client)
+        return;
+    for (k = 0; k < MAX_PLUGIN_INSTANCES; k++)
+        if (g_effects[k].own_active && g_effects[k].jack_client && g_effects[k].jack_client != effect->jack_client)
+        {
+            atomic_store_explicit(&g_carrier, g_effects[k].jack_client, memory_order_release);
+            return;
+        }
+    if (g_jack_global_client)
+        atomic_store_explicit(&g_carrier, g_jack_global_client, memory_order_release);
+    else if (global_open() != SUCCESS)
+        atomic_store_explicit(&g_carrier, NULL, memory_order_release);
+}
+
+/* the idle tick's part: the global client closed once an instance client carries, and opened for a host that has had
+ * no instance since it started GLOBAL_AFTER_MS ago */
+static void carrier_idle(void)
+{
+    jack_client_t *c = atomic_load_explicit(&g_carrier, memory_order_acquire);
+
+    if (g_global_retire && g_jack_global_client && c && c != g_jack_global_client)
+    {
+        jack_client_close(g_jack_global_client);
+        g_jack_global_client = NULL;
+        g_global_retire = 0;
+    }
+    else if (!c && now_ms() - g_started_ms >= GLOBAL_AFTER_MS)
+        global_open();
 }
 
 // the thread pool's waits past the block (#395) since the last tick: an xrun-class event, added to the xruns count the
@@ -2659,22 +2793,10 @@ int effects_init(void)
         g_chains[i].id = -1;
     configure_lv2();
     window_init();
-    g_jack_global_client = jack_client_open("omx-clap-host", JackNoStartServer, NULL);
-    if (!g_jack_global_client)
-    {
-        fprintf(stderr, "can't get jack client\n");
-        return ERR_JACK_CLIENT_CREATION;
-    }
-    // its xrun callback is set before it is active: JACK reports every xrun of the graph to every client
+    // no client yet: the first instance's carries the xrun count and the frame clock, or the global client opens when
+    // the host has none (g_carrier)
     xrun_report_init(&g_xruns);
-    jack_set_xrun_callback(g_jack_global_client, xrun_cb, &g_xruns);
-    // active, with no port and no process callback, so its frame clock runs: a transport command is anchored on it at
-    // the frame the graph is at, the clock each instance's cycle reads
-    if (jack_activate(g_jack_global_client) != 0)
-    {
-        fprintf(stderr, "can't activate jack client\n");
-        return ERR_JACK_CLIENT_ACTIVATION;
-    }
+    g_started_ms = now_ms();
     return SUCCESS;
 }
 
@@ -2682,6 +2804,7 @@ int effects_finish(void)
 {
     effects_remove(REMOVE_ALL);
     window_finish();
+    atomic_store_explicit(&g_carrier, NULL, memory_order_release);
     if (g_jack_global_client)
         jack_client_close(g_jack_global_client);
     g_jack_global_client = NULL;
@@ -2909,7 +3032,10 @@ int effects_add(const char *uri, int instance, const char *client_name)
         goto error;
     }
     else
+    {
+        client_started(effect);
         publish_latency(effect);
+    }
     idle_hold_say_once();
     if (g_show_ui)
     {
@@ -3010,8 +3136,12 @@ int effects_remove(int effect_id)
             }
             chain_end(chain);
         }
+        client_stopping(effect);
         if (jack_deactivate(effect->jack_client) != 0)
+        {
+            client_started(effect);
             return ERR_JACK_CLIENT_DEACTIVATION;
+        }
         instance_free(effect);
     }
 
@@ -3810,7 +3940,8 @@ static const char *port_now(const char *name, char *buf, size_t size)
 int effects_connect(const char *portA, const char *portB)
 {
     char a[PORT_NAME_NOW_SIZE], b[PORT_NAME_NOW_SIZE];
-    int ret = jack_connect(g_jack_global_client, port_now(portA, a, sizeof(a)), port_now(portB, b, sizeof(b)));
+    jack_client_t *client = host_client();
+    int ret = client ? jack_connect(client, port_now(portA, a, sizeof(a)), port_now(portB, b, sizeof(b))) : -1;
 
     if (ret != 0 && ret != EEXIST)
         return ERR_JACK_PORT_CONNECTION;
@@ -3821,14 +3952,18 @@ int effects_disconnect(const char *portA, const char *portB)
 {
     char a[PORT_NAME_NOW_SIZE], b[PORT_NAME_NOW_SIZE];
 
-    if (jack_disconnect(g_jack_global_client, port_now(portA, a, sizeof(a)), port_now(portB, b, sizeof(b))) != 0)
+    jack_client_t *client = host_client();
+
+    if (!client || jack_disconnect(client, port_now(portA, a, sizeof(a)), port_now(portB, b, sizeof(b))) != 0)
         return ERR_JACK_PORT_DISCONNECTION;
     return SUCCESS;
 }
 
 float effects_jack_cpu_load(void)
 {
-    return g_jack_global_client ? jack_cpu_load(g_jack_global_client) : 0.0f;
+    jack_client_t *client = host_client();
+
+    return client ? jack_cpu_load(client) : 0.0f;
 }
 
 /* note_drops: the stage's note counters, read relaxed as the audio thread leaves them: every note event the block had no
@@ -3879,8 +4014,9 @@ int effects_note(int effect_id, const uint8_t (*messages)[3], uint32_t count)
 /* the control thread: a change of the host's transport, anchored at the frame the graph is at now */
 static void transport_change(int rolling, double bpm, double bpb)
 {
-    const uint32_t now = g_jack_global_client ? jack_frame_time(g_jack_global_client) : 0u;
-    const double rate = g_jack_global_client ? (double)jack_get_sample_rate(g_jack_global_client) : 48000.0;
+    jack_client_t *client = host_client();
+    const uint32_t now = client ? jack_frame_time(client) : 0u;
+    const double rate = client ? (double)jack_get_sample_rate(client) : 48000.0;
 
     g_intent = host_transport_change(&g_intent, now, rate, rolling, bpm, bpb);
     host_transport_publish(&g_transport, &g_intent);
@@ -4009,6 +4145,7 @@ void effects_idle(void)
     int i;
 
     g_idle_ticks++;
+    carrier_idle();
     xruns_feedback();
     // a member's block size its head's callback left to this thread is recorded before the member's tick reads it
     chain_members_reconcile();

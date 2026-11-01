@@ -18,6 +18,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5576}
@@ -93,10 +94,6 @@ xlines() { grep " $word " "$feedback"; }
 
 start_host "$port" "$fbport"
 step $? "omx-clap-host ready on port $port, feedback on $fbport, under the shim"
-[ "$(grep -c '^set_xrun ' "$shimlog")" -eq 1 ]; step $? "the host registered one xrun callback: $(tr '\n' '|' <"$shimlog")"
-client=$(sed -n 's/^set_xrun //p' "$shimlog")
-[ "$(grep -n "^set_xrun $client\$" "$shimlog" | cut -d: -f1)" -lt "$(grep -n "^activate $client\$" "$shimlog" | head -1 | cut -d: -f1)" ]
-step $? "on a client that was not yet active, so that no xrun is missed between the two"
 
 # a controller, as plugin-hostd is: the command socket and the feedback socket, which the host accepts together
 connect() {
@@ -107,6 +104,13 @@ connect() {
     pids+=("$reader")
 }
 connect "$port" "$fbport"
+
+# a host with no instance, once its controller is connected, opens its global client a moment after it starts, to carry the count and the clock
+for _ in $(seq 30); do grep -q '^activate ' "$shimlog" && break; sleep 0.1; done
+[ "$(grep -c '^set_xrun ' "$shimlog")" -eq 1 ]; step $? "the host registered one xrun callback: $(tr '\n' '|' <"$shimlog")"
+client=$(sed -n 's/^set_xrun //p' "$shimlog")
+[ "$(grep -n "^set_xrun $client\$" "$shimlog" | cut -d: -f1)" -lt "$(grep -n "^activate $client\$" "$shimlog" | head -1 | cut -d: -f1)" ]
+step $? "on a client that was not yet active, so that no xrun is missed between the two"
 
 sleep 1.5
 [ "$(wc -l <"$feedback")" -eq 0 ]; step $? "nothing on the feedback port while there is no xrun"
@@ -138,6 +142,36 @@ sleep 1.5
 [ "$(xlines | wc -l)" -eq 3 ]; step $? "and a count already written is not written again"
 ! xlines | grep -qv -E "^[0-9]+ $word [1-9][0-9]*\$"; step $? "every line is exactly '$word <count>'"
 
+
+# the carrier (#348 job 11): every client the host owns hears every xrun and one counts. An instance's own client takes
+# the role from the global client, which closes; the role moves to another instance client when the one carrying goes;
+# the last one gives it to a global client active before it stops. The host never has no active client, and every xrun
+# is counted once
+pass="clap:$here/fake.clap#org.omx-clap-host.test.passthrough"
+cmd() { protocol_send 3 10 "$1"; }
+count() { xlines | tail -1 | sed 's/^[0-9]* [^ ]* //'; }
+global=$(sed -n 's/^set_xrun //p' "$shimlog" | head -1)
+sleep 1.1
+[ "$(cmd "add $pass 1")" = "resp 1" ]; step $? "add 1"
+for _ in $(seq 30); do grep -q "^close $global\$" "$shimlog" && break; sleep 0.1; done
+grep -q "^close $global\$" "$shimlog"; step $? "an instance client carries, and the global client closes"
+a=$(sed -n 's/^set_xrun //p' "$shimlog" | sed -n 2p)
+[ -n "$a" ] && [ "$(grep -n "^set_xrun $a\$" "$shimlog" | cut -d: -f1)" -lt "$(grep -n "^activate $a\$" "$shimlog" | head -1 | cut -d: -f1)" ]
+step $? "the instance client registered the xrun callback before it was active"
+[ "$(cmd "add $pass 2")" = "resp 2" ]; step $? "add 2"
+before=$(count); xrun 2; sleep 1.2
+[ "$(count)" = "$((before + 2))" ]; step $? "two xruns heard by two clients are counted twice, not four times: $before -> $(count)"
+[ "$(cmd "remove 1")" = "resp 0" ]; step $? "remove 1, the carrier, while 2 runs"
+before=$(count); xrun 2; sleep 1.2
+[ "$(count)" = "$((before + 2))" ]; step $? "the role moved to 2 with no xrun lost: $before -> $(count)"
+[ "${#before}" -gt 0 ] && [ "$(cmd cpu_load | cut -c1-6)" = "resp 0" ]; step $? "and the host answers through it"
+[ "$(cmd "remove 2")" = "resp 0" ]; step $? "remove 2, the last instance"
+before=$(count); xrun 1; sleep 1.2
+[ "$(count)" = "$((before + 1))" ]; step $? "the host with no instance still counts: $before -> $(count)"
+# the host's clients over the whole run: once the first is active, never none active
+awk '/^activate /{a[$2]=1; n++} /^(deactivate|close) /{if (a[$2]) {a[$2]=0; n--; if (n == 0) zero=1}} END{exit zero}' "$shimlog"
+step $? "the host always had an active client: $(grep -E '^(activate|deactivate|close) ' "$shimlog" | tr '\n' '|')"
+
 # no feedback port: the same xruns, the host runs on
 kill "$host_pid"; wait "$host_pid" 2>/dev/null
 start_host "$((port + 2))"; step $? "a host with no feedback port ready"
@@ -147,6 +181,16 @@ exec 3<>"/dev/tcp/127.0.0.1/$((port + 2))"
 printf 'cpu_load\0' >&3
 IFS= read -r -d '' -t 5 reply <&3
 [ "${reply:0:6}" = "resp 0" ]; step $? "and answering: $reply"
+
+
+# a host sent its add at once, as plugin-hostd starts a worker, opens no global client: the instance's carries
+: >"$shimlog"
+start_host "$((port + 4))" "$((port + 5))"; step $? "a host for one add ready"
+exec 3<>"/dev/tcp/127.0.0.1/$((port + 4))" 4<>"/dev/tcp/127.0.0.1/$((port + 5))"
+[ "$(cmd "add $pass 1")" = "resp 1" ]; step $? "its add, at once"
+sleep 1
+[ "$(grep -c '^set_xrun ' "$shimlog")" -eq 1 ] && ! grep -q '^close ' "$shimlog"
+step $? "one client, the instance's, and no global client opened: $(tr '\n' '|' <"$shimlog")"
 
 echo "$failures failed"
 [ "$failures" -eq 0 ]

@@ -234,18 +234,18 @@ keep role-hold src/effects.c '/^static void jack_thread_init(void \*arg)$/,/^}$/
 # the drills: a line JACK (or the library) fails part way. Each must stay green: refused with nothing changed, or
 # answered with every instance kept and the chain its read-back names
 drill client src/effects.c '/^static jack_client_t \*open_jack_client/,/^}/s/^    size_t name_limit;$/&\n    static int opened[MAX_INSTANCES];\n\n    if (instance == 11 \&\& opened[instance]++)\n        return NULL;/' client
-drill stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client);/' stop
+drill stop src/effects.c '/^static int member_stop/,/^}/s/^    if ((ret = jack_deactivate(effect->jack_client)) != 0)$/    if ((ret = effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client)) != 0)/' stop
 drill activate src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' activate
 # the library refuses a move's order: the line answers it, the walk in the order it had
 drill order src/effects.c '/^static int chain_order/,/^}/s/^    ret = omx_clap_chain_order(chain->walk, ids, n);$/    ret = n ? OMX_CLAP_CHAIN_ERR_ARG : omx_clap_chain_order(chain->walk, ids, n);/' order
 # another head: a member named anew not stopped; a member left out not activated after the new head's client was; the
 # old head, named as a member, not stopped once the others are in their clients
-drill rehead-stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client);/' rehead-stop
+drill rehead-stop src/effects.c '/^static int member_stop/,/^}/s/^    if ((ret = jack_deactivate(effect->jack_client)) != 0)$/    if ((ret = effect->instance == 13 ? -1 : jack_deactivate(effect->jack_client)) != 0)/' rehead-stop
 drill rehead-activate src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' rehead-activate
-drill rehead-head-stop src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 10 ? -1 : jack_deactivate(effect->jack_client);/' rehead-head-stop
+drill rehead-head-stop src/effects.c '/^static int member_stop/,/^}/s/^    if ((ret = jack_deactivate(effect->jack_client)) != 0)$/    if ((ret = effect->instance == 10 ? -1 : jack_deactivate(effect->jack_client)) != 0)/' rehead-head-stop
 # a member named anew, linked in its own client and stopped, then a later step fails: it runs again with its links; a
 # second member named anew not stopped, and, another head, a member left out not activated
-drill stop-links src/effects.c '/^static int member_stop/,/^}/s/^    return jack_deactivate(effect->jack_client);$/    return effect->instance == 14 ? -1 : jack_deactivate(effect->jack_client);/' stop-links
+drill stop-links src/effects.c '/^static int member_stop/,/^}/s/^    if ((ret = jack_deactivate(effect->jack_client)) != 0)$/    if ((ret = effect->instance == 14 ? -1 : jack_deactivate(effect->jack_client)) != 0)/' stop-links
 drill rehead-activate-links src/effects.c '/^static int client_take/,/^}/s/^    if (jack_activate(effect->jack_client) != 0)$/    if (effect->instance == 11 || jack_activate(effect->jack_client) != 0)/' rehead-activate-links
 
 # 11. behind the daemon the chain is one node because this host answers the line: refused instead
