@@ -18,6 +18,7 @@
 set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
+. "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5576}
@@ -147,7 +148,7 @@ sleep 1.5
 # the last one gives it to a global client active before it stops. The host never has no active client, and every xrun
 # is counted once
 pass="clap:$here/fake.clap#org.omx-clap-host.test.passthrough"
-cmd() { printf '%s\0' "$1" >&3; IFS= read -r -d '' -t 10 reply <&3; echo "$reply"; }
+cmd() { protocol_send 3 10 "$1"; }
 count() { xlines | tail -1 | sed 's/^[0-9]* [^ ]* //'; }
 global=$(sed -n 's/^set_xrun //p' "$shimlog" | head -1)
 sleep 1.1
