@@ -7,7 +7,7 @@
  * on a Raspberry Pi 5 the LSP limiters' run() returned with d15 changed, and the measurer that kept its sample rate in
  * d15 opened its next instance at 0 Hz.
  *
- * omx_abi_call4 (src/abi_guard.S) saves those registers, calls, compares, puts them back and says which ones changed.
+ * omx_abi_call6 (src/abi_guard.S) saves those registers, calls, compares, puts them back and says which ones changed.
  * The host's frame is safe after it; another plugin's state in the same process is not, so a plugin that changes one
  * is run only in a worker of its own.
  */
@@ -18,9 +18,9 @@
 
 /* the LV2 adapter's archive carries its own copy under its own name, so a host links both (src/abi_guard.S) */
 #if defined(OMX_ABI_LV2)
-#define omx_abi_call4 omx_lv2_abi_call4
-#define omx_abi_call4d omx_lv2_abi_call4d
-#define omx_abi_call4f omx_lv2_abi_call4f
+#define omx_abi_call6 omx_lv2_abi_call6
+#define omx_abi_call6d omx_lv2_abi_call6d
+#define omx_abi_call6f omx_lv2_abi_call6f
 #endif
 
 #ifdef __cplusplus
@@ -51,16 +51,17 @@ struct omx_abi_report
     uint64_t calls;         /* the calls that changed any */
 };
 
-/* fn(a0, a1, a2, a3), its return value, with the callee-saved registers kept for the caller; r may be NULL. The
- * floating-point argument registers reach fn as the caller left them (omx_abi_call4d). */
-uint64_t omx_abi_call4(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3);
+/* fn(a0, ..., a5), its return value, with the callee-saved registers kept for the caller; r may be NULL. The
+ * floating-point argument registers reach fn as the caller left them (omx_abi_call6d). */
+uint64_t omx_abi_call6(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                       uint64_t a4, uint64_t a5);
 
 /* the same code with fn's one floating-point argument d, which reaches fn in its first floating-point register (an LV2
  * instantiate's sample rate), and with fn's double result */
-uint64_t omx_abi_call4d(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
-                        double d);
-double omx_abi_call4f(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
-                      double d);
+uint64_t omx_abi_call6d(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                        uint64_t a4, uint64_t a5, double d);
+double omx_abi_call6f(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3,
+                      uint64_t a4, uint64_t a5, double d);
 
 /* the register's name for bit `bit` of a mask, NULL past the last */
 static inline const char *omx_abi_reg_name(unsigned bit)

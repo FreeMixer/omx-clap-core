@@ -202,3 +202,12 @@ OMX_CLAP_CORE_0.24
     omx_clap_host_thread_pool;
     omx_clap_host_thread_pool_late;
 } OMX_CLAP_CORE_0.21;
+
+/* added in 0.26.2: a plugin call that keeps the host's callee-saved registers and names what it changed */
+OMX_CLAP_CORE_0.26
+{
+  global:
+    omx_abi_call6;
+    omx_abi_call6d;
+    omx_abi_call6f;
+} OMX_CLAP_CORE_0.24;

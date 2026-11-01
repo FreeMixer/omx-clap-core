@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> */
 /*
- * omx_abi_call4: a call into a plugin that the plugin cannot break the host's frame with (src/abi_guard.h).
+ * omx_abi_call6: a call into a plugin that the plugin cannot break the host's frame with (src/abi_guard.h).
  *
- *   uint64_t omx_abi_call4(struct omx_abi_report *r, const void *fn, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3)
+ *   uint64_t omx_abi_call6(struct omx_abi_report *r, const void *fn, uint64_t a0, ..., uint64_t a5)
  *
- * calls fn(a0, a1, a2, a3) and returns what it returned. The registers the calling convention says a callee preserves
+ * calls fn(a0, ..., a5) and returns what it returned. The registers the calling convention says a callee preserves
  * are saved before the call, compared after it and put back, so a plugin that returns with one changed changes nothing
  * of the host's; r->last is the mask of those it changed (OMX_ABI_*), r->ever their union, r->calls the count of calls
  * that changed any. The floating-point argument registers are passed through untouched (an LV2 instantiate's rate).
@@ -14,32 +14,32 @@
  */
 
 #if defined(OMX_ABI_LV2)
-#define OMX_ABI_CALL4 omx_lv2_abi_call4     /* the LV2 adapter's archive carries its own copy, so both link in one host */
-#define OMX_ABI_CALL4D omx_lv2_abi_call4d
-#define OMX_ABI_CALL4F omx_lv2_abi_call4f
+#define OMX_ABI_CALL6 omx_lv2_abi_call6     /* the LV2 adapter's archive carries its own copy, so both link in one host */
+#define OMX_ABI_CALL6D omx_lv2_abi_call6d
+#define OMX_ABI_CALL6F omx_lv2_abi_call6f
 #else
-#define OMX_ABI_CALL4 omx_abi_call4
-#define OMX_ABI_CALL4D omx_abi_call4d
-#define OMX_ABI_CALL4F omx_abi_call4f
+#define OMX_ABI_CALL6 omx_abi_call6
+#define OMX_ABI_CALL6D omx_abi_call6d
+#define OMX_ABI_CALL6F omx_abi_call6f
 #endif
 
 /* the same code under the names of its other C signatures (src/abi_guard.h): one with a double argument, which arrives
  * in the first floating-point register and is left there for fn, and one returning fn's double */
 #define OMX_ABI_ALIASES \
-    .globl OMX_ABI_CALL4D; .set OMX_ABI_CALL4D, OMX_ABI_CALL4; \
-    .globl OMX_ABI_CALL4F; .set OMX_ABI_CALL4F, OMX_ABI_CALL4
+    .globl OMX_ABI_CALL6D; .set OMX_ABI_CALL6D, OMX_ABI_CALL6; \
+    .globl OMX_ABI_CALL6F; .set OMX_ABI_CALL6F, OMX_ABI_CALL6
 
 #if defined(__aarch64__)
 
 /* the frame, from sp: x29 x30 | x19..x28 | d8..d15 | report fpcr */
     .text
     .p2align 2
-    .globl OMX_ABI_CALL4
+    .globl OMX_ABI_CALL6
 #if defined(OMX_ABI_LV2)
-    .hidden OMX_ABI_CALL4
+    .hidden OMX_ABI_CALL6
 #endif
-    .type OMX_ABI_CALL4, %function
-OMX_ABI_CALL4:
+    .type OMX_ABI_CALL6, %function
+OMX_ABI_CALL6:
     .cfi_startproc
     stp x29, x30, [sp, #-176]!
     .cfi_def_cfa_offset 176
@@ -62,6 +62,8 @@ OMX_ABI_CALL4:
     mov x1, x3
     mov x2, x4
     mov x3, x5
+    mov x4, x6
+    mov x5, x7
     blr x9
     /* x0 and d0 hold what fn returned: only x9..x17 are used from here */
     mov x10, #0
@@ -116,7 +118,10 @@ OMX_ABI_CALL4:
     ldp d12, d13, [sp, #128]
     ldp d14, d15, [sp, #144]
     ldp x11, x9, [sp, #160]
+    /* FPCR is written back only when the plugin changed it: a write can stall the pipeline */
+    tbz x10, #18, 2f
     msr fpcr, x9
+2:
     /* the report: last, ever |= last, calls += (last != 0); none when r is NULL */
     cbz x11, 1f
     str w10, [x11, #4]
@@ -132,25 +137,26 @@ OMX_ABI_CALL4:
     .cfi_def_cfa_offset 0
     ret
     .cfi_endproc
-    .size OMX_ABI_CALL4, . - OMX_ABI_CALL4
+    .size OMX_ABI_CALL6, . - OMX_ABI_CALL6
     OMX_ABI_ALIASES
 #if defined(OMX_ABI_LV2)
-    .hidden OMX_ABI_CALL4D
-    .hidden OMX_ABI_CALL4F
+    .hidden OMX_ABI_CALL6D
+    .hidden OMX_ABI_CALL6F
 #endif
 
 #elif defined(__x86_64__)
 
-/* System V: rdi report, rsi fn, rdx rcx r8 r9 the arguments; xmm0..7 pass through. The frame, from rsp after the
- * pushes and the sub: [0] report [8] mxcsr [12] x87 control word [16..55] spare | r15 r14 r13 r12 rbx rbp | return */
+/* System V: rdi report, rsi fn, rdx rcx r8 r9 the first four arguments, the last two on the caller's stack; xmm0..7
+ * pass through. The frame, from rsp after the pushes and the sub: [0] report [8] mxcsr [12] x87 control word
+ * [16..55] spare | [56] r15 r14 r13 r12 rbx rbp | [104] return | [112] a4 [120] a5 */
     .text
     .p2align 4
-    .globl OMX_ABI_CALL4
+    .globl OMX_ABI_CALL6
 #if defined(OMX_ABI_LV2)
-    .hidden OMX_ABI_CALL4
+    .hidden OMX_ABI_CALL6
 #endif
-    .type OMX_ABI_CALL4, @function
-OMX_ABI_CALL4:
+    .type OMX_ABI_CALL6, @function
+OMX_ABI_CALL6:
     .cfi_startproc
     pushq %rbp
     .cfi_def_cfa_offset 16
@@ -171,6 +177,8 @@ OMX_ABI_CALL4:
     movq %rcx, %rsi
     movq %r8, %rdx
     movq %r9, %rcx
+    movq 112(%rsp), %r8
+    movq 120(%rsp), %r9
     callq *%rax
     /* rax and xmm0 hold what fn returned: only r10 r11 and the flags are used from here */
     xorl %r10d, %r10d
@@ -231,15 +239,15 @@ OMX_ABI_CALL4:
     .cfi_def_cfa_offset 8
     retq
     .cfi_endproc
-    .size OMX_ABI_CALL4, . - OMX_ABI_CALL4
+    .size OMX_ABI_CALL6, . - OMX_ABI_CALL6
     OMX_ABI_ALIASES
 #if defined(OMX_ABI_LV2)
-    .hidden OMX_ABI_CALL4D
-    .hidden OMX_ABI_CALL4F
+    .hidden OMX_ABI_CALL6D
+    .hidden OMX_ABI_CALL6F
 #endif
 
 #else
-#error "omx_abi_call4 has no implementation for this architecture"
+#error "omx_abi_call6 has no implementation for this architecture"
 #endif
 
     .section .note.GNU-stack, "", %progbits

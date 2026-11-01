@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h src/abi_guard.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
 CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
@@ -136,7 +136,7 @@ LDFLAGS += -Wl,--no-undefined
 SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c src/window.c
 OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c src/thread_pool.c
-CORE_OBJ = $(CORE_SRC:.c=.o)
+CORE_OBJ = $(CORE_SRC:.c=.o) src/abi_guard.o
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
 # and needs neither jack nor the protocol library
@@ -152,7 +152,7 @@ LV2_CORE_LIB = build/lv2/liblv2core.a
 LV2_HEADERS = lv2/clap/omx_clap_lv2.h lv2/core/omx_lv2_features.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
 LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c lv2/core/lv2_rtmempool.c
-LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o)
+LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o) lv2/core/abi_guard.o
 LV2_CLAP_SRC = lv2/clap/lv2_clap.c
 LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)
 # the lilv the tests' lazy-load arm points a late symlink at
@@ -198,6 +198,13 @@ src/clap_host.o src/main.o src/scan.o: VERSION
 
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
+
+# the guarded plugin call (src/abi_guard.S): the core's, and the LV2 adapter's own copy under its own names, hidden
+src/abi_guard.o: src/abi_guard.S
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+lv2/core/abi_guard.o: src/abi_guard.S
+	$(CC) $(CFLAGS) -DOMX_ABI_LV2 -c -o $@ $<
 
 # the scanner's field dump reads an LV2 plugin through the adapter's world: lv2/core's header and the LV2 headers it names
 src/scan_fields.o: src/scan_fields.c
@@ -386,7 +393,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
+test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -1382,3 +1389,18 @@ test-jack-presets: $(PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fak
 .PHONY: test-state-busy
 test-state-busy: tests/clap_state_busy_test tests/fake_state.clap
 	./tests/clap_state_busy_test $(abspath tests/fake_state.clap)
+
+# the guarded plugin call against plugins that break the calling convention (tests/abi_guard_test.c), and its cost per
+# call (tests/abi_guard_bench.c, not a gate: it prints)
+tests/abi_guard_test: tests/abi_guard_test.c src/abi_guard.S src/abi_guard.h
+	$(CC) $(CFLAGS) -o $@ tests/abi_guard_test.c src/abi_guard.S
+
+tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
+	$(CC) $(CFLAGS) -o $@ tests/abi_guard_bench.c src/abi_guard.S
+
+.PHONY: test-abi-guard bench-abi-guard
+test-abi-guard: tests/abi_guard_test
+	tests/abi_guard_test
+
+bench-abi-guard: tests/abi_guard_bench
+	tests/abi_guard_bench

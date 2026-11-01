@@ -1,5 +1,7 @@
 *.o
 omx-clap-host
+tests/abi_guard_test
+tests/abi_guard_bench
 tests/clap_host_test
 tests/clap_ext_test
 tests/resource_hints_test

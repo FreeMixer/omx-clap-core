@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> */
 /*
- * omx_abi_call4 (src/abi_guard.S) against plugins that break the calling convention: each one below, in raw assembly
+ * omx_abi_call6 (src/abi_guard.S) against plugins that break the calling convention: each one below, in raw assembly
  * since no C function can, returns with a callee-saved register changed. Through the guard the caller's value comes
  * back, the return value passes, and the report names the register; a plugin that keeps the convention reports none.
  */
@@ -54,6 +54,17 @@ typedef uint64_t last_t;
 static uint64_t fpctl(void) { uint32_t v; __asm__ volatile("stmxcsr %0" : "=m"(v)); return v; }
 #endif
 
+/* six arguments in their places, and with a double beside them: LV2's work() takes five, CLAP's activate a double */
+__attribute__((noinline)) static uint64_t six(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e, uint64_t f)
+{
+    return a + 10 * b + 100 * c + 1000 * d + 10000 * e + 100000 * f;
+}
+__attribute__((noinline)) static double six_and_rate(uint64_t a, uint64_t b, uint64_t c, uint64_t d, uint64_t e,
+                                                     uint64_t f, double rate)
+{
+    return (double)six(a, b, c, d, e, f) + rate;
+}
+
 static void through(const char *name, uint64_t (*fn)(uint64_t), uint32_t expect)
 {
     struct omx_abi_report r = { 0, 0, 0 };
@@ -64,12 +75,12 @@ static void through(const char *name, uint64_t (*fn)(uint64_t), uint32_t expect)
 #if defined(__aarch64__)
     register last_t last __asm__(FP_REG) = LAST_VALUE;
     __asm__ volatile("" : "+r"(kept), "+w"(last));
-    const uint64_t got = omx_abi_call4(&r, (const void *)fn, 41, 0, 0, 0);
+    const uint64_t got = omx_abi_call6(&r, (const void *)fn, 41, 0, 0, 0, 0, 0);
     __asm__ volatile("" : "+r"(kept), "+w"(last));
 #else
     register last_t last __asm__(FP_REG) = LAST_VALUE;
     __asm__ volatile("" : "+r"(kept), "+r"(last));
-    const uint64_t got = omx_abi_call4(&r, (const void *)fn, 41, 0, 0, 0);
+    const uint64_t got = omx_abi_call6(&r, (const void *)fn, 41, 0, 0, 0, 0, 0);
     __asm__ volatile("" : "+r"(kept), "+r"(last));
 #endif
     snprintf(what, sizeof what, "%s: the caller's " FP_REG " comes back", name);
@@ -93,10 +104,13 @@ int main(void)
     CHECK(fpctl() == before, "the floating-point control is the caller's again after it");
 
     struct omx_abi_report r = { 0, 0, 0 };
-    CHECK(omx_abi_call4f(&r, (const void *)abi_doubles, 0, 0, 0, 0, 24000.0) == 48000.0, "a double argument and result pass through");
+    CHECK(omx_abi_call6f(&r, (const void *)abi_doubles, 0, 0, 0, 0, 0, 0, 24000.0) == 48000.0, "a double argument and result pass through");
     CHECK(r.ever == 0, "and report nothing");
 
-    CHECK(omx_abi_call4(NULL, (const void *)abi_breaks_int, 1, 0, 0, 0) == 2, "a NULL report is allowed");
+    CHECK(omx_abi_call6(&r, (const void *)six, 1, 2, 3, 4, 5, 6) == 654321, "six arguments reach the plugin in their places");
+    CHECK(omx_abi_call6f(&r, (const void *)six_and_rate, 1, 2, 3, 4, 5, 6, 0.5) == 654321.5,
+          "and with a double beside them");
+    CHECK(omx_abi_call6(NULL, (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0) == 2, "a NULL report is allowed");
     CHECK(strcmp(omx_abi_reg_name(0), INT_REG) == 0 && omx_abi_reg_name(OMX_ABI_REGS) == NULL, "the names of the bits");
     printf("%d failure(s)\n", failures);
     return failures != 0;

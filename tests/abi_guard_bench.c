@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> */
 /*
- * What omx_abi_call4 costs per call: an empty plugin call, and a gain over one 256-frame block (a run() with work in
+ * What omx_abi_call6 costs per call: an empty plugin call, and a gain over one 256-frame block (a run() with work in
  * it), each called directly and through the guard, the median of seven runs of N calls. Prints ns per call.
  *
  *   tests/abi_guard_bench [N]     (default 20000000)
@@ -33,7 +33,7 @@ static double median_ns(uint64_t (*fn)(uint64_t), uint64_t arg, long n, int guar
     for (int k = 0; k < 7; k++) {
         uint64_t sink = 0;
         const double t0 = now();
-        if (guarded) for (long i = 0; i < n; i++) sink += omx_abi_call4(&r, (const void *)fn, arg, 0, 0, 0);
+        if (guarded) for (long i = 0; i < n; i++) sink += omx_abi_call6(&r, (const void *)fn, arg, 0, 0, 0, 0, 0);
         else for (long i = 0; i < n; i++) sink += fn(arg);
         runs[k] = (now() - t0) / (double)n;
         __asm__ volatile("" : : "r"(sink));
