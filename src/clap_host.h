@@ -648,9 +648,10 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_thread_pool_late(const struct omx_clap_in
  * thread, never logged there. */
 OMX_CLAP_EXPORT int omx_clap_host_abi_clobber(const struct omx_clap_instance *in, struct omx_abi_clobber *out);
 
-/* the instance's guard, writable from a function that holds the instance const: the record is the guard's own state */
+/** The instance's guard (ABI 20), writable from a function that holds the instance const: the record is the guard's own
+ * state. */
 #define OMX_ABI_GUARD_OF(in) ((struct omx_abi_guard *)&(in)->abi)
-/* the stage's guard_off in an instance: the bytes from its stage to its guard */
+/** The stage's guard_off in an instance (ABI 20): the bytes from its stage to its guard. */
 #define OMX_CLAP_GUARD_OFF ((uint32_t)(offsetof(struct omx_clap_instance, abi) - offsetof(struct omx_clap_instance, stage)))
 
 /** The version of the library at run time, major * 10000 + minor * 100 + patch. */
