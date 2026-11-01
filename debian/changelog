@@ -1,3 +1,19 @@
+omx-clap-host (0.26.2) unstable; urgency=medium
+
+  * Every call into a plugin goes through a guard that saves the registers
+    the calling convention says a function must keep (x19-x28, d8-d15 and
+    FPCR on aarch64; rbx, rbp, r12-r15, the MXCSR and x87 control words and
+    the direction flag on x86-64), compares them on return and puts them
+    back. A plugin that changed one is recorded once per instance, from the
+    audio thread with no lock and no log, and the worker says abi_clobber
+    with the registers, the call and the block, so a supervisor runs that
+    plugin alone. The LV2 adapter guards its calls the same way, lilv's
+    state save and restore included (#449).
+  * abi_guard.h ships in the -devel and lv2-devel packages, for a host that
+    builds its own calls on the same guard.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sun, 01 Nov 2026 23:00:00 +0100
+
 omx-clap-host (0.26.1) unstable; urgency=medium
 
   * One JACK client per worker: the members of a worker share its client

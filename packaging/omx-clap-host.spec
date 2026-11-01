@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.26.1
+Version:        0.26.2
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -180,6 +180,17 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.2-1
+- Every call into a plugin goes through a guard that saves the registers the
+  calling convention says a function must keep (x19-x28, d8-d15 and FPCR on
+  aarch64; rbx, rbp, r12-r15, the MXCSR and x87 control words and the direction
+  flag on x86-64), compares them on return and puts them back. A plugin that
+  changed one is recorded once per instance, from the audio thread with no lock
+  and no log, and the worker says abi_clobber with the registers, the call and
+  the block, so a supervisor runs that plugin alone. The LV2 adapter guards its
+  calls the same way, lilv's state save and restore included (#449).
+- abi_guard.h ships in the -devel and lv2-devel packages.
+
 * Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.1-1
 - One JACK client per worker: the members of a worker share its client instead of
   opening one each, which saves a client's start (about 24 ms on a Raspberry Pi 5)
