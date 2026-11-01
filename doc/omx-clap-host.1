@@ -179,6 +179,15 @@ for a helper past the block is counted with the xruns.
 .BR \-V ", " \-\-version
 Print the version and exit.
 .TP
+.B \-\-capabilities
+Print what a planner may ask of this host, one word a line, and exit:
+.B chain_expect
+(a member joins a chain with no JACK client of its own) and
+.B mono_in_stereo
+(a member of one channel in and out runs inside a stereo chain, its input
+the sum of both channels and its output given to both). A planner reads
+this list, not the version.
+.TP
 .BR \-h ", " \-\-help
 Print the usage and exit.
 .SH PROTOCOL

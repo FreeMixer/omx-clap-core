@@ -87,7 +87,7 @@
 #define OMX_CLAP_CHAIN_PASSED           1       ///< process: the cycle was longer than OMX_CLAP_CHAIN_FRAMES_MAX and passed dry
 #define OMX_CLAP_CHAIN_ERR_ABI          (-1)    ///< a structure of an ABI the library does not know, or of another size
 #define OMX_CLAP_CHAIN_ERR_ARG          (-2)    ///< a NULL, a position past the end, a member neither or both kinds
-#define OMX_CLAP_CHAIN_ERR_WIDTH        (-3)    ///< a member's input or output is not as wide as the chain, or a chain
+#define OMX_CLAP_CHAIN_ERR_WIDTH        (-3)    ///< a member's input or output is not as wide as the chain (a mono member in a stereo chain excepted), or a chain
                                                 ///< width out of 1 to CLAP_HOST_PORT_CHANNELS
 #define OMX_CLAP_CHAIN_ERR_FULL         (-4)    ///< the chain holds OMX_CLAP_CHAIN_MEMBERS_MAX members already
 #define OMX_CLAP_CHAIN_ERR_NO_MEMBER    (-5)    ///< no member by that id, or no member at that position

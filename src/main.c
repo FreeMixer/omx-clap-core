@@ -591,6 +591,7 @@ int main(int argc, char **argv)
         {"show-ui", no_argument, 0, 'S'},
         {"thread-pool", required_argument, 0, 'T'},
         {"version", no_argument, 0, 'V'},
+        {"capabilities", no_argument, 0, 'C'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
@@ -673,6 +674,20 @@ int main(int argc, char **argv)
                 exit(EXIT_SUCCESS);
                 break;
 
+            case 'C':
+                /* what a planner may ask of this host, one word a line, read instead of a version:
+                 * chain_expect     a member joins a chain with no JACK client of its own (add ... chain_expect)
+                 * mono_in_stereo   a member of 1 channel in and out runs inside a stereo chain, its input the sum
+                 *                  of both channels and its output given to both (docs/chain.md) */
+                printf("chain_expect\nmono_in_stereo\n");
+                exit(EXIT_SUCCESS);
+                break;
+
+            case '?':
+                /* getopt said which option it did not know: an error, never a host started on the rest */
+                fprintf(stderr, "Try '%s --help'.\n", argv[0]);
+                exit(EXIT_FAILURE);
+
             case 'h':
                 printf(
                     "Usage: %s [-vhtS] [-p <port>] [-f <port>] [-s <dir>] [-c <channels>] [-i <off|us>]\n"
@@ -698,6 +713,8 @@ int main(int argc, char **argv)
                     "                                 run serial), on (every plugin that asks) or off\n"
                     "  -n, --nofork                   run in nonforking mode\n"
                     "  -V, --version                  print program version and exit\n"
+                    "      --capabilities             print what a planner may ask of this host, one word a\n"
+                    "                                 line (chain_expect, mono_in_stereo), and exit\n"
                     "  -h, --help                     print this help and exit\n"
                     "A crash ends the host without a core dump; " QUIET_DEATH_KEEP_CORES_ENV "=1 keeps it.\n",
                 argv[0]);

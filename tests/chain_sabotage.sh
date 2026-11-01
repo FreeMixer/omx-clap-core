@@ -51,7 +51,7 @@ arm() {
 }
 
 # 1. a bypassed member is not in the walk: built into the plan anyway, it is called and its output reaches the chain's
-arm bypass-walk '/^static void publish/,/^}/s/if (!chain->slot\[i\]\.bypass)$/if (1)/' \
+arm bypass-walk '/^static void publish/,/^}/{s/if (!chain->slot\[i\]\.bypass || chain->slot\[i\]\.mono)$/if (1)/;s/const int runs = !chain->slot\[i\]\.bypass;/const int runs = 1;/}' \
     'the bypassed members are never called'
 
 # 2. a bypassed member adds no latency: counted anyway

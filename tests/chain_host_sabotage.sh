@@ -134,11 +134,11 @@ arm head-remove src/effects.c 's/^        if (effect->chain)$/        if (0)/' \
 # the library's own guard (OMX_CLAP_CHAIN_ERR_WIDTH) when it would join, so the host's check shows on a head of
 # another width, which the library refuses only once the chain has formed and the member would join, answering the
 # same code: the chain formed is what shows
-arm width src/effects.c 's/if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)/if (0)/' \
+arm width src/effects.c 's/^        if (!member_fits(effect, head))$/        if (0)/' \
     'the refusals formed no chain 8'
 
 # 8. a member with a note port is no refusal (#400): the refusal of the first version taken back
-arm note-port src/effects.c 's/^        \/\/ one width end to end: every member.s main input and output as wide as the head.s main output$/        if (i > 0 \&\& (effect->midi_port || effect->midi_out_port))\n            return ERR_INVALID_OPERATION;\n&/' \
+arm note-port src/effects.c 's/^        \/\/ every member.s main input and output as wide as the head.s main output, or a mono member of a stereo walk$/        if (i > 0 \&\& (effect->midi_port || effect->midi_out_port))\n            return ERR_INVALID_OPERATION;\n&/' \
     'chain: chain 9 15 13 -> '
 
 # 8b. and the member gets its note port again in a client of its own: the client made ready for it registers none
