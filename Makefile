@@ -874,6 +874,11 @@ test-jack-pool: $(PROG) tests/fake_pool.clap
 # the xruns line over jack in the same kind of namespace (#371): the xrun callback the host registered, called by a
 # preloaded test double (PipeWire's libjack calls it only when the driver reports an xrun, which a private daemon with no
 # sound card never does), and the line on the feedback port: its grammar, its count, its once a second
+# the abi_clobber line over jack: a plugin that returns with a callee-saved register changed, said once on the feedback
+# socket, the host alive (tests/jack_abi_e2e.sh)
+test-jack-abi: $(PROG) tests/fake.clap
+	OMX_HOST_EVENTS_ABI_CLOBBER='$(call host_declared,OMX_HOST_EVENTS_ABI_CLOBBER)' ./tests/jack_abi_e2e.sh
+
 test-jack-xruns: $(PROG) tests/jack_xrun_shim.so tests/fake.clap
 	OMX_HOST_EVENTS_XRUNS='$(call host_declared,OMX_HOST_EVENTS_XRUNS)' ./tests/jack_xruns_e2e.sh
 

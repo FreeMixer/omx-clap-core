@@ -347,6 +347,15 @@ jobs:
             echo "::warning::test-jack-xruns SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # the abi_clobber line: a plugin that returns with a callee-saved register changed, said once, the host alive
+      - name: Test the abi_clobber line over jack
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-abi
+          else
+            echo "::warning::test-jack-abi SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # The command socket's framing against tests/socket_conformance.py: a command of exactly the receive buffer, many
       # commands in one write, one command over many writes, clients that leave mid-command, the size limit and a random
       # chunking fuzz (#103). It checks the protocol library the mod-host-protocol step built, which carries
