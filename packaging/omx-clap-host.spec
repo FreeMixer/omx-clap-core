@@ -181,6 +181,9 @@ make test-lv2
 
 %changelog
 * Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.1-1
+- One JACK client per worker: the members of a worker share its client instead of
+  opening one each, which saves a client's start (about 24 ms on a Raspberry Pi 5)
+  and its shared memory per plugin (#446).
 - A mono member runs inside a stereo chain: its input is the sum of both
   channels and its output goes to both, as Zynthian wires a mono plugin between
   stereo ones. The run stays one worker instead of three (#361).
