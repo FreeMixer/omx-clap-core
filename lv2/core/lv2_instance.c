@@ -1221,7 +1221,8 @@ static int options_tell(struct lv2_instance *in, double rate, uint32_t min_frame
         return 0;
     if (options_build(in, rate, min_frames, max_frames) != 0)
         return -1;
-    if (in->options_iface->set(in->handle, in->options.opts) != LV2_OPTIONS_SUCCESS)
+    if (OMX_ABI_CALL(&in->abi, "options.set", in->options_iface->set, in->handle, in->options.opts)
+        != LV2_OPTIONS_SUCCESS)
         return -1;
     atomic_fetch_add_explicit(&in->options_told, 1u, memory_order_relaxed);
     return 0;
@@ -1503,8 +1504,12 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
                                                    OMX_ABI_A(p->bundle_path), OMX_ABI_A(in->feature_ptrs), 0, rate);
     if (!in->handle)
         goto refuse;
-    in->worker = in->ring_mem && d->extension_data ? d->extension_data(LV2_WORKER__interface) : NULL;
-    in->options_iface = d->extension_data ? d->extension_data(LV2_OPTIONS__interface) : NULL;
+    in->worker = in->ring_mem && d->extension_data
+                     ? OMX_ABI_CALL(&in->abi, "extension_data", d->extension_data, LV2_WORKER__interface)
+                     : NULL;
+    in->options_iface = d->extension_data ? OMX_ABI_CALL(&in->abi, "extension_data", d->extension_data,
+                                                         LV2_OPTIONS__interface)
+                                          : NULL;
     if (in->options_iface && !in->options_iface->set)
         in->options_iface = NULL;
     if (in->worker && !in->worker->work)
@@ -1516,7 +1521,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     if (buffers_make(in) != 0)
         goto refuse;
     ports_connect(in, max_frames);
-    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->state_ptrs) != 0)
+    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(&in->abi, p, in->handle, in->state_ptrs) != 0)
         goto drop;
     // a new handle has never seen a patch value: the first block sends each value the host wrote or the plugin reported,
     // and every text the host wrote. A value nobody has set stays the plugin's: a TTL's lv2:default need not be its state
@@ -1694,7 +1699,8 @@ static int state_apply(struct lv2_instance *in)
 {
     uint32_t k;
 
-    if (lv2_plugin_state_restore(in->plugin, in->handle, in->controls, in->state_text, in->state_ptrs, &in->map) != 0)
+    if (lv2_plugin_state_restore(&in->abi, in->plugin, in->handle, in->controls, in->state_text, in->state_ptrs,
+                                 &in->map) != 0)
         return -1;
     for (k = 0; k < in->plugin->n_controls; k++)
         atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
@@ -1868,7 +1874,7 @@ char *lv2_instance_state_save(struct lv2_instance *in)
 {
     if (!in || !in->handle)
         return NULL;
-    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->state_ptrs, &in->map, &in->unmap,
+    return lv2_plugin_state_text(&in->abi, in->plugin, in->handle, in->controls, in->state_ptrs, &in->map, &in->unmap,
                                  in->dir, in->saved_dir);
 }
 
@@ -1895,7 +1901,7 @@ int lv2_instance_state_restore_live(struct lv2_instance *in, const char *text, c
     }
     // restore() beside run(), as the plugin declared it may be; it finishes through the worker its features carry
     g_in_restore = in;
-    rc = lv2_plugin_state_restore(in->plugin, in->handle, in->controls, text, in->state_ptrs, &in->map);
+    rc = lv2_plugin_state_restore(&in->abi, in->plugin, in->handle, in->controls, text, in->state_ptrs, &in->map);
     g_in_restore = NULL;
     if (rc != 0)
     {

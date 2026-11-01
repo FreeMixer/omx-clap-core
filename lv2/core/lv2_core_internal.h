@@ -105,19 +105,24 @@ int lv2_log_emit(const struct omx_lv2_feature_options *o, LV2_URID type, const c
 LV2_URID lv2_urid_lookup(const char *uri);
 const char *lv2_urid_unlookup(LV2_URID id);
 
-/* state:loadDefaultState over lilv-state, with the features `instantiate` was handed: 0, or -1 */
-int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features);
+struct omx_abi_guard;
+
+/* state:loadDefaultState over lilv-state, with the features `instantiate` was handed, through the instance's guard ag
+ * (lilv calls into the plugin): 0, or -1 */
+int lv2_plugin_default_state(struct omx_abi_guard *ag, const struct lv2_plugin *p, LV2_Handle handle,
+                             const LV2_Feature *const *features);
 
 /* the state of a live handle as LV2 Turtle (malloc'd), read from its state:interface and its input controls: NULL on
  * failure. A file under `scratch_dir` the state names is copied to `copy_dir` and named by the copy's path (NULL: no
- * directory, every path as the plugin gave it). */
-char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const float *controls,
-                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap,
-                            const char *scratch_dir, const char *copy_dir);
+ * directory, every path as the plugin gave it). The plugin is called through ag. */
+char *lv2_plugin_state_text(struct omx_abi_guard *ag, const struct lv2_plugin *p, LV2_Handle handle,
+                            const float *controls, const LV2_Feature *const *features, LV2_URID_Map *map,
+                            LV2_URID_Unmap *unmap, const char *scratch_dir, const char *copy_dir);
 
-/* the state text restored into a live handle and its input controls: 0, or -1 when the text does not parse */
-int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, float *controls, const char *text,
-                             const LV2_Feature *const *features, LV2_URID_Map *map);
+/* the state text restored into a live handle and its input controls, the plugin called through ag: 0, or -1 when the
+ * text does not parse */
+int lv2_plugin_state_restore(struct omx_abi_guard *ag, const struct lv2_plugin *p, LV2_Handle handle, float *controls,
+                             const char *text, const LV2_Feature *const *features, LV2_URID_Map *map);
 
 /* the state of a preset (malloc'd LV2 Turtle) for this plugin, NULL when the bundle holds no such preset applying to it */
 char *lv2_plugin_preset_text(const struct lv2_plugin *p, const char *uri, LV2_URID_Map *map, LV2_URID_Unmap *unmap);
