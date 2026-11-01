@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.26.0
+Version:        0.26.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -180,6 +180,18 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.1-1
+- One JACK client per worker: the members of a worker share its client instead of
+  opening one each, which saves a client's start (about 24 ms on a Raspberry Pi 5)
+  and its shared memory per plugin (#446).
+- A mono member runs inside a stereo chain: its input is the sum of both
+  channels and its output goes to both, as Zynthian wires a mono plugin between
+  stereo ones. The run stays one worker instead of three (#361).
+- --capabilities prints what a planner may ask of the host, one word a line:
+  chain_expect and mono_in_stereo. A planner reads it instead of the version.
+- An option the host does not know is now an error. Before, it was ignored and
+  the host started on the rest.
+
 * Sat Oct 31 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.0-1
 - chain_expect <instance> <chain>: the next add of the instance joins that chain
   at its end, in the head's client, with no JACK client of its own. plugin-hostd
