@@ -86,13 +86,14 @@
  * resource_hints and resource_hints_why, omx_clap_host_resource_hints; 18: the audio role's named slot (#104), the
  * instance's audio_slot, omx_clap_host_name_slot; 19: the thread pool (#395), the instance's pool_use, pool_priority,
  * pool_held and pool_late, struct omx_clap_thread_pool_info, omx_clap_host_thread_pool_use, omx_clap_host_thread_pool and
- * omx_clap_host_thread_pool_late).
+ * omx_clap_host_thread_pool_late; 20: every call into the plugin through the guard (abi_guard.h), the stage's abi and
+ * omx_clap_host_abi_clobber).
  * configure accepts every ABI from OMX_CLAP_CORE_ABI_OLDEST up to its own, so a consumer of an older header keeps
  * working, and refuses a newer one: a consumer whose inline code reaches an appended field is refused by a library
  * whose instance lacks it. The soname-1 train runs 12 to 14 across the PRs of #92, OLDEST following ABI until the
  * first libomx-clap-core.so.1 release, which freezes it: nothing of the major is released, and the stage, embedded in
  * the instance, grows inside it. A removal or a reorder is a new major of the library. */
-#define OMX_CLAP_CORE_ABI               19u
+#define OMX_CLAP_CORE_ABI               20u
 #define OMX_CLAP_CORE_ABI_OLDEST        18u  ///< the oldest header ABI the library accepts: follows OMX_CLAP_CORE_ABI until
                                              ///< the first release of libomx-clap-core.so.1
 
@@ -635,6 +636,13 @@ OMX_CLAP_EXPORT void omx_clap_host_thread_pool(struct omx_clap_thread_pool_info 
 
 /** The instance's requests whose wait for the helpers ran past the block (ABI 19): an xrun-class count. Any thread. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_thread_pool_late(const struct omx_clap_instance *in);
+
+/** The first call into the plugin that returned with a callee-saved register changed (ABI 20): its registers
+ * (OMX_ABI_* bits, omx_abi_reg_name), the plugin function and the block it happened in. The guard put them back, so the
+ * host's frame is whole; other plugins' state in the same process is not covered, so such a plugin is run only in a
+ * worker of its own. 1 and *out filled when there was one, 0 otherwise. Any thread: recorded lock-free by the audio
+ * thread, never logged there. */
+OMX_CLAP_EXPORT int omx_clap_host_abi_clobber(const struct omx_clap_instance *in, struct omx_abi_clobber *out);
 
 /** The version of the library at run time, major * 10000 + minor * 100 + patch. */
 OMX_CLAP_EXPORT uint32_t omx_clap_core_version(void);

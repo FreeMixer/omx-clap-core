@@ -91,6 +91,7 @@
 #include "clap_host_limits.h"
 #include "lv2_core.h"
 #include "omx_clap_midi.h"
+#include "abi_guard.h"
 #include "omx_clap_lv2.h"
 #include "omx_clap_ext.h"
 // the contract's canonical serialisation and fingerprint, the library's own (internal, header-only); the face uses a few
@@ -1817,6 +1818,13 @@ uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t
     if (buf && size)
         snprintf(buf, size, "%s", dir);
     return (uint32_t)strlen(dir);
+}
+
+int omx_clap_lv2_abi_clobber(const clap_plugin_t *plugin, struct omx_abi_clobber *out)
+{
+    const struct shim *s = plugin && plugin->process == plugin_process && plugin->plugin_data ? SHIM_OF(plugin) : NULL;
+
+    return s && s->in ? lv2_instance_abi_clobber(s->in, out) : 0;
 }
 
 int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX])

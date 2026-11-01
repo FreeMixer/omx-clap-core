@@ -586,11 +586,12 @@ static void put_voice_info(FILE *out, struct omx_clap_instance *instance)
     clap_voice_info_t info;
     bool read;
 
-    if (!ext || !ext->get || !plugin->activate(plugin, SCAN_RATE, 1, SCAN_MAX_FRAMES))
+    if (!ext || !ext->get || !OMX_ABI_BOOL(omx_abi_gd(NULL, "activate", (const void *)plugin->activate, OMX_ABI_A(plugin), 1,
+                                                                   SCAN_MAX_FRAMES, 0, SCAN_RATE)))
         return;
     memset(&info, 0, sizeof(info));
     read = ext->get(plugin, &info) && info.voice_count >= 1 && info.voice_count <= info.voice_capacity;
-    plugin->deactivate(plugin);
+    omx_abi_g(NULL, "deactivate", (const void *)plugin->deactivate, OMX_ABI_A(plugin), 0, 0, 0, 0, 0);
     if (!read)
         return;
     if (g_json)

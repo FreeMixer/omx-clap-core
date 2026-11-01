@@ -76,6 +76,7 @@
 #include <clap/plugin.h>
 #include <clap/process.h>
 
+#include "abi_guard.h"
 #include "hosted_stage.h"
 #include "omx_clap_midi.h"
 
@@ -266,6 +267,9 @@ struct omx_clap_stage
     // ABI 15: the pass-through placement (#270): the plugin declares no audio port, the main pair is the host's
     uint32_t passthrough;                               ///< 1: the plugin is handed no audio buffer; after it runs, the main input is
                                                         ///< copied onto the main output, so the lane passes through bit for bit
+    // ABI 20: every call into the plugin goes through the guard (abi_guard.h): the callee-saved registers it changes are
+    // put back, and the first change is recorded lock-free for the control thread (omx_clap_host_abi_clobber)
+    struct omx_abi_guard abi;                           ///< the plugin's guard; abi.block counts its process calls
 };
 
 /**
@@ -1641,7 +1645,9 @@ static inline int omx_clap_run_plugin_status(struct omx_clap_stage *s, uint32_t 
     s->proc.frames_count = n;
     if (s->note_inputs)
         atomic_store_explicit(&s->notes_visible, 1, memory_order_release);
-    status = s->plugin->process(s->plugin, &s->proc);
+    status = (clap_process_status)(int32_t)omx_abi_g(&s->abi, "process", (const void *)s->plugin->process,
+                                                     OMX_ABI_A(s->plugin), OMX_ABI_A(&s->proc), 0, 0, 0, 0);
+    s->abi.block++;
     if (s->note_inputs)
     {
         atomic_store_explicit(&s->notes_visible, 0, memory_order_release);
@@ -1861,7 +1867,7 @@ static inline int omx_clap_run_locked_status(struct omx_clap_stage *s, float *l,
     if (st == OMX_CLAP_ARMED && atomic_compare_exchange_strong(&s->state, &st, OMX_CLAP_PROCESSING))
     {
         // the first block after publish: the RT takes the audio role
-        if (s->plugin->start_processing == NULL || s->plugin->start_processing(s->plugin))
+        if (s->plugin->start_processing == NULL || OMX_ABI_BOOL(omx_abi_g(&s->abi, "start_processing", (const void *)s->plugin->start_processing, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0)))
         {
             st = OMX_CLAP_PROCESSING;
         }
@@ -1875,7 +1881,7 @@ static inline int omx_clap_run_locked_status(struct omx_clap_stage *s, float *l,
     if (st == OMX_CLAP_STOPPING && atomic_compare_exchange_strong(&s->state, &st, OMX_CLAP_STOPPED))
     {
         if (s->plugin->stop_processing)
-            s->plugin->stop_processing(s->plugin);
+            omx_abi_g(&s->abi, "stop_processing", (const void *)s->plugin->stop_processing, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0);
         st = OMX_CLAP_STOPPED;
     }
     if (st != OMX_CLAP_PROCESSING)
@@ -2044,7 +2050,7 @@ static inline uint32_t omx_clap_take_state(struct omx_clap_stage *s)
 
     if (st == OMX_CLAP_ARMED && atomic_compare_exchange_strong(&s->state, &st, OMX_CLAP_PROCESSING))
     {
-        if (s->plugin->start_processing == NULL || s->plugin->start_processing(s->plugin))
+        if (s->plugin->start_processing == NULL || OMX_ABI_BOOL(omx_abi_g(&s->abi, "start_processing", (const void *)s->plugin->start_processing, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0)))
         {
             st = OMX_CLAP_PROCESSING;
         }
@@ -2058,7 +2064,7 @@ static inline uint32_t omx_clap_take_state(struct omx_clap_stage *s)
     if (st == OMX_CLAP_STOPPING && atomic_compare_exchange_strong(&s->state, &st, OMX_CLAP_STOPPED))
     {
         if (s->plugin->stop_processing)
-            s->plugin->stop_processing(s->plugin);
+            omx_abi_g(&s->abi, "stop_processing", (const void *)s->plugin->stop_processing, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0);
         st = OMX_CLAP_STOPPED;
     }
     return st;
@@ -2241,14 +2247,14 @@ static inline uint32_t omx_clap_prime(struct omx_clap_stage *s, uint32_t n)
         return UINT32_MAX;
     if (atomic_load_explicit(&s->state, memory_order_acquire) != OMX_CLAP_IDLE)
         return UINT32_MAX;
-    if (s->plugin->start_processing && !s->plugin->start_processing(s->plugin))
+    if (s->plugin->start_processing && !OMX_ABI_BOOL(omx_abi_g(&s->abi, "start_processing", (const void *)s->plugin->start_processing, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0)))
         return UINT32_MAX;
     omx_clap_prime_touch(s);
     bad = omx_hosted_prime(&s->h, n, omx_clap_prime_block, s);
     if (s->plugin->reset)
-        s->plugin->reset(s->plugin);
+        omx_abi_g(&s->abi, "reset", (const void *)s->plugin->reset, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0);
     if (s->plugin->stop_processing)
-        s->plugin->stop_processing(s->plugin);
+        omx_abi_g(&s->abi, "stop_processing", (const void *)s->plugin->stop_processing, OMX_ABI_A(s->plugin), 0, 0, 0, 0, 0);
     return bad;
 }
 

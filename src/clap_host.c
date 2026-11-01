@@ -143,7 +143,8 @@ static struct omx_clap_binary *binary_adopt(const char *path, void *so, const cl
     const clap_plugin_factory_t *factory;
     struct omx_clap_binary *binary;
 
-    if (!entry || !clap_version_is_compatible(entry->clap_version) || !entry->init || !entry->init(path))
+    if (!entry || !clap_version_is_compatible(entry->clap_version) || !entry->init
+        || !OMX_ABI_BOOL(omx_abi_g(NULL, "entry.init", (const void *)entry->init, OMX_ABI_A(path), 0, 0, 0, 0, 0)))
     {
         snprintf(reason, reason_size, "can't init %s", path);
         if (so)
@@ -1393,10 +1394,10 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
         in->fds[i].fd = -1;     // before init, which may register one
     in->plugin = bin->factory->create_plugin(bin->factory, &in->host, desc->id);
-    if (!in->plugin || !in->plugin->init(in->plugin))
+    if (!in->plugin || !OMX_ABI_BOOL(omx_abi_g(&in->stage.abi, "init", (const void *)in->plugin->init, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0)))
     {
         if (in->plugin)
-            in->plugin->destroy(in->plugin);
+            omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         unoffered_forget(in);
         binary_unref(bin);
         free(in);
@@ -1604,7 +1605,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     refused = describe_ports(in);
     if (refused)
     {
-        in->plugin->destroy(in->plugin);
+        omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         unoffered_forget(in);
         binary_unref(bin);
         free(in);
@@ -1616,7 +1617,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     if (rows && !in->shadow)
     {
         // whole or refused: never an instance whose read-back table is missing
-        in->plugin->destroy(in->plugin);
+        omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         unoffered_forget(in);
         binary_unref(bin);
         free(in);
@@ -1886,7 +1887,7 @@ static int wait_stopped(struct omx_clap_instance *in)
 
             omx_clap_host_take_role(in, &role);
             if (role.state == OMX_CLAP_STOPPING && in->plugin->stop_processing)
-                in->plugin->stop_processing(in->plugin);
+                omx_abi_g(&in->stage.abi, "stop_processing", (const void *)in->plugin->stop_processing, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
             omx_clap_host_release_role(in, &role, OMX_CLAP_STOPPED);
             return 0;
         }
@@ -2725,7 +2726,9 @@ static void crawl_provider(struct preset_crawl *c, const clap_preset_discovery_f
     if (!provider)
         return;
     c->provider_id = id;
-    if (provider->init && provider->init(provider) && provider->get_metadata)
+    if (provider->init
+        && OMX_ABI_BOOL(omx_abi_g(NULL, "provider.init", (const void *)provider->init, OMX_ABI_A(provider), 0, 0, 0, 0, 0))
+        && provider->get_metadata)
         for (i = 0; i < c->n_locations && !c->stopped; i++)
         {
             if (c->locations[i].kind == CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN)
@@ -2734,7 +2737,7 @@ static void crawl_provider(struct preset_crawl *c, const clap_preset_discovery_f
                 crawl_path(c, provider, c->locations[i].flags, c->locations[i].location, 0);
         }
     if (provider->destroy)
-        provider->destroy(provider);
+        omx_abi_g(NULL, "provider.destroy", (const void *)provider->destroy, OMX_ABI_A(provider), 0, 0, 0, 0, 0);
     for (i = 0; i < c->n_locations; i++)
         free(c->locations[i].location);
     c->n_locations = 0;
@@ -2920,7 +2923,7 @@ void omx_clap_host_close(struct omx_clap_instance *in)
     omx_clap_host_stop(in);
     if (in->active)
         omx_clap_host_deactivate(in);
-    in->plugin->destroy(in->plugin);
+    omx_abi_g(&in->stage.abi, "destroy", (const void *)in->plugin->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     unoffered_forget(in);
     binary_unref(in->bin);
     free(in->shadow);
@@ -3098,7 +3101,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     // a ports rescan the plugin made before is not this activate's to answer: a re-read of the description is
     // (request_layout); what stands here is what the warm-up's own cycle below must leave as it found it
     pending = atomic_load_explicit(&in->ports_rescan_requested, memory_order_relaxed);
-    if (!in->plugin->activate(in->plugin, rate, 1, max_block))
+    if (!OMX_ABI_BOOL(omx_abi_gd(&in->stage.abi, "activate", (const void *)in->plugin->activate, OMX_ABI_A(in->plugin), 1, OMX_ABI_A(max_block), 0, rate)))
     {
         drop_bounce(in);
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
@@ -3135,9 +3138,9 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
          */
         // what stood before and what the first activate raised stay; only the warm-up's own deactivate is dropped
         pending |= atomic_load_explicit(&in->ports_rescan_requested, memory_order_relaxed);
-        in->plugin->deactivate(in->plugin);
+        omx_abi_g(&in->stage.abi, "deactivate", (const void *)in->plugin->deactivate, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         atomic_store_explicit(&in->ports_rescan_requested, pending, memory_order_relaxed);
-        if (!in->plugin->activate(in->plugin, rate, 1, max_block))
+        if (!OMX_ABI_BOOL(omx_abi_gd(&in->stage.abi, "activate", (const void *)in->plugin->activate, OMX_ABI_A(in->plugin), 1, OMX_ABI_A(max_block), 0, rate)))
         {
             in->active = 0;
             drop_bounce(in);
@@ -3261,7 +3264,7 @@ void omx_clap_host_stop(struct omx_clap_instance *in)
         in->audio_thread = pthread_self();
         in->audio_role_held = 1;
         if (in->plugin->stop_processing)
-            in->plugin->stop_processing(in->plugin);
+            omx_abi_g(&in->stage.abi, "stop_processing", (const void *)in->plugin->stop_processing, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     }
     in->audio_role_held = 0;
     atomic_store_explicit(&in->stage.h.rendered_wet, 0, memory_order_relaxed);
@@ -3315,7 +3318,7 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
 
     if (!in || !in->active)
         return;
-    in->plugin->deactivate(in->plugin);
+    omx_abi_g(&in->stage.abi, "deactivate", (const void *)in->plugin->deactivate, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     in->active = 0;
     if (in->idle_held)
     {
@@ -3328,7 +3331,13 @@ void omx_clap_host_deactivate(struct omx_clap_instance *in)
         thread_pool_release();
     }
     drop_bounce(in);
-    memset(&in->stage, 0, sizeof(in->stage));
+    {
+        // the guard is the instance's for its life: a clobber recorded before this deactivate is still read after it
+        const struct omx_abi_guard abi = in->stage.abi;
+
+        memset(&in->stage, 0, sizeof(in->stage));
+        in->stage.abi = abi;
+    }
     for (i = 0; i < in->shadow_n; i++)
         in->shadow[i].valid = 0;
     in->shadow_n = 0;
@@ -3352,6 +3361,11 @@ void omx_clap_host_thread_pool(struct omx_clap_thread_pool_info *out)
 uint32_t omx_clap_host_thread_pool_late(const struct omx_clap_instance *in)
 {
     return in ? atomic_load_explicit(&in->pool_late, memory_order_relaxed) : 0u;
+}
+
+int omx_clap_host_abi_clobber(const struct omx_clap_instance *in, struct omx_abi_clobber *out)
+{
+    return in && out ? omx_abi_guard_first(&in->stage.abi, out) : 0;
 }
 
 int omx_clap_host_set_rate(struct omx_clap_instance *in, double rate, uint32_t max_block, char why[OMX_CLAP_WHY_MAX])
@@ -3388,7 +3402,7 @@ void omx_clap_host_bypass(struct omx_clap_instance *in, int on)
     if (in->stage.need_reset)
     {
         if (in->plugin->reset)
-            in->plugin->reset(in->plugin);
+            omx_abi_g(&in->stage.abi, "reset", (const void *)in->plugin->reset, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
         omx_clap_note_ids_reset(&in->note_ids);     // the plugin's voices are gone, and with them every id
         omx_hosted_count(&in->stage.resets, 1);
         in->stage.need_reset = 0;
@@ -3620,7 +3634,8 @@ int omx_clap_host_param_flush(struct omx_clap_instance *in)
     while (omx_clap_queue_pending(&in->stage.queue) > 0)
     {
         omx_clap_drain(&in->stage);
-        in->params->flush(in->plugin, &in->stage.in_events, &in->stage.out_events);
+        omx_abi_g(&in->stage.abi, "params.flush", (const void *)in->params->flush, OMX_ABI_A(in->plugin), OMX_ABI_A(&in->stage.in_events),
+                  OMX_ABI_A(&in->stage.out_events), 0, 0, 0);
         in->stage.n_events = 0;
     }
     return 0;
@@ -3636,7 +3651,8 @@ void omx_clap_host_param_deliver(struct omx_clap_instance *in)
     while (omx_clap_queue_pending(&in->stage.queue) > 0)
     {
         omx_clap_drain(&in->stage);
-        in->params->flush(in->plugin, &in->stage.in_events, &in->stage.out_events);
+        omx_abi_g(&in->stage.abi, "params.flush", (const void *)in->params->flush, OMX_ABI_A(in->plugin), OMX_ABI_A(&in->stage.in_events),
+                  OMX_ABI_A(&in->stage.out_events), 0, 0, 0);
         in->stage.n_events = 0;
     }
     omx_clap_host_release_role(in, &role, role.state);
@@ -4026,7 +4042,7 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     timers_serve(in);
     fds_serve(in);
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
-        in->plugin->on_main_thread(in->plugin);
+        omx_abi_g(&in->stage.abi, "on_main_thread", (const void *)in->plugin->on_main_thread, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     // an unoffered id has its turn ahead of the plugin's line, which waits in log_ring for the next free slot: the ids
     // are each said once, so a plugin that logs every tick neither starves them nor is starved for long
     if (!atomic_load_explicit(&in->log_fresh, memory_order_acquire) && unoffered_say(in))

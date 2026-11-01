@@ -234,11 +234,12 @@ $(NOX11_PROG): $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB)
 	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
+# the adapter calls its plugins through its own copy of the guard (src/abi_guard.S), named apart by OMX_ABI_LV2
 lv2/core/%.o: lv2/core/%.c
-	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) -Isrc -Ilv2/core -DOMX_ABI_LV2 $(LV2_CFLAGS) $(CFLAGS) -c -o $@ $<
 
 lv2/clap/%.o: lv2/clap/%.c
-	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap -DOMX_ABI_LV2 $(LV2_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(LV2_CORE_LIB): $(LV2_CORE_OBJ)
 	@mkdir -p build/lv2

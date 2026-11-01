@@ -210,4 +210,5 @@ OMX_CLAP_CORE_0.26
     omx_abi_call6;
     omx_abi_call6d;
     omx_abi_call6f;
+    omx_clap_host_abi_clobber;
 } OMX_CLAP_CORE_0.24;

@@ -692,7 +692,8 @@ static void clap_active(const struct omx_clap_instance *in)
     const clap_plugin_voice_info_t *voice = plugin->get_extension(plugin, CLAP_EXT_VOICE_INFO);
     clap_voice_info_t info;
 
-    if ((!in->latency && !(voice && voice->get)) || !plugin->activate(plugin, FIELDS_RATE, 1, FIELDS_MAX_FRAMES))
+    if ((!in->latency && !(voice && voice->get)) || !OMX_ABI_BOOL(omx_abi_gd(NULL, "activate", (const void *)plugin->activate,
+                                                                                         OMX_ABI_A(plugin), 1, FIELDS_MAX_FRAMES, 0, FIELDS_RATE)))
         return;
     if (in->latency && in->latency->get)
         record_number("plugin", "clap_plugin_latency.get", in->latency->get(plugin));
@@ -703,7 +704,7 @@ static void clap_active(const struct omx_clap_instance *in)
         record_number("plugin", "clap_voice_info.voice_capacity", info.voice_capacity);
         record_bits("plugin", "clap_voice_info.flags", info.flags, g_voice_flags);
     }
-    plugin->deactivate(plugin);
+    omx_abi_g(NULL, "deactivate", (const void *)plugin->deactivate, OMX_ABI_A(plugin), 0, 0, 0, 0, 0);
 }
 
 static int fields_clap(const char *path, const char *id)

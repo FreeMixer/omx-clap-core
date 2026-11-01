@@ -360,7 +360,7 @@ static void window_drop(struct window *w, int destroy_gui)
     struct omx_clap_instance *in = atomic_load_explicit(&w->in, memory_order_relaxed);
 
     if (w->created && destroy_gui)
-        w->gui->destroy(in->plugin);
+        omx_abi_g(&in->stage.abi, "gui.destroy", (const void *)w->gui->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     x_destroy(w);
     x_flush();
     atomic_store_explicit(&w->in, NULL, memory_order_release);
