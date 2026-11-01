@@ -1407,9 +1407,14 @@ tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
 .PHONY: test-abi-guard bench-abi-guard
 test-abi-guard: tests/abi_guard_test
 	tests/abi_guard_test
-	@! $(CC) $(CFLAGS) -c -o /dev/null tests/abi_guard_float_refused.c 2>/dev/null \
-	  && echo "ok   a double through OMX_ABI_A does not compile" \
-	  || { echo "FAIL a double through OMX_ABI_A compiled"; exit 1; }
+	@set -e; o=$$(mktemp -d); trap 'rm -rf "$$o"' EXIT; \
+	  sed 's/OMX_ABI_A(0.5)/OMX_ABI_A(5)/' tests/abi_guard_float_refused.c > $$o/int.c; \
+	  $(CC) $(filter-out -MMD -MP,$(CFLAGS)) -Isrc -c -o $$o/int.o $$o/int.c \
+	    || { echo "FAIL the control, an int through OMX_ABI_A, did not compile"; exit 1; }; \
+	  if $(CC) $(filter-out -MMD -MP,$(CFLAGS)) -c -o $$o/double.o tests/abi_guard_float_refused.c 2> $$o/err; then \
+	    echo "FAIL a double through OMX_ABI_A compiled"; exit 1; fi; \
+	  grep -q omx_abi_float_refused $$o/err || { echo "FAIL the double was refused for another reason:"; cat $$o/err; exit 1; }; \
+	  echo "ok   a double through OMX_ABI_A does not compile, refused by omx_abi_float_refused; an int does"
 
 bench-abi-guard: tests/abi_guard_bench
 	tests/abi_guard_bench
