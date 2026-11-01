@@ -271,6 +271,10 @@ export declare const HOSTING_STABILITY_CODES: {
   readonly stabilityCrashedAttributed: {
     readonly code: "hosting.stability.crashed-attributed-plugin";
   };
+  readonly stabilityCalleeSavedClobbered: {
+    readonly code: "hosting.stability.callee-saved-clobbered";
+    readonly doc: "the plugin returned from a call with a callee-saved register changed (0.26.2): the host's guard put it back, but not the other members' state in the same process, so the plugin runs only in a worker of its own";
+  };
   readonly stabilityCrashedLive: {
     readonly code: "hosting.stability.crashed-live-on-this-rig";
     readonly doc: "the plugin crashed live on this rig";
