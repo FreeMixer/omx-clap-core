@@ -2129,7 +2129,7 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
         put32(in->atom_out + 12, 0);
     }
     omx_abi_g(&in->abi, "run", (const void *)p->desc->run, OMX_ABI_A(in->handle), OMX_ABI_A(n), 0, 0, 0, 0);
-    in->abi.block++;
+    omx_abi_guard_block(&in->abi);
     if (in->worker && in->worker->end_run)
         omx_abi_g(&in->abi, "end_run", (const void *)in->worker->end_run, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     patch_read_outputs(in);

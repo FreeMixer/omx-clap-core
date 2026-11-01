@@ -9,6 +9,7 @@
  * are saved before the call, compared after it and put back, so a plugin that returns with one changed changes nothing
  * of the host's; r->last is the mask of those it changed (OMX_ABI_*), r->ever their union, r->calls the count of calls
  * that changed any. The floating-point argument registers are passed through untouched (an LV2 instantiate's rate).
+ * The control registers (FPCR; MXCSR and the x87 control word) are written back only when the plugin changed them.
  *
  * In assembly because no C function can do it: the compiler owns these registers inside any function it writes.
  */
@@ -55,6 +56,24 @@ OMX_ABI_CALL6:
     stp d10, d11, [sp, #112]
     stp d12, d13, [sp, #128]
     stp d14, d15, [sp, #144]
+    .cfi_offset 19, -160
+    .cfi_offset 20, -152
+    .cfi_offset 21, -144
+    .cfi_offset 22, -136
+    .cfi_offset 23, -128
+    .cfi_offset 24, -120
+    .cfi_offset 25, -112
+    .cfi_offset 26, -104
+    .cfi_offset 27, -96
+    .cfi_offset 28, -88
+    .cfi_offset 72, -80
+    .cfi_offset 73, -72
+    .cfi_offset 74, -64
+    .cfi_offset 75, -56
+    .cfi_offset 76, -48
+    .cfi_offset 77, -40
+    .cfi_offset 78, -32
+    .cfi_offset 79, -24
     mrs x9, fpcr
     stp x0, x9, [sp, #160]
     mov x9, x1
@@ -163,10 +182,20 @@ OMX_ABI_CALL6:
     .cfi_offset %rbp, -16
     movq %rsp, %rbp
     pushq %rbx
+    .cfi_def_cfa_offset 24
+    .cfi_offset %rbx, -24
     pushq %r12
+    .cfi_def_cfa_offset 32
+    .cfi_offset %r12, -32
     pushq %r13
+    .cfi_def_cfa_offset 40
+    .cfi_offset %r13, -40
     pushq %r14
+    .cfi_def_cfa_offset 48
+    .cfi_offset %r14, -48
     pushq %r15
+    .cfi_def_cfa_offset 56
+    .cfi_offset %r15, -56
     subq $56, %rsp
     .cfi_def_cfa_offset 112
     movq %rdi, (%rsp)
@@ -200,6 +229,15 @@ OMX_ABI_CALL6:
     omx_abi_q %r13, 72, 3
     omx_abi_q %r14, 64, 4
     omx_abi_q %r15, 56, 5
+    /* the direction flag (EFLAGS bit 10), which a callee returns clear */
+    pushfq
+    .cfi_adjust_cfa_offset 8
+    popq %r11
+    .cfi_adjust_cfa_offset -8
+    shrl $10, %r11d
+    andl $1, %r11d
+    shll $8, %r11d
+    orl %r11d, %r10d
     /* MXCSR's control bits (6..15: DAZ, the masks, rounding, FZ) and the x87 control word are the callee's to keep */
     stmxcsr 16(%rsp)
     movl 16(%rsp), %r11d
@@ -216,8 +254,15 @@ OMX_ABI_CALL6:
     movzbl %r11b, %r11d
     shll $7, %r11d
     orl %r11d, %r10d
+    /* written back only when the plugin changed them: each write stalls the pipeline, on the audio thread every block */
+    testl $(1 << 6), %r10d
+    jz 2f
     ldmxcsr 8(%rsp)
+2:
+    testl $(1 << 7), %r10d
+    jz 3f
     fldcw 12(%rsp)
+3:
     cld
     /* the report: last, ever |= last, calls += (last != 0); none when r is NULL */
     movq (%rsp), %r11
@@ -230,11 +275,17 @@ OMX_ABI_CALL6:
     incq 8(%r11)
 1:
     addq $56, %rsp
+    .cfi_def_cfa_offset 56
     popq %r15
+    .cfi_def_cfa_offset 48
     popq %r14
+    .cfi_def_cfa_offset 40
     popq %r13
+    .cfi_def_cfa_offset 32
     popq %r12
+    .cfi_def_cfa_offset 24
     popq %rbx
+    .cfi_def_cfa_offset 16
     popq %rbp
     .cfi_def_cfa_offset 8
     retq

@@ -1659,7 +1659,7 @@ static inline int omx_clap_run_plugin_status(struct omx_clap_stage *s, uint32_t 
         status = (clap_process_status)(int32_t)omx_abi_g(g, "process", (const void *)s->plugin->process, OMX_ABI_A(s->plugin),
                                                          OMX_ABI_A(&s->proc), 0, 0, 0, 0);
         if (g)
-            g->block++;
+            omx_abi_guard_block(g);
     }
     if (s->note_inputs)
     {

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unwind.h>
 
 #include "../src/abi_guard.h"
 
@@ -50,6 +51,8 @@ __asm__(".text\n.p2align 4\n"
         /* FZ, bit 15: the flush-to-zero a plugin sets for its denormals and leaves set */
         ".globl abi_breaks_fpctl\nabi_breaks_fpctl:\n subq $8, %rsp\n stmxcsr (%rsp)\n orl $0x8000, (%rsp)\n ldmxcsr (%rsp)\n addq $8, %rsp\n leaq 1(%rdi), %rax\n ret\n"
         ".globl abi_doubles\nabi_doubles:\n addsd %xmm0, %xmm0\n ret\n"
+        /* the direction flag set and left set, which a callee returns clear */
+        ".globl abi_breaks_df\nabi_breaks_df:\n std\n leaq 1(%rdi), %rax\n ret\n"
         /* a bool false with garbage above its low byte, which the convention leaves undefined */
         ".globl abi_low_byte_false\nabi_low_byte_false:\n movabsq $0xdead0100, %rax\n ret\n");
 #define FP_REG "r15"
@@ -68,6 +71,20 @@ __attribute__((noinline)) static double six_and_rate(uint64_t a, uint64_t b, uin
                                                      uint64_t f, double rate)
 {
     return (double)six(a, b, c, d, e, f) + rate;
+}
+
+/* frames an unwinder walks from here to the outermost: the trampoline's CFI must let it walk through the guarded call */
+static _Unwind_Reason_Code count_frame(struct _Unwind_Context *ctx, void *arg)
+{
+    (void)ctx;
+    ++*(int *)arg;
+    return _URC_NO_REASON;
+}
+__attribute__((noinline)) static uint64_t unwind_depth(uint64_t a)
+{
+    int n = 0;
+    _Unwind_Backtrace(count_frame, &n);
+    return (uint64_t)n + a * 0;
 }
 
 static void through(const char *name, uint64_t (*fn)(uint64_t), uint32_t expect)
@@ -119,11 +136,11 @@ int main(void)
     struct omx_abi_guard g;
     struct omx_abi_clobber c;
     memset(&g, 0, sizeof g);
-    for (g.block = 0; g.block < 3; g.block++)
+    for (int k = 0; k < 3; k++, omx_abi_guard_block(&g))
         omx_abi_g(&g, "process", (const void *)abi_keeps, 1, 0, 0, 0, 0, 0);
     CHECK(!omx_abi_guard_first(&g, &c), "a guard over plugin calls that keep the convention records nothing");
     omx_abi_g(&g, "process", (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0);
-    g.block++;
+    omx_abi_guard_block(&g);
     omx_abi_g(&g, "deactivate", (const void *)abi_breaks_fpctl, 1, 0, 0, 0, 0, 0);
     CHECK(omx_abi_guard_first(&g, &c) && c.mask == INT_BIT && c.block == 3 && strcmp(c.call, "process") == 0,
           "the first clobber is kept: its registers, its call and its block");
@@ -137,6 +154,22 @@ int main(void)
     CHECK(OMX_ABI_CALL(NULL, "name", name, 0u) == omx_abi_reg_name(0), "a pointer result comes back whole");
     OMX_ABI_VCALL(&g, "breaks", abi_breaks_int, 1);
     CHECK(atomic_load(&g.calls) == 3, "OMX_ABI_VCALL records like any other");
+
+#if defined(__x86_64__)
+    uint64_t abi_breaks_df(uint64_t a);
+    through("a plugin that sets the direction flag and leaves it", abi_breaks_df, OMX_ABI_DF);
+    uint64_t flags;
+    __asm__ volatile("pushfq\n popq %0" : "=r"(flags));
+    CHECK(!(flags & (1u << 10)), "the direction flag is clear again after it");
+#endif
+
+    /* an unwinder walks through the trampoline to the caller: one frame more than a direct call, the trampoline's own */
+    const uint64_t direct = unwind_depth(0);
+    const uint64_t guarded = omx_abi_call6(NULL, (const void *)unwind_depth, 0, 0, 0, 0, 0, 0);
+    char unwound[120];
+    snprintf(unwound, sizeof unwound, "an unwinder walks through the guarded call to its caller (%llu frames, %llu direct)",
+             (unsigned long long)guarded, (unsigned long long)direct);
+    CHECK(guarded == direct + 1, unwound);
 
     CHECK(omx_abi_call6(NULL, (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0) == 2, "a NULL report is allowed");
     CHECK(strcmp(omx_abi_reg_name(0), INT_REG) == 0 && omx_abi_reg_name(OMX_ABI_REGS) == NULL, "the names of the bits");
