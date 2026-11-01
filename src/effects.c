@@ -1175,7 +1175,7 @@ static int open_lv2(const char *uri, effect_t *effect)
 static int lv2_params_build(effect_t *effect)
 {
     struct omx_clap_instance *clap = effect->clap;
-    uint32_t i, count = clap->params ? clap->params->count(clap->plugin) : 0;
+    uint32_t i, count = clap->params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "params.count", clap->params->count, clap->plugin) : 0;
 
     effect->lv2_params = count ? calloc(count, sizeof(lv2_param_t)) : NULL;
     if (count && !effect->lv2_params)
@@ -1187,7 +1187,7 @@ static int lv2_params_build(effect_t *effect)
         lv2_param_t *param;
 
         memset(&info, 0, sizeof(info));
-        if (!clap->params->get_info(clap->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "params.get_info", clap->params->get_info, clap->plugin, i, &info))
             return -1;
         symbol = omx_clap_lv2_param_symbol(clap->plugin, info.id);
         if (!symbol)
@@ -4287,7 +4287,7 @@ int effects_remote_pages(int effect_id)
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
     if (clap->remote_controls)
-        return (int)clap->remote_controls->count(clap->plugin);
+        return (int)OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "remote_controls.count", clap->remote_controls->count, clap->plugin);
     return g_effects[effect_id].lv2_entry ? 0 : (int)omx_clap_host_standard_pages(clap);
 }
 
@@ -4333,8 +4333,8 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
         return ERR_INVALID_OPERATION;
     if (clap->remote_controls)
     {
-        if ((uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
-            !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+        if ((uint32_t)page >= OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "remote_controls.count", clap->remote_controls->count, clap->plugin) ||
+            !OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "remote_controls.get", clap->remote_controls->get, clap->plugin, (uint32_t)page, &info))
             return ERR_INVALID_OPERATION;
     }
     else if (g_effects[effect_id].lv2_entry || omx_clap_host_standard_page(clap, (uint32_t)page, &info) != 0)

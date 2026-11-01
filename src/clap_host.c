@@ -899,14 +899,14 @@ static const char *read_note_input(struct omx_clap_instance *in)
 {
     const clap_plugin_note_ports_t *ports = in->note_ports;
     clap_note_port_info_t info;
-    const uint32_t count = ports ? ports->count(in->plugin, true) : 0;
+    const uint32_t count = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.count", ports->count, in->plugin, true) : 0;
 
     if (count == 0)
         return NULL;
     if (count > 1)
         return CLAP_HOST_CODE_NOTE_INPUT;
     memset(&info, 0, sizeof(info));
-    if (!ports->get(in->plugin, 0, true, &info))
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.get", ports->get, in->plugin, 0, true, &info))
         return CLAP_HOST_CODE_NOTE_INPUT;
     if (info.preferred_dialect == CLAP_NOTE_DIALECT_MIDI_MPE && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI_MPE))
         in->note_dialect = CLAP_NOTE_DIALECT_MIDI_MPE;     // raw MIDI, the plugin reads the MPE zone itself
@@ -1072,7 +1072,7 @@ static const char *describe_ports(struct omx_clap_instance *in)
         for (dir = 0; dir < 2; dir++)
         {
             const bool is_input = dir == 0;
-            const uint32_t count = ports->count(in->plugin, is_input);
+            const uint32_t count = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.count", ports->count, in->plugin, is_input);
             struct omx_clap_port *main = is_input ? &in->main_in : &in->main_out;
             uint32_t i;
 
@@ -1081,7 +1081,7 @@ static const char *describe_ports(struct omx_clap_instance *in)
                 clap_audio_port_info_t info;
 
                 memset(&info, 0, sizeof(info));
-                if (!ports->get(in->plugin, i, is_input, &info))
+                if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.get", ports->get, in->plugin, i, is_input, &info))
                     continue;
                 if (info.channel_count == 0)
                     return CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS;
@@ -1299,11 +1299,11 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
     // configurable-audio-ports first; one that cannot apply the requests, or whose apply refuses them, falls back to the
     // config list
     if (n && configurable && configurable->can_apply_configuration && configurable->apply_configuration
-        && configurable->can_apply_configuration(in->plugin, reqs, n) && configurable->apply_configuration(in->plugin, reqs, n))
+        && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "configurable.can_apply_configuration", configurable->can_apply_configuration, in->plugin, reqs, n) && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "configurable.apply_configuration", configurable->apply_configuration, in->plugin, reqs, n))
         ret = 0;
     else if (n && configs && configs->count && configs->get && configs->select)
     {
-        const uint32_t count = configs->count(in->plugin);
+        const uint32_t count = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "configs.count", configs->count, in->plugin);
 
         for (i = 0; i < count; i++)
         {
@@ -1311,7 +1311,7 @@ int omx_clap_host_request_layout(struct omx_clap_instance *in, const clap_audio_
 
             memset(&config, 0, sizeof(config));
             // a match the plugin refuses to select is passed over for the next one; none selected is DECLARED
-            if (!configs->get(in->plugin, i, &config) || !config_matches(&config, reqs, n) || !configs->select(in->plugin, config.id))
+            if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "configs.get", configs->get, in->plugin, i, &config) || !config_matches(&config, reqs, n) || !OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "configs.select", configs->select, in->plugin, config.id))
                 continue;
             ret = 0;
             break;

@@ -484,7 +484,7 @@ static const char *named(const named_t *table, size_t n, const char *value)
 static void clap_params(const struct omx_clap_instance *in)
 {
     const clap_plugin_params_t *params = in->params;
-    const uint32_t count = params ? params->count(in->plugin) : 0;
+    const uint32_t count = params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.count", params->count, in->plugin) : 0;
     uint32_t i;
 
     for (i = 0; i < count; i++)
@@ -493,7 +493,7 @@ static void clap_params(const struct omx_clap_instance *in)
         char scope[32];
 
         memset(&info, 0, sizeof(info));
-        if (!params->get_info(in->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_info", params->get_info, in->plugin, i, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         info.module[sizeof(info.module) - 1] = '\0';
@@ -516,7 +516,7 @@ static void clap_params(const struct omx_clap_instance *in)
                 char text[256], point[320];
 
                 text[0] = '\0';
-                if (!params->value_to_text(in->plugin, info.id, v, text, sizeof(text)))
+                if (!OMX_ABI_BOOL(omx_abi_gd(OMX_ABI_GUARD_OF(in), "params.value_to_text", (const void *)params->value_to_text, OMX_ABI_A(in->plugin), OMX_ABI_A(info.id), OMX_ABI_A(text), OMX_ABI_A(sizeof(text)), v)))
                     continue;
                 text[sizeof(text) - 1] = '\0';
                 snprintf(point, sizeof(point), "%.17g %s", v, text);
@@ -529,7 +529,7 @@ static void clap_params(const struct omx_clap_instance *in)
 static void clap_audio_ports(const struct omx_clap_instance *in, bool is_input)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
-    const uint32_t count = ports ? ports->count(in->plugin, is_input) : 0;
+    const uint32_t count = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.count", ports->count, in->plugin, is_input) : 0;
     uint32_t i;
 
     for (i = 0; i < count; i++)
@@ -539,7 +539,7 @@ static void clap_audio_ports(const struct omx_clap_instance *in, bool is_input)
 
         memset(&info, 0, sizeof(info));
         info.in_place_pair = CLAP_INVALID_ID;
-        if (!ports->get(in->plugin, i, is_input, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.get", ports->get, in->plugin, i, is_input, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         snprintf(scope, sizeof(scope), "%s:%u", is_input ? "audio_in" : "audio_out", i);
@@ -557,7 +557,7 @@ static void clap_audio_ports(const struct omx_clap_instance *in, bool is_input)
 static void clap_note_ports(const struct omx_clap_instance *in, bool is_input)
 {
     const clap_plugin_note_ports_t *ports = in->note_ports;
-    const uint32_t count = ports ? ports->count(in->plugin, is_input) : 0;
+    const uint32_t count = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.count", ports->count, in->plugin, is_input) : 0;
     uint32_t i;
 
     for (i = 0; i < count; i++)
@@ -566,7 +566,7 @@ static void clap_note_ports(const struct omx_clap_instance *in, bool is_input)
         char scope[32];
 
         memset(&info, 0, sizeof(info));
-        if (!ports->get(in->plugin, i, is_input, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.get", ports->get, in->plugin, i, is_input, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         snprintf(scope, sizeof(scope), "%s:%u", is_input ? "note_in" : "note_out", i);

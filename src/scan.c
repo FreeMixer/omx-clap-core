@@ -253,7 +253,7 @@ static void put_enum_labels(FILE *out, const struct omx_clap_instance *instance,
             char text[CLAP_NAME_SIZE];
 
             memset(text, 0, sizeof(text));
-            if (!params->value_to_text(instance->plugin, info->id, v, text, sizeof(text)))
+            if (!OMX_ABI_BOOL(omx_abi_gd(OMX_ABI_GUARD_OF(instance), "params.value_to_text", (const void *)params->value_to_text, OMX_ABI_A(instance->plugin), OMX_ABI_A(info->id), OMX_ABI_A(text), OMX_ABI_A(sizeof(text)), v)))
                 continue;
             text[sizeof(text) - 1] = '\0';
             fprintf(out, "%s{\"value\":", first ? "" : ",");
@@ -313,7 +313,7 @@ static void put_params(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_params_t *params = instance->params;
     clap_param_info_t info;
-    uint32_t count = params ? params->count(instance->plugin) : 0;
+    uint32_t count = params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "params.count", params->count, instance->plugin) : 0;
     uint32_t i;
     int first = 1;
 
@@ -322,7 +322,7 @@ static void put_params(FILE *out, const struct omx_clap_instance *instance)
     for (i = 0; i < count; i++)
     {
         memset(&info, 0, sizeof(info));
-        if (!params->get_info(instance->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "params.get_info", params->get_info, instance->plugin, i, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         info.module[sizeof(info.module) - 1] = '\0';
@@ -407,7 +407,7 @@ static void port_layout(const struct omx_clap_instance *instance, const clap_aud
         uint32_t n = info->channel_count, c;
 
         if (instance->surround && instance->surround->get_channel_map)
-            n = instance->surround->get_channel_map(instance->plugin, is_input, index, map, CLAP_HOST_PORT_CHANNELS);
+            n = OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "surround.get_channel_map", instance->surround->get_channel_map, instance->plugin, is_input, index, map, CLAP_HOST_PORT_CHANNELS);
         else
             for (c = 0; c < n; c++)
                 map[c] = (uint8_t)c;
@@ -419,7 +419,7 @@ static void port_layout(const struct omx_clap_instance *instance, const clap_aud
         clap_ambisonic_config_t config = { CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
 
         t->assumed = !instance->ambisonic || !instance->ambisonic->get_config
-                     || !instance->ambisonic->get_config(instance->plugin, is_input, index, &config);
+                     || !OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "ambisonic.get_config", instance->ambisonic->get_config, instance->plugin, is_input, index, &config);
         if (t->assumed)
             config = (clap_ambisonic_config_t){ CLAP_AMBISONIC_ORDERING_ACN, CLAP_AMBISONIC_NORMALIZATION_SN3D };
         t->ordering = ordering_name(config.ordering);
@@ -476,7 +476,7 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance,
         int first = 1;
         uint32_t aux = 0;
 
-        count = ports ? ports->count(instance->plugin, is_input) : 0;
+        count = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "ports.count", ports->count, instance->plugin, is_input) : 0;
         if (g_json)
             fprintf(out, "%s\"%s\":[", dir ? "," : "", is_input ? "inputs" : "outputs");
         for (i = 0; i < count; i++)
@@ -485,7 +485,7 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance,
             struct layout_port_text t;
 
             memset(&info, 0, sizeof(info));
-            if (!ports->get(instance->plugin, i, is_input, &info))
+            if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "ports.get", ports->get, instance->plugin, i, is_input, &info))
                 continue;
             info.name[sizeof(info.name) - 1] = '\0';
             memset(&t, 0, sizeof(t));
@@ -535,8 +535,8 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance,
 static void put_note_ports(FILE *out, const struct omx_clap_instance *instance)
 {
     const clap_plugin_note_ports_t *ports = instance->note_ports;
-    const uint32_t inputs = ports ? ports->count(instance->plugin, true) : 0;
-    const uint32_t outputs = ports ? ports->count(instance->plugin, false) : 0;
+    const uint32_t inputs = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "ports.count", ports->count, instance->plugin, true) : 0;
+    const uint32_t outputs = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "ports.count", ports->count, instance->plugin, false) : 0;
 
     if (g_json)
         fprintf(out, "\"note_ports\":{\"inputs\":%u,\"outputs\":%u}", inputs, outputs);
@@ -832,7 +832,7 @@ static void put_latency(FILE *out, const struct omx_clap_instance *instance)
 
     if (!instance->latency || instance->passthrough)   // a pass-through tool's latency applies to its notes: the host reads 0
         return;
-    frames = instance->latency->get(instance->plugin);
+    frames = OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "latency.get", instance->latency->get, instance->plugin);
     if (frames == 0)
         return;
     if (g_json)
