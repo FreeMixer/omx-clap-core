@@ -1172,12 +1172,12 @@ $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_
 
 $(LV2_ASAN_DIR)/lv2_asan_test: lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) lv2/core/lv2_core.h
 	@mkdir -p $(@D)
-	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -o $@ lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) -ldl -lpthread -lm
+	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -o $@ lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 # the bundle half under it too: the host test with the whole of lv2/core in the same build, run against the regular bundles
 $(LV2_ASAN_DIR)/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_SRC) lv2/core/lv2_core.h lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	@mkdir -p $(@D)
-	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests -o $@ lv2/tests/lv2_host_test.c $(LV2_CORE_SRC) -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
+	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests -o $@ lv2/tests/lv2_host_test.c $(LV2_CORE_SRC) src/abi_guard.S -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
 
 test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so $(LV2_ASAN_DIR)/lv2_host_test $(LV2_BUNDLES)
 	ASAN_OPTIONS=detect_leaks=0 ./$(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)

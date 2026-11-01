@@ -891,9 +891,10 @@ static void plugin_reset(const clap_plugin_t *plugin)
 /* abi-breaker: the passthrough's process, after which the third call returns with callee-saved registers changed, as
  * the LSP limiters' run() returned on a Raspberry Pi 5 (src/abi_guard.h). In assembly, and after the C process has
  * returned: no C function can break the convention, and one that did would corrupt its own frame first. */
-__attribute__((visibility("hidden"))) int fake_abi_break;
-__attribute__((visibility("hidden"))) clap_process_status fake_abi_breaker_c(const clap_plugin_t *plugin,
-                                                                             const clap_process_t *process);
+/* used: only the assembly below names them, which link-time optimisation cannot see */
+__attribute__((used, visibility("hidden"))) int fake_abi_break;
+__attribute__((used, visibility("hidden"))) clap_process_status fake_abi_breaker_c(const clap_plugin_t *plugin,
+                                                                                   const clap_process_t *process);
 clap_process_status fake_abi_breaker_process(const clap_plugin_t *plugin, const clap_process_t *process);
 #if defined(__aarch64__)
 __asm__(".text\n.p2align 2\n.hidden fake_abi_breaker_process\n.globl fake_abi_breaker_process\n"
