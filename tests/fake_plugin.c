@@ -131,6 +131,7 @@
 #define ID_CONFIGS      "org.omx-clap-host.test.configs"
 #define ID_CONFIGURABLE "org.omx-clap-host.test.configurable"
 #define ID_SURROUND_REFUSES "org.omx-clap-host.test.surround-refuses"
+#define ID_ABI_BREAKER  "org.omx-clap-host.test.abi-breaker"
 #define LATENCY_DEFAULT 64.0
 #define LATENCY_MAX     4096.0
 
@@ -208,6 +209,7 @@ static const clap_plugin_descriptor_t g_descriptors[] = {
     DESCRIPTOR("configs", ID_CONFIGS),
     DESCRIPTOR("configurable", ID_CONFIGURABLE),
     DESCRIPTOR("surround-refuses", ID_SURROUND_REFUSES),
+    DESCRIPTOR("abi-breaker", ID_ABI_BREAKER),
 };
 
 /* what process() writes of the main pair: each output channel a copy of its input (the last one past them), the mono
@@ -262,6 +264,7 @@ static const struct FAKE_LAYOUT_T {
     { 1, 2, 0, 0, 0, 0, 0, 0, 0, FAKE_MIX_HALF, 0, FAKE_OFFERS_CONFIGS },  // configs
     { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_OFFERS_CONFIGURABLE },  // configurable
     { 6, 6, 0, 0, 0, 0, 0, 0, 0, 0, FAKE_TYPE_SURROUND_REFUSES, 0 },  // surround-refuses
+    { 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },      // abi-breaker: the passthrough's
 };
 
 #define DESCRIPTOR_COUNT (sizeof(g_descriptors) / sizeof(g_descriptors[0]))
@@ -885,6 +888,40 @@ static void plugin_reset(const clap_plugin_t *plugin)
     (void)plugin;
 }
 
+/* abi-breaker: the passthrough's process, after which the third call returns with callee-saved registers changed, as
+ * the LSP limiters' run() returned on a Raspberry Pi 5 (src/abi_guard.h). In assembly, and after the C process has
+ * returned: no C function can break the convention, and one that did would corrupt its own frame first. */
+__attribute__((visibility("hidden"))) int fake_abi_break;
+__attribute__((visibility("hidden"))) clap_process_status fake_abi_breaker_c(const clap_plugin_t *plugin,
+                                                                             const clap_process_t *process);
+clap_process_status fake_abi_breaker_process(const clap_plugin_t *plugin, const clap_process_t *process);
+#if defined(__aarch64__)
+__asm__(".text\n.p2align 2\n.hidden fake_abi_breaker_process\n.globl fake_abi_breaker_process\n"
+        "fake_abi_breaker_process:\n"
+        " stp x29, x30, [sp, #-16]!\n mov x29, sp\n bl fake_abi_breaker_c\n ldp x29, x30, [sp], #16\n"
+        " adrp x9, fake_abi_break\n ldr w9, [x9, :lo12:fake_abi_break]\n cbz w9, 1f\n"
+        " mov x10, #0x7ead\n mov x19, x10\n fmov d15, x10\n"
+        "1: ret\n");
+#elif defined(__x86_64__)
+__asm__(".text\n.p2align 4\n.hidden fake_abi_breaker_process\n.globl fake_abi_breaker_process\n"
+        "fake_abi_breaker_process:\n"
+        " subq $8, %rsp\n call fake_abi_breaker_c\n addq $8, %rsp\n"
+        " cmpl $0, fake_abi_break(%rip)\n je 1f\n"
+        " movq $0x7ead, %rbx\n movq $0x7ead, %r15\n"
+        "1: ret\n");
+#endif
+
+static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process);
+
+clap_process_status fake_abi_breaker_c(const clap_plugin_t *plugin, const clap_process_t *process)
+{
+    fake_t *fake = plugin->plugin_data;
+    const clap_process_status status = plugin_process(plugin, process);
+
+    fake_abi_break = fake->process_calls == 3;
+    return status;
+}
+
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process)
 {
     fake_t *fake = plugin->plugin_data;
@@ -1089,7 +1126,7 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     fake->plugin.start_processing = plugin_start_processing;
     fake->plugin.stop_processing = plugin_stop_processing;
     fake->plugin.reset = plugin_reset;
-    fake->plugin.process = plugin_process;
+    fake->plugin.process = strcmp(g_descriptors[i].id, ID_ABI_BREAKER) ? plugin_process : fake_abi_breaker_process;
     fake->plugin.get_extension = plugin_get_extension;
     fake->plugin.on_main_thread = plugin_on_main_thread;
     return &fake->plugin;

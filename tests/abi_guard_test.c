@@ -110,6 +110,20 @@ int main(void)
     CHECK(omx_abi_call6(&r, (const void *)six, 1, 2, 3, 4, 5, 6) == 654321, "six arguments reach the plugin in their places");
     CHECK(omx_abi_call6f(&r, (const void *)six_and_rate, 1, 2, 3, 4, 5, 6, 0.5) == 654321.5,
           "and with a double beside them");
+    /* a plugin's guard keeps the first clobber, its call and its block, for a control thread; later ones are counted */
+    struct omx_abi_guard g;
+    struct omx_abi_clobber c;
+    memset(&g, 0, sizeof g);
+    for (g.block = 0; g.block < 3; g.block++)
+        omx_abi_g(&g, "process", (const void *)abi_keeps, 1, 0, 0, 0, 0, 0);
+    CHECK(!omx_abi_guard_first(&g, &c), "a guard over plugin calls that keep the convention records nothing");
+    omx_abi_g(&g, "process", (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0);
+    g.block++;
+    omx_abi_g(&g, "deactivate", (const void *)abi_breaks_fpctl, 1, 0, 0, 0, 0, 0);
+    CHECK(omx_abi_guard_first(&g, &c) && c.mask == INT_BIT && c.block == 3 && strcmp(c.call, "process") == 0,
+          "the first clobber is kept: its registers, its call and its block");
+    CHECK(g.report.calls == 2 && g.report.ever == (INT_BIT | FPCTL_BIT), "and a later one is counted, not kept");
+
     CHECK(omx_abi_call6(NULL, (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0) == 2, "a NULL report is allowed");
     CHECK(strcmp(omx_abi_reg_name(0), INT_REG) == 0 && omx_abi_reg_name(OMX_ABI_REGS) == NULL, "the names of the bits");
     printf("%d failure(s)\n", failures);

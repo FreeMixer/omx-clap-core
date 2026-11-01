@@ -2534,6 +2534,36 @@ static void mover_blocks(struct omx_clap_instance *instance, uint32_t blocks)
     pthread_join(t, NULL);
 }
 
+/* abi-breaker's third process returns with callee-saved registers changed: the guard puts them back, so the audio
+ * thread's own loop runs all its blocks, and the first clobber is read on this thread: its registers, process, block 2 */
+static void test_abi_breaker(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct omx_abi_clobber c = { 0, 0, NULL };
+
+    if (!open_ok(path, FAKE_ABI_BREAKER, &instance) || !activate(instance))
+    {
+        CHECK(0, "abi-breaker: the fake opens and activates");
+        return;
+    }
+    CHECK(!omx_clap_host_abi_clobber(instance, &c), "abi-breaker: nothing recorded before it runs");
+    mover_blocks(instance, 6);
+    CHECK(atomic_load(&instance->stage.h.runs) == 6, "abi-breaker: the audio thread ran its 6 blocks (%u)",
+          atomic_load(&instance->stage.h.runs));
+#if defined(__aarch64__)
+    const uint32_t want = OMX_ABI_X19 | (OMX_ABI_D8 << 7);
+#else
+    const uint32_t want = OMX_ABI_RBX | (OMX_ABI_R12 << 3);
+#endif
+    CHECK(omx_clap_host_abi_clobber(instance, &c) && c.mask == want && c.block == 2 && c.call && !strcmp(c.call, "process"),
+          "abi-breaker: the first clobber is %#x in %s at block %llu (want %#x in process at block 2)", c.mask,
+          c.call ? c.call : "-", (unsigned long long)c.block, want);
+    omx_clap_host_stop(instance);
+    omx_clap_host_deactivate(instance);
+    CHECK(omx_clap_host_abi_clobber(instance, &c) && c.block == 2, "abi-breaker: and it is still read after a deactivate");
+    omx_clap_host_close(instance);
+}
+
 static void mover_block(struct omx_clap_instance *instance)
 {
     mover_blocks(instance, 1);
@@ -2890,6 +2920,7 @@ int main(int argc, char **argv)
         t_request_layout(fake_path);
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
+        test_abi_breaker(fake_path);
         contract_checks(fake_path);
         unoffered_checks(fake_path);
         if (synth_path)

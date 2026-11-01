@@ -38,6 +38,7 @@
 #define FAKE_SIDECHAIN      "org.omx-clap-host.test.sidechain"
 #define FAKE_NOTES          "org.omx-clap-host.test.notes"
 #define FAKE_PASSTHROUGH    "org.omx-clap-host.test.passthrough"
+#define FAKE_ABI_BREAKER    "org.omx-clap-host.test.abi-breaker"
 #define FAKE_WIDEN          "org.omx-clap-host.test.widen"
 #define FAKE_AUXOUT         "org.omx-clap-host.test.auxout"
 #define FAKE_ZERO_PORT      "org.omx-clap-host.test.zero-port"
