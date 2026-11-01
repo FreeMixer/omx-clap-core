@@ -93,12 +93,6 @@ xlines() { grep " $word " "$feedback"; }
 
 start_host "$port" "$fbport"
 step $? "omx-clap-host ready on port $port, feedback on $fbport, under the shim"
-# a host with no instance opens its global client a moment after it starts, to carry the count and the clock
-for _ in $(seq 30); do grep -q '^activate ' "$shimlog" && break; sleep 0.1; done
-[ "$(grep -c '^set_xrun ' "$shimlog")" -eq 1 ]; step $? "the host registered one xrun callback: $(tr '\n' '|' <"$shimlog")"
-client=$(sed -n 's/^set_xrun //p' "$shimlog")
-[ "$(grep -n "^set_xrun $client\$" "$shimlog" | cut -d: -f1)" -lt "$(grep -n "^activate $client\$" "$shimlog" | head -1 | cut -d: -f1)" ]
-step $? "on a client that was not yet active, so that no xrun is missed between the two"
 
 # a controller, as plugin-hostd is: the command socket and the feedback socket, which the host accepts together
 connect() {
@@ -109,6 +103,13 @@ connect() {
     pids+=("$reader")
 }
 connect "$port" "$fbport"
+
+# a host with no instance, once its controller is connected, opens its global client a moment after it starts, to carry the count and the clock
+for _ in $(seq 30); do grep -q '^activate ' "$shimlog" && break; sleep 0.1; done
+[ "$(grep -c '^set_xrun ' "$shimlog")" -eq 1 ]; step $? "the host registered one xrun callback: $(tr '\n' '|' <"$shimlog")"
+client=$(sed -n 's/^set_xrun //p' "$shimlog")
+[ "$(grep -n "^set_xrun $client\$" "$shimlog" | cut -d: -f1)" -lt "$(grep -n "^activate $client\$" "$shimlog" | head -1 | cut -d: -f1)" ]
+step $? "on a client that was not yet active, so that no xrun is missed between the two"
 
 sleep 1.5
 [ "$(wc -l <"$feedback")" -eq 0 ]; step $? "nothing on the feedback port while there is no xrun"
