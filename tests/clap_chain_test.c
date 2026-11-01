@@ -1019,6 +1019,109 @@ static void t_move_gap(void)
     set_free(&a);
 }
 
+/* a stage of one channel in and out, the test's low-pass: what a mono plugin is to a stereo chain */
+static void mono_process(void *ctx, const float *const *in, float *const *out, uint32_t n)
+{
+    struct stage *s = ctx;
+    uint32_t i;
+
+    s->calls++;
+    for (i = 0; i < n; i++)
+    {
+        s->z[0] += s->value * (in[0][i] - s->z[0]);
+        out[0][i] = s->z[0];
+    }
+}
+
+/* a mono member (1 in, 1 out) inside a stereo chain runs as Zynthian routes it as a client of its own: both channels
+ * summed into its one input, as JACK sums two links into one port, and its one output given to both channels. The chain
+ * equals the members so routed, bit for bit, over blocks of every size; bypassed, the member passes the sum to both */
+static void t_mono_member(void)
+{
+    struct omx_clap_chain_config config;
+    struct omx_clap_chain *chain = NULL;
+    struct omx_clap_chain_member d;
+    struct stage gain = { .kind = K_GAIN, .value = 0.5f }, mono = { .kind = K_LOWPASS, .value = 0.25f },
+                 delay = { .kind = K_DELAY, .value = 10 };
+    struct stage r_gain = gain, r_mono = mono, r_delay = delay;
+    struct io io;
+    float *g[CH], *m_in, *m_out, *dup[CH], *want[CH];
+    uint32_t b, c, i, id, mono_id = 0, equal;
+    int bypassed;
+
+    io_new(&io);
+    for (c = 0; c < CH; c++)
+    {
+        g[c] = block_new();
+        dup[c] = block_new();
+        want[c] = block_new();
+    }
+    m_in = block_new();
+    m_out = block_new();
+    for (bypassed = 0; bypassed < 2; bypassed++)
+    {
+        memset(&gain.z, 0, sizeof(gain.z)), memset(&mono.z, 0, sizeof(mono.z)), memset(&delay.ring, 0, sizeof(delay.ring));
+        gain.pos = mono.pos = delay.pos = 0;
+        r_gain = gain, r_mono = mono, r_delay = delay;
+        omx_clap_chain_config_init(&config);
+        config.channels = CH;
+        CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_OK, "mono: a stereo chain is created");
+        omx_clap_chain_member_init(&d);
+        d.process = stage_process, d.ctx = &gain, d.in_channels = d.out_channels = CH;
+        CHECK(omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id) == OMX_CLAP_CHAIN_OK, "mono: the stereo gain joins");
+        omx_clap_chain_member_init(&d);
+        d.process = mono_process, d.ctx = &mono, d.in_channels = d.out_channels = 1;
+        d.bypass = (uint32_t)bypassed;
+        CHECK(omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &mono_id) == OMX_CLAP_CHAIN_OK,
+              "mono: a member of 1 channel in and out joins a stereo chain%s", bypassed ? ", bypassed" : "");
+        omx_clap_chain_member_init(&d);
+        d.process = stage_process, d.ctx = &delay, d.in_channels = d.out_channels = CH, d.latency = 10;
+        CHECK(omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id) == OMX_CLAP_CHAIN_OK, "mono: the stereo delay joins");
+        for (b = 0, equal = 0; b < SIZES; b++)
+        {
+            const uint32_t n = g_sizes[b];
+
+            input_block(io.in, n, b);
+            omx_clap_chain_process(chain, (const float *const *)io.in, io.a, n);
+            // the members routed one by one: the gain, both of its channels into the mono member, its output to both
+            stage_process(&r_gain, (const float *const *)io.in, g, n);
+            for (i = 0; i < n; i++)
+                m_in[i] = g[0][i] + g[1][i];
+            if (bypassed)
+                memcpy(m_out, m_in, n * sizeof(float));
+            else
+                mono_process(&r_mono, (const float *const *)&m_in, &m_out, n);
+            for (c = 0; c < CH; c++)
+                memcpy(dup[c], m_out, n * sizeof(float));
+            stage_process(&r_delay, (const float *const *)dup, want, n);
+            equal += same(io.a, want, n);
+        }
+        CHECK(equal == SIZES, "mono: the chain equals the members routed one by one, bit for bit: %u of %u blocks of 1 to %u frames%s",
+              equal, (uint32_t)SIZES, FRAMES, bypassed ? ", the mono member bypassed" : "");
+        omx_clap_chain_destroy(chain);
+        chain = NULL;
+    }
+    // a member of 1 channel in and 2 out, or 2 in and 1 out, is refused: the run ends there
+    omx_clap_chain_config_init(&config);
+    config.channels = CH;
+    CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_OK, "mono: a stereo chain is created again");
+    omx_clap_chain_member_init(&d);
+    d.process = mono_process, d.ctx = &mono, d.in_channels = 1, d.out_channels = 2;
+    CHECK(omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id) == OMX_CLAP_CHAIN_ERR_WIDTH, "mono: a member of 1 in, 2 out is refused");
+    d.in_channels = 2, d.out_channels = 1;
+    CHECK(omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id) == OMX_CLAP_CHAIN_ERR_WIDTH, "mono: a member of 2 in, 1 out is refused");
+    omx_clap_chain_destroy(chain);
+    for (c = 0; c < CH; c++)
+    {
+        free(g[c]);
+        free(dup[c]);
+        free(want[c]);
+    }
+    free(m_in);
+    free(m_out);
+    io_free(&io);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -1041,6 +1144,7 @@ int main(int argc, char **argv)
     t_concurrent();
     t_order();
     t_move_gap();
+    t_mono_member();
     CHECK(omx_clap_host_binaries_open() == 0, "every binary closed (%u open)", omx_clap_host_binaries_open());
     if (g_failures)
     {
