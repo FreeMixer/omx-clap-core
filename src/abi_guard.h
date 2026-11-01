@@ -51,7 +51,8 @@ extern "C" {
 #define OMX_ABI_R12             (1u << 2)       /* r12..r15: bits 2..5 */
 #define OMX_ABI_MXCSR           (1u << 6)       /* its control bits: DAZ, the exception masks, rounding, FZ */
 #define OMX_ABI_X87CW           (1u << 7)
-#define OMX_ABI_REGS            8
+#define OMX_ABI_DF              (1u << 8)       /* the direction flag, which a callee returns clear */
+#define OMX_ABI_REGS            9
 #endif
 
 /* What the calls made through one report changed. */
@@ -81,7 +82,7 @@ OMX_ABI_EXPORT double omx_abi_call6f(struct omx_abi_report *r, const void *fn, u
  * thread may call through it. A control thread reads the record with omx_abi_guard_first. */
 struct omx_abi_guard
 {
-    uint64_t block;                 /* the process or run calls made so far: the audio thread counts them */
+    _Atomic uint64_t block;         /* the process or run calls made so far: the audio thread counts them (relaxed) */
     _Atomic uint32_t ever;          /* the union of every clobber's registers */
     _Atomic uint64_t calls;         /* the calls that changed any */
     _Atomic uint32_t claimed;       /* 1 once a clobber took the record */
@@ -98,6 +99,12 @@ struct omx_abi_clobber
     const char *call;               /* the plugin function, a static string */
 };
 
+/* the audio thread's count of one more process or run call (relaxed: no other thread waits on it) */
+static inline void omx_abi_guard_block(struct omx_abi_guard *g)
+{
+    atomic_fetch_add_explicit(&g->block, 1, memory_order_relaxed);
+}
+
 /* the guard's note of a call that changed `mask` */
 static inline void omx_abi_guard_note(struct omx_abi_guard *g, const char *call, uint32_t mask)
 {
@@ -108,7 +115,7 @@ static inline void omx_abi_guard_note(struct omx_abi_guard *g, const char *call,
     if (!atomic_exchange_explicit(&g->claimed, 1, memory_order_acq_rel))
     {
         g->first_call = call;
-        g->first_block = g->block;
+        g->first_block = atomic_load_explicit(&g->block, memory_order_relaxed);
         atomic_store_explicit(&g->first_mask, mask, memory_order_release);
     }
 }
@@ -126,7 +133,12 @@ static inline int omx_abi_guard_first(const struct omx_abi_guard *g, struct omx_
     return 1;
 }
 
-#define OMX_ABI_A(x) ((uint64_t)(uintptr_t)(x))
+/* never called: a float or a double reaching an integer register is refused where it is written (omx_abi_gd passes a
+ * double argument, omx_abi_gf takes a double result) */
+uint64_t omx_abi_float_refused(void) __attribute__((error("a float or double cannot pass through OMX_ABI_A or OMX_ABI_CALL: use omx_abi_gd or omx_abi_gf")));
+
+#define OMX_ABI_A(x) _Generic((x), float: omx_abi_float_refused(), double: omx_abi_float_refused(), \
+                                  long double: omx_abi_float_refused(), default: (uint64_t)(uintptr_t)(x))
 
 /* a plugin call through guard g (NULL: guarded, not recorded), named `call` for the record */
 static inline uint64_t omx_abi_g(struct omx_abi_guard *g, const char *call, const void *fn, uint64_t a0, uint64_t a1,
@@ -187,6 +199,7 @@ static inline double omx_abi_gf(struct omx_abi_guard *g, const char *call, const
 #define OMX_ABI_CALL(g, name, fn, ...)                                                                                  \
     _Generic((fn)(__VA_ARGS__),                                                                                        \
         _Bool: (_Bool)OMX_ABI_BOOL(omx_abi_g((g), (name), (const void *)(fn), OMX_ABI_PAD(__VA_ARGS__))),              \
+        float: omx_abi_float_refused(), double: omx_abi_float_refused(),                                               \
         default: (__typeof__((fn)(__VA_ARGS__)))(uintptr_t)omx_abi_g((g), (name), (const void *)(fn),                 \
                                                                      OMX_ABI_PAD(__VA_ARGS__)))
 
@@ -199,7 +212,7 @@ static inline const char *omx_abi_reg_name(unsigned bit)
         "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15", "fpcr", "x29",
     };
 #elif defined(__x86_64__)
-    static const char *const names[OMX_ABI_REGS] = { "rbx", "rbp", "r12", "r13", "r14", "r15", "mxcsr", "x87cw" };
+    static const char *const names[OMX_ABI_REGS] = { "rbx", "rbp", "r12", "r13", "r14", "r15", "mxcsr", "x87cw", "df" };
 #endif
     return bit < OMX_ABI_REGS ? names[bit] : 0;
 }

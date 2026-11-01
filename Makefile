@@ -1407,6 +1407,9 @@ tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
 .PHONY: test-abi-guard bench-abi-guard
 test-abi-guard: tests/abi_guard_test
 	tests/abi_guard_test
+	@! $(CC) $(CFLAGS) -c -o /dev/null tests/abi_guard_float_refused.c 2>/dev/null \
+	  && echo "ok   a double through OMX_ABI_A does not compile" \
+	  || { echo "FAIL a double through OMX_ABI_A compiled"; exit 1; }
 
 bench-abi-guard: tests/abi_guard_bench
 	tests/abi_guard_bench
