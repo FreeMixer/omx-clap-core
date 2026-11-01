@@ -474,6 +474,10 @@ export const HOST_EVENTS = {
   "xruns": {
     "word": "xruns",
     "doc": "the worker's JACK xrun count since its start, written when it changes and at most once a second; a worker that never writes it reports no xruns"
+  },
+  "abiClobber": {
+    "word": "abi_clobber",
+    "doc": "the plugin returned from a call with a callee-saved register changed (0.26.2): the instance number, the registers as a hexadecimal mask with their names, the plugin function and the block, written once per instance. The worker put the registers back, so its own frame is whole; the other members' state in the same process is not covered, so the plugin is run only in a worker of its own"
   }
 };
 
@@ -493,5 +497,6 @@ export const HOST_TRACK_KINDS_WORDS = [
  */
 export const HOST_EVENTS_WORDS = [
   "remote_pages_changed",
-  "xruns"
+  "xruns",
+  "abi_clobber"
 ];

@@ -198,6 +198,7 @@ typedef struct EFFECT_T {
     char **preset_keys, **preset_names;     // the last preset_list, the rows preset_get answers, encoded keys
     uint32_t presets_count;
     uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
+    uint32_t abi_said;                      // 1 once the feedback port was told this plugin changed a callee-saved register
     clap_id *gestures_open;                 // the parameters whose gesture begin went out on the feedback port, no end yet
     uint32_t gestures_open_count, gestures_open_cap;
     double rate;                            // the graph's rate when the instance was added
@@ -4142,6 +4143,31 @@ int effects_note_out_drops(int effect_id, char *reply, size_t size)
     return SUCCESS;
 }
 
+// a plugin that returned with a callee-saved register changed (src/abi_guard.h), said once on the feedback port and on
+// stderr from this thread: the audio thread only recorded it. An LV2 plugin's record is the adapter's, whose guard put
+// the registers back inside the shim before the core's guard could see them
+static void abi_clobber_notify(effect_t *effect)
+{
+    struct omx_abi_clobber c;
+    char names[160] = "", line[256];
+    size_t at = 0;
+    unsigned bit;
+
+    if (effect->abi_said)
+        return;
+    if (!omx_clap_host_abi_clobber(effect->clap, &c) && !(effect->lv2_entry && omx_clap_lv2_abi_clobber(effect->clap->plugin, &c)))
+        return;
+    effect->abi_said = 1;
+    for (bit = 0; omx_abi_reg_name(bit); bit++)
+        if (c.mask & (1u << bit))
+            at += (size_t)snprintf(names + at, at < sizeof(names) ? sizeof(names) - at : 0, "%s%s", at ? "," : "",
+                                   omx_abi_reg_name(bit));
+    fprintf(stderr, "effect_%d: the plugin returned from %s with %s changed (block %llu): put back; it runs only in a worker "
+            "of its own\n", effect->instance, c.call, names, (unsigned long long)c.block);
+    snprintf(line, sizeof(line), HOST_EVENT_ABI_CLOBBER_FMT, effect->instance, c.mask, names, c.call, (unsigned long long)c.block);
+    socket_send_feedback(line);
+}
+
 void effects_idle(void)
 {
     int i;
@@ -4172,6 +4198,7 @@ void effects_idle(void)
             publish_latency(effect);
         param_events_notify(effect);
         outputs_notify(effect);
+        abi_clobber_notify(effect);
     }
     window_idle();
 }

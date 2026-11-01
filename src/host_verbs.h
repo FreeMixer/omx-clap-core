@@ -72,6 +72,9 @@
 #define HOST_EVENT_REMOTE_PAGES_CHANGED_FMT OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED " %d"
 /* the feedback line of the worker's xrun count since its start: no instance number, the count is the worker's */
 #define HOST_EVENT_XRUNS_FMT OMX_HOST_EVENTS_XRUNS " %llu"
+/* the feedback line of a plugin that returned with a callee-saved register changed, once per instance: the instance, the
+ * mask (OMX_ABI_* bits), the registers' names joined by commas, the plugin function and the block (src/abi_guard.h) */
+#define HOST_EVENT_ABI_CLOBBER_FMT OMX_HOST_EVENTS_ABI_CLOBBER " %d %#x %s %s %llu"
 
 
 /*
