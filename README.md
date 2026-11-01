@@ -45,7 +45,7 @@ Debian bookworm and trixie and Raspberry Pi OS (amd64 and arm64):
     curl -fsSLO https://www.openmixer.org/deb/openmixer-release.deb && sudo apt install ./openmixer-release.deb
     sudo apt install omx-clap-host
 
-Version 0.22.1 ships these packages, all from the same release:
+The latest release ships these packages, all from the same version:
 
 | What | Fedora | Debian |
 |---|---|---|
@@ -61,7 +61,7 @@ For your own program, install the `-devel` / `-dev` package and build with
 Status
 ------
 
-Version 0.22.1 is released and packaged for Fedora 44 and Debian bookworm and trixie. What
+The latest release is packaged for Fedora 44 and Debian bookworm and trixie. What
 the continuous integration runs on every push, and the packages it builds:
 
 - The plugin lifecycle and the scanner against fake plugins, including a plugin that crashes.
