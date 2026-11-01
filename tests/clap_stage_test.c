@@ -1494,16 +1494,20 @@ static void t_note_priority(void) {
   const size_t ptr_align = _Alignof(float *);
   const size_t wide_at = (before + sizeof NS.releases_dropped + ptr_align - 1) / ptr_align * ptr_align;
   const size_t wide_end = offsetof(struct omx_clap_stage, wide) + sizeof NS.wide;
-  const size_t tail_end = offsetof(struct omx_clap_stage, passthrough) + sizeof NS.passthrough;
+  const size_t pass_end = offsetof(struct omx_clap_stage, passthrough) + sizeof NS.passthrough;
+  const size_t tail_end = offsetof(struct omx_clap_stage, guard_off) + sizeof NS.guard_off;
 
-  /* releases_dropped (ABI 5) follows start_refused with no gap, the wide bounce (ABI 13) follows it, and the two words
-   * after it (ABI 14 aux_bound_channels, ABI 15 passthrough) close the structure: every member before them keeps its
-   * offset. The ABI check cannot see the atomic ones (libabigail leaves _Atomic members out), so this is the check. */
+  /* releases_dropped (ABI 5) follows start_refused with no gap, the wide bounce (ABI 13) follows it, the two words after
+   * it (ABI 14 aux_bound_channels, ABI 15 passthrough) follow, and the guard's offset (ABI 20) closes the structure in
+   * what was its tail padding: every member before it keeps its offset and the size is the size of ABI 15. The ABI check cannot see the atomic ones (libabigail leaves _Atomic members
+   * out), so this is the check. */
   CHECK(offsetof(struct omx_clap_stage, releases_dropped) == before && offsetof(struct omx_clap_stage, wide_in) == wide_at &&
         offsetof(struct omx_clap_stage, aux_bound_channels) == wide_end &&
         offsetof(struct omx_clap_stage, passthrough) == wide_end + sizeof NS.aux_bound_channels &&
-        sizeof(struct omx_clap_stage) == (tail_end + align - 1) / align * align,
-        "releases_dropped follows start_refused (%zu), the wide bounce follows it (%zu), the ABI 14 and 15 words close it: size %zu",
+        offsetof(struct omx_clap_stage, guard_off) == pass_end &&
+        sizeof(struct omx_clap_stage) == (tail_end + align - 1) / align * align &&
+        sizeof(struct omx_clap_stage) == (pass_end + align - 1) / align * align,
+        "releases_dropped follows start_refused (%zu), the wide bounce follows it (%zu), the ABI 14 and 15 words and the ABI 20 offset close it, in the old size: %zu",
         offsetof(struct omx_clap_stage, releases_dropped), offsetof(struct omx_clap_stage, wide_in), sizeof(struct omx_clap_stage));
 
   for (d = 0; d < 3; d++) {

@@ -360,7 +360,7 @@ static void window_drop(struct window *w, int destroy_gui)
     struct omx_clap_instance *in = atomic_load_explicit(&w->in, memory_order_relaxed);
 
     if (w->created && destroy_gui)
-        w->gui->destroy(in->plugin);
+        omx_abi_g(OMX_ABI_GUARD_OF(in), "gui.destroy", (const void *)w->gui->destroy, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     x_destroy(w);
     x_flush();
     atomic_store_explicit(&w->in, NULL, memory_order_release);
@@ -384,7 +384,7 @@ static int window_unhide(struct window *w, const char **code)
     if (w->visible)
         return 0;
     x_map(w);
-    if (!w->gui->show(in->plugin))
+    if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "gui.show", w->gui->show, in->plugin))
     {
         refused_say(in, "show");
         x_unmap(w);
@@ -403,7 +403,7 @@ static void window_conceal(struct window *w)
 
     if (!w->visible)
         return;
-    w->gui->hide(in->plugin);
+    OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "gui.hide", w->gui->hide, in->plugin);
     x_unmap(w);
     x_flush();
     w->visible = 0;
@@ -446,7 +446,7 @@ static const struct window_api *window_api_pick(const clap_plugin_t *plugin, con
     {
         const struct window_api *api = &g_apis[i];
 
-        if (!gui->is_api_supported(plugin, api->name, api->floating) || (!api->floating && !gui->set_parent))
+        if (!OMX_ABI_CALL(NULL, "gui.is_api_supported", gui->is_api_supported, plugin, api->name, api->floating) || (!api->floating && !gui->set_parent))
             continue;
         offered = 1;
         if (api->connect() == 0)
@@ -466,9 +466,10 @@ static int x_embed(struct window *w, struct omx_clap_instance *in, const char *t
     uint32_t width = 0, height = 0;
 
     if (gui->set_scale)
-        gui->set_scale(plugin, 1.0);
-    w->resizable = gui->can_resize && gui->can_resize(plugin);
-    if (gui->get_size && gui->get_size(plugin, &width, &height) && width > 0 && height > 0)
+        // the scale is a double: it reaches the plugin in its first floating-point register (omx_abi_gd)
+        (void)omx_abi_gd(NULL, "gui.set_scale", (const void *)gui->set_scale, OMX_ABI_A(plugin), 0, 0, 0, 1.0);
+    w->resizable = gui->can_resize && OMX_ABI_CALL(NULL, "gui.can_resize", gui->can_resize, plugin);
+    if (gui->get_size && OMX_ABI_CALL(NULL, "gui.get_size", gui->get_size, plugin, &width, &height) && width > 0 && height > 0)
     {
         w->width = width;
         w->height = height;
@@ -479,7 +480,7 @@ static int x_embed(struct window *w, struct omx_clap_instance *in, const char *t
     free(xcb_get_input_focus_reply(g_x, xcb_get_input_focus(g_x), NULL));
     parent.api = CLAP_WINDOW_API_X11;
     parent.x11 = w->xid;
-    if (!gui->set_parent(plugin, &parent))
+    if (!OMX_ABI_CALL(NULL, "gui.set_parent", gui->set_parent, plugin, &parent))
     {
         refused_say(in, "set_parent");
         window_drop(w, 1);
@@ -495,7 +496,7 @@ static int x_embed(struct window *w, struct omx_clap_instance *in, const char *t
 static int window_make(struct omx_clap_instance *in, const char *title, const char **code)
 {
     const clap_plugin_t *plugin = in->plugin;
-    const clap_plugin_gui_t *gui = plugin->get_extension(plugin, CLAP_EXT_GUI);
+    const clap_plugin_gui_t *gui = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_GUI);
     const struct window_api *api;
     struct window *w;
 
@@ -507,7 +508,7 @@ static int window_make(struct omx_clap_instance *in, const char *title, const ch
     if (!(api = window_api_pick(plugin, gui, code)))
         return -1;
     w = window_claim(in, gui, api);
-    if (!w || !gui->create(plugin, api->name, api->floating))
+    if (!w || !OMX_ABI_CALL(NULL, "gui.create", gui->create, plugin, api->name, api->floating))
     {
         if (w)
         {
@@ -523,7 +524,7 @@ static int window_make(struct omx_clap_instance *in, const char *title, const ch
     if (api->floating)
     {
         if (gui->suggest_title)
-            gui->suggest_title(plugin, title);
+            OMX_ABI_VCALL(NULL, "gui.suggest_title", gui->suggest_title, plugin, title);
     }
 #ifdef OMX_CLAP_HOST_X11
     else if (x_embed(w, in, title, code) != 0)
@@ -550,8 +551,8 @@ static void window_configured(struct window *w, uint32_t width, uint32_t height)
     if (w->resizable && w->gui->set_size)
     {
         if (w->gui->adjust_size)
-            w->gui->adjust_size(in->plugin, &cw, &ch);
-        if (cw > 0 && ch > 0 && w->gui->set_size(in->plugin, cw, ch))
+            OMX_ABI_VCALL(OMX_ABI_GUARD_OF(in), "gui.adjust_size", w->gui->adjust_size, in->plugin, &cw, &ch);
+        if (cw > 0 && ch > 0 && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "gui.set_size", w->gui->set_size, in->plugin, cw, ch))
         {
             w->width = cw;
             w->height = ch;
@@ -637,7 +638,7 @@ static void window_requests(struct window *w)
         w->visible = 0;
     }
     if (req & WINDOW_REQ_HINTS)
-        w->resizable = w->gui->can_resize && w->gui->can_resize(in->plugin);
+        w->resizable = w->gui->can_resize && OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "gui.can_resize", w->gui->can_resize, in->plugin);
     x_requested(w, req);
     if (req & WINDOW_REQ_SHOW)
         (void)window_unhide(w, &code);

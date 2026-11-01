@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "scan_panel.h"
+#include "abi_guard.h"
 
 /* the size of each table's structure */
 static const size_t g_row_size[SCAN_PANEL_TABLE_COUNT] = {
@@ -79,7 +80,7 @@ static void blank(uint32_t table, void *row)
 static int read_table(const clap_plugin_t *plugin, const omx_clap_plugin_panel_description_ext_t *ext, uint32_t table,
                       struct scan_panel_rows *out)
 {
-    const uint32_t count = ext->count && ext->get ? ext->count(plugin, table) : 0;
+    const uint32_t count = ext->count && ext->get ? OMX_ABI_CALL(NULL, "ext.count", ext->count, plugin, table) : 0;
     const size_t size = g_row_size[table];
     char *rows;
     uint32_t i;
@@ -105,7 +106,7 @@ static int read_table(const clap_plugin_t *plugin, const omx_clap_plugin_panel_d
         char *row = rows + (size_t)out->n * size;
 
         blank(table, row);
-        if (!ext->get(plugin, table, i, row))
+        if (!OMX_ABI_CALL(NULL, "ext.get", ext->get, plugin, table, i, row))
             continue;
         terminate(table, row);
         out->index[out->n++] = i;
@@ -115,14 +116,14 @@ static int read_table(const clap_plugin_t *plugin, const omx_clap_plugin_panel_d
 
 int scan_panel_read(const clap_plugin_t *plugin, struct scan_panel *panel)
 {
-    const omx_clap_plugin_panel_description_ext_t *ext = plugin->get_extension(plugin, OMX_CLAP_EXT_PANEL_DESCRIPTION);
+    const omx_clap_plugin_panel_description_ext_t *ext = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, OMX_CLAP_EXT_PANEL_DESCRIPTION);
     const char *fingerprint;
     uint32_t t;
 
     memset(panel, 0, sizeof(*panel));
     if (!ext)
         return 0;
-    fingerprint = ext->fingerprint ? ext->fingerprint(plugin) : NULL;
+    fingerprint = ext->fingerprint ? OMX_ABI_CALL(NULL, "ext.fingerprint", ext->fingerprint, plugin) : NULL;
     if (fingerprint)
     {
         panel->has_fingerprint = true;
@@ -131,7 +132,7 @@ int scan_panel_read(const clap_plugin_t *plugin, struct scan_panel *panel)
     if (ext->family)
     {
         panel->has_family = true;
-        panel->family = ext->family(plugin);
+        panel->family = OMX_ABI_CALL(NULL, "ext.family", ext->family, plugin);
     }
     for (t = 0; t < SCAN_PANEL_TABLE_COUNT; t++)
         if (read_table(plugin, ext, t, &panel->table[t]) != 0)

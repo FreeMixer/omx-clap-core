@@ -198,6 +198,7 @@ typedef struct EFFECT_T {
     char **preset_keys, **preset_names;     // the last preset_list, the rows preset_get answers, encoded keys
     uint32_t presets_count;
     uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
+    uint32_t abi_said;                      // 1 once the feedback port was told this plugin changed a callee-saved register
     clap_id *gestures_open;                 // the parameters whose gesture begin went out on the feedback port, no end yet
     uint32_t gestures_open_count, gestures_open_cap;
     double rate;                            // the graph's rate when the instance was added
@@ -488,7 +489,8 @@ static void publish_gain_adjustment(effect_t *effect, uint32_t runs_before)
     uint32_t bits;
 
     if (atomic_load_explicit(&effect->clap->stage.h.runs, memory_order_relaxed) != runs_before)
-        value = (float)effect->gain_adjustment->get(effect->clap->plugin);
+        value = (float)omx_abi_gf(OMX_ABI_GUARD_OF(effect->clap), "gain_adjustment.get", (const void *)effect->gain_adjustment->get,
+                                  OMX_ABI_A(effect->clap->plugin), 0, 0, 0);
     memcpy(&bits, &value, sizeof(bits));
     atomic_store_explicit(&effect->gain_adjustment_bits, bits, memory_order_relaxed);
 }
@@ -1097,11 +1099,11 @@ static int lv2_candidate(const char *bundle, void *ctx)
         snprintf(search->why, sizeof(search->why), "%s", why);
         return 0;
     }
-    factory = entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
-    count = factory ? factory->get_plugin_count(factory) : 0;
+    factory = OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
+    count = factory ? OMX_ABI_CALL(NULL, "factory.get_plugin_count", factory->get_plugin_count, factory) : 0;
     for (i = 0; i < count; i++)
     {
-        const clap_plugin_descriptor_t *desc = factory->get_plugin_descriptor(factory, i);
+        const clap_plugin_descriptor_t *desc = OMX_ABI_CALL(NULL, "factory.get_plugin_descriptor", factory->get_plugin_descriptor, factory, i);
 
         if (desc && desc->id && strcmp(desc->id, search->uri) == 0)
         {
@@ -1173,7 +1175,7 @@ static int open_lv2(const char *uri, effect_t *effect)
 static int lv2_params_build(effect_t *effect)
 {
     struct omx_clap_instance *clap = effect->clap;
-    uint32_t i, count = clap->params ? clap->params->count(clap->plugin) : 0;
+    uint32_t i, count = clap->params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "params.count", clap->params->count, clap->plugin) : 0;
 
     effect->lv2_params = count ? calloc(count, sizeof(lv2_param_t)) : NULL;
     if (count && !effect->lv2_params)
@@ -1185,7 +1187,7 @@ static int lv2_params_build(effect_t *effect)
         lv2_param_t *param;
 
         memset(&info, 0, sizeof(info));
-        if (!clap->params->get_info(clap->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "params.get_info", clap->params->get_info, clap->plugin, i, &info))
             return -1;
         symbol = omx_clap_lv2_param_symbol(clap->plugin, info.id);
         if (!symbol)
@@ -1590,7 +1592,7 @@ static int output_param_add(effect_t *effect, const lv2_param_t *param)
 static int outputs_build(effect_t *effect)
 {
     const clap_plugin_t *plugin = effect->clap->plugin;
-    const clap_plugin_meters_t *meters = plugin->get_extension(plugin, CLAP_EXT_METERS);
+    const clap_plugin_meters_t *meters = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_METERS);
     const clap_plugin_gain_adjustment_metering_t *gain_adjustment;
     clap_meter_info_t info;
     uint32_t count, i, c;
@@ -1598,11 +1600,11 @@ static int outputs_build(effect_t *effect)
     if (meters && meters->count && meters->get_info && meters->get_values)
     {
         effect->meters = meters;
-        count = meters->count(plugin);
+        count = OMX_ABI_CALL(NULL, "meters.count", meters->count, plugin);
         for (i = 0; i < count; i++)
         {
             memset(&info, 0, sizeof(info));
-            if (!meters->get_info(plugin, i, &info))
+            if (!OMX_ABI_CALL(NULL, "meters.get_info", meters->get_info, plugin, i, &info))
             {
                 fprintf(stderr, "%s: meter %u has no info\n", effect->clap->desc->id, i);
                 return -1;
@@ -1629,7 +1631,7 @@ static int outputs_build(effect_t *effect)
         return 0;
     }
 
-    gain_adjustment = plugin->get_extension(plugin, CLAP_EXT_GAIN_ADJUSTMENT_METERING);
+    gain_adjustment = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_GAIN_ADJUSTMENT_METERING);
     if (gain_adjustment && gain_adjustment->get)
     {
         if (output_add(effect, GAIN_ADJUSTMENT_SYMBOL, 1, CLAP_INVALID_ID, 0, 1) != 0)
@@ -1808,7 +1810,8 @@ static void outputs_notify(effect_t *effect)
             {
                 read = 1;
                 read_meter = output->meter;
-                have = effect->meters->get_values(effect->clap->plugin, output->meter, values, output->channels);
+                have = OMX_ABI_CALL(OMX_ABI_GUARD_OF(effect->clap), "meters.get_values", effect->meters->get_values,
+                                    effect->clap->plugin, output->meter, values, output->channels);
             }
             if (output->channel >= have)
                 continue;
@@ -4140,6 +4143,31 @@ int effects_note_out_drops(int effect_id, char *reply, size_t size)
     return SUCCESS;
 }
 
+// a plugin that returned with a callee-saved register changed (src/abi_guard.h), said once on the feedback port and on
+// stderr from this thread: the audio thread only recorded it. An LV2 plugin's record is the adapter's, whose guard put
+// the registers back inside the shim before the core's guard could see them
+static void abi_clobber_notify(effect_t *effect)
+{
+    struct omx_abi_clobber c;
+    char names[160] = "", line[256];
+    size_t at = 0;
+    unsigned bit;
+
+    if (effect->abi_said)
+        return;
+    if (!omx_clap_host_abi_clobber(effect->clap, &c) && !(effect->lv2_entry && omx_clap_lv2_abi_clobber(effect->clap->plugin, &c)))
+        return;
+    effect->abi_said = 1;
+    for (bit = 0; omx_abi_reg_name(bit); bit++)
+        if (c.mask & (1u << bit))
+            at += (size_t)snprintf(names + at, at < sizeof(names) ? sizeof(names) - at : 0, "%s%s", at ? "," : "",
+                                   omx_abi_reg_name(bit));
+    fprintf(stderr, "effect_%d: the plugin returned from %s with %s changed (block %llu): put back; it runs only in a worker "
+            "of its own\n", effect->instance, c.call, names, (unsigned long long)c.block);
+    snprintf(line, sizeof(line), HOST_EVENT_ABI_CLOBBER_FMT, effect->instance, c.mask, names, c.call, (unsigned long long)c.block);
+    socket_send_feedback(line);
+}
+
 void effects_idle(void)
 {
     int i;
@@ -4170,6 +4198,7 @@ void effects_idle(void)
             publish_latency(effect);
         param_events_notify(effect);
         outputs_notify(effect);
+        abi_clobber_notify(effect);
     }
     window_idle();
 }
@@ -4258,7 +4287,7 @@ int effects_remote_pages(int effect_id)
         return ERR_INSTANCE_NON_EXISTS;
     clap = g_effects[effect_id].clap;
     if (clap->remote_controls)
-        return (int)clap->remote_controls->count(clap->plugin);
+        return (int)OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "remote_controls.count", clap->remote_controls->count, clap->plugin);
     return g_effects[effect_id].lv2_entry ? 0 : (int)omx_clap_host_standard_pages(clap);
 }
 
@@ -4304,8 +4333,8 @@ int effects_remote_page_get(int effect_id, int page, char *reply, size_t size)
         return ERR_INVALID_OPERATION;
     if (clap->remote_controls)
     {
-        if ((uint32_t)page >= clap->remote_controls->count(clap->plugin) ||
-            !clap->remote_controls->get(clap->plugin, (uint32_t)page, &info))
+        if ((uint32_t)page >= OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "remote_controls.count", clap->remote_controls->count, clap->plugin) ||
+            !OMX_ABI_CALL(OMX_ABI_GUARD_OF(clap), "remote_controls.get", clap->remote_controls->get, clap->plugin, (uint32_t)page, &info))
             return ERR_INVALID_OPERATION;
     }
     else if (g_effects[effect_id].lv2_entry || omx_clap_host_standard_page(clap, (uint32_t)page, &info) != 0)

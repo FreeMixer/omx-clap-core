@@ -16,8 +16,8 @@ trap 'rm -rf "$tmp"' EXIT
 nm -D --defined-only "$lib" | awk '$2 ~ /^[TDBRVW]$/ { print $3 }' | sed 's/@.*//' | grep -v '^_' | sort -u > "$tmp/exported.txt"
 # what the version script lists
 sed -n '/global:/,/local:/p' "$map" | sed -n 's/^ *\([a-z_0-9]*\);$/\1/p' | sort -u > "$tmp/listed.txt"
-# what the headers declare
-cat "$@" | grep 'OMX_CLAP_EXPORT [a-z]' | sed 's/(.*//; s/.*[ *]//' | sort -u > "$tmp/declared.txt"
+# what the headers declare: OMX_CLAP_EXPORT, and the guard's OMX_ABI_EXPORT (src/abi_guard.h)
+cat "$@" | grep -E '(OMX_CLAP_EXPORT|OMX_ABI_EXPORT) [a-z]' | sed 's/(.*//; s/.*[ *]//' | sort -u > "$tmp/declared.txt"
 
 # a control that can see presence: the lists are not empty, or an empty diff proves nothing
 for f in exported.txt listed.txt declared.txt; do

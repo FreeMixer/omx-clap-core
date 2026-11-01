@@ -59,6 +59,7 @@
 #include <clap/clap.h>
 
 #include "omx_clap_ext.h"
+#include "abi_guard.h"
 
 
 /*
@@ -378,7 +379,7 @@ static int pc_fingerprint(const struct pc_param *p, uint32_t n, char hex[65])
 static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const clap_plugin_params_t *params, uint32_t count)
 {
     const omx_clap_plugin_param_contract_ext_t *ext = plugin->get_extension
-        ? plugin->get_extension(plugin, OMX_CLAP_EXT_PARAM_CONTRACT) : NULL;
+        ? OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, OMX_CLAP_EXT_PARAM_CONTRACT) : NULL;
     struct pc_param *p = NULL;
     const char *stated;
     char hex[65];
@@ -390,7 +391,7 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
         return pc_refuse(c, "absent", "", NULL);
     if (!ext->version || !ext->fingerprint || !ext->get || !params || count == 0)
         return pc_refuse(c, "R1", "the extension or clap.params is incomplete", NULL);
-    c->version = ext->version(plugin);
+    c->version = OMX_ABI_CALL(NULL, "ext.version", ext->version, plugin);
     if (c->version < 1)
         return pc_refuse(c, "R5", "version 0", NULL);
     p = calloc(count, sizeof(*p));
@@ -405,7 +406,7 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
             pc_refuse(c, "R1", "a parameter clap.params counts has no info", NULL);
             goto out;
         }
-        if (!ext->get(plugin, q->info.id, &q->entry) || q->entry.param_id != q->info.id)
+        if (!OMX_ABI_CALL(NULL, "ext.get", ext->get, plugin, q->info.id, &q->entry) || q->entry.param_id != q->info.id)
         {
             char what[64];
 
@@ -458,7 +459,7 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
                 goto out;
             }
     }
-    stated = ext->fingerprint(plugin);
+    stated = OMX_ABI_CALL(NULL, "ext.fingerprint", ext->fingerprint, plugin);
     if (pc_fingerprint(p, count, hex) != 0 || !stated || strncmp(stated, hex, sizeof(hex)) != 0)
     {
         snprintf(c->why, sizeof(c->why), "R4 the fingerprint is %s", hex);

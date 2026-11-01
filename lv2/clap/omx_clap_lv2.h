@@ -85,6 +85,13 @@ void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry);
  * without a state root. The adapter never removes it: the saved state names the copies by their absolute path. */
 uint32_t omx_clap_lv2_saved_dir(const clap_plugin_t *plugin, char *buf, uint32_t size);
 
+struct omx_abi_clobber;
+/* [any thread] The first call into the LV2 plugin behind `plugin` (one this adapter created) that returned with a
+ * callee-saved register changed: its registers, its function and its run block (src/abi_guard.h). The adapter put them
+ * back inside the shim, so the CLAP host's own guard sees nothing: a host asks here. 1 and *out filled when there was
+ * one; 0 otherwise, and for a plugin the adapter did not create. Such a plugin is run only in a worker of its own. */
+int omx_clap_lv2_abi_clobber(const clap_plugin_t *plugin, struct omx_abi_clobber *out);
+
 /* [main-thread] Remove a save's copy directory and everything in it, when the host deletes the states that name it:
  * 0, or -1 with `why` hosting.state.not-a-copy for a path that is not a lv2-<pid>-<n>.saved directory directly under the
  * configured state root (a symbolic link included), or with no state root. A link inside is removed, never followed. */

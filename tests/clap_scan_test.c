@@ -133,13 +133,13 @@ static void fake_checks(const char *scan, const char *fake, char *out)
 
     CHECK(status == 0, "scan of fake.clap exits 0 (%i)", status);
     CHECK(out[0] == '{' && has(out, "\"scanner\":\"omx-clap-scan\""), "one JSON document with the scanner named");
-    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 23, "the twenty-three plugins of the factory are listed (%i)",
+    CHECK(count(out, "\"id\":\"org.omx-clap-host.test.") == 24, "the twenty-four plugins of the factory are listed (%i)",
           count(out, "\"id\":\"org.omx-clap-host.test."));
     CHECK(has(out, "\"id\":\"org.omx-clap-host.test.passthrough\",\"name\":\"passthrough\",\"vendor\":\"omx-clap-host\","
                    "\"version\":\"0\""), "descriptor id, name, vendor, version");
     CHECK(has(out, "\"features\":[\"audio-effect\"]"), "features");
     CHECK(count(out, "{\"id\":0,\"name\":\"latency\",\"module\":\"\",\"min\":0,\"max\":4096,\"default\":64,"
-                     "\"flags\":[\"stepped\"]}") == 23, "each plugin's parameter: id, name, module, min, max, default, flags");
+                     "\"flags\":[\"stepped\"]}") == 24, "each plugin's parameter: id, name, module, min, max, default, flags");
     CHECK(has(out, "\"audio_ports\":{\"inputs\":[{\"id\":0,\"name\":\"in 0\",\"role\":\"main\",\"channels\":6,\"kind\":\"unknown\","
                    "\"jack\":[\"in_1\",\"in_2\",\"in_3\",\"in_4\",\"in_5\",\"in_6\"]}]"),
           "the wide plugin's 6-channel main input, of no port type, a JACK port per channel");
@@ -170,7 +170,7 @@ static void fake_checks(const char *scan, const char *fake, char *out)
     CHECK(!has(out, "\"assumed\""), "a configuration every plugin states is not marked assumed");
     CHECK(count(out, "\"note_ports\":{\"inputs\":1,\"outputs\":0}") == 1, "the note input of exactly one plugin");
     CHECK(!has(out, "\"presets\""), "fake.clap has no preset-discovery factory: no presets key");
-    CHECK(count(out, "\"latency\":64") == 23, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
+    CHECK(count(out, "\"latency\":64") == 24, "latency 64 read without activation (%i)", count(out, "\"latency\":64"));
     CHECK(!has(out, "\"error\""), "no error on a clean file");
 }
 
@@ -492,7 +492,7 @@ static void panel_checks(const char *scan, const char *fake, const char *panel, 
           && plugin_has(out, "panel-hostile", ",\"placementDefaults\":[]}") && !has(out, "out of memory"),
           "and its sections, displays and placement defaults still print, nothing reported out of memory");
     status = run(out, "%s --json %s", scan, fake);
-    CHECK(status == 0 && count(out, "\"panel\":null") == 23, "and none of fake.clap's 23 plugins does (%i null)", count(out, "\"panel\":null"));
+    CHECK(status == 0 && count(out, "\"panel\":null") == 24, "and none of fake.clap's 24 plugins does (%i null)", count(out, "\"panel\":null"));
     status = run(out, "%s %s", scan, panel);
     CHECK(status == 0 && has(out, "\n    panel dynamics, 2 sections, 3 controls, 1 roles, 1 displays, 0 placement defaults\n")
           && count(out, "    panel ") == 2,

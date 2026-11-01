@@ -21,7 +21,7 @@ mkdir -p "$work"
 # build <dir> <version> <inst> <other> <member>: the fixture's header and library under <dir>/usr
 build() {
     mkdir -p "$1/usr/include" "$1/usr/lib"
-    printf 'struct inst { %s };\nstruct other { %s };\nstruct member { %s };\nvoid use(struct member *m);\n' "$3" "$4" "$5" > "$1/usr/include/fix.h"
+    printf 'struct other { %s };\nstruct inst { %s };\nstruct member { %s };\nvoid use(struct member *m);\n' "$4" "$3" "$5" > "$1/usr/include/fix.h"
     printf '#include "fix.h"\n__attribute__((visibility("default"))) void use(struct member *m) { (void)m; }\n' > "$1/fix.c"
     "$cc" -g -O0 -fPIC -shared -fvisibility=hidden -I"$1/usr/include" -Wl,-soname,libfix.so.1 -o "$1/usr/lib/libfix.so.$2" "$1/fix.c"
 }
@@ -60,8 +60,25 @@ else
     failures=$((failures + 1))
 fi
 
+# a second baseline, whose inst embeds an other whole, with tail padding: a member gained in that padding moves nothing and
+# reads ok (the stage inside the instance, ABI 5 and ABI 20); an other that grew moves the member after it and FAILs
+build "$work/base2" 1.0.0 'int a; struct other o; int c;' 'long l; int z;' 'struct inst *instance; int flags; void (*cb)(int);' || exit 2
+abidw --headers-dir "$work/base2/usr/include" --out-file "$work/base2.abi" "$work/base2/usr/lib/libfix.so.1.0.0" || exit 2
+case2_() {
+    local name=$1 want=$2 dir=$work/$1 got
+    build "$dir" 1.1.0 "$3" "$4" "$5" || { echo "FAIL $name: the fixture did not build"; failures=$((failures + 1)); return; }
+    got=$(sh "$root/tests/abi-check.sh" "$dir/usr/lib/libfix.so.1.1.0" "$dir/usr/include" "$work/base2.abi" 2>&1 | grep -E '^(ok|FAIL) ' | tail -1)
+    case "$got" in
+        "$want "*) echo "ok   $name: $got" ;;
+        *) echo "FAIL $name: wanted $want, abi-check.sh says: ${got:-nothing}"; failures=$((failures + 1)) ;;
+    esac
+}
+case2_ embedded-in-padding ok 'int a; struct other o; int c; int d;' 'long l; int z; int y;' 'struct inst *instance; int flags; void (*cb)(int);'
+case2_ embedded-grown FAIL 'int a; struct other o; int c;' 'long l; int z; int y; int w;' 'struct inst *instance; int flags; void (*cb)(int);'
+case2_ embedded-retyped FAIL 'int a; struct other o; int c;' 'long l; float z;' 'struct inst *instance; int flags; void (*cb)(int);'
+
 if [ "$failures" -eq 0 ]; then
-    echo "abi-check sabotage ok: the growth reads ok, every other case FAILs"
+    echo "abi-check sabotage ok: the growth and the padding read ok, every other case FAILs"
     exit 0
 fi
 echo "abi-check sabotage FAILED ($failures)"

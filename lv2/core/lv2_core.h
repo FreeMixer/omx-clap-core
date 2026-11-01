@@ -467,6 +467,11 @@ void lv2_plugin_close(struct lv2_plugin *plugin);
 /* An instance of a loaded plugin, nothing instantiated yet: LV2 needs the rate. */
 struct lv2_instance *lv2_instance_new(const struct lv2_plugin *plugin);
 
+struct omx_abi_clobber;
+/* the instance's first plugin call that returned with a callee-saved register changed (src/abi_guard.h): 1 and *out
+ * filled when there was one, 0 otherwise; any thread */
+int lv2_instance_abi_clobber(const struct lv2_instance *in, struct omx_abi_clobber *out);
+
 /* First activation, a rate or a longest block that changed: instantiate with the configured features and the options
  * (rate, min, max), connect every port to the instance's own memory, restore the default state, then LV2 activate and
  * start the worker. The same rate and block as the live instance: LV2 activate and the worker only. 0, or -1 with

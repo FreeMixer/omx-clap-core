@@ -271,6 +271,10 @@ export declare const HOSTING_STABILITY_CODES: {
   readonly stabilityCrashedAttributed: {
     readonly code: "hosting.stability.crashed-attributed-plugin";
   };
+  readonly stabilityCalleeSavedClobbered: {
+    readonly code: "hosting.stability.callee-saved-clobbered";
+    readonly doc: "the plugin returned from a call with a callee-saved register changed (0.26.2): the host's guard put it back, but not the other members' state in the same process, so the plugin runs only in a worker of its own";
+  };
   readonly stabilityCrashedLive: {
     readonly code: "hosting.stability.crashed-live-on-this-rig";
     readonly doc: "the plugin crashed live on this rig";
@@ -475,6 +479,10 @@ export declare const HOST_EVENTS: {
     readonly word: "xruns";
     readonly doc: "the worker's JACK xrun count since its start, written when it changes and at most once a second; a worker that never writes it reports no xruns";
   };
+  readonly abiClobber: {
+    readonly word: "abi_clobber";
+    readonly doc: "the plugin returned from a call with a callee-saved register changed (0.26.2): the instance number, the registers as a hexadecimal mask with their names, the plugin function and the block, written once per instance. The worker put the registers back, so its own frame is whole; the other members' state in the same process is not covered, so the plugin is run only in a worker of its own";
+  };
 };
 
 /**
@@ -487,4 +495,4 @@ export declare const HOST_TRACK_KINDS_WORDS: readonly ["bus", "return", "master"
  * The words of HOST_EVENTS, in their declared order.
  * @see data/verbs.json
  */
-export declare const HOST_EVENTS_WORDS: readonly ["remote_pages_changed", "xruns"];
+export declare const HOST_EVENTS_WORDS: readonly ["remote_pages_changed", "xruns", "abi_clobber"];

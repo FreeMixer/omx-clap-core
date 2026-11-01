@@ -19,7 +19,7 @@ CORE_VERSION = $(VERSION)
 CORE_SO = lib$(CORE).so
 CORE_SONAME = $(CORE_SO).$(CORE_MAJOR)
 CORE_FILE = $(CORE_SO).$(CORE_VERSION)
-CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h
+CORE_HEADERS = src/clap_host.h src/clap_host_extensions.h src/omx_msgring.h src/clap_stage.h src/hosted_stage.h src/clap_host_limits.h src/omx_clap_core_vocabulary.h src/hosted_stage_limits.h src/omx_clap_ext.h src/clap_meters.h src/omx_clap_raw.h src/omx_clap_midi.h src/clap_chain.h src/abi_guard.h
 CORE_MAP = src/omx-clap-core.map
 # the hosting items as a TypeScript module (data/hosting.json's render word), installed for a TypeScript build to import
 CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-core-vocabulary.js ts/omx-clap-core-vocabulary.d.ts
@@ -136,7 +136,7 @@ LDFLAGS += -Wl,--no-undefined
 SRC = src/main.c src/effects.c src/lv2_locate.c src/preset_file.c src/window.c
 OBJ = $(SRC:.c=.o)
 CORE_SRC = src/clap_host.c src/idle_hold.c src/clap_chain.c src/thread_pool.c
-CORE_OBJ = $(CORE_SRC:.c=.o)
+CORE_OBJ = $(CORE_SRC:.c=.o) src/abi_guard.o
 
 # the scanner shares the plugin loading with the host through the core, and the LV2 adapter's world for --fields lv2:,
 # and needs neither jack nor the protocol library
@@ -149,10 +149,10 @@ SCAN_OBJ = $(SCAN_SRC:.c=.o)
 LV2_LIB = libomx-clap-lv2.a
 LV2_VERSION = $(VERSION)
 LV2_CORE_LIB = build/lv2/liblv2core.a
-LV2_HEADERS = lv2/clap/omx_clap_lv2.h lv2/core/omx_lv2_features.h
+LV2_HEADERS = lv2/clap/omx_clap_lv2.h lv2/core/omx_lv2_features.h src/abi_guard.h
 LV2_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags lv2 lilv-0 2>/dev/null)
 LV2_CORE_SRC = lv2/core/lv2_world.c lv2/core/lv2_features.c lv2/core/lv2_instance.c lv2/core/lv2_rtmempool.c
-LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o)
+LV2_CORE_OBJ = $(LV2_CORE_SRC:.c=.o) lv2/core/abi_guard.o
 LV2_CLAP_SRC = lv2/clap/lv2_clap.c
 LV2_CLAP_OBJ = $(LV2_CLAP_SRC:.c=.o)
 # the lilv the tests' lazy-load arm points a late symlink at
@@ -199,6 +199,13 @@ src/clap_host.o src/main.o src/scan.o: VERSION
 %.o: %.c
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 
+# the guarded plugin call (src/abi_guard.S): the core's, and the LV2 adapter's own copy under its own names, hidden
+src/abi_guard.o: src/abi_guard.S
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+lv2/core/abi_guard.o: src/abi_guard.S
+	$(CC) $(CFLAGS) -DOMX_ABI_LV2 -c -o $@ $<
+
 # the scanner's field dump reads an LV2 plugin through the adapter's world: lv2/core's header and the LV2 headers it names
 src/scan_fields.o: src/scan_fields.c
 	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(INCS) $(CFLAGS) -c -o $@ $<
@@ -227,11 +234,12 @@ $(NOX11_PROG): $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB)
 	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
+# the adapter calls its plugins through its own copy of the guard (src/abi_guard.S), named apart by OMX_ABI_LV2
 lv2/core/%.o: lv2/core/%.c
-	$(CC) -Isrc -Ilv2/core $(LV2_CFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) -Isrc -Ilv2/core -DOMX_ABI_LV2 $(LV2_CFLAGS) $(CFLAGS) -c -o $@ $<
 
 lv2/clap/%.o: lv2/clap/%.c
-	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap -DOMX_ABI_LV2 $(LV2_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(LV2_CORE_LIB): $(LV2_CORE_OBJ)
 	@mkdir -p build/lv2
@@ -386,7 +394,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
+test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -458,13 +466,13 @@ test-transport-tsan: tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/fa
 
 tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 # the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
 # control thread publishes, and build into the other
 tests/clap_chain_tsan: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 test-chain-tsan: tests/clap_chain_tsan tests/fake.clap tests/fake_compressor.clap
 	TSAN_OPTIONS=halt_on_error=1 ./tests/clap_chain_tsan $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
@@ -483,7 +491,7 @@ test-cycle-gate-sabotage: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $
 	! cmp -s src/cycle_gate.h build/cycle-gate-sabotage/cycle_gate.h
 	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
 	    -Wextra -Werror -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u \
-	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) -ldl -lpthread -lm
+	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 	! TSAN_OPTIONS=halt_on_error=1 ./build/cycle-gate-sabotage/test $(abspath tests/fake.clap) > build/cycle-gate-sabotage/log 2>&1
 	grep -q 'ThreadSanitizer: data race' build/cycle-gate-sabotage/log
 
@@ -547,8 +555,8 @@ tests/panel_abi_test: tests/panel_abi_test.c src/omx_clap_ext.h
 test-param-contract: tests/param_contract_test
 	./tests/param_contract_test
 
-tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h
-	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -lm
+tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h src/abi_guard.S
+	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S -lm
 
 # the preset file of docs/presets.md on its own: JSON both ways, values exact, unknown members kept, base64, load keys
 .PHONY: test-preset-file
@@ -595,8 +603,8 @@ tests/quiet_death_test: tests/quiet_death_test.c src/quiet_death.h
 # --wrap sees no call that link-time optimisation has already resolved inside one unit: the wrapped tests build without it
 WRAP_ALLOC = -fno-lto -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free
 
-tests/clap_stage_test: tests/clap_stage_test.c src/clap_stage.h src/hosted_stage.h
-	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< -lm
+tests/clap_stage_test: tests/clap_stage_test.c src/clap_stage.h src/hosted_stage.h src/abi_guard.S
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< src/abi_guard.S -lm
 
 tests/clap_core_test: tests/clap_core_test.c $(CORE_SO)
 	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror $(WRAP_ALLOC) -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
@@ -607,16 +615,16 @@ tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_S
 
 tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
-	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 # the core compiled into the test, so it holds the unoffered table's flag where it lives: the library exports nothing for it
-tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADERS)
+tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< -ldl -lpthread -lm
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< src/abi_guard.S -ldl -lpthread -lm
 
-tests/clap_state_busy_test: tests/clap_state_busy_test.c $(CORE_SRC) $(CORE_HEADERS)
+tests/clap_state_busy_test: tests/clap_state_busy_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< -ldl -lpthread -lm
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< src/abi_guard.S -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
@@ -653,7 +661,7 @@ tests/thread_pool_bench: tests/thread_pool_bench.c $(CORE_SO)
 # completion count and the pool's start and end against the audio thread and the control thread (needs libtsan)
 tests/thread_pool_tsan: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 tests/fake_pool_tsan.clap: tests/fake_pool.c
 	$(CC) $(CLAP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -fPIC -fvisibility=hidden -pthread -Wall -Wextra -Werror -fsanitize=thread -shared -o $@ $< -lm
@@ -669,7 +677,7 @@ test-thread-pool-sabotage: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC
 	! cmp -s src/thread_pool.c build/thread-pool-sabotage/thread_pool.c
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o build/thread-pool-sabotage/test $< \
-	    $(filter-out src/thread_pool.c,$(CORE_SRC)) build/thread-pool-sabotage/thread_pool.c -ldl -lpthread -lm
+	    $(filter-out src/thread_pool.c,$(CORE_SRC)) build/thread-pool-sabotage/thread_pool.c src/abi_guard.S -ldl -lpthread -lm
 	! ./build/thread-pool-sabotage/test $(abspath tests/fake_pool.clap) > build/thread-pool-sabotage/log 2>&1
 	grep -q '^FAIL 40 requests, every task done before request_exec returned' build/thread-pool-sabotage/log || \
 	    { n=$$(nproc); if [ "$$n" -lt 2 ]; then echo "skip one core: the sabotage needs a helper"; else cat build/thread-pool-sabotage/log; exit 1; fi; }
@@ -709,7 +717,7 @@ abi-check: abi-stage
 # the library as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config file
 # and linked by that alone, with the defaults; the export list and the libraries it names are read off the file
 test-core: tests/core_link_test tests/fake.clap tests/fake_synth.clap tests/fault-1.clap $(CORE_SO)
-	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h src/clap_chain.h
+	sh tests/exports.sh $(CORE_FILE) $(CORE_MAP) src/clap_host.h src/clap_chain.h src/abi_guard.h
 	for h in $(CORE_HEADERS); do echo "#include \"$$(basename $$h)\"" | $(CC) -x c -fsyntax-only -Wall -Wextra -Werror -std=gnu99 -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) - || exit 1; done; echo "ok   each installed header compiles on its own"
 	@echo "the RT headers reach nothing that loads, allocates or waits:"; ! grep -n -E '#include <(dlfcn|pthread|stdlib|unistd|stdio)\.h>|clap_entry|dlopen|malloc|calloc' src/hosted_stage.h src/clap_stage.h src/omx_msgring.h && echo "ok   hosted_stage.h, clap_stage.h and omx_msgring.h include none of dlfcn, pthread, stdlib, unistd, stdio and name no clap_entry, dlopen or allocator"
 	@echo "clap_host.h's inline RT code calls nothing that allocates, waits, locks or prints:"; mkdir -p build && sed -n '/INLINE FUNCTIONS/,$$p' src/clap_host.h > build/clap_host_inline.h && grep -q 'omx_clap_host_run(' build/clap_host_inline.h && ! grep -n -E '\<(malloc|calloc|realloc|free|usleep|nanosleep|sleep|dlopen|dlsym|printf|fprintf|snprintf|puts)\s*\(|pthread_|_lock\s*\(' build/clap_host_inline.h && echo "ok   the inline section of clap_host.h (omx_clap_host_run and the tempo word) names no allocator, sleep, lock, loader or printf"
@@ -724,13 +732,13 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 
 # what one stage block costs, as the header is and with the four in_cycle stores relaxed (omx_clap_run's two and
 # omx_clap_run_ports' two): a measurement
-bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_clap_midi.h
+bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_clap_midi.h src/abi_guard.h src/abi_guard.S
 	mkdir -p build/bench-relaxed
 	sed -e 's/atomic_store(&s->in_cycle, \([01]\));/atomic_store_explicit(\&s->in_cycle, \1, memory_order_relaxed);/' src/clap_stage.h > build/bench-relaxed/clap_stage.h
 	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 4
-	cp src/hosted_stage.h src/clap_host_limits.h src/omx_clap_midi.h build/bench-relaxed/
-	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< -lm
-	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< -lm
+	cp src/hosted_stage.h src/clap_host_limits.h src/omx_clap_midi.h src/abi_guard.h build/bench-relaxed/
+	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< src/abi_guard.S -lm
+	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< src/abi_guard.S -lm
 	for i in 1 2 3; do ./build/stage_bench_seq_cst; ./build/stage_bench_relaxed; done
 
 # the fault fixtures, one .clap per mode of tests/fault_clap.c: also what a consumer's tests load
@@ -866,6 +874,11 @@ test-jack-pool: $(PROG) tests/fake_pool.clap
 # the xruns line over jack in the same kind of namespace (#371): the xrun callback the host registered, called by a
 # preloaded test double (PipeWire's libjack calls it only when the driver reports an xrun, which a private daemon with no
 # sound card never does), and the line on the feedback port: its grammar, its count, its once a second
+# the abi_clobber line over jack: a plugin that returns with a callee-saved register changed, said once on the feedback
+# socket, the host alive (tests/jack_abi_e2e.sh)
+test-jack-abi: $(PROG) tests/fake.clap
+	OMX_HOST_EVENTS_ABI_CLOBBER='$(call host_declared,OMX_HOST_EVENTS_ABI_CLOBBER)' ./tests/jack_abi_e2e.sh
+
 test-jack-xruns: $(PROG) tests/jack_xrun_shim.so tests/fake.clap
 	OMX_HOST_EVENTS_XRUNS='$(call host_declared,OMX_HOST_EVENTS_XRUNS)' ./tests/jack_xruns_e2e.sh
 
@@ -970,7 +983,7 @@ test-chain-host: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake
 build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2_LIB) $(PROTOCOL_LIB)
 	mkdir -p build/tsan
 	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
-	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) $(LV2_LIB) \
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) src/abi_guard.S $(LV2_LIB) \
 	    $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
 
 test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
@@ -1159,12 +1172,12 @@ $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so: $(LV2_FIXTURE_DIR)/lv2_midi_
 
 $(LV2_ASAN_DIR)/lv2_asan_test: lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) lv2/core/lv2_core.h
 	@mkdir -p $(@D)
-	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -o $@ lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) -ldl -lpthread -lm
+	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -o $@ lv2/tests/lv2_asan_test.c $(LV2_CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
 
 # the bundle half under it too: the host test with the whole of lv2/core in the same build, run against the regular bundles
 $(LV2_ASAN_DIR)/lv2_host_test: lv2/tests/lv2_host_test.c $(LV2_CORE_SRC) lv2/core/lv2_core.h lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_worker_gain.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h
 	@mkdir -p $(@D)
-	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests -o $@ lv2/tests/lv2_host_test.c $(LV2_CORE_SRC) -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
+	$(CC) $(LV2_ASAN_FLAGS) -Isrc -Ilv2/core -Ilv2/clap -Ilv2/tests -o $@ lv2/tests/lv2_host_test.c $(LV2_CORE_SRC) src/abi_guard.S -Wl,--wrap=strdup,--wrap=free -ldl -lpthread -lm
 
 test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/omx-midi-echo.so $(LV2_ASAN_DIR)/lv2_host_test $(LV2_BUNDLES)
 	ASAN_OPTIONS=detect_leaks=0 ./$(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)
@@ -1382,3 +1395,26 @@ test-jack-presets: $(PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fak
 .PHONY: test-state-busy
 test-state-busy: tests/clap_state_busy_test tests/fake_state.clap
 	./tests/clap_state_busy_test $(abspath tests/fake_state.clap)
+
+# the guarded plugin call against plugins that break the calling convention (tests/abi_guard_test.c), and its cost per
+# call (tests/abi_guard_bench.c, not a gate: it prints)
+tests/abi_guard_test: tests/abi_guard_test.c src/abi_guard.S src/abi_guard.h
+	$(CC) $(CFLAGS) -o $@ tests/abi_guard_test.c src/abi_guard.S
+
+tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
+	$(CC) $(CFLAGS) -o $@ tests/abi_guard_bench.c src/abi_guard.S
+
+.PHONY: test-abi-guard bench-abi-guard
+test-abi-guard: tests/abi_guard_test
+	tests/abi_guard_test
+	@set -e; o=$$(mktemp -d); trap 'rm -rf "$$o"' EXIT; \
+	  sed 's/OMX_ABI_A(0.5)/OMX_ABI_A(5)/' tests/abi_guard_float_refused.c > $$o/int.c; \
+	  $(CC) $(filter-out -MMD -MP,$(CFLAGS)) -Isrc -c -o $$o/int.o $$o/int.c \
+	    || { echo "FAIL the control, an int through OMX_ABI_A, did not compile"; exit 1; }; \
+	  if $(CC) $(filter-out -MMD -MP,$(CFLAGS)) -c -o $$o/double.o tests/abi_guard_float_refused.c 2> $$o/err; then \
+	    echo "FAIL a double through OMX_ABI_A compiled"; exit 1; fi; \
+	  grep -q omx_abi_float_refused $$o/err || { echo "FAIL the double was refused for another reason:"; cat $$o/err; exit 1; }; \
+	  echo "ok   a double through OMX_ABI_A does not compile, refused by omx_abi_float_refused; an int does"
+
+bench-abi-guard: tests/abi_guard_bench
+	tests/abi_guard_bench

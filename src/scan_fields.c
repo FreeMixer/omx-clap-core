@@ -484,7 +484,7 @@ static const char *named(const named_t *table, size_t n, const char *value)
 static void clap_params(const struct omx_clap_instance *in)
 {
     const clap_plugin_params_t *params = in->params;
-    const uint32_t count = params ? params->count(in->plugin) : 0;
+    const uint32_t count = params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.count", params->count, in->plugin) : 0;
     uint32_t i;
 
     for (i = 0; i < count; i++)
@@ -493,7 +493,7 @@ static void clap_params(const struct omx_clap_instance *in)
         char scope[32];
 
         memset(&info, 0, sizeof(info));
-        if (!params->get_info(in->plugin, i, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.get_info", params->get_info, in->plugin, i, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         info.module[sizeof(info.module) - 1] = '\0';
@@ -516,7 +516,7 @@ static void clap_params(const struct omx_clap_instance *in)
                 char text[256], point[320];
 
                 text[0] = '\0';
-                if (!params->value_to_text(in->plugin, info.id, v, text, sizeof(text)))
+                if (!OMX_ABI_BOOL(omx_abi_gd(OMX_ABI_GUARD_OF(in), "params.value_to_text", (const void *)params->value_to_text, OMX_ABI_A(in->plugin), OMX_ABI_A(info.id), OMX_ABI_A(text), OMX_ABI_A(sizeof(text)), v)))
                     continue;
                 text[sizeof(text) - 1] = '\0';
                 snprintf(point, sizeof(point), "%.17g %s", v, text);
@@ -529,7 +529,7 @@ static void clap_params(const struct omx_clap_instance *in)
 static void clap_audio_ports(const struct omx_clap_instance *in, bool is_input)
 {
     const clap_plugin_audio_ports_t *ports = in->audio_ports;
-    const uint32_t count = ports ? ports->count(in->plugin, is_input) : 0;
+    const uint32_t count = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.count", ports->count, in->plugin, is_input) : 0;
     uint32_t i;
 
     for (i = 0; i < count; i++)
@@ -539,7 +539,7 @@ static void clap_audio_ports(const struct omx_clap_instance *in, bool is_input)
 
         memset(&info, 0, sizeof(info));
         info.in_place_pair = CLAP_INVALID_ID;
-        if (!ports->get(in->plugin, i, is_input, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.get", ports->get, in->plugin, i, is_input, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         snprintf(scope, sizeof(scope), "%s:%u", is_input ? "audio_in" : "audio_out", i);
@@ -557,7 +557,7 @@ static void clap_audio_ports(const struct omx_clap_instance *in, bool is_input)
 static void clap_note_ports(const struct omx_clap_instance *in, bool is_input)
 {
     const clap_plugin_note_ports_t *ports = in->note_ports;
-    const uint32_t count = ports ? ports->count(in->plugin, is_input) : 0;
+    const uint32_t count = ports ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.count", ports->count, in->plugin, is_input) : 0;
     uint32_t i;
 
     for (i = 0; i < count; i++)
@@ -566,7 +566,7 @@ static void clap_note_ports(const struct omx_clap_instance *in, bool is_input)
         char scope[32];
 
         memset(&info, 0, sizeof(info));
-        if (!ports->get(in->plugin, i, is_input, &info))
+        if (!OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "ports.get", ports->get, in->plugin, i, is_input, &info))
             continue;
         info.name[sizeof(info.name) - 1] = '\0';
         snprintf(scope, sizeof(scope), "%s:%u", is_input ? "note_in" : "note_out", i);
@@ -689,21 +689,22 @@ static void clap_panel(const struct omx_clap_instance *in)
 static void clap_active(const struct omx_clap_instance *in)
 {
     const clap_plugin_t *plugin = in->plugin;
-    const clap_plugin_voice_info_t *voice = plugin->get_extension(plugin, CLAP_EXT_VOICE_INFO);
+    const clap_plugin_voice_info_t *voice = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_VOICE_INFO);
     clap_voice_info_t info;
 
-    if ((!in->latency && !(voice && voice->get)) || !plugin->activate(plugin, FIELDS_RATE, 1, FIELDS_MAX_FRAMES))
+    if ((!in->latency && !(voice && voice->get)) || !OMX_ABI_BOOL(omx_abi_gd(NULL, "activate", (const void *)plugin->activate,
+                                                                                         OMX_ABI_A(plugin), 1, FIELDS_MAX_FRAMES, 0, FIELDS_RATE)))
         return;
     if (in->latency && in->latency->get)
-        record_number("plugin", "clap_plugin_latency.get", in->latency->get(plugin));
+        record_number("plugin", "clap_plugin_latency.get", OMX_ABI_CALL(NULL, "latency.get", in->latency->get, plugin));
     memset(&info, 0, sizeof(info));
-    if (voice && voice->get && voice->get(plugin, &info))
+    if (voice && voice->get && OMX_ABI_CALL(NULL, "voice.get", voice->get, plugin, &info))
     {
         record_number("plugin", "clap_voice_info.voice_count", info.voice_count);
         record_number("plugin", "clap_voice_info.voice_capacity", info.voice_capacity);
         record_bits("plugin", "clap_voice_info.flags", info.flags, g_voice_flags);
     }
-    plugin->deactivate(plugin);
+    omx_abi_g(NULL, "deactivate", (const void *)plugin->deactivate, OMX_ABI_A(plugin), 0, 0, 0, 0, 0);
 }
 
 static int fields_clap(const char *path, const char *id)
@@ -748,10 +749,10 @@ static int fields_clap(const char *path, const char *id)
     for (f = desc->features; f && *f; f++)
         record_text("plugin", "clap_plugin_descriptor.features", NAMED(g_features, *f));
     for (i = 0; i < sizeof(g_extensions) / sizeof(g_extensions[0]); i++)
-        if (in->plugin->get_extension(in->plugin, g_extensions[i].value))
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, g_extensions[i].value))
             record("plugin", "clap_plugin.get_extension", g_extensions[i].name);
     for (f = g_omx_extensions; *f; f++)
-        if (in->plugin->get_extension(in->plugin, *f))
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "get_extension", in->plugin->get_extension, in->plugin, *f))
             record("plugin", "clap_plugin.get_extension", *f);
     clap_params(in);
     clap_audio_ports(in, true);

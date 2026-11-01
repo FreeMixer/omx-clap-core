@@ -58,6 +58,7 @@
 #include <lv2/units/units.h>
 #include <lv2/urid/urid.h>
 
+#include "abi_guard.h"
 #include "lv2_core_internal.h"
 #include "lv2_ll_midi.h"
 #include "resource_hints.h"
@@ -1859,7 +1860,8 @@ static LV2_URID table_map(LV2_URID_Map_Handle h, const char *uri)
  * mapping, when the feature options withheld it: 0, or -1 without a world. The default state is the plugin's state:state;
  * a plugin whose description has none is restored nothing, as under mod-host: lilv would make an empty state of it, and
  * a plugin that resets what a restore does not name (calf Wavetable's modulation matrix) would lose its own defaults */
-int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, const LV2_Feature *const *features)
+int lv2_plugin_default_state(struct omx_abi_guard *ag, const struct lv2_plugin *p, LV2_Handle handle,
+                             const LV2_Feature *const *features)
 {
     static LV2_URID_Map table = { NULL, table_map };
     LV2_URID_Map *map = &table;
@@ -1880,7 +1882,7 @@ int lv2_plugin_default_state(const struct lv2_plugin *p, LV2_Handle handle, cons
     instance.lv2_descriptor = p->desc;
     instance.lv2_handle = handle;
     instance.pimpl = NULL;
-    L.lilv_state_restore(state, &instance, NULL, NULL, 0, features);
+    OMX_ABI_VCALL(ag, "state.restore", L.lilv_state_restore, state, &instance, NULL, NULL, 0, features);
     L.lilv_state_free(state);
     return 0;
 }
@@ -1928,10 +1930,30 @@ static void state_set(const char *symbol, void *user, const void *value, uint32_
             memcpy(&io->controls[k], value, sizeof(float));
 }
 
-char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const float *controls,
-                            const LV2_Feature *const *features, LV2_URID_Map *map, LV2_URID_Unmap *unmap,
-                            const char *scratch_dir, const char *copy_dir)
+/* lilv_state_new_from_instance's eleven arguments in one, so the save goes through the guard as a one-argument call:
+ * lilv calls the plugin's state:interface save inside it */
+struct state_save_args
 {
+    const LilvPlugin *plugin;
+    LilvInstance *instance;
+    LV2_URID_Map *map;
+    const char *scratch_dir;
+    const char *copy_dir;
+    struct state_io *io;
+    const LV2_Feature *const *features;
+};
+
+static LilvState *state_save(const struct state_save_args *a)
+{
+    return L.lilv_state_new_from_instance(a->plugin, a->instance, a->map, a->scratch_dir, a->copy_dir, NULL, NULL,
+                                          state_get, a->io, 0, a->features);
+}
+
+char *lv2_plugin_state_text(struct omx_abi_guard *ag, const struct lv2_plugin *p, LV2_Handle handle,
+                            const float *controls, const LV2_Feature *const *features, LV2_URID_Map *map,
+                            LV2_URID_Unmap *unmap, const char *scratch_dir, const char *copy_dir)
+{
+    struct state_save_args save;
     struct state_io io;
     LilvInstance instance;
     LilvState *state;
@@ -1946,8 +1968,14 @@ char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const
     io.controls = (float *)controls;
     io.float_type = map->map(map->handle, LV2_ATOM__Float);
     // the files the plugin made under its directory are copied out of it, so the state names what it held at the save
-    state = L.lilv_state_new_from_instance(p->lilv_plugin, &instance, map, scratch_dir, scratch_dir ? copy_dir : NULL, NULL,
-                                           NULL, state_get, &io, 0, features);
+    save.plugin = p->lilv_plugin;
+    save.instance = &instance;
+    save.map = map;
+    save.scratch_dir = scratch_dir;
+    save.copy_dir = scratch_dir ? copy_dir : NULL;
+    save.io = &io;
+    save.features = features;
+    state = OMX_ABI_CALL(ag, "state.save", state_save, &save);
     if (!state)
         return NULL;
     // lilv writes a state with a subject, and the state of this plugin is the plugin's own
@@ -1960,8 +1988,8 @@ char *lv2_plugin_state_text(const struct lv2_plugin *p, LV2_Handle handle, const
     return out;
 }
 
-int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, float *controls, const char *text,
-                             const LV2_Feature *const *features, LV2_URID_Map *map)
+int lv2_plugin_state_restore(struct omx_abi_guard *ag, const struct lv2_plugin *p, LV2_Handle handle, float *controls,
+                             const char *text, const LV2_Feature *const *features, LV2_URID_Map *map)
 {
     struct state_io io;
     LilvInstance instance;
@@ -1978,7 +2006,7 @@ int lv2_plugin_state_restore(const struct lv2_plugin *p, LV2_Handle handle, floa
     io.p = p;
     io.controls = controls;
     io.float_type = map->map(map->handle, LV2_ATOM__Float);
-    L.lilv_state_restore(state, &instance, state_set, &io, 0, features);
+    OMX_ABI_VCALL(ag, "state.restore", L.lilv_state_restore, state, &instance, state_set, &io, 0, features);
     L.lilv_state_free(state);
     return 0;
 }

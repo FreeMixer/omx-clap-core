@@ -82,6 +82,7 @@
 #include "omx_msgring.h"
 #include "lv2_core_internal.h"
 #include "lv2_ll_midi.h"
+#include "abi_guard.h"
 
 // the event and uri-map extensions are deprecated upstream, and the plugins written to them (ll-plugins) are hosted as
 // they are: their types are used here without the deprecation warning
@@ -164,6 +165,7 @@ struct lv2_time_urids
 
 struct lv2_instance
 {
+    struct omx_abi_guard abi;           // every call into the plugin goes through it (abi_guard.h); abi.block counts runs
     const struct lv2_plugin *plugin;
     LV2_Handle handle;
     const LV2_Worker_Interface *worker;     // NULL: the plugin has no worker, or the list provides none
@@ -719,7 +721,8 @@ static uint32_t worker_service(struct lv2_instance *in)
     while ((p = omx_msgring_peek(&in->requests, &size)) != NULL)
     {
         g_in_work = in;
-        in->worker->work(in->handle, respond, in, size, p);
+        omx_abi_g(&in->abi, "work", (const void *)in->worker->work, OMX_ABI_A(in->handle), OMX_ABI_A(respond), OMX_ABI_A(in),
+                  OMX_ABI_A(size), OMX_ABI_A(p), 0);
         g_in_work = NULL;
         omx_msgring_pop(&in->requests);
         done++;
@@ -1218,7 +1221,8 @@ static int options_tell(struct lv2_instance *in, double rate, uint32_t min_frame
         return 0;
     if (options_build(in, rate, min_frames, max_frames) != 0)
         return -1;
-    if (in->options_iface->set(in->handle, in->options.opts) != LV2_OPTIONS_SUCCESS)
+    if (OMX_ABI_CALL(&in->abi, "options.set", in->options_iface->set, in->handle, in->options.opts)
+        != LV2_OPTIONS_SUCCESS)
         return -1;
     atomic_fetch_add_explicit(&in->options_told, 1u, memory_order_relaxed);
     return 0;
@@ -1335,7 +1339,7 @@ static void instance_drop(struct lv2_instance *in)
     if (!in->handle)
         return;
     lv2_instance_deactivate(in);
-    in->plugin->desc->cleanup(in->handle);
+    omx_abi_g(&in->abi, "cleanup", (const void *)in->plugin->desc->cleanup, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     in->handle = NULL;
     in->worker = NULL;
 }
@@ -1463,7 +1467,8 @@ static void ports_connect(struct lv2_instance *in, uint32_t max_frames)
             continue;
         }
         if (at)
-            p->desc->connect_port(in->handle, i, at);
+            omx_abi_g(&in->abi, "connect_port", (const void *)p->desc->connect_port, OMX_ABI_A(in->handle), OMX_ABI_A(i),
+                      OMX_ABI_A(at), 0, 0, 0);
     }
 }
 
@@ -1495,11 +1500,16 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     if ((p->midi_in_event || p->midi_out_event || p->n_event_in || p->n_event_out)
         && (in->urid_midi == 0 || in->urid_midi > UINT16_MAX))
         goto refuse;
-    in->handle = d->instantiate(d, rate, p->bundle_path, in->feature_ptrs);
+    in->handle = (LV2_Handle)(uintptr_t)omx_abi_gd(&in->abi, "instantiate", (const void *)d->instantiate, OMX_ABI_A(d),
+                                                   OMX_ABI_A(p->bundle_path), OMX_ABI_A(in->feature_ptrs), 0, rate);
     if (!in->handle)
         goto refuse;
-    in->worker = in->ring_mem && d->extension_data ? d->extension_data(LV2_WORKER__interface) : NULL;
-    in->options_iface = d->extension_data ? d->extension_data(LV2_OPTIONS__interface) : NULL;
+    in->worker = in->ring_mem && d->extension_data
+                     ? OMX_ABI_CALL(&in->abi, "extension_data", d->extension_data, LV2_WORKER__interface)
+                     : NULL;
+    in->options_iface = d->extension_data ? OMX_ABI_CALL(&in->abi, "extension_data", d->extension_data,
+                                                         LV2_OPTIONS__interface)
+                                          : NULL;
     if (in->options_iface && !in->options_iface->set)
         in->options_iface = NULL;
     if (in->worker && !in->worker->work)
@@ -1511,7 +1521,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     if (buffers_make(in) != 0)
         goto refuse;
     ports_connect(in, max_frames);
-    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(p, in->handle, in->state_ptrs) != 0)
+    if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(&in->abi, p, in->handle, in->state_ptrs) != 0)
         goto drop;
     // a new handle has never seen a patch value: the first block sends each value the host wrote or the plugin reported,
     // and every text the host wrote. A value nobody has set stays the plugin's: a TTL's lv2:default need not be its state
@@ -1530,7 +1540,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     }
     return 0;
 drop:
-    d->cleanup(in->handle);
+    omx_abi_g(&in->abi, "cleanup", (const void *)d->cleanup, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     in->handle = NULL;
     in->worker = NULL;
 refuse:
@@ -1689,7 +1699,8 @@ static int state_apply(struct lv2_instance *in)
 {
     uint32_t k;
 
-    if (lv2_plugin_state_restore(in->plugin, in->handle, in->controls, in->state_text, in->state_ptrs, &in->map) != 0)
+    if (lv2_plugin_state_restore(&in->abi, in->plugin, in->handle, in->controls, in->state_text, in->state_ptrs,
+                                 &in->map) != 0)
         return -1;
     for (k = 0; k < in->plugin->n_controls; k++)
         atomic_store_explicit(&in->shown[k], float_bits(in->controls[k]), memory_order_relaxed);
@@ -1736,7 +1747,7 @@ int lv2_instance_activate(struct lv2_instance *in, double rate, uint32_t min_fra
         return -1;
     }
     if (in->plugin->desc->activate)
-        in->plugin->desc->activate(in->handle);
+        omx_abi_g(&in->abi, "activate", (const void *)in->plugin->desc->activate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     in->lv2_active = 1;
     if (worker_start(in) != 0)
     {
@@ -1762,7 +1773,7 @@ void lv2_instance_deactivate(struct lv2_instance *in)
         return;
     worker_stop(in);
     if (in->plugin->desc->deactivate)
-        in->plugin->desc->deactivate(in->handle);
+        omx_abi_g(&in->abi, "deactivate", (const void *)in->plugin->desc->deactivate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     in->lv2_active = 0;
 }
 
@@ -1779,14 +1790,14 @@ int lv2_instance_reset(struct lv2_instance *in)
     // rings start empty, as at activate
     worker_stop(in);
     if (d->deactivate)
-        d->deactivate(in->handle);
+        omx_abi_g(&in->abi, "deactivate", (const void *)d->deactivate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     if (in->ring_mem)
     {
         omx_msgring_init(&in->requests, in->ring_mem, config->worker_ring_bytes);
         omx_msgring_init(&in->responses, in->ring_mem + config->worker_ring_bytes, config->worker_ring_bytes);
     }
     if (d->activate)
-        d->activate(in->handle);
+        omx_abi_g(&in->abi, "activate", (const void *)d->activate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     // as at activate: an instance whose worker cannot start is not left active with nothing to answer its requests
     if (worker_start(in) != 0)
     {
@@ -1863,7 +1874,7 @@ char *lv2_instance_state_save(struct lv2_instance *in)
 {
     if (!in || !in->handle)
         return NULL;
-    return lv2_plugin_state_text(in->plugin, in->handle, in->controls, in->state_ptrs, &in->map, &in->unmap,
+    return lv2_plugin_state_text(&in->abi, in->plugin, in->handle, in->controls, in->state_ptrs, &in->map, &in->unmap,
                                  in->dir, in->saved_dir);
 }
 
@@ -1890,7 +1901,7 @@ int lv2_instance_state_restore_live(struct lv2_instance *in, const char *text, c
     }
     // restore() beside run(), as the plugin declared it may be; it finishes through the worker its features carry
     g_in_restore = in;
-    rc = lv2_plugin_state_restore(in->plugin, in->handle, in->controls, text, in->state_ptrs, &in->map);
+    rc = lv2_plugin_state_restore(&in->abi, in->plugin, in->handle, in->controls, text, in->state_ptrs, &in->map);
     g_in_restore = NULL;
     if (rc != 0)
     {
@@ -2088,7 +2099,8 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
 
         while ((msg = omx_msgring_peek(&in->responses, &size)) != NULL)
         {
-            in->worker->work_response(in->handle, size, msg);
+            omx_abi_g(&in->abi, "work_response", (const void *)in->worker->work_response, OMX_ABI_A(in->handle), OMX_ABI_A(size),
+                      OMX_ABI_A(msg), 0, 0, 0);
             omx_msgring_pop(&in->responses);
         }
     }
@@ -2122,9 +2134,10 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
         put32(in->atom_out + 8, in->urids.time_frame);
         put32(in->atom_out + 12, 0);
     }
-    p->desc->run(in->handle, n);
+    omx_abi_g(&in->abi, "run", (const void *)p->desc->run, OMX_ABI_A(in->handle), OMX_ABI_A(n), 0, 0, 0, 0);
+    omx_abi_guard_block(&in->abi);
     if (in->worker && in->worker->end_run)
-        in->worker->end_run(in->handle);
+        omx_abi_g(&in->abi, "end_run", (const void *)in->worker->end_run, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     patch_read_outputs(in);
     omx_denormals_off();
     // the input's messages were this run's: the next block starts empty
@@ -2424,3 +2437,8 @@ uint32_t lv2_instance_text_get(const struct lv2_instance *in, uint32_t j, char *
 }
 
 LV2_RESTORE_WARNINGS
+
+int lv2_instance_abi_clobber(const struct lv2_instance *in, struct omx_abi_clobber *out)
+{
+    return in && out ? omx_abi_guard_first(&in->abi, out) : 0;
+}
