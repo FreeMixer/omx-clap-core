@@ -1958,6 +1958,16 @@ static int client_back(effect_t *effect, own_client_t *own)
     return error;
 }
 
+/* whether `effect` may run in a walk whose head is `head`: as wide as the head's main output in and out, or, a member of
+ * a stereo walk, one channel in and out, which the walk runs on the sum of both channels and gives to both, as Zynthian
+ * routes it as a client of its own (clap_chain.c, #361) */
+static int member_fits(const effect_t *effect, const effect_t *head)
+{
+    if (effect->in_ports == head->out_ports && effect->out_ports == head->out_ports)
+        return 1;
+    return effect != head && head->out_ports == 2u && effect->in_ports == 1u && effect->out_ports == 1u;
+}
+
 /* control thread: a chain as it stands, on stderr, after every change: the read-back of a chain (docs/chain.md) */
 static void chain_say(const chain_t *chain)
 {
@@ -2810,8 +2820,8 @@ int effects_add(const char *uri, int instance, const char *client_name)
 
     effect->in_ports = effect->clap->in_channels;
     effect->out_ports = effect->clap->channels;
-    // one width end to end, as a chain line asks of every member
-    if (chain && (effect->in_ports != chain->head->out_ports || effect->out_ports != chain->head->out_ports))
+    // the width a chain line asks of every member (member_fits)
+    if (chain && !member_fits(effect, chain->head))
     {
         fprintf(stderr, "chain %d: effect_%d (%u in, %u out) is not as wide as effect_%d's output (%u)\n", chain->id,
                 instance, effect->in_ports, effect->out_ports, chain->head->instance, chain->head->out_ports);
@@ -3055,8 +3065,8 @@ int effects_chain(int id, const int *instances, int n)
             fprintf(stderr, "chain %d: effect_%d is in chain %d\n", id, instances[i], effect->chain->id);
             return ERR_INVALID_OPERATION;
         }
-        // one width end to end: every member's main input and output as wide as the head's main output
-        if (effect->in_ports != head->out_ports || effect->out_ports != head->out_ports)
+        // every member's main input and output as wide as the head's main output, or a mono member of a stereo walk
+        if (!member_fits(effect, head))
         {
             fprintf(stderr, "chain %d: effect_%d (%u in, %u out) is not as wide as effect_%d's output (%u)\n", id, instances[i],
                     effect->in_ports, effect->out_ports, head->instance, head->out_ports);
