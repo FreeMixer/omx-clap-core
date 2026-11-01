@@ -57,6 +57,9 @@ fi
 # member under such a heading is read: one that points to a structure is passed and its structure's lines are judged as
 # any others (an insertion is an addition; a deletion, a moved offset, a shrink, a renamed type is not); any other member
 # under it (a function pointer whose signature changed, a member retyped in place) keeps the heading, which refuses.
+# A member that is a structure embedded whole (the stage inside the instance) passes the same way when abidiff says its
+# size has not changed: a member it gained in its tail padding (the stage's ABI 5 and ABI 20 words) moves nothing, and its
+# own lines are judged as any others. One that grew moves every member after it, which reads "offset changed".
 # The pointed-to structure's own changes can carry their own "data member change" heading nested inside the outer one
 # (#325); the nesting depth is a stack, one entry per open heading, so a member of the outer heading listed after that
 # nested heading closes still carries the outer heading's mark.
@@ -80,7 +83,8 @@ awk '
             # a member entry directly under the innermost open heading
             if (sp > 0 && indent(l) == depth[sp] + 2) {
                 pointee = line[i + 1]
-                if (!(l ~ /^ *type of \x27[^\x27(]*\* [^\x27(]*\x27 changed:$/ && pointee ~ /^ *in pointed to type \x27struct /))
+                if (!(l ~ /^ *type of \x27[^\x27(]*\* [^\x27(]*\x27 changed:$/ && pointee ~ /^ *in pointed to type \x27struct /) &&
+                    !(l ~ /^ *type of \x27[^\x27(*]* [^\x27(]*\x27 changed:$/ && pointee ~ /^ *type size hasn\x27t changed$/))
                     print "data member change: " l
             }
             print l
