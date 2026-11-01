@@ -44,16 +44,26 @@ arm() {
 }
 
 arm no-callback "the host registered one xrun callback" \
-    's|    jack_set_xrun_callback(g_jack_global_client, xrun_cb, &g_xruns);|    (void)xrun_cb;|'
+    's|    jack_set_xrun_callback(g_jack_global_client, xrun_cb, g_jack_global_client);|    (void)xrun_cb;|'
 arm after-activate "on a client that was not yet active" \
-    's|    jack_set_xrun_callback(g_jack_global_client, xrun_cb, &g_xruns);|    (void)0;|' \
-    's/    if (jack_activate(g_jack_global_client) != 0)/    if (jack_activate(g_jack_global_client) != 0 || jack_set_xrun_callback(g_jack_global_client, xrun_cb, \&g_xruns))/'
+    's|    jack_set_xrun_callback(g_jack_global_client, xrun_cb, g_jack_global_client);|    (void)0;|' \
+    's/    if (jack_activate(g_jack_global_client) != 0)/    if (jack_activate(g_jack_global_client) != 0 || jack_set_xrun_callback(g_jack_global_client, xrun_cb, g_jack_global_client))/'
 arm callback-counts-nothing "the first xrun is written at once" \
-    's|    xrun_report_note(arg);|    (void)arg;|'
+    's|        xrun_report_note(&g_xruns);|        (void)0;|'
 arm clock-in-microseconds "three more inside the second wait" \
     's|(uint64_t)now.tv_sec \* 1000u|(uint64_t)now.tv_sec * 1000000u|'
 arm no-tick "the first xrun is written at once" \
     's|^    xruns_feedback();|    (void)xruns_feedback;|'
+arm every-client-counts "counted twice, not four times" \
+    's|    if (arg == atomic_load_explicit(&g_carrier, memory_order_acquire))|    if (arg)|'
+arm role-not-moved "the role moved to 2 with no xrun lost" \
+    's|^    effect->own_active = 0;$|    effect->own_active = 0; return;|'
+arm global-never-retired "the global client closes" \
+    's|    if (g_global_retire \&\& g_jack_global_client \&\& c \&\& c != g_jack_global_client)|    if (0)|'
+arm no-global-for-the-last "the host always had an active client" \
+    's|    else if (global_open() != SUCCESS)|    else if (1)|'
+arm global-at-start "no global client opened" \
+    's|now_ms() - g_started_ms >= GLOBAL_AFTER_MS|1|'
 
 echo "$failures failed"
 [ "$failures" -eq 0 ]
