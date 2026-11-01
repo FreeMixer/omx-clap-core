@@ -466,7 +466,8 @@ static int x_embed(struct window *w, struct omx_clap_instance *in, const char *t
     uint32_t width = 0, height = 0;
 
     if (gui->set_scale)
-        OMX_ABI_VCALL(NULL, "gui.set_scale", gui->set_scale, plugin, 1.0);
+        // the scale is a double: it reaches the plugin in its first floating-point register (omx_abi_gd)
+        (void)omx_abi_gd(NULL, "gui.set_scale", (const void *)gui->set_scale, OMX_ABI_A(plugin), 0, 0, 0, 1.0);
     w->resizable = gui->can_resize && OMX_ABI_CALL(NULL, "gui.can_resize", gui->can_resize, plugin);
     if (gui->get_size && OMX_ABI_CALL(NULL, "gui.get_size", gui->get_size, plugin, &width, &height) && width > 0 && height > 0)
     {
