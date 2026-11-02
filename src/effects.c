@@ -201,7 +201,7 @@ typedef struct EFFECT_T {
     uint32_t abi_said;                      // 1 once the feedback port was told this plugin changed a callee-saved register
     clap_id *gestures_open;                 // the parameters whose gesture begin went out on the feedback port, no end yet
     uint32_t gestures_open_count, gestures_open_cap;
-    double rate;                            // the graph's rate when the instance was added
+    _Atomic double rate;                    // the graph's rate: at the add, then at each tick that applied a change
     struct host_transport_intent intent;    // the host's transport as this instance's audio thread last read it whole
     struct omx_clap_transport_src transport_src;  // the record the audio thread works out each block and the plugin reads
     int own_active;                         // its own client is active: it can carry the host's xruns and frame clock
@@ -511,11 +511,14 @@ static void transport_block(effect_t *effect)
             pos.ticks_per_beat, pos.beats_per_minute, pos.beats_per_bar, pos.beat_type
         };
 
-        host_transport_follow(&at, &effect->intent, pos.frame_rate ? (double)pos.frame_rate : effect->rate, &rec);
+        host_transport_follow(&at, &effect->intent,
+                              pos.frame_rate ? (double)pos.frame_rate : atomic_load_explicit(&effect->rate, memory_order_relaxed),
+                              &rec);
     }
     else
     {
-        host_transport_own(&effect->intent, jack_last_frame_time(effect->jack_client), effect->rate, &rec);
+        host_transport_own(&effect->intent, jack_last_frame_time(effect->jack_client),
+                          atomic_load_explicit(&effect->rate, memory_order_relaxed), &rec);
     }
     omx_clap_transport_publish(&effect->transport_src, &rec);
 }
@@ -961,6 +964,26 @@ static int buffer_size(jack_nframes_t nframes, void *arg)
     return 0;
 }
 
+/* JACK's thread, its process cycle stopped while this runs: the graph's rate changed. The instance is still activated at
+ * the old one, so the block it runs at is recorded as buffer_size records a new one: the control thread's next tick
+ * (resize_apply) activates it again at the rate JACK then reads, through the same gate; a chain's members with their
+ * head. The call PipeWire's JACK makes at the client's activation, at the rate the instance was activated at, records
+ * a change the tick finds nothing to do for. */
+static int sample_rate(jack_nframes_t rate, void *arg)
+{
+    effect_t *effect = arg;
+    jack_nframes_t nframes;
+
+    (void)rate;
+    if (!effect)
+        return 0;
+    nframes = jack_get_buffer_size(effect->jack_client);
+    if (effect->clap)
+        omx_cycle_gate_resize_record(&effect->gate, nframes);
+    chain_followers_each(effect, nframes);
+    return 0;
+}
+
 /* the control thread's tick, before the relayout: a size buffer_size recorded applied by the gate's resize, under the
  * lock every restart and relayout holds, with the cycles shut out. Any change, a shrink too: the adapter promised the
  * plugin the activation's length (bufsz:fixedBlockLength) and refuses a cycle of another one. The auxiliary blocks,
@@ -971,10 +994,16 @@ static void resize_apply(effect_t *effect)
 {
     const struct omx_cycle_gate_blocks blocks = { aux_stale, aux_reblock, effect };
     char why[OMX_CLAP_WHY_MAX] = "";
+    const double rate = jack_get_sample_rate(effect->jack_client);
     uint32_t nframes;
+    int ret;
 
-    switch (omx_cycle_gate_resize_tick(&effect->gate, effect->clap, &g_reactivate, jack_get_sample_rate(effect->jack_client),
-                                       CLAP_HOST_ROLE_POLL_US, &blocks, &effect->pending, why, &nframes))
+    ret = omx_cycle_gate_resize_tick(&effect->gate, effect->clap, &g_reactivate, rate, CLAP_HOST_ROLE_POLL_US, &blocks,
+                                     &effect->pending, why, &nframes);
+    // a change applied: the transport reads time at the graph's rate from now on
+    if (nframes)
+        atomic_store_explicit(&effect->rate, rate, memory_order_relaxed);
+    switch (ret)
     {
     case OMX_CYCLE_GATE_REBLOCK_FAILED:
         fprintf(stderr, "effect_%i: its auxiliary blocks cannot be made for %u frames; it passes dry until %s\n", effect->instance,
@@ -1896,6 +1925,7 @@ static void callbacks_set(effect_t *effect)
     jack_set_thread_init_callback(effect->jack_client, jack_thread_init, effect);
     jack_set_process_callback(effect->jack_client, process, effect);
     jack_set_buffer_size_callback(effect->jack_client, buffer_size, effect);
+    jack_set_sample_rate_callback(effect->jack_client, sample_rate, effect);
     jack_set_latency_callback(effect->jack_client, latency, effect);
     // every client the host owns hears every xrun; the carrier's alone counts (xrun_cb)
     jack_set_xrun_callback(effect->jack_client, xrun_cb, effect->jack_client);
@@ -3012,7 +3042,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
         error = ERR_LV2_INSTANTIATION;
         goto error;
     }
-    effect->rate = jack_get_sample_rate(effect->jack_client);
+    atomic_store_explicit(&effect->rate, (double)jack_get_sample_rate(effect->jack_client), memory_order_relaxed);
     host_transport_read(&g_transport, &effect->intent);
     omx_clap_host_set_transport(effect->clap, &effect->transport_src);
     omx_clap_host_arm(effect->clap);
