@@ -133,6 +133,11 @@ static bool state_save(const clap_plugin_t *plugin, const clap_ostream_t *stream
     const fake_t *fake = plugin->plugin_data;
     const double value = atomic_load(&fake->value);
 
+    // FAKE_STATE_HUGE: after its value, a write of a size no buffer holds, which added to the bytes already written wraps
+    // past any cap; the host's stream must refuse it
+    if (getenv("FAKE_STATE_HUGE"))
+        return stream->write(stream, &value, sizeof(value)) == (int64_t)sizeof(value)
+               && stream->write(stream, &value, UINT64_MAX - 3u) >= 0;
     return stream->write(stream, &value, sizeof(value)) == (int64_t)sizeof(value);
 }
 
