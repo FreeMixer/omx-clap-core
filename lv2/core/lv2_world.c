@@ -1546,6 +1546,14 @@ static const char *read_roles(struct lv2_plugin *p)
     return NULL;
 }
 
+/* what a feature says of the plugin, required or optional alike */
+static void feature_note(struct lv2_plugin *p, const char *uri)
+{
+    p->safe_restore |= strcmp(uri, LV2_STATE__threadSafeRestore) == 0;
+    p->hard_rt |= strcmp(uri, LV2_CORE__hardRTCapable) == 0;
+    p->in_place_broken |= strcmp(uri, LV2_CORE__inPlaceBroken) == 0;
+}
+
 /* lv2:requiredFeature, and the refusal of one outside the configured list */
 static const char *read_required(struct lv2_plugin *p, const LilvPlugin *pl)
 {
@@ -1570,10 +1578,10 @@ static const char *read_required(struct lv2_plugin *p, const LilvPlugin *pl)
     // state:threadSafeRestore, required or optional: the plugin's restore() may run beside run(), so a load while active
     // needs no restart
     for (k = 0; k < n; k++)
-        p->safe_restore |= strcmp(p->required[k], LV2_STATE__threadSafeRestore) == 0;
+        feature_note(p, p->required[k]);
     req = L.lilv_plugin_get_optional_features(pl);
     for (it = req ? L.lilv_nodes_begin(req) : NULL; req && !L.lilv_nodes_is_end(req, it); it = L.lilv_nodes_next(req, it))
-        p->safe_restore |= strcmp(L.lilv_node_as_uri(L.lilv_nodes_get(req, it)), LV2_STATE__threadSafeRestore) == 0;
+        feature_note(p, L.lilv_node_as_uri(L.lilv_nodes_get(req, it)));
     if (req)
         L.lilv_nodes_free(req);
     for (k = 0; k < n && !refused && lv2_core_feature_options()->strict; k++)
