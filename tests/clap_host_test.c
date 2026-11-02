@@ -2844,6 +2844,48 @@ static void mover_checks(const char *path)
     CHECK(omx_clap_host_binaries_open() == 0, "mover binary closed");
 }
 
+/* a value that is not a number never reaches the plugin: refused, the held value untouched, the stage still sounding, and a
+ * valid write after it lands */
+static void nonfinite_write_checks(const char *path)
+{
+    struct omx_clap_instance *in = NULL;
+    float l[BLOCK], r[BLOCK], ol[BLOCK], or_[BLOCK];
+    const float *inputs[2] = { l, r };
+    float *outputs[2] = { ol, or_ };
+    double value = 0.0, held;
+    uint32_t delivered, b;
+
+    CHECK(open_ok(path, PLUGIN_ID, &in) && activate(in), "open and activate for the non-finite writes");
+    if (!in)
+        return;
+    omx_clap_host_publish(in, pthread_self());
+    CHECK(param_set(in, PARAM_TIME_MS, 7.0) == 0, "param_set %u = 7.0", PARAM_TIME_MS);
+    fill_tone(l, BLOCK, 0, 0.5f);
+    memcpy(r, l, sizeof(l));
+    omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+    CHECK(param_get(in, PARAM_TIME_MS, &held) == 0 && held == 7.0, "held at %g", held);
+    delivered = atomic_load(&in->stage.events_delivered);
+
+    CHECK(omx_clap_host_param_write(in, PARAM_TIME_MS, NAN) == -1, "a NaN write is refused");
+    CHECK(omx_clap_host_param_write(in, PARAM_TIME_MS, INFINITY) == -1 && omx_clap_host_param_write(in, PARAM_TIME_MS, -INFINITY) == -1,
+          "and so are both infinities");
+    CHECK(param_get(in, PARAM_TIME_MS, &value) == 0 && value == 7.0, "param_get %u = %g: the refused writes left it at 7", PARAM_TIME_MS, value);
+    for (b = 0; b < 8; b++)
+    {
+        fill_tone(l, BLOCK, b * BLOCK, 0.5f);
+        memcpy(r, l, sizeof(l));
+        omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+        CHECK(all_finite(ol, BLOCK) && all_finite(or_, BLOCK), "block %u after the refused NaN: output finite", b);
+    }
+    CHECK(atomic_load(&in->stage.state) == OMX_CLAP_PROCESSING, "the stage keeps processing after the refused NaN (state %u)", atomic_load(&in->stage.state));
+    CHECK(atomic_load(&in->stage.events_delivered) == delivered, "no event was made of the refused writes (%u delivered)", atomic_load(&in->stage.events_delivered));
+    CHECK(param_set(in, PARAM_TIME_MS, 9.0) == 0, "a valid write after them is accepted");
+    omx_clap_run_io(&in->stage, inputs, outputs, BLOCK);
+    CHECK(param_get(in, PARAM_TIME_MS, &value) == 0 && value == 9.0 && atomic_load(&in->stage.events_delivered) == delivered + 1,
+          "param_get %u = %g, %u delivered", PARAM_TIME_MS, value, atomic_load(&in->stage.events_delivered));
+    omx_clap_host_close(in);
+}
+
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : NULL;
@@ -3045,6 +3087,7 @@ int main(int argc, char **argv)
         omx_clap_host_close(second);
     CHECK(omx_clap_host_binaries_open() == 0, "binary closed after the last instance");
 
+    nonfinite_write_checks(path);
     if (fake_path)
     {
         configuration_checks(fake_path);

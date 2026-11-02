@@ -99,6 +99,11 @@ step $? "the plugin's move, once and in order: $(params | tr '\n' '|')"
 expect "param_get 0 0" "resp 0 0.7500"
 expect "param_set 0 0 0.3" "resp 0"
 expect "param_get 0 0" "resp 0 0.3000"
+reply=$(send "param_set 0 0 nan"); [ "$reply" != "resp 0" ]
+step $? "param_set 0 0 nan is refused ($reply)"
+reply=$(send "param_set 0 0 inf"); [ "$reply" != "resp 0" ]
+step $? "param_set 0 0 inf is refused ($reply)"
+expect "param_get 0 0" "resp 0 0.3000"
 sleep 0.2
 [ "$(params | wc -l)" -eq 3 ]; step $? "a value the controller sets is not echoed back to it"
 expect "remove 0" "resp 0"
