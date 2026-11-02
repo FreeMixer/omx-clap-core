@@ -86,6 +86,9 @@ struct omx_clap_binary
     const clap_plugin_entry_t *entry;
     const clap_plugin_factory_t *factory;
     uint32_t refs;
+    // the first clobber the entry's own calls made (entry.init, entry.get_factory), before any instance had a guard:
+    // recorded in each instance made from the binary
+    struct omx_abi_clobber entry_clobber;
     struct omx_clap_binary *next;
 };
 
@@ -142,16 +145,18 @@ static struct omx_clap_binary *binary_adopt(const char *path, void *so, const cl
 {
     const clap_plugin_factory_t *factory;
     struct omx_clap_binary *binary;
+    struct omx_abi_guard entry_guard;
 
+    memset(&entry_guard, 0, sizeof(entry_guard));
     if (!entry || !clap_version_is_compatible(entry->clap_version) || !entry->init
-        || !OMX_ABI_BOOL(omx_abi_g(NULL, "entry.init", (const void *)entry->init, OMX_ABI_A(path), 0, 0, 0, 0, 0)))
+        || !OMX_ABI_BOOL(omx_abi_g(&entry_guard, "entry.init", (const void *)entry->init, OMX_ABI_A(path), 0, 0, 0, 0, 0)))
     {
         snprintf(reason, reason_size, "can't init %s", path);
         if (so)
             dlclose(so);
         return NULL;
     }
-    factory = (const clap_plugin_factory_t *)OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
+    factory = (const clap_plugin_factory_t *)OMX_ABI_CALL(&entry_guard, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
     if (!factory)
     {
         snprintf(reason, reason_size, "no plugin factory in %s", path);
@@ -165,6 +170,7 @@ static struct omx_clap_binary *binary_adopt(const char *path, void *so, const cl
     binary->so = so;
     binary->entry = entry;
     binary->factory = factory;
+    (void)omx_abi_guard_first(&entry_guard, &binary->entry_clobber);
     binary->refs = 1;
     binary->next = g_binaries;
     g_binaries = binary;
@@ -1394,7 +1400,10 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->host.request_callback = host_request_callback;
     for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
         in->fds[i].fd = -1;     // before init, which may register one
-    in->plugin = OMX_ABI_CALL(NULL, "factory.create_plugin", bin->factory->create_plugin, bin->factory, &in->host, desc->id);
+    // what the binary's entry changed before this guard existed, then the factory's call through it
+    omx_abi_guard_note(OMX_ABI_GUARD_OF(in), bin->entry_clobber.call, bin->entry_clobber.mask);
+    in->plugin = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "factory.create_plugin", bin->factory->create_plugin, bin->factory, &in->host,
+                              desc->id);
     if (!in->plugin || !OMX_ABI_BOOL(omx_abi_g(OMX_ABI_GUARD_OF(in), "init", (const void *)in->plugin->init, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0)))
     {
         if (in->plugin)
@@ -1520,7 +1529,7 @@ static void contract_read(struct omx_clap_instance *in, uint32_t rows, uint32_t 
     if (reported > rows)
         snprintf(c.why, sizeof(c.why), "R1 more parameters than the host serves");
     else
-        pc_read(&c, in->plugin, in->params, rows);
+        pc_read(&c, OMX_ABI_GUARD_OF(in), in->plugin, in->params, rows);
     in->contract = c.entry;
     in->contract_count = c.entry ? c.count : 0;
     in->contract_version = c.entry ? c.version : 0;
@@ -1550,7 +1559,7 @@ static void contract_recheck(struct omx_clap_instance *in)
     if (reported > rows)
         snprintf(c.why, sizeof(c.why), "more parameters than the host serves");
     else
-        pc_read(&c, in->plugin, in->params, rows);
+        pc_read(&c, OMX_ABI_GUARD_OF(in), in->plugin, in->params, rows);
     if (pc_same(&c, in->contract, in->contract_count, in->contract_version))
     {
         free(in->contract);

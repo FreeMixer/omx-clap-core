@@ -374,12 +374,14 @@ static int pc_fingerprint(const struct pc_param *p, uint32_t n, char hex[65])
     return 0;
 }
 
-/* Read and check the contract of `plugin`, whose clap.params is `params` and lists `count` parameters: 0 and `c`
- * holds the entries by params index; -1 and `c->why` says why it is uncontracted (`c->entry` NULL). */
-static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const clap_plugin_params_t *params, uint32_t count)
+/* Read and check the contract of `plugin`, whose clap.params is `params` and lists `count` parameters, each call of the
+ * plugin through its guard `g` (NULL: guarded, not recorded): 0 and `c` holds the entries by params index; -1 and
+ * `c->why` says why it is uncontracted (`c->entry` NULL). */
+static int pc_read(struct pc_contract *c, struct omx_abi_guard *g, const clap_plugin_t *plugin, const clap_plugin_params_t *params,
+                   uint32_t count)
 {
     const omx_clap_plugin_param_contract_ext_t *ext = plugin->get_extension
-        ? OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, OMX_CLAP_EXT_PARAM_CONTRACT) : NULL;
+        ? OMX_ABI_CALL(g, "get_extension", plugin->get_extension, plugin, OMX_CLAP_EXT_PARAM_CONTRACT) : NULL;
     struct pc_param *p = NULL;
     const char *stated;
     char hex[65];
@@ -391,7 +393,7 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
         return pc_refuse(c, "absent", "", NULL);
     if (!ext->version || !ext->fingerprint || !ext->get || !params || count == 0)
         return pc_refuse(c, "R1", "the extension or clap.params is incomplete", NULL);
-    c->version = OMX_ABI_CALL(NULL, "ext.version", ext->version, plugin);
+    c->version = OMX_ABI_CALL(g, "contract.version", ext->version, plugin);
     if (c->version < 1)
         return pc_refuse(c, "R5", "version 0", NULL);
     p = calloc(count, sizeof(*p));
@@ -401,12 +403,12 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
     {
         struct pc_param *q = &p[i];
 
-        if (!params->get_info(plugin, i, &q->info))
+        if (!OMX_ABI_CALL(g, "params.get_info", params->get_info, plugin, i, &q->info))
         {
             pc_refuse(c, "R1", "a parameter clap.params counts has no info", NULL);
             goto out;
         }
-        if (!OMX_ABI_CALL(NULL, "ext.get", ext->get, plugin, q->info.id, &q->entry) || q->entry.param_id != q->info.id)
+        if (!OMX_ABI_CALL(g, "contract.get", ext->get, plugin, q->info.id, &q->entry) || q->entry.param_id != q->info.id)
         {
             char what[64];
 
@@ -459,7 +461,7 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
                 goto out;
             }
     }
-    stated = OMX_ABI_CALL(NULL, "ext.fingerprint", ext->fingerprint, plugin);
+    stated = OMX_ABI_CALL(g, "contract.fingerprint", ext->fingerprint, plugin);
     if (pc_fingerprint(p, count, hex) != 0 || !stated || strncmp(stated, hex, sizeof(hex)) != 0)
     {
         snprintf(c->why, sizeof(c->why), "R4 the fingerprint is %s", hex);
@@ -477,7 +479,14 @@ static int pc_read(struct pc_contract *c, const clap_plugin_t *plugin, const cla
         clap_param_info_t info;
         uint32_t j;
 
-        params->get_info(plugin, i, &info);
+        // a parameter with no info this time is refused as it is in the first pass: its id would be uninitialised
+        if (!OMX_ABI_CALL(g, "params.get_info", params->get_info, plugin, i, &info))
+        {
+            free(c->entry);
+            c->entry = NULL;
+            pc_refuse(c, "R1", "a parameter clap.params counts has no info", NULL);
+            goto out;
+        }
         for (j = 0; j < count; j++)
             if (p[j].info.id == info.id)
                 c->entry[i] = p[j].entry;
