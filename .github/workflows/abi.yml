@@ -12,7 +12,7 @@ permissions:
 jobs:
   abi:
     name: ABI of libomx-clap-core against its baseline
-    runs-on: ${{ vars.OMX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OMX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     container:
       image: fedora:44

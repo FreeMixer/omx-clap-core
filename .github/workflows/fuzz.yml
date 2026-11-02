@@ -57,7 +57,7 @@ jobs:
     name: fuzz the preset, state and manifest readers
     needs: changes
     if: needs.changes.outputs.fuzz == 'true'
-    runs-on: ${{ vars.OMX_RUNNER || 'ubuntu-latest' }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OMX_RUNNER || 'ubuntu-latest' }}
     # a backstop: fuzz-run spends 60 s on each harness and fuzz-sabotage runs seeds only, so the job ends well inside it
     timeout-minutes: 30
     container:
