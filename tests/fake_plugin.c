@@ -94,7 +94,8 @@
  * the module "Main/Timing", 1..11 in "Stats", 5 an enum), for the host to answer param_info and the pages from.
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
  * "<id> destroy" to, which outlives an instance the host destroyed, and "<id> process off the audio role" once when
- * the host's thread-check says process() runs off it.
+ * the host's thread-check says process() runs off it. With FAKE_LOG_RATE set as well, each activate appends
+ * "<id> activate_rate <rate>" after its "<id> activate", the sample rate it was activated at.
  * passthrough also has clap.track-info, whose changed appends "<id> track_info <got> <flags> <a,r,g,b> <name>" with what
  * the host's get answered and, told it is on a bus, calls the host's remote_controls.changed; and clap.remote-controls
  * with two pages, a get past them appending "<id> remote_controls.get past the count". A call of either from any thread
@@ -785,9 +786,16 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
 {
     fake_t *fake = plugin->plugin_data;
 
-    (void)sample_rate; (void)min_frames; (void)max_frames;
+    (void)min_frames; (void)max_frames;
     fake->activations++;
     fake_log(plugin, "activate");
+    if (getenv("FAKE_LOG_RATE"))
+    {
+        char line[64];
+
+        snprintf(line, sizeof(line), "activate_rate %.0f", sample_rate);
+        fake_log(plugin, line);
+    }
     if (fake->names_on_activate)
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
