@@ -145,6 +145,16 @@ int main(void)
     CHECK(omx_abi_guard_first(&g, &c) && c.mask == INT_BIT && c.block == 3 && strcmp(c.call, "process") == 0,
           "the first clobber is kept: its registers, its call and its block");
     CHECK(atomic_load(&g.calls) == 2 && atomic_load(&g.ever) == (INT_BIT | FPCTL_BIT), "and a later one is counted, not kept");
+    /* a control register alone (flush-to-zero set at load, put back) is counted but takes no record: it isolates nothing */
+    struct omx_abi_guard h;
+    memset(&h, 0, sizeof h);
+    omx_abi_g(&h, "init", (const void *)abi_breaks_fpctl, 1, 0, 0, 0, 0, 0);
+    CHECK(!omx_abi_guard_first(&h, &c), "a call that changed only a control register leaves no clobber record");
+    CHECK(atomic_load(&h.calls) == 1 && atomic_load(&h.ever) == FPCTL_BIT, "and is still counted with its bit");
+    omx_abi_guard_block(&h);
+    omx_abi_g(&h, "process", (const void *)abi_breaks_int, 1, 0, 0, 0, 0, 0);
+    CHECK(omx_abi_guard_first(&h, &c) && c.mask == INT_BIT && c.block == 1 && strcmp(c.call, "process") == 0,
+          "a frame register changed after it is the first clobber, with its own call and block");
 
     /* the call macros keep the guarded call's own result type: a bool from its low byte, a pointer whole */
     uint64_t (*const keeps)(uint64_t) = abi_keeps;
