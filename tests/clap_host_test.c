@@ -26,6 +26,7 @@
  * makes from MIDI, to the sample. */
 
 #include <dlfcn.h>
+#include <limits.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <time.h>
@@ -33,6 +34,7 @@
 #include <sys/stat.h>
 
 #include "../src/clap_host.h"
+#include "../src/layout_pin.h"
 #include "test_util.h"
 
 #define PLUGIN_ID       "org.openmixer.delay"
@@ -1010,6 +1012,7 @@ static void contract_checks(const char *path)
     contract_refused(path, "duplicate", "R1");
     contract_refused(path, "symbol", "R2");
     contract_refused(path, "step", "R2");
+    contract_refused(path, "info-late", "R1");
     unsetenv("FAKE_CONTRACT");
 
     CHECK(omx_clap_param_unit_name(0x103) && strcmp(omx_clap_param_unit_name(0x103), "lufs") == 0
@@ -2564,6 +2567,123 @@ static void test_abi_breaker(const char *path)
     omx_clap_host_close(instance);
 }
 
+/* the registers the fake's breakers change (abi-breaker's process, FAKE_ABI_BREAK's calls) */
+#if defined(__aarch64__)
+#define ABI_BROKEN (OMX_ABI_X19 | (OMX_ABI_D8 << 7))
+#else
+#define ABI_BROKEN (OMX_ABI_RBX | (OMX_ABI_R12 << 3))
+#endif
+
+/* a copy of the fake under a path of its own, so its binary is loaded and its entry called afresh */
+static int fake_copy(const char *path, char *copy, size_t size)
+{
+    char dir[] = "/tmp/omx-clap-abi.XXXXXX";
+    FILE *from, *to;
+    char buf[65536];
+    size_t n;
+    int ok = 1;
+
+    if (!mkdtemp(dir))
+        return 0;
+    snprintf(copy, size, "%s/fake.clap", dir);
+    from = fopen(path, "rb");
+    to = fopen(copy, "wb");
+    if (!from || !to)
+        ok = 0;
+    while (ok && (n = fread(buf, 1, sizeof(buf), from)) > 0)
+        ok = fwrite(buf, 1, n, to) == n;
+    if (from)
+        fclose(from);
+    if (to && fclose(to) != 0)
+        ok = 0;
+    return ok;
+}
+
+static void fake_copy_remove(const char *copy)
+{
+    char dir[PATH_MAX];
+    char *slash;
+
+    snprintf(dir, sizeof(dir), "%s", copy);
+    unlink(copy);
+    if ((slash = strrchr(dir, '/')))
+        *slash = '\0';
+    rmdir(dir);
+}
+
+/* the instance's first clobber is `call` with the breakers' registers */
+static void abi_named_recorded(struct omx_clap_instance *instance, const char *call, const char *what)
+{
+    struct omx_abi_clobber c = { 0, 0, NULL };
+
+    CHECK(omx_clap_host_abi_clobber(instance, &c) && c.mask == ABI_BROKEN && c.call && !strcmp(c.call, call),
+          "abi %s: recorded in the instance's guard as %s (%#x in %s, want %#x)", what, call, c.mask, c.call ? c.call : "-",
+          ABI_BROKEN);
+}
+
+/* FAKE_ABI_BREAK names a plugin call that returns with callee-saved registers changed: every call the host makes of the
+ * plugin is guarded and recorded in the instance's guard under its own name, the parameter contract's at the open and
+ * the layout pin's on the control thread; the binary's entry, called before any instance exists, and the factory's
+ * create_plugin are recorded in each instance made from it */
+static void test_abi_named(const char *path)
+{
+    static const struct { const char *arm, *call; int fresh; } at_open[] = {
+        { "contract.version", "contract.version", 0 },
+        { "contract.get", "contract.get", 0 },
+        { "factory.create_plugin", "factory.create_plugin", 0 },
+        { "entry.init", "entry.init", 1 },
+        { "entry.get_factory", "entry.get_factory", 1 },
+    };
+    static const char *const in_pin[] = { "params.count", "params.get_info" };
+    struct omx_clap_instance *instance;
+    char hex[PHD_SHA256_HEX_LEN + 1];
+    char copy[PATH_MAX];
+    size_t i;
+
+    setenv("FAKE_CONTRACT", "good", 1);
+    for (i = 0; i < sizeof(at_open) / sizeof(at_open[0]); i++)
+    {
+        const char *open_path = path;
+
+        if (at_open[i].fresh)
+        {
+            if (!fake_copy(path, copy, sizeof(copy)))
+            {
+                CHECK(0, "abi %s: a copy of the fake for a fresh entry", at_open[i].arm);
+                continue;
+            }
+            open_path = copy;
+        }
+        instance = NULL;
+        setenv("FAKE_ABI_BREAK", at_open[i].arm, 1);
+        CHECK(open_ok(open_path, FAKE_PASSTHROUGH, &instance), "abi %s: the fake opens, the call broken", at_open[i].arm);
+        unsetenv("FAKE_ABI_BREAK");
+        if (instance)
+        {
+            abi_named_recorded(instance, at_open[i].call, at_open[i].arm);
+            omx_clap_host_close(instance);
+        }
+        if (at_open[i].fresh)
+            fake_copy_remove(copy);
+    }
+    for (i = 0; i < sizeof(in_pin) / sizeof(in_pin[0]); i++)
+    {
+        instance = NULL;
+        if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
+        {
+            CHECK(0, "abi %s: the fake opens", in_pin[i]);
+            continue;
+        }
+        setenv("FAKE_ABI_BREAK", in_pin[i], 1);
+        CHECK(layout_pin_write(OMX_ABI_GUARD_OF(instance), instance->plugin, instance->params, NULL, NULL, hex) == 0,
+              "abi %s: the layout is pinned, the call broken", in_pin[i]);
+        unsetenv("FAKE_ABI_BREAK");
+        abi_named_recorded(instance, in_pin[i], in_pin[i]);
+        omx_clap_host_close(instance);
+    }
+    unsetenv("FAKE_CONTRACT");
+}
+
 static void mover_block(struct omx_clap_instance *instance)
 {
     mover_blocks(instance, 1);
@@ -2963,6 +3083,7 @@ int main(int argc, char **argv)
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         test_abi_breaker(fake_path);
+        test_abi_named(fake_path);
         contract_checks(fake_path);
         unoffered_checks(fake_path);
         if (synth_path)

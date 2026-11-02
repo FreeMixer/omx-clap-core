@@ -48,6 +48,7 @@
 #include <clap/clap.h>
 #include <plugin-hostd/pin.h>
 
+#include "abi_guard.h"
 #include "clap_host_limits.h"
 
 
@@ -148,9 +149,10 @@ typedef void (*layout_pin_sink_t)(void *ctx, const char *data, size_t size);
  * parameter cannot be read, memory runs out or the plugin reports more than CLAP_HOST_PARAM_COUNT_MAX parameters (a pin
  * names the whole layout, so a capped one would be a different plugin's). A plugin without the params extension has no
  * parameter. */
-static inline int layout_pin_write(const clap_plugin_t *plugin, const clap_plugin_params_t *params,
+static inline int layout_pin_write(struct omx_abi_guard *g, const clap_plugin_t *plugin, const clap_plugin_params_t *params,
                                    layout_pin_sink_t sink, void *ctx, char hex[PHD_SHA256_HEX_LEN + 1])
 {
+    (void)g;
     const uint32_t count = params ? params->count(plugin) : 0;
     clap_param_info_t *infos = NULL;
     phd_layout_clap_param_t *records = NULL;
