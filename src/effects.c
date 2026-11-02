@@ -51,6 +51,7 @@
 #include <clap/factory/preset-discovery.h>
 
 #include "effects.h"
+#include "live_list.h"
 #include "clap_host.h"
 #include "clap_chain.h"
 #include "clap_meters.h"
@@ -300,6 +301,30 @@ static int instance_exist(int effect_id)
     return INSTANCE_IS_VALID(effect_id) && g_effects[effect_id].jack_client != NULL;
 }
 
+/* The live instances, plugins and tools alike: the ids whose jack_client is set (live_list.h). The control thread owns
+ * it: every writer (effect_client_set, reached from effects_add, effects_remove and the chain commands) and every
+ * reader (effects_idle, the state, remove-all, port-name and carrier walks) runs on the thread that serves the socket;
+ * JACK's threads and the plugins' never touch it. */
+static int g_live_ids[MAX_INSTANCES];
+static struct live_list g_live = { g_live_ids, 0 };
+
+#define LIVE_EACH_INSTANCE(id)  LIVE_EACH(&g_live, id)
+
+/* the one place an instance's client is set: the live list follows the slot's client between none and some */
+static void effect_client_set(effect_t *effect, jack_client_t *client)
+{
+    const int id = (int)(effect - g_effects);
+    const int was = effect->jack_client != NULL, now = client != NULL;
+
+    effect->jack_client = client;
+    if (was == now)
+        return;
+    if (now)
+        live_add(&g_live, id);
+    else
+        live_remove(&g_live, id);
+}
+
 /* "clap:<absolute path>#<plugin id>" */
 static int parse_uri(const char *uri, char *path, size_t path_size, const char **id)
 {
@@ -446,6 +471,7 @@ static void chain_members_reconcile(void)
     if (!atomic_exchange(&g_named_pending, 0u))
         return;
     pthread_mutex_lock(&g_chain_members);
+    // event-driven, not per tick, and a slot that is no longer live may still hold a name: all slots, as before
     for (i = 0; i < MAX_INSTANCES; i++)
         named_apply(&g_effects[i]);
     pthread_mutex_unlock(&g_chain_members);
@@ -1032,6 +1058,7 @@ static void instance_free(effect_t *effect)
     free(effect->lv2_params);
     free(effect->gestures_open);
     free(effect->note_ring_buf);
+    effect_client_set(effect, NULL);
     memset(effect, 0, sizeof(effect_t));
 }
 
@@ -1937,7 +1964,7 @@ static void client_drop(own_client_t *own)
  * latency published. SUCCESS, or ERR_JACK_CLIENT_ACTIVATION with that client closed and the instance in none. */
 static int client_take(effect_t *effect, own_client_t *own)
 {
-    effect->jack_client = own->client;
+    effect_client_set(effect, own->client);
     own->client = NULL;
     memcpy(effect->input_ports, own->inputs, sizeof(effect->input_ports));
     memcpy(effect->output_ports, own->outputs, sizeof(effect->output_ports));
@@ -1951,7 +1978,7 @@ static int client_take(effect_t *effect, own_client_t *own)
     if (jack_activate(effect->jack_client) != 0)
     {
         jack_client_close(effect->jack_client);
-        effect->jack_client = NULL;
+        effect_client_set(effect, NULL);
         effect->midi_port = effect->midi_out_port = NULL;
         aux_ports_forget(effect);
         memset(effect->input_ports, 0, sizeof(effect->input_ports));
@@ -2135,7 +2162,7 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
         client_stopping(effect);
         jack_client_close(effect->jack_client);
     }
-    effect->jack_client = chain->head->jack_client;
+    effect_client_set(effect, chain->head->jack_client);
     memset(effect->input_ports, 0, sizeof(effect->input_ports));
     memset(effect->output_ports, 0, sizeof(effect->output_ports));
     // its auxiliary ports went with its client too: chain_insert makes them again on the head's
@@ -2147,7 +2174,7 @@ static int chain_join(chain_t *chain, effect_t *effect, uint32_t position)
     if (ret == 0)
         return SUCCESS;
     fprintf(stderr, "chain %d: effect_%d cannot join it (%d)\n", chain->id, effect->instance, ret);
-    effect->jack_client = NULL;
+    effect_client_set(effect, NULL);
     return client_back(effect, NULL) == SUCCESS ? ERR_INVALID_OPERATION : ERR_JACK_CLIENT_CREATION;
 }
 
@@ -2314,7 +2341,7 @@ static int chain_unload(chain_t *chain, effect_t *const *out, own_client_t *own,
              place[k]++)
             ;
         chain_extract(chain, out[k]);
-        out[k]->jack_client = NULL;
+        effect_client_set(out[k], NULL);
         if (client_take(out[k], &own[k]) == SUCCESS)
             continue;
         fprintf(stderr, "chain %d: effect_%d's own client cannot be activated; every member goes back to its place\n",
@@ -2338,7 +2365,7 @@ static void chain_reload(chain_t *chain, effect_t *const *out, const uint32_t *p
             client_stopping(out[n]);
             jack_client_close(out[n]->jack_client);
         }
-        out[n]->jack_client = chain->head->jack_client;
+        effect_client_set(out[n], chain->head->jack_client);
         memset(out[n]->input_ports, 0, sizeof(out[n]->input_ports));
         memset(out[n]->output_ports, 0, sizeof(out[n]->output_ports));
         aux_ports_forget(out[n]);
@@ -2434,7 +2461,7 @@ static void chain_drop(effect_t *effect)
     chain_t *chain = effect->chain;
 
     chain_extract(chain, effect);
-    effect->jack_client = NULL;
+    effect_client_set(effect, NULL);
     instance_free(effect);
     chain_say(chain);
 }
@@ -2513,7 +2540,7 @@ static int chain_rehead(chain_t *chain, int id, effect_t *head, const int *insta
     for (j = 0; j < n_moving; j++)
     {
         chain_extract(chain, moving[j]);
-        moving[j]->jack_client = NULL;
+        effect_client_set(moving[j], NULL);
     }
     chain_end(chain);
     chain_start(chain, id, head, walk);
@@ -2721,8 +2748,8 @@ static void client_stopping(effect_t *effect)
     effect->own_active = 0;
     if (atomic_load_explicit(&g_carrier, memory_order_acquire) != effect->jack_client)
         return;
-    for (k = 0; k < MAX_PLUGIN_INSTANCES; k++)
-        if (g_effects[k].own_active && g_effects[k].jack_client && g_effects[k].jack_client != effect->jack_client)
+    LIVE_EACH_INSTANCE(k)
+        if (g_effects[k].own_active && g_effects[k].jack_client != effect->jack_client)
         {
             atomic_store_explicit(&g_carrier, g_effects[k].jack_client, memory_order_release);
             return;
@@ -2898,14 +2925,15 @@ int effects_add(const char *uri, int instance, const char *client_name)
     {
         // a member added into a chain runs in the head's client from the start: no client of its own is opened, and
         // the name is the one it opens under if it ever leaves (client_back)
-        effect->jack_client = chain->head->jack_client;
+        effect_client_set(effect, chain->head->jack_client);
         if (client_name && client_name[0])
             snprintf(effect->client_name, sizeof(effect->client_name), "%s", client_name);
         else
             snprintf(effect->client_name, sizeof(effect->client_name), "effect_%i", instance);
     }
     // with the name JACK gave it: a member that leaves a chain opens its client again under it (client_back)
-    else if (!(effect->jack_client = open_jack_client(instance, client_name, effect->client_name, sizeof(effect->client_name))))
+    else if (effect_client_set(effect, open_jack_client(instance, client_name, effect->client_name, sizeof(effect->client_name))),
+             !effect->jack_client)
     {
         fprintf(stderr, "can't get jack client\n");
         return ERR_JACK_CLIENT_CREATION;
@@ -3054,7 +3082,7 @@ int effects_add(const char *uri, int instance, const char *client_name)
 error:
     // the head's client is not this instance's to close
     if (chain)
-        effect->jack_client = NULL;
+        effect_client_set(effect, NULL);
     instance_free(effect);
     return error;
 }
@@ -3094,7 +3122,7 @@ int effects_remove(int effect_id)
     if (effect_id == REMOVE_ALL)
     {
         start = 0;
-        end = MAX_PLUGIN_INSTANCES;
+        end = MAX_PLUGIN_INSTANCES;      // the tool instances are not plugins: remove-all leaves them
     }
     else
     {
@@ -3109,7 +3137,8 @@ int effects_remove(int effect_id)
         while (g_chains[j].id >= 0 && atomic_load_explicit(&g_chains[j].count, memory_order_relaxed) > 1)
             chain_drop(atomic_load_explicit(&g_chains[j].members[1], memory_order_relaxed));
 
-    for (j = start; j < end; j++)
+    for (j = effect_id == REMOVE_ALL ? live_next(&g_live, -1) : start; j >= 0 && j < end;
+         j = effect_id == REMOVE_ALL ? live_next(&g_live, j) : j + 1)
     {
         effect_t *effect = &g_effects[j];
 
@@ -3288,10 +3317,10 @@ int effects_chain(int id, const int *instances, int n)
         {
             fprintf(stderr, "chain %d: effect_%d's own client cannot be activated; it stays in the chain\n", id,
                     leaving[j]->instance);
-            leaving[j]->jack_client = chain->head->jack_client;
+            effect_client_set(leaving[j], chain->head->jack_client);
             if (chain_insert(chain, leaving[j], atomic_load_explicit(&chain->count, memory_order_relaxed)) != 0)
             {
-                leaving[j]->jack_client = NULL;
+                effect_client_set(leaving[j], NULL);
                 instance_free(leaving[j]);
             }
             error = ERR_JACK_CLIENT_ACTIVATION;
@@ -3880,10 +3909,10 @@ int effects_state_save(const char *dir)
     if (access(dir, F_OK) != 0 && mkdir(dir, 0755) != 0)
         return ERR_LV2_CANT_LOAD_STATE;
 
-    for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)
+    LIVE_EACH_INSTANCE(i)
     {
-        if (!instance_exist(i))
-            continue;
+        if (i >= MAX_PLUGIN_INSTANCES)
+            break;     // the tool instances keep no state
         state_filename(filename, sizeof(filename), dir, i);
         ret = clap_state_save(g_effects[i].clap, filename);
         if (ret == ERR_INVALID_OPERATION)
@@ -3899,10 +3928,10 @@ int effects_state_load(const char *dir)
     char filename[PATH_MAX];
     int i, ret, error = SUCCESS;
 
-    for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)
+    LIVE_EACH_INSTANCE(i)
     {
-        if (!instance_exist(i))
-            continue;
+        if (i >= MAX_PLUGIN_INSTANCES)
+            break;     // the tool instances keep no state
         state_filename(filename, sizeof(filename), dir, i);
         if (access(filename, F_OK) != 0)
             continue;
@@ -3926,7 +3955,7 @@ static const char *port_now(const char *name, char *buf, size_t size)
 {
     int i;
 
-    for (i = 0; i < MAX_INSTANCES; i++)
+    LIVE_EACH_INSTANCE(i)
     {
         const effect_t *effect = &g_effects[i];
         const size_t len = strlen(effect->client_name);
@@ -4177,12 +4206,11 @@ void effects_idle(void)
     xruns_feedback();
     // a member's block size its head's callback left to this thread is recorded before the member's tick reads it
     chain_members_reconcile();
-    for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)
+    // the live instances, the tool ids among them: a slot walk of all 10000 cost 2.5 % of the worker's CPU idle
+    LIVE_EACH_INSTANCE(i)
     {
         effect_t *effect = &g_effects[i];
 
-        if (!instance_exist(i))
-            continue;
         clap_idle(effect);
         ports_relayout(effect);
         // a thread JACK named while the restart, the resize or the relayout held the role is set as soon as it is let go
