@@ -100,6 +100,7 @@
 #include "fixtures/lv2_event_fixture.h"
 #include "fixtures/lv2_ll_midi_fixture.h"
 #include "fixtures/lv2_host_fixture.h"
+#include "fixtures/lv2_direct_fixture.h"
 #include "fixtures/lv2_patch_fixture.h"
 #include "fixtures/lv2_hints_fixture.h"
 struct lv2_midi_echo_two { unsigned runs, a, b, in; };
@@ -137,6 +138,7 @@ int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(voi
 static char g_fixture[PATH_MAX], g_wg[PATH_MAX], g_fakes[PATH_MAX], g_fakes_so[PATH_MAX + 32], g_wg_so[PATH_MAX + 32];
 static char g_patch[PATH_MAX], g_patch_so[PATH_MAX + 32];
 static char g_midi[PATH_MAX], g_midi_so[PATH_MAX + 32];
+static char g_direct[PATH_MAX], g_direct_so[PATH_MAX + 32];
 static char g_time[PATH_MAX], g_time_so[PATH_MAX + 32];
 static char g_sc[PATH_MAX];
 static char g_layout[PATH_MAX];
@@ -1854,6 +1856,174 @@ static void t_inplace(double rate)
           "inplace %.0f: the plugin saw two runs and never one buffer as input and output (runs %u aliased %u)", rate,
           w ? w->runs : 0, w ? w->aliased : 0);
     rig_down(&g);
+}
+
+/* ---- the no-copy adapter (docs/fast-path.md, item 1): the fixture's witness is what the plugin's ports really held ---- */
+#define DIRECT_N 128u
+static clap_process_status layout_process(struct rig *g, clap_audio_buffer_t *ins, uint32_t n_ins, clap_audio_buffer_t *outs,
+                                          uint32_t n_outs, uint32_t n);
+static float d_il[DIRECT_N + 4] __attribute__((aligned(64))), d_ir[DIRECT_N + 4] __attribute__((aligned(64)));
+static float d_ol[DIRECT_N + 4] __attribute__((aligned(64))), d_or[DIRECT_N + 4] __attribute__((aligned(64)));
+
+static void d_fill(float *b, float *ref, uint32_t n, float scale)
+{
+    for (uint32_t i = 0; i < n; i++)
+        b[i] = ref[i] = scale * (float)((i * 37u) % 101u) / 101.0f;
+}
+
+static int d_halved(const float *out, const float *ref, uint32_t n)
+{
+    for (uint32_t i = 0; i < n; i++)
+        if (out[i] != ref[i] * 0.5f)
+            return 0;
+    return 1;
+}
+
+static struct lv2_direct_fixture_witness *d_up(struct rig *g, const char *twin, double rate)
+{
+    char uri[128];
+    struct lv2_direct_fixture_witness *w = NULL;
+
+    snprintf(uri, sizeof(uri), DIRECT_FIXTURE_URI "%s", twin);
+    if (rig_up(g, g_direct, uri, rate, DIRECT_N) != 0)
+        return NULL;
+    *(void **)&w = loaded_symbol(g_direct_so, "lv2_direct_fixture_witness");
+    CHECK(w != NULL, "direct %.0f: the witness of %s is at hand", rate, uri);
+    return w;
+}
+
+/* a plugin stating lv2:hardRTCapable and nothing against it runs on the host's own buffers: nothing is copied */
+static void t_direct_connects(double rate)
+{
+    struct rig g;
+    static float rl[DIRECT_N], rr[DIRECT_N], il2[DIRECT_N] __attribute__((aligned(64)));
+    struct lv2_direct_fixture_witness *w = d_up(&g, "", rate);
+    unsigned connects;
+
+    if (!w)
+        return;
+    d_fill(d_il, rl, DIRECT_N, 0.9f), d_fill(d_ir, rr, DIRECT_N, -0.3f);
+    CHECK(process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL) == CLAP_PROCESS_CONTINUE && d_halved(d_ol, rl, DIRECT_N)
+          && d_halved(d_or, rr, DIRECT_N), "direct %.0f: the gain is right on the host's buffers", rate);
+    CHECK(w->in[0] == d_il && w->in[1] == d_ir && w->out[0] == d_ol && w->out[1] == d_or,
+          "direct %.0f: the plugin's ports held the host's four buffers: nothing was copied", rate);
+    connects = w->connects;
+    process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    CHECK(w->connects == connects, "direct %.0f: the same buffers again cost no connect_port (%u)", rate, w->connects - connects);
+    memcpy(il2, d_il, sizeof(il2));
+    process_with(&g, il2, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    CHECK(w->connects == connects + 1 && w->in[0] == il2 && d_halved(d_ol, rl, DIRECT_N),
+          "direct %.0f: a buffer that moved is connected before the run that reads it, and only it (%u)", rate, w->connects - connects);
+    // one buffer as a channel's input and its output: LV2 allows it, and it is no copy either
+    d_fill(d_il, rl, DIRECT_N, 0.9f);
+    process_with(&g, d_il, d_ir, d_il, d_or, DIRECT_N, NULL, NULL);
+    CHECK(w->in[0] == d_il && w->out[0] == d_il && d_halved(d_il, rl, DIRECT_N),
+          "direct %.0f: a plugin not flagged inPlaceBroken runs one buffer as its channel's input and output", rate);
+    // never a channel's input as another channel's output, whatever the plugin says
+    d_fill(d_il, rl, DIRECT_N, 0.9f), d_fill(d_ir, rr, DIRECT_N, -0.3f);
+    process_with(&g, d_il, d_ir, d_ol, d_il, DIRECT_N, NULL, NULL);
+    CHECK(w->out[1] != d_il && d_halved(d_ol, rl, DIRECT_N) && d_halved(d_il, rr, DIRECT_N),
+          "direct %.0f: an output on another channel's input is copied out, and both come out right", rate);
+    // nor one buffer as both outputs
+    d_fill(d_il, rl, DIRECT_N, 0.9f), d_fill(d_ir, rr, DIRECT_N, -0.3f);
+    process_with(&g, d_il, d_ir, d_ol, d_ol, DIRECT_N, NULL, NULL);
+    CHECK(w->out[0] == d_ol && w->out[1] != d_ol && d_halved(d_ol, rr, DIRECT_N),
+          "direct %.0f: one buffer as both outputs: the second leg is copied onto it last, as it always was", rate);
+    // the host's buffers need not outlive processing: deactivate finds the plugin back on the instance's memory
+    process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    g.plugin->stop_processing(g.plugin);
+    g.plugin->deactivate(g.plugin);
+    CHECK(w->in[0] == d_il && w->deactivate_in != d_il, "direct %.0f: LV2 deactivate finds input 0 on the instance's own memory", rate);
+    // ... and the next activation starts over: the first run connects again
+    CHECK(g.plugin->activate(g.plugin, rate, 1, DIRECT_N) && g.plugin->start_processing(g.plugin), "direct %.0f: active again", rate);
+    d_fill(d_il, rl, DIRECT_N, 0.9f);
+    process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    CHECK(w->in[0] == d_il && w->out[0] == d_ol && d_halved(d_ol, rl, DIRECT_N), "direct %.0f: the run after it is on the host's buffers again", rate);
+    rig_down(&g);
+}
+
+/* what the host does not hand, or hands unaligned, the instance's own memory stands in for, with the same samples */
+static void t_direct_stands_in(double rate)
+{
+    struct rig g;
+    static float rl[DIRECT_N], rr[DIRECT_N], al[DIRECT_N], ar[DIRECT_N];
+    struct lv2_direct_fixture_witness *w = d_up(&g, "", rate);
+    float *ins[2] = { d_il + 1, d_ir + 1 }, *outs[2] = { d_ol + 1, d_or + 1 }, *mono[1] = { d_ol }, *none[1] = { NULL };
+    clap_audio_buffer_t ib = { ins, NULL, 2, 0, 0 }, ob = { outs, NULL, 2, 0, 0 }, mb = { mono, NULL, 1, 0, 0 }, nb = { none, NULL, 1, 0, 0 };
+
+    if (!w)
+        return;
+    d_fill(d_il, rl, DIRECT_N, 0.9f), d_fill(d_ir, rr, DIRECT_N, -0.3f);
+    process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    memcpy(al, d_ol, sizeof(al)), memcpy(ar, d_or, sizeof(ar));
+    memmove(d_il + 1, rl, sizeof(rl)), memmove(d_ir + 1, rr, sizeof(rr));
+    layout_process(&g, &ib, 1, &ob, 1, DIRECT_N);
+    CHECK(((uintptr_t)w->in[0] & 15u) == 0 && ((uintptr_t)w->out[0] & 15u) == 0 && w->in[0] != d_il + 1 && w->out[0] != d_ol + 1,
+          "direct %.0f: buffers not on 16 bytes are not connected", rate);
+    CHECK(bits_equal(d_ol + 1, al, DIRECT_N) && bits_equal(d_or + 1, ar, DIRECT_N),
+          "direct %.0f: the copied block is bit-identical with the connected one", rate);
+    // the input's channels: one fed to both, or none (silence); the output's: one, or a NULL one
+    memcpy(d_il, rl, sizeof(rl));
+    layout_process(&g, &(clap_audio_buffer_t){ (float *[]){ d_il }, NULL, 1, 0, 0 }, 1, &ob, 1, DIRECT_N);
+    CHECK(w->in[0] == d_il && w->in[1] == d_il && d_halved(d_or + 1, rl, DIRECT_N), "direct %.0f: a mono input feeds both legs", rate);
+    layout_process(&g, NULL, 0, &ob, 1, DIRECT_N);
+    CHECK(d_ol[1] == 0.0f && d_or[DIRECT_N] == 0.0f && w->in[0] != d_il, "direct %.0f: no input is the instance's silence", rate);
+    d_fill(d_il, rl, DIRECT_N, 0.9f);
+    layout_process(&g, &ib, 0, &mb, 1, DIRECT_N);
+    CHECK(w->out[0] == d_ol && w->out[1] != d_ol, "direct %.0f: a mono output takes leg 0, leg 1 on the instance's memory", rate);
+    layout_process(&g, NULL, 0, &nb, 1, DIRECT_N);
+    CHECK(w->out[0] != NULL && w->out[0] != d_ol, "direct %.0f: a NULL channel is never connected", rate);
+    rig_down(&g);
+}
+
+/* the plugins that stay on the instance's memory: `twin` states no hardRTCapable, or has a worker interface */
+static void t_direct_stays(double rate, const char *twin)
+{
+    struct rig g;
+    static float rl[DIRECT_N], rr[DIRECT_N];
+    struct lv2_direct_fixture_witness *w = d_up(&g, twin, rate);
+    unsigned connects;
+
+    if (!w)
+        return;
+    d_fill(d_il, rl, DIRECT_N, 0.9f), d_fill(d_ir, rr, DIRECT_N, -0.3f);
+    connects = w->connects;
+    process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    CHECK(w->connects == connects, "direct %.0f %s: connect_port is never called from process()", rate, twin);
+    CHECK(w->in[0] != d_il && w->in[1] != d_ir && w->out[0] != d_ol && w->out[1] != d_or, "direct %.0f %s: its ports stay on the instance's memory", rate, twin);
+    CHECK(d_halved(d_ol, rl, DIRECT_N) && d_halved(d_or, rr, DIRECT_N), "direct %.0f %s: its samples come out by the copy", rate, twin);
+    rig_down(&g);
+}
+
+/* lv2:inPlaceBroken: connected like any other while the buffers are apart; one buffer in and out and its output moves off
+ * it, or it reads the silence it cleared first */
+static void t_direct_broken(double rate)
+{
+    struct rig g;
+    static float rl[DIRECT_N], rr[DIRECT_N];
+    struct lv2_direct_fixture_witness *w = d_up(&g, "#broken", rate);
+
+    if (!w)
+        return;
+    d_fill(d_il, rl, DIRECT_N, 0.9f), d_fill(d_ir, rr, DIRECT_N, -0.3f);
+    process_with(&g, d_il, d_ir, d_ol, d_or, DIRECT_N, NULL, NULL);
+    CHECK(w->in[0] == d_il && w->out[0] == d_ol && d_halved(d_ol, rl, DIRECT_N), "direct %.0f: inPlaceBroken on buffers apart: connected", rate);
+    w->runs = w->aliased = 0;
+    process_with(&g, d_il, d_ir, d_il, d_ir, DIRECT_N, NULL, NULL);
+    CHECK(w->runs == 1 && w->aliased == 0, "direct %.0f: inPlaceBroken: the plugin never sees one buffer as input and output (runs %u, aliased %u)",
+          rate, w->runs, w->aliased);
+    CHECK(d_halved(d_il, rl, DIRECT_N) && d_halved(d_ir, rr, DIRECT_N), "direct %.0f: inPlaceBroken: the host in place reads the gain, not the silence the plugin cleared", rate);
+    CHECK(w->in[0] == d_il, "direct %.0f: inPlaceBroken: the input stays connected, only the output moved", rate);
+    rig_down(&g);
+}
+
+static void t_direct(double rate)
+{
+    t_direct_connects(rate);
+    t_direct_stands_in(rate);
+    t_direct_stays(rate, "#plain");
+    t_direct_stays(rate, "#worker");
+    t_direct_broken(rate);
 }
 
 /* a two-event list: one parameter value, then one MIDI message */
@@ -4124,6 +4294,9 @@ int main(int argc, char **argv)
     snprintf(dir, sizeof(dir), "%somx-time-probe.lv2", build);
     abs_dir(dir, g_time);
     snprintf(g_time_so, sizeof(g_time_so), "%somx-time-probe.so", g_time);
+    snprintf(dir, sizeof(dir), "%somx-direct-fixture.lv2", build);
+    abs_dir(dir, g_direct);
+    snprintf(g_direct_so, sizeof(g_direct_so), "%somx-direct-fixture.so", g_direct);
     snprintf(dir, sizeof(dir), "%somx-sidechain-fixture.lv2", build);
     abs_dir(dir, g_sc);
     snprintf(dir, sizeof(dir), "%somx-layout-fixture.lv2", build);
@@ -4192,6 +4365,7 @@ int main(int argc, char **argv)
         t_latency_hold(RATES[r]);
         t_fixed_block(RATES[r]);
         t_inplace(RATES[r]);
+        t_direct(RATES[r]);
         t_midi_patch(RATES[r]);
         t_midi_extra(RATES[r]);
         t_passthrough(RATES[r]);

@@ -4,9 +4,13 @@
  * What the host adds to a plugin per call and per sample: an empty CLAP (process() returns at once) through
  * omx_clap_host_run on a sustained -6 dBFS tone, 64 warm-up blocks discarded, the p50 and p95 of 2000 blocks at quanta
  * 16 to 1024, a least-squares line through them. Then the same at one quantum with each guard taken off, so the
- * per-sample figure can be split. Prints; not a gate. Built at -O2, as an engine compiles the inline body.
+ * per-sample figure can be split. Then a chain of CHAIN_N members at 48000/256, through omx_clap_chain_process. Prints;
+ * not a gate. Built at -O2, as an engine compiles the inline body.
  *
- *   tests/hosted_cost_bench [cpu]
+ *   tests/hosted_cost_bench [cpu]                                  the empty CLAP alone, and a chain of them
+ *   tests/hosted_cost_bench_lv2 <omx-direct-fixture.lv2> [cpu]     the chains alone: CLAP, LV2 and every other one of each
+ *
+ * The LV2 member is the fixture's #empty, stating lv2:hardRTCapable, so a chain's figure is the host's cost alone.
  */
 #include <math.h>
 #include <pthread.h>
@@ -16,7 +20,11 @@
 #include <string.h>
 #include <time.h>
 
+#include "../src/clap_chain.h"
 #include "../src/clap_host.h"
+#ifdef HOSTED_COST_LV2
+#include "omx_clap_lv2.h"
+#endif
 
 static bool nl_init(const clap_plugin_t *p) { (void)p; return true; }
 static void nl_destroy(const clap_plugin_t *p) { free((void *)p); }
@@ -97,6 +105,69 @@ static int cell(double sr, uint32_t q, uint32_t guards, long *p50, long *p95)
     return 0;
 }
 
+#define CHAIN_N 24u
+#define CHAIN_RATE 48000.0
+#define CHAIN_Q 256u
+#define CHAIN_BLOCKS 4000
+static long CT[CHAIN_BLOCKS];
+
+/* the median block of a chain of CHAIN_N members, `entries[i % n]` naming each; ns/sample of the chain, per channel pair */
+static int chain_cell(const char *name, const clap_plugin_entry_t *const *entries, const char *const *ids, uint32_t n_kinds)
+{
+    struct omx_clap_instance *in[CHAIN_N];
+    struct omx_clap_chain *chain = NULL;
+    struct omx_clap_chain_config config;
+    char why[OMX_CLAP_WHY_MAX] = "";
+    static float il[CHAIN_Q], ir[CHAIN_Q], ol[CHAIN_Q], or_[CHAIN_Q];
+    const float *const ins[2] = {il, ir};
+    float *const outs[2] = {ol, or_};
+    uint32_t ph = 0;
+
+    omx_clap_chain_config_init(&config);
+    config.channels = 2;
+    if (omx_clap_chain_create(&config, &chain) != OMX_CLAP_CHAIN_OK)
+        return -1;
+    for (uint32_t i = 0; i < CHAIN_N; i++)
+    {
+        struct omx_clap_chain_member m;
+
+        if (omx_clap_host_open_entry(entries[i % n_kinds], ids[i % n_kinds], &in[i], why) != 0
+            || omx_clap_host_activate(in[i], CHAIN_RATE, CHAIN_Q, why) != 0)
+        {
+            printf("FAIL %s\n", why);
+            return -1;
+        }
+        omx_clap_host_publish(in[i], pthread_self());
+        omx_clap_chain_member_init(&m);
+        m.instance = in[i];
+        if (omx_clap_chain_add(chain, &m, OMX_CLAP_CHAIN_END, NULL) != OMX_CLAP_CHAIN_OK)
+        {
+            printf("FAIL chain add\n");
+            return -1;
+        }
+    }
+    for (int b = 0; b < WARM + CHAIN_BLOCKS; b++)
+    {
+        for (uint32_t i = 0; i < CHAIN_Q; i++, ph++)
+            il[i] = ir[i] = 0.5f * sinf(2.0f * (float)M_PI * 1000.0f * (float)ph / (float)CHAIN_RATE);
+        const long t0 = now_ns();
+        omx_clap_chain_process(chain, ins, outs, CHAIN_Q);
+        const long t1 = now_ns();
+        if (b >= WARM) CT[b - WARM] = t1 - t0;
+    }
+    qsort(CT, CHAIN_BLOCKS, sizeof CT[0], cmp);
+    printf("chain %-5s %u members 48000/%u: p50 %ld ns/block  %.3f ns/sample  %.4f ns/sample per member  p95 %ld ns/block\n", name, CHAIN_N, CHAIN_Q,
+           CT[CHAIN_BLOCKS / 2], (double)CT[CHAIN_BLOCKS / 2] / CHAIN_Q, (double)CT[CHAIN_BLOCKS / 2] / CHAIN_Q / CHAIN_N, CT[CHAIN_BLOCKS * 95 / 100]);
+    omx_clap_chain_destroy(chain);
+    for (uint32_t i = 0; i < CHAIN_N; i++)
+    {
+        (void)omx_clap_host_unpublish(in[i], 100, 2000000);
+        omx_clap_host_deactivate(in[i]);
+        omx_clap_host_close(in[i]);
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     static const uint32_t Q[] = {16, 32, 64, 128, 256, 512, 1024};
@@ -104,13 +175,37 @@ int main(int argc, char **argv)
     const double sr = 96000;
     double sx = 0, sxx = 0, s50 = 0, sx50 = 0, s95 = 0, sx95 = 0;
     cpu_set_t set;
+    const clap_plugin_entry_t *const clap_entry[1] = {&NL_ENTRY};
+    const char *const clap_id[1] = {NL_DESC.id};
+#ifdef HOSTED_COST_LV2
+    const int cpu_arg = 2;
+#else
+    const int cpu_arg = 1;
+#endif
 
-    if (argc > 1)
+    if (argc > cpu_arg)
     {
         CPU_ZERO(&set);
-        CPU_SET(atoi(argv[1]), &set);
+        CPU_SET(atoi(argv[cpu_arg]), &set);
         (void)sched_setaffinity(0, sizeof set, &set);
     }
+#ifdef HOSTED_COST_LV2
+    {
+        static const char URI[] = "urn:openmixer:test:direct-fixture#empty";
+        const omx_clap_lv2_config_t config = {omx_clap_lv2_provided, 1000u, 4096u, 0u, 250u, NULL, NULL};
+        char why[OMX_CLAP_LV2_WHY_MAX] = "";
+        const clap_plugin_entry_t *lv2 = argc > 1 && omx_clap_lv2_configure(&config, why) == 0 ? omx_clap_lv2_entry(argv[1], why) : NULL;
+        const clap_plugin_entry_t *const both[2] = {&NL_ENTRY, lv2};
+        const char *const both_id[2] = {NL_DESC.id, URI};
+
+        if (!lv2)
+        {
+            printf("FAIL usage: hosted_cost_bench_lv2 <omx-direct-fixture.lv2, absolute> [cpu] (%s)\n", why);
+            return 2;
+        }
+        return chain_cell("clap", clap_entry, clap_id, 1) || chain_cell("lv2", &both[1], &both_id[1], 1) || chain_cell("mixed", both, both_id, 2) ? 2 : 0;
+    }
+#endif
     for (size_t k = 0; k < nq; k++)
     {
         long a, b;
@@ -130,5 +225,5 @@ int main(int argc, char **argv)
         if (cell(sr, 1024, OMX_HOSTED_GUARDS_ALL & ~V[v].off, &a, &b) != 0) return 2;
         printf("q=1024 %-16s p50 %.3f ns/sample  p95 %.3f ns/sample\n", V[v].name, (double)a / 1024, (double)b / 1024);
     }
-    return 0;
+    return chain_cell("clap", clap_entry, clap_id, 1) ? 2 : 0;
 }
