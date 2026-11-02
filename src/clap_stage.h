@@ -37,6 +37,9 @@
 *     for the next block. The note events of the block, written ahead of it by omx_clap_note_in, follow them. The
 *     last OMX_CLAP_NOTES_RESERVED slots of the note list are kept for releases (a note off, all notes off, all sound
 *     off, a pedal let go): a flood of note ons fills the rest and is counted, and the releases after it still arrive.
+*     A quiet block, one with no write in the ring and no note written ahead of it, drains nothing and hands the plugin
+*     one shared empty list (omx_clap_no_events) instead of the stage's: no event is built, and no list the stage or the
+*     instance keeps is read through.
 *     out_events.try_push is a counting sink: a CLAP_EVENT_PARAM_VALUE from the plugin raises plugin_changed and nothing
 *     is stored. libomx-clap-core's instance puts lists of its own in the stage's two (clap_host.h): its sink also keeps
 *     the plugin's values and gestures for the control thread, and its input list turns the host's modulations and
@@ -1005,6 +1008,36 @@ static inline void omx_clap_drain(struct omx_clap_stage *s)
         omx_hosted_count(&s->events_delivered, n);
 }
 
+/** The input event list a quiet block hands the plugin: no event, one list for every stage, read by no one but the
+ * plugin. */
+static inline uint32_t omx_clap_none_size(const struct clap_input_events *list)
+{
+    (void)list;
+    return 0;
+}
+
+/** The quiet list's event at any index: none. */
+static inline const clap_event_header_t *omx_clap_none_get(const struct clap_input_events *list, uint32_t index)
+{
+    (void)list;
+    (void)index;
+    return NULL;
+}
+
+/** The quiet list itself. */
+static inline const clap_input_events_t *omx_clap_no_events(void)
+{
+    static const clap_input_events_t none = { NULL, omx_clap_none_size, omx_clap_none_get };
+
+    return &none;
+}
+
+/** RT: a quiet block, one with no parameter write waiting in the ring and no note written ahead of it. */
+static inline int omx_clap_block_quiet(const struct omx_clap_stage *s)
+{
+    return s->n_notes == 0 && omx_hosted_queue_pending(&s->queue) == 0;
+}
+
 /** Whether a channel message of one to three bytes is a release (OMX_CLAP_NOTES_RESERVED says which). */
 static inline int omx_clap_midi_is_release(const uint8_t *data, size_t size)
 {
@@ -1643,15 +1676,21 @@ static inline void omx_clap_expand_constant(struct omx_clap_stage *s, uint32_t n
 static inline int omx_clap_run_plugin_status(struct omx_clap_stage *s, uint32_t n, clap_process_status *said)
 {
     clap_process_status status;
+    const int quiet = omx_clap_block_quiet(s);
 
-    omx_clap_drain(s);
+    // a quiet block hands the plugin the empty list and drains nothing: no event is built, and neither the stage's
+    // list nor the instance's around it is read
+    if (quiet)
+        s->proc.in_events = omx_clap_no_events();
+    else
+        omx_clap_drain(s);
     s->aout[0].constant_mask = 0;   ///< the plugin's to set; never carried from the last block
     // the inputs' masks are the plugin's to set too: the process list is the stage's `ain` or the instance's `ains`
     for (uint32_t i = 0; i < s->proc.audio_inputs_count; i++)
         ((clap_audio_buffer_t *)s->proc.audio_inputs)[i].constant_mask = 0;
     s->proc.steady_time = s->steady_time;
     s->proc.frames_count = n;
-    if (s->note_inputs)
+    if (s->note_inputs && !quiet)
         atomic_store_explicit(&s->notes_visible, 1, memory_order_release);
     {
         struct omx_abi_guard *const g = omx_clap_stage_guard(s);
@@ -1661,7 +1700,9 @@ static inline int omx_clap_run_plugin_status(struct omx_clap_stage *s, uint32_t 
         if (g)
             omx_abi_guard_block(g);
     }
-    if (s->note_inputs)
+    if (quiet)
+        s->proc.in_events = &s->in_events;
+    else if (s->note_inputs)
     {
         atomic_store_explicit(&s->notes_visible, 0, memory_order_release);
         omx_hosted_count(&s->notes_delivered, s->n_notes);
