@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.26.2
+Version:        0.26.3
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -180,6 +180,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Mon Nov 02 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.3-1
+- A hosted plugin's output clamp no longer calls the maths library for every sample:
+  an empty plugin's hosting cost falls from 5.3 to 1.9 ns per sample on x86 (96 kHz,
+  block 1024). Finite samples are unchanged, bit for bit (#453).
+
 * Sun Nov 01 2026 Pau Aliagas <linuxnow@gmail.com> - 0.26.2-1
 - Every call into a plugin goes through a guard that saves the registers the
   calling convention says a function must keep (x19-x28, d8-d15 and FPCR on
