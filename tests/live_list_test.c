@@ -1,4 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * This file is part of omx-clap-host.
+ *
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ */
 
 /*
  * live_list_test: the list the control tick walks (src/live_list.h). The tool instances (the ids above the plugins') are

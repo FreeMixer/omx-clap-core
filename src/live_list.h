@@ -1,4 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * This file is part of omx-clap-host.
+ *
+ * Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+ */
 
 /** @file
  * @brief The live instances of the host, as a list of ids kept in ascending order. */
