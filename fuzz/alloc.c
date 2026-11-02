@@ -6,7 +6,9 @@
  * block still ends where the reader's bytes end. The count is of what the reader asked for, not of the heads. One
  * allocation can be made to fail, as when memory runs out, so a harness reaches what a reader does then. When the C
  * library's allocator itself returns NULL, on an allocation that was not made to fail, memory has run out: that is
- * noted until the next fuzz_alloc_ran_out_reset(). */
+ * noted until the next fuzz_alloc_ran_out_reset(). A NULL on a request of more bytes than fuzz_alloc_most() allows is
+ * not noted: a correct reader never asks for that much at once, so the harness's checks still judge it. A refused
+ * malloc or realloc request counts in the peak, as the bytes the reader asked to hold. */
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -29,7 +31,7 @@
 /* malloc's own alignment, so the reader's bytes are aligned as malloc's would be */
 #define HEAD 16u
 
-static size_t g_live, g_peak, g_count, g_fail_at = SIZE_MAX;
+static size_t g_live, g_peak, g_count, g_fail_at = SIZE_MAX, g_most = SIZE_MAX;
 static int g_ran_out;
 
 /* whether this allocation is the one asked to fail; it fails once */
@@ -61,17 +63,31 @@ static size_t disown(unsigned char *b)
     return n;
 }
 
+/* the reader asked malloc or realloc for `n` bytes and got NULL from the C library, or none at all for a size the head
+ * does not fit beside */
+static void refused(size_t n)
+{
+    const size_t held = n > SIZE_MAX - g_live ? SIZE_MAX : g_live + n;
+
+    if (held > g_peak)
+        g_peak = held;
+    if (n <= g_most)
+        g_ran_out = 1;
+}
+
 void *fuzz_malloc(size_t n)
 {
-    unsigned char *b = NULL;
+    unsigned char *b;
 
-    if (!failing() && n <= SIZE_MAX - HEAD)
+    if (failing())
+        return NULL;
+    b = n <= SIZE_MAX - HEAD ? malloc(HEAD + n) : NULL;
+    if (!b)
     {
-        b = malloc(HEAD + n);
-        if (!b)
-            g_ran_out = 1;
+        refused(n);
+        return NULL;
     }
-    return b ? own(b, n) : NULL;
+    return own(b, n);
 }
 
 void *fuzz_calloc(size_t k, size_t n)
@@ -90,14 +106,19 @@ void *fuzz_realloc(void *p, size_t n)
 
     if (!p)
         return fuzz_malloc(n);
-    if (failing() || n > SIZE_MAX - HEAD)
+    if (failing())
         return NULL;
+    if (n > SIZE_MAX - HEAD)
+    {
+        refused(n);
+        return NULL;
+    }
     b = (unsigned char *)p - HEAD;
     old = disown(b);
     nb = realloc(b, HEAD + n);
     if (!nb)
     {
-        g_ran_out = 1;
+        refused(n);
         own(b, old);
         return NULL;
     }
@@ -158,4 +179,9 @@ int fuzz_alloc_ran_out(void)
 void fuzz_alloc_ran_out_reset(void)
 {
     g_ran_out = 0;
+}
+
+void fuzz_alloc_most(size_t n)
+{
+    g_most = n;
 }
