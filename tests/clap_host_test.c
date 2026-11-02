@@ -2564,6 +2564,116 @@ static void test_abi_breaker(const char *path)
     omx_clap_host_close(instance);
 }
 
+/* a block that outlasts the role's timeout (FAKE_SLOW_PROCESS_MS): take_role waits until the cycle under way has left
+ * the plugin, since the control thread calling the plugin then would make two threads call it at once, and says so once
+ * in the log */
+static void test_role_waits(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct mover_cycles c;
+    struct omx_clap_role role;
+    const char *said;
+    pthread_t t;
+    unsigned waited;
+    double t0, took;
+    int in_cycle;
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance) || !activate(instance))
+    {
+        CHECK(0, "role wait: the fake opens and activates");
+        return;
+    }
+    c = (struct mover_cycles){ instance, 1, 0 };
+    setenv("FAKE_SLOW_PROCESS_MS", "400", 1);
+    if (pthread_create(&t, NULL, mover_cycles_run, &c) != 0)
+    {
+        unsetenv("FAKE_SLOW_PROCESS_MS");
+        omx_clap_host_close(instance);
+        return;
+    }
+    omx_clap_host_publish(instance, t);
+    atomic_store(&c.go, 1);
+    for (waited = 0; waited < 1000 && !atomic_load(&instance->stage.in_cycle); waited++)
+        usleep(1000);
+    CHECK(atomic_load(&instance->stage.in_cycle), "role wait: a 400 ms block is under way");
+    t0 = now_ms();
+    omx_clap_host_take_role(instance, &role);
+    took = now_ms() - t0;
+    in_cycle = atomic_load(&instance->stage.in_cycle);
+    CHECK(!in_cycle, "role wait: take_role returns only once that block has left the plugin, past the %u us timeout (%.0f ms)",
+          CLAP_HOST_ROLE_TIMEOUT_US, took);
+    omx_clap_host_release_role(instance, &role, role.state);
+    pthread_join(t, NULL);
+    unsetenv("FAKE_SLOW_PROCESS_MS");
+    omx_clap_host_tick(instance);
+    said = omx_clap_host_log_take(instance);
+    CHECK(said && strstr(said, "process") && strstr(said, "waited"), "role wait: and the wait is said in the log (%s)",
+          said ? said : "NULL");
+    omx_clap_host_stop(instance);
+    omx_clap_host_close(instance);
+}
+
+/* the plugin's log slot, written from two threads at once while the control thread drains it: every line taken is one
+ * of the lines written, whole, never two mixed or cut */
+#define LOG_ROUNDS 20000u
+struct log_writer { struct omx_clap_instance *instance; char line[CLAP_HOST_LOG_BYTES]; _Atomic int *stop; };
+static void *log_writer_run(void *arg)
+{
+    struct log_writer *w = arg;
+    const clap_host_log_t *log = w->instance->host.get_extension(&w->instance->host, CLAP_EXT_LOG);
+    unsigned i;
+
+    for (i = 0; i < LOG_ROUNDS && !atomic_load(w->stop); i++)
+        log->log(&w->instance->host, CLAP_LOG_INFO, w->line);
+    return NULL;
+}
+
+static void test_log_slot(const char *path)
+{
+    struct omx_clap_instance *instance = NULL;
+    struct log_writer w[2];
+    _Atomic int stop = 0;
+    pthread_t t[2];
+    unsigned taken = 0, mixed = 0, i;
+    char bad[CLAP_HOST_LOG_BYTES] = "";
+
+    if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
+    {
+        CHECK(0, "log slot: the fake opens");
+        return;
+    }
+    for (i = 0; i < 2; i++)
+    {
+        w[i].instance = instance;
+        w[i].stop = &stop;
+        memset(w[i].line, i ? 'b' : 'a', sizeof(w[i].line) - 1);
+        w[i].line[sizeof(w[i].line) - 1] = '\0';
+        if (pthread_create(&t[i], NULL, log_writer_run, &w[i]) != 0)
+            atomic_store(&stop, 1);
+    }
+    for (i = 0; i < 4 * LOG_ROUNDS; i++)
+    {
+        const char *said;
+
+        omx_clap_host_tick(instance);
+        said = omx_clap_host_log_take(instance);
+        if (!said)
+            continue;
+        taken++;
+        if (strcmp(said, w[0].line) && strcmp(said, w[1].line))
+        {
+            if (!mixed++)
+                snprintf(bad, sizeof(bad), "%.40s", said);
+        }
+    }
+    atomic_store(&stop, 1);
+    pthread_join(t[0], NULL);
+    pthread_join(t[1], NULL);
+    CHECK(taken > 0 && mixed == 0, "log slot: %u lines taken while two threads logged, each whole (%u mixed or cut: %s)", taken, mixed,
+          bad);
+    omx_clap_host_close(instance);
+}
+
 static void mover_block(struct omx_clap_instance *instance)
 {
     mover_blocks(instance, 1);
@@ -2963,6 +3073,8 @@ int main(int argc, char **argv)
         t_bounce_at_limits(fake_path);
         test_cycle_while_deactivated(fake_path);
         test_abi_breaker(fake_path);
+        test_role_waits(fake_path);
+        test_log_slot(fake_path);
         contract_checks(fake_path);
         unoffered_checks(fake_path);
         if (synth_path)
