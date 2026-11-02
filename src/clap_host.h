@@ -1363,10 +1363,13 @@ static inline void omx_clap_host_run_ports(struct omx_clap_instance *in, const f
 
 /** The audio role, a chain member's block (clap_chain.c): the instance's stage run by the direct body from `ins` straight
  * to `outs`, no copy made through the bounce on a steady block (omx_clap_run_direct_status), with the transport, the
- * tempo and the sleep omx_clap_host_run gives the two-leg path; a block it sleeps through passes its input. The caller
- * has checked omx_clap_direct_fits. */
-static inline void omx_clap_host_run_direct(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n)
+ * tempo and the sleep omx_clap_host_run gives the two-leg path; a block it sleeps through passes its input. `defer`
+ * nonzero leaves the clamp of its output to the caller. The caller has checked omx_clap_direct_fits. Returns 1 when the
+ * plugin's output was delivered (unclamped when deferred), 0 when the block passed its input. */
+static inline int omx_clap_host_run_direct(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n,
+                                           uint32_t defer)
 {
+    int wet;
     struct omx_clap_transport rec;
     clap_process_status said;
     const float *r = in->stage.h.n_out == 2 ? ins[1] : NULL;
@@ -1377,10 +1380,11 @@ static inline void omx_clap_host_run_direct(struct omx_clap_instance *in, const 
     if (omx_clap_host_sleep_skip(in, &rec, silent, n))
     {
         omx_clap_direct_dry(&in->stage, ins, outs, n);
-        return;
+        return 0;
     }
-    omx_clap_run_direct_status(&in->stage, ins, outs, n, &in->transport, &rec, &said);
+    wet = omx_clap_run_direct_status(&in->stage, ins, outs, n, &in->transport, &rec, &said, defer);
     omx_clap_host_sleep_after(in, said, silent, outs[0], in->stage.h.n_out == 2 ? outs[1] : NULL, n);
+    return wet;
 }
 
 /** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
