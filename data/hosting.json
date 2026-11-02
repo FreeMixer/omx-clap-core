@@ -117,7 +117,7 @@
       "stateMaxBytes": "the largest plugin state the core saves or loads, in bytes",
       "logBytes": "the size of a plugin log message, in bytes",
       "rolePollUs": "the poll interval while the audio role is taken, in microseconds",
-      "roleTimeoutUs": "the longest the audio role is waited for, in microseconds",
+      "roleTimeoutUs": "the wait for the audio role past which a stop gives up or take_role says so, in microseconds",
       "paramCountMax": "the widest parameter count the core trusts",
       "latencyHoldMs": "the hold before a hosted stage's new latency takes effect, in milliseconds",
       "idleHoldUs": "the latency the library holds /dev/cpu_dma_latency at while an instance is active, in microseconds: 10 keeps the cores in C1"
