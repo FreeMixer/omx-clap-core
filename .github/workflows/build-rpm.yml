@@ -27,7 +27,7 @@ permissions:
 jobs:
   build:
     name: omx-clap-host RPMs (fc${{ inputs.fedora }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.OMX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 60
     container:
       image: fedora:${{ inputs.fedora }}
