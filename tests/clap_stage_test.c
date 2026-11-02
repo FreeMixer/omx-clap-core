@@ -125,6 +125,7 @@ struct fake {
   void *ev_cookie[256];
   int ev_fields_ok;
   uint32_t ev_per_block[8];
+  const clap_input_events_t *list_per_block[8];  /* the input event list each block was handed */
   uint32_t blocks;
   const clap_output_events_t *out; /* K_TALK pushes one PARAM_VALUE back */
   /* the transport the last process() was given, as the plugin reads it */
@@ -217,7 +218,7 @@ static clap_process_status f_process(const clap_plugin_t *p, const clap_process_
                       pr->transport->header.type == CLAP_EVENT_TRANSPORT && pr->transport->header.time == 0;
   /* the events, as delivered */
   const uint32_t ne = pr->in_events->size(pr->in_events);
-  if (f->blocks < 8) f->ev_per_block[f->blocks] = ne;
+  if (f->blocks < 8) f->ev_per_block[f->blocks] = ne, f->list_per_block[f->blocks] = pr->in_events;
   f->blocks++;
   for (uint32_t k = 0; k < ne; k++) {
     const clap_event_header_t *h = pr->in_events->get(pr->in_events, k);
@@ -464,6 +465,20 @@ static void t_events(void) {
   fill(l, 64, 0.1f), fill(r, 64, 0.1f);
   run(&g, l, r, 64);
   CHECK(g.f.ev_per_block[2] == 0, "an empty ring delivers an empty list");
+  CHECK(g.f.list_per_block[0] == &g.st.in_events && g.f.list_per_block[1] == &g.st.in_events,
+        "a block with parameter events hands the stage's own list");
+  CHECK(g.f.list_per_block[2] == omx_clap_no_events() && g.f.list_per_block[2] != &g.st.in_events
+            && g.st.proc.in_events == &g.st.in_events && atomic_load(&g.st.events_delivered) == total,
+        "a quiet block hands the shared empty list and drains nothing; the stage's list is back after it");
+  {
+    const uint8_t on[3] = {0x90, 60, 100};
+    g.st.note_inputs = 1, g.st.note_dialect = CLAP_NOTE_DIALECT_CLAP, g.st.note_dialects = CLAP_NOTE_DIALECT_CLAP;
+    omx_clap_note_in(&g.st, 0, on, 3);
+    CHECK(g.st.n_notes == 1, "a note on written ahead of the block (%u)", g.st.n_notes);
+    fill(l, 64, 0.1f), fill(r, 64, 0.1f);
+    run(&g, l, r, 64);
+    CHECK(g.f.list_per_block[3] == &g.st.in_events, "a block with a note and no parameter event is not quiet: the stage's list");
+  }
 
   /* a small ring is FULL at its capacity and refuses the producer */
   struct rig s;
