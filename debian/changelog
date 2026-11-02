@@ -1,3 +1,13 @@
+omx-clap-host (0.26.4) unstable; urgency=medium
+
+  * A plugin that changed only the floating-point control registers is no
+    longer moved to a worker of its own. Libraries built with -ffast-math
+    (Calf, the DPF and Zam plugins) set flush-to-zero when they are loaded;
+    the guard still writes it back and counts it, but only a changed
+    integer, vector or frame register isolates a plugin (#455).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Mon, 02 Nov 2026 19:15:00 +0100
+
 omx-clap-host (0.26.3) unstable; urgency=medium
 
   * A hosted plugin's output clamp no longer calls the maths library for
