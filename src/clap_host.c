@@ -3603,6 +3603,8 @@ int omx_clap_host_param_write(struct omx_clap_instance *in, clap_id id, double v
     clap_param_info_t info;
     struct omx_clap_shadow *s;
 
+    if (!isfinite(value))
+        return -1;   // a NaN or infinity makes the plugin's output non-finite and faults the stage for good
     if (info_of(in, id, &info) != 0 || !is_row(&info))
         return -1;
     if (!in->active)

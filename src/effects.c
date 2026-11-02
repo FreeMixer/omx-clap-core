@@ -1236,6 +1236,8 @@ static int clap_param_set(struct omx_clap_instance *clap, clap_id id, double val
 
     if (omx_clap_host_param_row_of(clap, id, &row) != 0)
         return ERR_LV2_INVALID_PARAM_SYMBOL;
+    if (!isfinite(value))
+        return ERR_INVALID_OPERATION;   // both comparisons below are false for NaN: it would go through unclamped
     if (value < row.min)
         value = row.min;
     else if (value > row.max)
