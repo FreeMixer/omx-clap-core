@@ -201,6 +201,11 @@ jobs:
       - name: Test the chain under ThreadSanitizer
         run: make test-chain-tsan
 
+      # an abandoned omx_clap_host_open_timed under ThreadSanitizer: the caller's strings freed, the list of binaries
+      # changed on its thread meanwhile, the instance the late open makes closed
+      - name: Test an abandoned timed open under ThreadSanitizer
+        run: make test-open-timed
+
       # each guard of the chain broken in a copy of the sources, tests/clap_chain_test red on it (#311)
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
