@@ -194,11 +194,11 @@ static void t_layout_pin_refuses_past_cap(void) {
   static const clap_plugin_t plugin = {&DESC, NULL, p_init, p_destroy, p_activate, p_nop, p_start, p_nop, p_nop, p_process, p_ext, p_nop};
   char hex[PHD_SHA256_HEX_LEN + 1];
   g_n = CAP;
-  CHECK(layout_pin_write(&plugin, &PARAMS, NULL, NULL, hex) == 0, "a layout of exactly %u parameters is pinned", CAP);
+  CHECK(layout_pin_write(NULL, &plugin, &PARAMS, NULL, NULL, hex) == 0, "a layout of exactly %u parameters is pinned", CAP);
   g_n = CAP + 1u;
-  CHECK(layout_pin_write(&plugin, &PARAMS, NULL, NULL, hex) == -1, "a layout of %u parameters is refused", CAP + 1u);
+  CHECK(layout_pin_write(NULL, &plugin, &PARAMS, NULL, NULL, hex) == -1, "a layout of %u parameters is refused", CAP + 1u);
   g_n = 10000000u;
-  CHECK(layout_pin_write(&plugin, &PARAMS, NULL, NULL, hex) == -1, "a layout of 10000000 parameters is refused");
+  CHECK(layout_pin_write(NULL, &plugin, &PARAMS, NULL, NULL, hex) == -1, "a layout of 10000000 parameters is refused");
 }
 
 /* ---- 2. a failed allocation refuses ---- */
