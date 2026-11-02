@@ -45,6 +45,7 @@ extern "C" {
 #define OMX_ABI_FPCR            (1u << 18)
 #define OMX_ABI_FP              (1u << 19)      /* x29, the frame pointer */
 #define OMX_ABI_REGS            20
+#define OMX_ABI_CONTROL         OMX_ABI_FPCR
 #elif defined(__x86_64__)
 #define OMX_ABI_RBX             (1u << 0)
 #define OMX_ABI_RBP             (1u << 1)
@@ -53,6 +54,16 @@ extern "C" {
 #define OMX_ABI_X87CW           (1u << 7)
 #define OMX_ABI_DF              (1u << 8)       /* the direction flag, which a callee returns clear */
 #define OMX_ABI_REGS            9
+#define OMX_ABI_CONTROL         (OMX_ABI_MXCSR | OMX_ABI_X87CW | OMX_ABI_DF)
+#endif
+
+/* OMX_ABI_CONTROL: the control registers, which the guard writes back after the call like the others but which say
+ * nothing of a broken frame. A library built with -ffast-math sets flush-to-zero from GCC's crtfastmath constructor
+ * the moment it is loaded (Calf, the DPF and Zam plugins on aarch64): its init returns with FPCR changed and every
+ * register the frame needs intact. Such a call is counted in ever and calls, but it does not take the first-clobber
+ * record, which is what moves a plugin to a worker of its own: only a changed integer, vector or frame register does. */
+#if !defined(OMX_ABI_CONTROL)
+#define OMX_ABI_CONTROL         0u
 #endif
 
 /* What the calls made through one report changed. */
@@ -112,6 +123,8 @@ static inline void omx_abi_guard_note(struct omx_abi_guard *g, const char *call,
         return;
     atomic_fetch_or_explicit(&g->ever, mask, memory_order_relaxed);
     atomic_fetch_add_explicit(&g->calls, 1, memory_order_relaxed);
+    if (!(mask & ~OMX_ABI_CONTROL))
+        return;                     /* only control registers, put back: counted, not a clobber of the frame */
     if (!atomic_exchange_explicit(&g->claimed, 1, memory_order_acq_rel))
     {
         g->first_call = call;
@@ -120,7 +133,8 @@ static inline void omx_abi_guard_note(struct omx_abi_guard *g, const char *call,
     }
 }
 
-/* the first clobber, for any thread: 1 and *out filled when there was one, 0 otherwise */
+/* the first clobber of a frame register (not OMX_ABI_CONTROL alone), for any thread: 1 and *out filled when there was
+ * one, 0 otherwise */
 static inline int omx_abi_guard_first(const struct omx_abi_guard *g, struct omx_abi_clobber *out)
 {
     const uint32_t mask = atomic_load_explicit(&((struct omx_abi_guard *)g)->first_mask, memory_order_acquire);
