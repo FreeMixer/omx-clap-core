@@ -50,7 +50,7 @@
 #define CLAP_HOST_STATE_MAX_BYTES 1048576u  ///< the largest plugin state the core saves or loads, in bytes
 #define CLAP_HOST_LOG_BYTES 256u  ///< the size of a plugin log message, in bytes
 #define CLAP_HOST_ROLE_POLL_US 1000u  ///< the poll interval while the audio role is taken, in microseconds
-#define CLAP_HOST_ROLE_TIMEOUT_US 200000u  ///< the longest the audio role is waited for, in microseconds
+#define CLAP_HOST_ROLE_TIMEOUT_US 200000u  ///< the wait for the audio role past which a stop gives up or take_role says so, in microseconds
 #define CLAP_HOST_PARAM_COUNT_MAX 2048u  ///< the widest parameter count the core trusts
 #define CLAP_HOST_LATENCY_HOLD_MS 250u  ///< the hold before a hosted stage's new latency takes effect, in milliseconds
 #define CLAP_HOST_IDLE_HOLD_US 10u  ///< the latency the library holds /dev/cpu_dma_latency at while an instance is active, in microseconds: 10 keeps the cores in C1
