@@ -928,8 +928,8 @@ tests/jack_xrun_shim.so: tests/jack_xrun_shim.c
 test-jack-params: $(PROG) tests/fake_mover.clap
 	./tests/jack_params_e2e.sh
 
-tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h
-	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
+tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h src/abi_guard.h src/abi_guard.S
+	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S -ldl
 
 # the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
 # host answers the add. PLUGIN_HOSTD is the daemon, built in a plugin-hostd checkout by default.
