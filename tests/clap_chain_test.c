@@ -1122,6 +1122,92 @@ static void t_mono_member(void)
     io_free(&io);
 }
 
+/* the buffers each wrapped plugin's process() was handed, its last call: the plugin is the stage's copy of it whose
+ * process records them and calls the plugin's own */
+#define WRAP_MAX 4u
+
+struct wrap
+{
+    clap_plugin_t plugin;           // the copy the stage calls; first, so the pointer the stage hands back finds this
+    const clap_plugin_t *own;
+    const float *in[CH], *out[CH];
+    uint32_t calls;
+};
+
+static struct wrap g_wrap[WRAP_MAX];
+
+static clap_process_status wrap_process(const clap_plugin_t *plugin, const clap_process_t *process)
+{
+    struct wrap *w = (struct wrap *)(uintptr_t)plugin;
+    uint32_t c;
+
+    w->calls++;
+    for (c = 0; c < CH; c++)
+    {
+        w->in[c] = process->audio_inputs_count ? process->audio_inputs[0].data32[c] : NULL;
+        w->out[c] = process->audio_outputs[0].data32[c];
+    }
+    return w->own->process(w->own, process);
+}
+
+static void wrap(struct omx_clap_instance *in, uint32_t k)
+{
+    memset(&g_wrap[k], 0, sizeof(g_wrap[k]));
+    g_wrap[k].own = in->stage.plugin;
+    g_wrap[k].plugin = *in->stage.plugin;
+    g_wrap[k].plugin.process = wrap_process;
+    in->stage.plugin = &g_wrap[k].plugin;
+}
+
+static void unwrap(struct omx_clap_instance *in, uint32_t k)
+{
+    in->stage.plugin = g_wrap[k].own;
+}
+
+/* a member reads the buffer the member before it wrote and writes its own: no copy between them, and the plugin never
+ * handed its input as its output (none of the fakes declares an in_place_pair) */
+static void t_no_copy(void)
+{
+    static const struct spec three[] = { { K_PASS, 0 }, { K_COMP, 0 }, { K_PASS, 0 } };
+    struct set a, b;
+    struct io io;
+    struct omx_clap_chain *chain;
+    uint32_t k, c, chained = 1, distinct = 1, ends, equal = 0;
+
+    set_new(&a, three, 3, 0);
+    set_new(&b, three, 3, 0);
+    io_new(&io);
+    chain = chain_of(&a, 0, NULL, NULL);
+    for (k = 0; k < 3; k++)
+        wrap(a.m[k].instance, k);
+    // the first block fades each member in from its dry input; the steady blocks after it are the ones read
+    for (k = 0; k < 4; k++)
+    {
+        input_block(io.in, 128, k);
+        omx_clap_chain_process(chain, (const float *const *)io.in, io.a, 128);
+        series(&b, (const float *const *)io.in, io.b, 128);
+        equal += same(io.a, io.b, 128);
+    }
+    for (k = 0; k < 3; k++)
+        for (c = 0; c < CH; c++)
+        {
+            distinct &= g_wrap[k].in[c] != g_wrap[k].out[c];
+            if (k > 0)
+                chained &= g_wrap[k].in[c] == g_wrap[k - 1].out[c];
+        }
+    ends = g_wrap[0].in[0] == io.in[0] && g_wrap[0].in[1] == io.in[1] && g_wrap[2].out[0] == io.a[0] && g_wrap[2].out[1] == io.a[1];
+    CHECK(ends && chained, "no copy between members: the first plugin reads the chain's input, each next one the buffer the one before it wrote, the last writes the chain's output");
+    CHECK(distinct, "and no plugin is handed its input as its output");
+    CHECK(equal == 4 && g_wrap[0].calls == 4 && g_wrap[1].calls == 4 && g_wrap[2].calls == 4,
+          "and the chain still equals the members in series bit for bit (%u of 4 blocks)", equal);
+    for (k = 0; k < 3; k++)
+        unwrap(a.m[k].instance, k);
+    omx_clap_chain_destroy(chain);
+    set_free(&a);
+    set_free(&b);
+    io_free(&io);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -1145,6 +1231,7 @@ int main(int argc, char **argv)
     t_order();
     t_move_gap();
     t_mono_member();
+    t_no_copy();
     CHECK(omx_clap_host_binaries_open() == 0, "every binary closed (%u open)", omx_clap_host_binaries_open());
     if (g_failures)
     {

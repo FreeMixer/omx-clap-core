@@ -771,12 +771,12 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(VERSION_NUM)u -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
 
-# what one stage block costs, as the header is and with the four in_cycle stores relaxed (omx_clap_run's two and
-# omx_clap_run_ports' two): a measurement
+# what one stage block costs, as the header is and with the six in_cycle stores relaxed (omx_clap_run's two,
+# omx_clap_run_ports' two and omx_clap_run_direct_status' two): a measurement
 bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_clap_midi.h src/abi_guard.h src/abi_guard.S
 	mkdir -p build/bench-relaxed
 	sed -e 's/atomic_store(&s->in_cycle, \([01]\));/atomic_store_explicit(\&s->in_cycle, \1, memory_order_relaxed);/' src/clap_stage.h > build/bench-relaxed/clap_stage.h
-	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 4
+	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 6
 	cp src/hosted_stage.h src/clap_host_limits.h src/omx_clap_midi.h src/abi_guard.h build/bench-relaxed/
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< src/abi_guard.S -lm
 	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< src/abi_guard.S -lm

@@ -1242,23 +1242,15 @@ static inline void omx_clap_host_transport_rec(struct omx_clap_instance *in, str
     }
 }
 
-/** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
- * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
- * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
- * come whole keeps the last record it read. A change is seen by the next block. The transport record is written only
- * inside the stage's cycle, on a processing block (omx_clap_run_transport); this function itself writes nothing of the
- * instance's stage. */
-static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
+/** The audio role, ahead of a block whose input is `silent` and whose transport record is `rec`: the transport kept for
+ * the next block's comparison, and 1 when the plugin sleeps through this one (its clock moved on, its auxiliary outputs
+ * silent, the lane left as it is), 0 when it runs, woken when it slept. */
+static inline int omx_clap_host_sleep_skip(struct omx_clap_instance *in, const struct omx_clap_transport *rec, int silent, uint32_t n)
 {
-    struct omx_clap_transport rec;
     struct omx_clap_sleep *z = &in->sleep;
-    clap_process_status said;
-    int silent, quiet_out, moved;
+    const int moved = z->have_last && omx_clap_transport_changed(&z->last, rec, n, in->rate);
 
-    omx_clap_host_transport_rec(in, &rec);
-    silent = l && omx_clap_block_silent(l, r, n);
-    moved = z->have_last && omx_clap_transport_changed(&z->last, &rec, n, in->rate);
-    z->last = rec;
+    z->last = *rec;
     z->have_last = 1;
     if (z->asleep)
     {
@@ -1272,13 +1264,23 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
             in->stage.steady_time += (int64_t)n;    // the plugin's clock moves on while it sleeps
             atomic_fetch_add_explicit(&z->skipped, 1u, memory_order_relaxed);
             omx_clap_aux_out_silence(&in->stage, n);    // a sleeping plugin writes nothing: its auxiliary outputs are silent
-            return;
+            return 1;
         }
         z->asleep = 0;
         z->quiet_frames = 0;
         z->quiet_out_frames = 0;
     }
-    omx_clap_run_transport_status(&in->stage, l, r, n, &in->transport, &rec, &said);
+    return 0;
+}
+
+/** The audio role, after a block whose input was `silent`, whose process() said `said` (-1: not called) and whose
+ * output is on `l` and `r` (NULL for one channel): whether the plugin may sleep from the next block. */
+static inline void omx_clap_host_sleep_after(struct omx_clap_instance *in, clap_process_status said, int silent, const float *l,
+                                             const float *r, uint32_t n)
+{
+    struct omx_clap_sleep *z = &in->sleep;
+    int quiet_out;
+
     if (said < 0)
         return;
     for (uint32_t i = 0; i < in->aux_inputs && i < CLAP_HOST_AUX_INPUTS; i++)
@@ -1302,6 +1304,26 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
         z->asleep = 1;
         atomic_fetch_add_explicit(&z->sleeps, 1u, memory_order_relaxed);
     }
+}
+
+/** The audio role, one block: the instance's stage over `l` (and `r`, NULL for a mono lane) for `n` frames, the plugin's
+ * transport carrying the host's published transport when one is set, else the tempo the instance was given (NULL when
+ * the record holds no flags). The published transport is read whole, once per block, and a block whose read does not
+ * come whole keeps the last record it read. A change is seen by the next block. The transport record is written only
+ * inside the stage's cycle, on a processing block (omx_clap_run_transport); this function itself writes nothing of the
+ * instance's stage. */
+static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, float *r, uint32_t n)
+{
+    struct omx_clap_transport rec;
+    clap_process_status said;
+    int silent;
+
+    omx_clap_host_transport_rec(in, &rec);
+    silent = l && omx_clap_block_silent(l, r, n);
+    if (omx_clap_host_sleep_skip(in, &rec, silent, n))
+        return;
+    omx_clap_run_transport_status(&in->stage, l, r, n, &in->transport, &rec, &said);
+    omx_clap_host_sleep_after(in, said, silent, l, r, n);
 }
 
 /** The audio role, a cycle as a client with separate input and output buffers has it (JACK): the lane is the output pair,
@@ -1337,6 +1359,28 @@ static inline void omx_clap_host_run_ports(struct omx_clap_instance *in, const f
     }
     omx_clap_host_transport_rec(in, &rec);
     omx_clap_run_ports_transport(&in->stage, ins, outs, n, &in->transport, &rec);
+}
+
+/** The audio role, a chain member's block (clap_chain.c): the instance's stage run by the direct body from `ins` straight
+ * to `outs`, no copy made through the bounce on a steady block (omx_clap_run_direct_status), with the transport, the
+ * tempo and the sleep omx_clap_host_run gives the two-leg path; a block it sleeps through passes its input. The caller
+ * has checked omx_clap_direct_fits. */
+static inline void omx_clap_host_run_direct(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n)
+{
+    struct omx_clap_transport rec;
+    clap_process_status said;
+    const float *r = in->stage.h.n_out == 2 ? ins[1] : NULL;
+    int silent;
+
+    omx_clap_host_transport_rec(in, &rec);
+    silent = omx_clap_block_silent(ins[0], r, n);
+    if (omx_clap_host_sleep_skip(in, &rec, silent, n))
+    {
+        omx_clap_direct_dry(&in->stage, ins, outs, n);
+        return;
+    }
+    omx_clap_run_direct_status(&in->stage, ins, outs, n, &in->transport, &rec, &said);
+    omx_clap_host_sleep_after(in, said, silent, outs[0], in->stage.h.n_out == 2 ? outs[1] : NULL, n);
 }
 
 /** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
