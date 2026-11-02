@@ -402,7 +402,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	@$(call run_or_skip_clap_test_plugin,./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap))
 
 # the same without omx-delay.clap: only the fake plugin's checks
-test-fake: test-codes tests/clap_state_busy_test tests/fake_state.clap tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-xrun-report test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test tests/fake_panel.clap test-thread-pool
+test-fake: test-hosted-clamp test-codes tests/clap_state_busy_test tests/fake_state.clap tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-xrun-report test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test tests/fake_panel.clap test-thread-pool
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/resource_hints_test $(abspath tests/fake_ext.clap)
 	./tests/clap_unoffered_test $(abspath tests/fake.clap)
@@ -1403,6 +1403,19 @@ tests/abi_guard_test: tests/abi_guard_test.c src/abi_guard.S src/abi_guard.h
 
 tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
 	$(CC) $(CFLAGS) -o $@ tests/abi_guard_bench.c src/abi_guard.S
+
+# what the host adds per call and per sample on an empty plugin, split by guard (tests/hosted_cost_bench.c, not a gate:
+# it prints); -O2, the level an engine compiles the inline body at
+tests/hosted_cost_bench: tests/hosted_cost_bench.c $(CORE_SO)
+	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -o $@ $< $(CORE_LINK_TEST) -lm
+
+tests/hosted_clamp_test: tests/hosted_clamp_test.c src/hosted_stage.h
+	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -Isrc -o $@ $< -lm
+
+.PHONY: test-hosted-clamp
+test-hosted-clamp: tests/hosted_clamp_test tests/hosted_cost_bench
+	tests/hosted_clamp_test
+	tests/hosted_clamp_no_libm.sh tests/hosted_cost_bench
 
 .PHONY: test-abi-guard bench-abi-guard
 test-abi-guard: tests/abi_guard_test

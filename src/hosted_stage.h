@@ -179,18 +179,39 @@ static inline void omx_hosted_count(_Atomic uint32_t *c, uint32_t by)
     atomic_store_explicit(c, atomic_load_explicit(c, memory_order_relaxed) + by, memory_order_relaxed);
 }
 
-/** Clamp one leg to the ceiling, returning how many samples it moved. Branch-free. */
+/** Clamp one leg to the ceiling, returning how many samples it moved. Branch-free: fminf(fmaxf(x, -c), c) bit for bit
+ * with no libm call a sample (a NaN, which the non-finite guard strikes first, reads a ceiling). Fixed runs of 16, which an engine's -O2 vectorizes. */
 static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
 {
+    enum { RUN = 16 };
     const float c = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+    const float low = -c;
     uint32_t moved = 0;
-    uint32_t i;
+    uint32_t i = 0;
+    uint32_t j;
 
-    for (i = 0; i < n; i++)
+    for (; i + RUN <= n; i += RUN)
+    {
+        float *const run = b + i;
+        int32_t over = 0;
+
+        for (j = 0; j < RUN; j++)
+        {
+            const float x = run[j];
+            const float top = x < c ? x : c;
+
+            over += (int32_t)(x > c) + (int32_t)(x < low);
+            run[j] = top > low ? top : low;
+        }
+        moved += (uint32_t)over;
+    }
+    for (; i < n; i++)
     {
         const float x = b[i];
-        moved += (uint32_t)(x > c) + (uint32_t)(x < -c);
-        b[i] = fminf(fmaxf(x, -c), c);
+        const float top = x < c ? x : c;
+
+        moved += (uint32_t)(x > c) + (uint32_t)(x < low);
+        b[i] = top > low ? top : low;
     }
     return moved;
 }
