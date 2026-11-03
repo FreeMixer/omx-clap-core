@@ -8,6 +8,7 @@ Build-Depends: debhelper-compat (= 13),
                lv2-dev,
                libjack-jackd2-dev | libjack-dev,
                libxcb1-dev,
+               libssl-dev,
                libmod-host-protocol-dev (>= 0.1.0-8~omx),
                libomxdsp-dev (>= 0.18.0),
                libomx-contract-dev (>= 3.3.0),
@@ -88,7 +89,7 @@ Package: libomx-clap-lv2-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libomx-clap-core-dev (= ${binary:Version}), clap-headers, pkgconf, ${misc:Depends}
+Depends: libomx-clap-core-dev (= ${binary:Version}), clap-headers, libssl-dev, pkgconf, ${misc:Depends}
 Description: LV2 adapter of omx-clap-host, as a static library to link
  libomx-clap-lv2 is the LV2 adapter omx-clap-host links in, for a program of
  your own that hosts plugins on libomx-clap-core: it loads an LV2 plugin

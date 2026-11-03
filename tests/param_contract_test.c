@@ -65,9 +65,12 @@ static void sha256_of(const char *text, char hex[65])
 {
     struct pc_sha256 s;
 
-    pc_sha256_init(&s);
-    pc_sha256_update(&s, text, strlen(text));
-    pc_sha256_hex(&s, hex);
+    hex[0] = '\0';
+    if (pc_sha256_init(&s) == 0)
+    {
+        pc_sha256_update(&s, text, strlen(text));
+        pc_sha256_hex(&s, hex);
+    }
 }
 
 static struct pc_param row(clap_id id, const char *symbol, uint32_t unit, uint32_t scale, double min, double max, double def,

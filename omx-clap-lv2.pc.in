@@ -5,7 +5,8 @@ includedir=@INCLUDEDIR@
 Name: omx-clap-lv2
 Description: The LV2 adapter of omx-clap-host: one LV2 plugin presented as one CLAP plugin, as a static library; lilv is loaded at run time
 Version: @VERSION@
-Requires: clap
+# SHA-256 of the parameter contract's fingerprint is libcrypto's, linked by whatever links the archive
+Requires: clap, libcrypto
 Requires.private: omx-clap-core
 Libs: -L${libdir} -lomx-clap-lv2 -ldl -lpthread -lm
 Cflags: -I${includedir}/omx-clap-lv2
