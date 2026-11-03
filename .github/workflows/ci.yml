@@ -347,6 +347,15 @@ jobs:
             echo "::warning::test-jack-xruns SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # and its sabotage: each guard of the xruns line broken in a copy of the tree, the test red on the check that names it
+      - name: The sabotage of the xruns line's guards
+        run: |
+          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
+            make test-jack-xruns-sabotage
+          else
+            echo "::warning::test-jack-xruns-sabotage SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
+          fi
+
       # the abi_clobber line: a plugin that returns with a callee-saved register changed, said once, the host alive
       - name: Test the abi_clobber line over jack
         run: |
