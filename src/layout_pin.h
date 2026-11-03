@@ -48,6 +48,7 @@
 #include <clap/clap.h>
 #include <plugin-hostd/pin.h>
 
+#include "abi_guard.h"
 #include "clap_host_limits.h"
 
 
@@ -144,14 +145,15 @@ static inline void layout_port_text(FILE *out, const struct layout_port_text *t,
 
 typedef void (*layout_pin_sink_t)(void *ctx, const char *data, size_t size);
 
-/* the layout of the plugin into sink as omx-layout/1 bytes, or into its digest with sink NULL; 0, or -1 when a
+/* the layout of the plugin into sink as omx-layout/1 bytes, or into its digest with sink NULL, each call of the plugin
+ * through its guard `g` (NULL: guarded, not recorded); 0, or -1 when a
  * parameter cannot be read, memory runs out or the plugin reports more than CLAP_HOST_PARAM_COUNT_MAX parameters (a pin
  * names the whole layout, so a capped one would be a different plugin's). A plugin without the params extension has no
  * parameter. */
-static inline int layout_pin_write(const clap_plugin_t *plugin, const clap_plugin_params_t *params,
+static inline int layout_pin_write(struct omx_abi_guard *g, const clap_plugin_t *plugin, const clap_plugin_params_t *params,
                                    layout_pin_sink_t sink, void *ctx, char hex[PHD_SHA256_HEX_LEN + 1])
 {
-    const uint32_t count = params ? params->count(plugin) : 0;
+    const uint32_t count = params ? OMX_ABI_CALL(g, "params.count", params->count, plugin) : 0;
     clap_param_info_t *infos = NULL;
     phd_layout_clap_param_t *records = NULL;
     uint32_t i;
@@ -165,7 +167,7 @@ static inline int layout_pin_write(const clap_plugin_t *plugin, const clap_plugi
         goto out;
     for (i = 0; i < count; i++)
     {
-        if (!params->get_info(plugin, i, &infos[i]))
+        if (!OMX_ABI_CALL(g, "params.get_info", params->get_info, plugin, i, &infos[i]))
             goto out;
         infos[i].name[sizeof(infos[i].name) - 1] = '\0';
         records[i].id = infos[i].id;

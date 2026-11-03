@@ -1898,7 +1898,7 @@ static int layout_check(effect_t *effect, const char *pin, const char *id)
 
     if (!pin[0])
         return 0;
-    if (layout_pin_write(effect->clap->plugin, effect->clap->params, NULL, NULL, hex) != 0)
+    if (layout_pin_write(OMX_ABI_GUARD_OF(effect->clap), effect->clap->plugin, effect->clap->params, NULL, NULL, hex) != 0)
     {
         fprintf(stderr, "%s: its parameter layout cannot be read\n", id);
         return -1;
@@ -3640,7 +3640,7 @@ static int preset_identity(const effect_t *effect, const char **id, const char *
 
     *id = effect->clap->desc->id;
     *version = effect->clap->desc->version ? effect->clap->desc->version : "";
-    if (layout_pin_write(effect->clap->plugin, effect->clap->params, NULL, NULL, hex) != 0)
+    if (layout_pin_write(OMX_ABI_GUARD_OF(effect->clap), effect->clap->plugin, effect->clap->params, NULL, NULL, hex) != 0)
         return -1;
     snprintf(fingerprint, size, "%s:%s", PHD_PIN_LAYOUT_SCHEME, hex);
     return 0;
