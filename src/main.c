@@ -493,31 +493,10 @@ static void term_signal(int sig)
     return; (void)sig;
 }
 
-/* mod-host's verbs this host does not answer, -902 each. host_dispatch_register_unsupported registers these and also the
- * nine this host answers itself (set_bpm, set_bpb, transport, transport_sync, monitor_output, track_info, remote_pages,
- * remote_page_get, param_info): a second entry under a verb is dead, and the protocol library's table holds
- * PROTOCOL_MAX_COMMANDS entries and drops any past it in silence, which with the note verbs was quit itself, and with
- * pin_layout was quit again. preset_save is not here: this host answers it (preset_save_cb, registered first), so an
- * entry here would be a dead one, and the 64 a mod-host protocol library before FreeMixer/mod-host#6 holds are full. */
-/* preset_show in its instance form, preset_show <N> <load_key | file> (docs/presets.md), the one plugin-hostd's verbs file
- * declares of this host: mod-host's preset_show <uri> has one word, and a line of two under it would be refused as too
- * long instead of as a verb this host does not answer */
+/* preset_show in its instance form, preset_show <N> <load_key | file> (docs/presets.md), the one the protocol library's
+ * verbs file declares of this host: mod-host's preset_show <uri> has one word, and a line of two under it would be
+ * refused as too long instead of as a verb this host does not answer */
 #define PRESET_SHOW_INSTANCE "preset_show %i %s"
-
-static void register_unsupported(void)
-{
-    static const char *const commands[] = {
-        PRESET_SHOW_INSTANCE, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
-        MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
-        CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
-        FEATURE_ENABLE, OUTPUT_DATA_READY,
-        NULL
-    };
-    const char *const *command;
-
-    for (command = commands; *command; command++)
-        protocol_add_command(*command, host_dispatch_unsupported_cb);
-}
 
 static int host_init(int socket_port, int feedback_port)
 {
@@ -549,7 +528,10 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
     protocol_add_command(TRANSPORT_SYNC, transport_sync_cb);
-    register_unsupported();
+    // mod-host's verbs this host does not answer, -902 each; the ones it answers are registered above, and the first
+    // command registered under a verb is the one that answers it
+    protocol_add_command(PRESET_SHOW_INSTANCE, host_dispatch_unsupported_cb);
+    host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command(OMX_VERB_IDLE_HOLD_FMT, idle_hold_cb);
     protocol_add_command(OMX_VERB_NOTE_DROPS_FMT, note_drops_cb);
