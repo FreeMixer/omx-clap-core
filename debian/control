@@ -34,6 +34,8 @@ Description: use CLAP and LV2 plugins on a JACK rig, driven like mod-host
  .
  It comes with omx-clap-scan, which lists what is in a CLAP bundle and
  survives a plugin that crashes while loading.
+ .
+ Its documentation is on openmixer.org.
 
 Package: omx-clap-host-tests
 Architecture: any
@@ -48,6 +50,8 @@ Description: fixtures to test a program that drives omx-clap-host
  directories CLAP hosts scan, and are of no use to anyone else.
  socket_conformance.py, beside them, checks how any server of the mod-host
  socket protocol splits what it receives into commands.
+ .
+ Its documentation is on openmixer.org.
 
 Package: libomx-clap-core1
 Section: libs
@@ -61,6 +65,8 @@ Description: engine that runs CLAP plugins for omx-clap-host
  its audio on the thread of the program that hosts it. It knows nothing about
  JACK or sockets, so a program of your own can host CLAP plugins on it as
  well.
+ .
+ Its documentation is on openmixer.org.
 
 Package: libomx-clap-core-dev
 Section: libdevel
@@ -71,6 +77,8 @@ Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, and the list of functions the library
  promises to keep, with the baseline each release is checked against.
+ .
+ Its documentation is on openmixer.org.
 
 Package: omx-clap-core-contract
 Architecture: all
@@ -83,6 +91,8 @@ Description: omx-clap-core's definitions in omx-contract's contract directory
  for any program that reads them at run time: the hosting limits and refusal
  codes, and the verbs omx-clap-host and plugin-hostd answer, with their
  formats, replies, refusal codes and what each host owes each verb.
+ .
+ Its documentation is on openmixer.org.
 
 Package: libomx-clap-lv2-dev
 Section: libdevel
@@ -99,3 +109,5 @@ Description: LV2 adapter of omx-clap-host, as a static library to link
  and it loads lilv when the first LV2 bundle is opened, so a program that
  never opens one never needs lilv. LV2 at run time is omx-clap-host with
  liblilv-0-0, which plugin-hostd also runs as the worker of an LV2 plugin.
+ .
+ Its documentation is on openmixer.org.
