@@ -1132,6 +1132,9 @@ struct wrap
     const clap_plugin_t *own;
     const float *in[CH], *out[CH];
     uint32_t calls;
+    uint32_t scribble;              // 1: after the plugin's own process(), its main input is written over, as a plugin
+                                    // that processes in place without declaring an in_place_pair does
+    uint32_t fail_call;             // the call (1 the first) that answers CLAP_PROCESS_ERROR; 0 none
 };
 
 static struct wrap g_wrap[WRAP_MAX];
@@ -1147,7 +1150,12 @@ static clap_process_status wrap_process(const clap_plugin_t *plugin, const clap_
         w->in[c] = process->audio_inputs_count ? process->audio_inputs[0].data32[c] : NULL;
         w->out[c] = process->audio_outputs[0].data32[c];
     }
-    return w->own->process(w->own, process);
+    clap_process_status said = w->own->process(w->own, process);
+    if (w->scribble && process->audio_inputs_count)
+        for (c = 0; c < CH; c++)
+            for (uint32_t i = 0; i < process->frames_count; i++)
+                process->audio_inputs[0].data32[c][i] = 12345.0f;
+    return w->calls == w->fail_call ? CLAP_PROCESS_ERROR : said;
 }
 
 static void wrap(struct omx_clap_instance *in, uint32_t k)
@@ -1205,6 +1213,56 @@ static void t_no_copy(void)
     omx_clap_chain_destroy(chain);
     set_free(&a);
     set_free(&b);
+    io_free(&io);
+}
+
+/* a plugin that writes its own input (in place, without an in_place_pair) as the chain's first member: a block that
+ * falls back on the dry input (a process error) and a block that fades in from it read the input as it was before the
+ * plugin ran, never what the plugin left there, and the chain's input is not written on either; the chain equals the
+ * same members in series whose plugin leaves its input alone, bit for bit */
+static void t_input_written(void)
+{
+    static const struct spec two[] = { { K_PASS, 0 }, { K_COMP, 0 } };
+    struct set a, b;
+    struct io io;
+    struct omx_clap_chain *chain;
+    float *kept[CH];
+    uint32_t k, c, equal = 0, kept_in = 0;
+
+    set_new(&a, two, 2, 0);
+    set_new(&b, two, 2, 0);
+    io_new(&io);
+    for (c = 0; c < CH; c++)
+        kept[c] = block_new();
+    chain = chain_of(&a, 0, NULL, NULL);
+    wrap(a.m[0].instance, 0);
+    wrap(b.m[0].instance, 1);
+    g_wrap[0].scribble = 1;     // the chain's plugin writes its input; the one in series does not
+    g_wrap[0].fail_call = g_wrap[1].fail_call = 1;
+    // block 0: the plugin's process error, its input passed; block 1: the fade back in from the dry input; then steady
+    for (k = 0; k < 4; k++)
+    {
+        input_block(io.in, 128, k);
+        for (c = 0; c < CH; c++)
+            memcpy(kept[c], io.in[c], 128 * sizeof(float));
+        omx_clap_chain_process(chain, (const float *const *)io.in, io.a, 128);
+        if (k < 2)
+            kept_in += same(io.in, kept, 128);
+        series(&b, (const float *const *)kept, io.b, 128);
+        equal += same(io.a, io.b, 128);
+    }
+    CHECK(g_wrap[0].calls == 4 && atomic_load(&a.m[0].instance->stage.process_errors) == 1,
+          "a plugin that writes its input ran every block, the first an error (%u calls)", g_wrap[0].calls);
+    CHECK(equal == 4, "and its dry fallback and its fade in read the input as it was, not what it wrote there: the chain equals the members in series, whose plugin leaves its input alone, bit for bit (%u of 4 blocks)",
+          equal);
+    CHECK(kept_in == 2, "and the chain's input is not written on either block (%u of 2)", kept_in);
+    unwrap(a.m[0].instance, 0);
+    unwrap(b.m[0].instance, 1);
+    omx_clap_chain_destroy(chain);
+    set_free(&a);
+    set_free(&b);
+    for (c = 0; c < CH; c++)
+        free(kept[c]);
     io_free(&io);
 }
 
@@ -1289,6 +1347,7 @@ int main(int argc, char **argv)
     t_mono_member();
     t_no_copy();
     t_held_fades();
+    t_input_written();
     CHECK(omx_clap_host_binaries_open() == 0, "every binary closed (%u open)", omx_clap_host_binaries_open());
     if (g_failures)
     {
