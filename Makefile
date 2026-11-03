@@ -1044,6 +1044,10 @@ test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_la
 test-chain-host-sabotage:
 	PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/chain_host_sabotage.sh
 
+# the chain e2e against a chain host that stops answering mid-run: it must end on its own, red, and name the line
+test-chain-host-stall: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
+	./tests/chain_host_stall.sh
+
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
 

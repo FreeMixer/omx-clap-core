@@ -101,15 +101,24 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 step 0 "private pipewire on $runtime"
 
-declare -A port=([chain]=5591 [series]=5592) fd=([chain]=3 [series]=4)
+declare -A port=([chain]=5591 [series]=5592) fd=([chain]=3 [series]=4) host_pid=()
 for arm in chain series; do
     FAKE_LOG=$runtime/fake.log "$OMX_CLAP_HOST" -n -p "${port[$arm]}" >"$runtime/$arm.log" 2>&1 &
     pids+=($!)
+    host_pid[$arm]=$!
     for _ in $(seq 100); do grep -q ready "$runtime/$arm.log" && break; sleep 0.1; done
     grep -q ready "$runtime/$arm.log"; step $? "$arm host ready"
     eval "exec ${fd[$arm]}<>/dev/tcp/127.0.0.1/${port[$arm]}"
 done
-send() { protocol_send "${fd[$1]}" 30 "$2"; }
+# CHAIN_HOST_STALL=<line>: the chain host is stopped (SIGSTOP) just before that line is sent to it, as a host that
+# stops answering mid-run (a deadlock, a crash whose core dump is slow to finish) would be: tests/chain_host_stall.sh
+send() {
+    if [ "$1" = chain ] && [ -n "${CHAIN_HOST_STALL:-}" ] && [ "$2" = "$CHAIN_HOST_STALL" ] && [ ! -e "$runtime/stalled" ]; then
+        : >"$runtime/stalled"
+        kill -STOP "${host_pid[chain]}"
+    fi
+    protocol_send "${fd[$1]}" 30 "$2"
+}
 expect() {
     local reply
     reply=$(send "$1" "$2")
