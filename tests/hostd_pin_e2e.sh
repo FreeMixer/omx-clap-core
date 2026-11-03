@@ -89,6 +89,8 @@ cat >"$runtime/plugin-hostd.conf" <<EOF
 mod_host $OMX_CLAP_HOST
 clap_host $OMX_CLAP_HOST
 state_root $runtime
+descriptor_dir $runtime/descriptors
+qualification_dir $runtime/qualification
 require_pins 1
 pin_mode $PHD_PIN_MODE_STRICT
 # the scan an add runs (plugin-hostd 0.15) loads the plugin in a process of its own; the counts below are the worker's

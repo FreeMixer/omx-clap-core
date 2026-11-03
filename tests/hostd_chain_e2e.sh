@@ -90,6 +90,8 @@ cat >"$runtime/plugin-hostd.conf" <<EOF
 mod_host $OMX_CLAP_HOST
 clap_host $OMX_CLAP_HOST
 state_root $runtime
+descriptor_dir $runtime/descriptors
+qualification_dir $runtime/qualification
 require_pins 0
 EOF
 "$PLUGIN_HOSTD" -n -p "$port" -f "$fbport" -c "$runtime/plugin-hostd.conf" >"$runtime/daemon.log" 2>&1 &
