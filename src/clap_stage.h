@@ -2264,6 +2264,13 @@ static inline void omx_clap_direct_dry(const struct omx_clap_stage *s, const flo
         memcpy(outs[c], ins[c], n * sizeof(float));
 }
 
+/** Whether the direct body leaves the stage's clamp to its caller when asked to: only when it clamps and scans its
+ * output for non-finite samples, so a block it delivers unclamped is finite. */
+static inline int omx_clap_direct_defers(const struct omx_clap_stage *s)
+{
+    return (s->h.guards & (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE)) == (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE);
+}
+
 /** RT: are the `n_out` main channels at `outs` finite? 1 when the stage does not scan. */
 static inline int omx_clap_outs_finite(const struct omx_clap_stage *s, float *const *outs, uint32_t n)
 {
@@ -2286,7 +2293,9 @@ static inline int omx_clap_outs_finite(const struct omx_clap_stage *s, float *co
  * the dry the guards fall back on. `defer` nonzero leaves the clamp of the main output to the caller (the chain clamps
  * its output once, omx_clap_chain_process), save on a block the control thread holds or stops the stage for, whose fade
  * from the kept output is clamped here; the scan for non-finite output is never deferred, so no member after this one
- * is handed a NaN or an infinity of its. Returns 1 when the plugin's output was delivered, 0 on every dry path, where
+ * is handed a NaN or an infinity of its. A stage whose guards scan nothing never defers its clamp: the clamp holds a NaN
+ * at the ceiling and an infinity at either one, the only guard left between it and the next member's state
+ * (omx_clap_direct_defers). Returns 1 when the plugin's output was delivered, 0 on every dry path, where
  * the caller silences the auxiliary outputs.
  */
 static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
@@ -2299,6 +2308,9 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
     uint32_t want_wet, steady, c, moved = 0;
     int usable;
 
+    // the clamp is left to the chain only while this member scans its output: its own clamp is the one thing that makes a
+    // NaN or an infinity finite before the member after it is handed the block when the scan is off
+    defer = defer && omx_clap_direct_defers(s);
     if (omx_clap_take_state(s) != OMX_CLAP_PROCESSING)
     {
         // held by the control thread or stopped: a body that was wet fades out once, from the plugin's last output,

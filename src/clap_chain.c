@@ -481,11 +481,13 @@ int omx_clap_chain_member_info(struct omx_clap_chain *chain, uint32_t position, 
 /* an instance member run by the direct body on the audio thread, its clamp left to the chain's output: `*owed` becomes
  * the instance when its plugin's output was delivered unclamped, so the chain clamps once, at its output, and counts
  * what that moved on the last such member. Its scan for non-finite output is its own and is never left: a NaN or an
- * infinity it makes is discarded there, its input passed, and no member after it, a stateful one least, is handed it */
+ * infinity it makes is discarded there, its input passed, and no member after it, a stateful one least, is handed it.
+ * A member that clamps and does not scan keeps its own clamp, which holds a NaN or an infinity at the ceiling before
+ * the next member is handed it (omx_clap_direct_defers) */
 static void run_direct(struct omx_clap_instance *in, const float *const *from, float *const *to, uint32_t frames,
                        struct omx_clap_instance **owed)
 {
-    if (omx_clap_host_run_direct(in, from, to, frames, 1u) && (in->stage.h.guards & OMX_HOSTED_GUARD_CLAMP))
+    if (omx_clap_host_run_direct(in, from, to, frames, 1u) && omx_clap_direct_defers(&in->stage))
         *owed = in;
 }
 
