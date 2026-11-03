@@ -39,9 +39,12 @@
 
 #define PLUGIN_ID       "org.openmixer.delay"
 #define BLOCKS          64
-#define PARAM_TIME_MS   0
-#define PARAM_MIX       2
-#define PARAM_BYPASS    5
+/* the delay's parameters as the plugin itself names them (delay_params_named, after the first open): its ids are the
+ * plugin's own, never a fixture's numbering */
+static clap_id g_param_time_ms = CLAP_INVALID_ID, g_param_mix = CLAP_INVALID_ID, g_param_bypass = CLAP_INVALID_ID;
+#define PARAM_TIME_MS   g_param_time_ms
+#define PARAM_MIX       g_param_mix
+#define PARAM_BYPASS    g_param_bypass
 #define FAKE_LATENCY        64
 #define FAKE_LATENCY_NEXT   128
 #define SETTLE_US       50000
@@ -88,6 +91,38 @@ static double now_ms(void)
 
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1e6;
+}
+
+/* the delay's bypass by its CLAP_PARAM_IS_BYPASS flag (the parameter the host hides), its time and its mix by the names
+ * its clap.params gives them; each found exactly once, or the plugin is not the delay these checks are written for */
+static int delay_params_named(struct omx_clap_instance *instance)
+{
+    const uint32_t n = instance->params ? instance->params->count(instance->plugin) : 0;
+    unsigned bypass = 0, time_ms = 0, mix = 0;
+
+    for (uint32_t i = 0; i < n; i++)
+    {
+        clap_param_info_t info;
+
+        if (!instance->params->get_info(instance->plugin, i, &info))
+            return 0;
+        if (info.flags & CLAP_PARAM_IS_BYPASS)
+        {
+            g_param_bypass = info.id;
+            bypass++;
+        }
+        else if (strcmp(info.name, "Time") == 0)
+        {
+            g_param_time_ms = info.id;
+            time_ms++;
+        }
+        else if (strcmp(info.name, "Mix") == 0)
+        {
+            g_param_mix = info.id;
+            mix++;
+        }
+    }
+    return bypass == 1 && time_ms == 1 && mix == 1;
 }
 
 /* the writes and the tick the way the host's verbs make them: a write no cycle drains yet is delivered by the control thread */
@@ -3216,6 +3251,8 @@ int main(int argc, char **argv)
         return 1;
 
     CHECK(first->params != NULL, "params extension");
+    CHECK(delay_params_named(first), "the plugin names one bypass (CLAP_PARAM_IS_BYPASS, id %u), one Time (id %u), one Mix (id %u)",
+          PARAM_BYPASS, PARAM_TIME_MS, PARAM_MIX);
     CHECK(first->audio_ports != NULL, "audio-ports extension");
     CHECK(first->state != NULL, "state extension");
     CHECK(first->latency != NULL, "latency extension");
