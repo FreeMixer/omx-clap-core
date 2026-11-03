@@ -490,7 +490,9 @@ static void run_mono(struct omx_clap_chain *chain, const struct chain_step *step
 
     for (i = 0; i < frames; i++)
         in[i] = from[0][i] + from[1][i];
-    if (step->instance)
+    if (step->instance && omx_clap_direct_fits(&step->instance->stage, ins, outs))
+        omx_clap_host_run_direct(step->instance, ins, outs, frames);
+    else if (step->instance)
         omx_clap_host_run_ports(step->instance, ins, outs, frames);
     else if (step->process)
         step->process(step->ctx, ins, outs, frames);
@@ -529,6 +531,8 @@ int omx_clap_chain_process(struct omx_clap_chain *chain, const float *const *inp
         to = s + 1 == plan->steps ? outputs : chain->block[s & 1u];
         if (step->mono)
             run_mono(chain, step, from, to, frames);
+        else if (step->instance && omx_clap_direct_fits(&step->instance->stage, from, to))
+            omx_clap_host_run_direct(step->instance, from, to, frames);    // reads `from`, writes `to`: no copy between members
         else if (step->instance)
             omx_clap_host_run_ports(step->instance, from, to, frames);
         else

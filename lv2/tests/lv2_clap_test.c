@@ -90,6 +90,7 @@
 #include <lv2/urid/urid.h>
 #include <lv2/state/state.h>
 
+#include "../../src/clap_chain.h"
 #include "../../src/clap_host.h"
 #include "omx_clap_lv2.h"
 #include "fixtures/lv2_fakes.h"
@@ -4004,6 +4005,249 @@ static void t_core(double rate)
     omx_clap_lv2_entry_release(entry);
 }
 
+/* ---- the adapter as a chain member (clap_chain.h) ---- */
+
+#define CHAIN_N 4u
+
+/* the stage's copy of a plugin whose process() records the buffers it was handed, then calls the plugin's own */
+struct chain_wrap
+{
+    clap_plugin_t plugin;       // first: the pointer the stage hands back finds this
+    const clap_plugin_t *own;
+    const float *in[2], *out[2];
+};
+
+static clap_process_status chain_wrap_process(const clap_plugin_t *plugin, const clap_process_t *process)
+{
+    struct chain_wrap *w = (struct chain_wrap *)(uintptr_t)plugin;
+
+    for (uint32_t c = 0; c < process->audio_outputs[0].channel_count && c < 2; c++)
+    {
+        w->in[c] = process->audio_inputs[0].data32[c];
+        w->out[c] = process->audio_outputs[0].data32[c];
+    }
+    return w->own->process(w->own, process);
+}
+
+/* a consumer's own stage between the adapter's instances: half the input */
+static void chain_half(void *ctx, const float *const *in, float *const *out, uint32_t n)
+{
+    const uint32_t ch = *(const uint32_t *)ctx;
+
+    for (uint32_t c = 0; c < ch; c++)
+        for (uint32_t i = 0; i < n; i++)
+            out[c][i] = 0.5f * in[c][i];
+}
+
+/* a chain of `n` members, `uris[k]` an LV2 plugin through the adapter or NULL for chain_half, `ch` channels: equal to
+ * the same members (fresh) in series bit for bit over blocks of every size, the adapter's instances reading the buffer
+ * the member before wrote and writing their own, never their input */
+static void chain_lv2_case(const clap_plugin_entry_t *entry, double rate, const char *what, const char *const *uris, uint32_t n, uint32_t ch)
+{
+    static const uint32_t sizes[] = { 64, 1, 256, 7, MAXB, 128, 33, 64 };
+    static float in_b[2][MAXB], a_b[2][MAXB], s_b[CHAIN_N][2][MAXB];
+    struct omx_clap_instance *a[CHAIN_N] = { NULL }, *b[CHAIN_N] = { NULL };
+    struct chain_wrap w[CHAIN_N];
+    struct omx_clap_chain_config config;
+    struct omx_clap_chain *chain = NULL;
+    char cwhy[OMX_CLAP_WHY_MAX] = "";
+    float *in[2] = { in_b[0], in_b[1] }, *out[2] = { a_b[0], a_b[1] };
+    uint32_t k, j, c, equal = 0, chained = 1, distinct = 1, ends, opened = 1;
+
+    omx_clap_chain_config_init(&config);
+    config.channels = ch;
+    CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_OK, "chain %s %.0f: created", what, rate);
+    for (k = 0; k < n && chain; k++)
+    {
+        struct omx_clap_chain_member d;
+        uint32_t id;
+
+        omx_clap_chain_member_init(&d);
+        if (uris[k])
+        {
+            a[k] = core_open(entry, uris[k], rate, cwhy);
+            b[k] = core_open(entry, uris[k], rate, cwhy);
+            opened &= a[k] && b[k];
+            if (!a[k] || !b[k])
+                break;
+            memset(&w[k], 0, sizeof(w[k]));
+            w[k].own = a[k]->stage.plugin;
+            w[k].plugin = *a[k]->stage.plugin;
+            w[k].plugin.process = chain_wrap_process;
+            a[k]->stage.plugin = &w[k].plugin;
+            d.instance = a[k];
+        }
+        else
+        {
+            d.process = chain_half;
+            d.ctx = &ch;
+            d.in_channels = d.out_channels = ch;
+        }
+        opened &= omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id) == OMX_CLAP_CHAIN_OK;
+    }
+    CHECK(chain && opened, "chain %s %.0f: every member opened and added (%s)", what, rate, cwhy);
+    if (!chain || !opened)
+        goto out;
+    for (j = 0; j < sizeof(sizes) / sizeof(sizes[0]); j++)
+    {
+        const float *from[2];
+
+        for (c = 0; c < ch; c++)
+            tone(in[c], sizes[j], c ? -0.3f : 0.4f, j * 17u + c);
+        in_rt = 1;
+        omx_clap_chain_process(chain, (const float *const *)in, out, sizes[j]);
+        in_rt = 0;
+        from[0] = in[0];
+        from[1] = in[1];
+        for (k = 0; k < n; k++)
+        {
+            float *to[2] = { s_b[k][0], s_b[k][1] };
+
+            if (b[k])
+                omx_clap_host_run_ports(b[k], from, to, sizes[j]);
+            else
+                chain_half(&ch, from, to, sizes[j]);
+            from[0] = to[0];
+            from[1] = to[1];
+        }
+        for (c = 0, ends = 1; c < ch; c++)
+            ends &= bits_equal(out[c], from[c], sizes[j]);
+        equal += ends;
+    }
+    for (k = 0; k < n; k++)
+        for (c = 0; c < ch && a[k]; c++)
+            distinct &= w[k].in[c] != w[k].out[c];
+    // the adapter's instances are at the ends and next to each other in every case: each reads what the one before wrote
+    for (k = 1; k < n; k++)
+        for (c = 0; c < ch && a[k] && a[k - 1]; c++)
+            chained &= w[k].in[c] == w[k - 1].out[c];
+    ends = 1;
+    for (c = 0; c < ch; c++)
+        ends &= (!a[0] || w[0].in[c] == in[c]) && (!a[n - 1] || w[n - 1].out[c] == out[c]);
+    CHECK(equal == sizeof(sizes) / sizeof(sizes[0]), "chain %s %.0f: the chain equals its members in series bit for bit (%u of %u blocks)",
+          what, rate, equal, (unsigned)(sizeof(sizes) / sizeof(sizes[0])));
+    CHECK(chained && ends, "chain %s %.0f: no copy between the adapter's instances: each reads what the one before it wrote, the ends the chain's own buffers", what, rate);
+    CHECK(distinct, "chain %s %.0f: and none is handed its input as its output", what, rate);
+out:
+    if (chain)
+        omx_clap_chain_destroy(chain);
+    for (k = 0; k < n; k++)
+    {
+        if (a[k])
+        {
+            a[k]->stage.plugin = w[k].own;
+            omx_clap_host_unpublish(a[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_close(a[k]);
+        }
+        if (b[k])
+        {
+            omx_clap_host_unpublish(b[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_close(b[k]);
+        }
+    }
+}
+
+/* the guards inside a chain, against the same members in series bit for bit: a NaN block from the adapter's member
+ * mid-chain (discarded, its input passed, the recovery faded in), a commanded bypass of the first member (faded out,
+ * steady, faded back in), the stateful sample-and-hold after them never handed a non-finite sample */
+static void t_chain_lv2_guards(const clap_plugin_entry_t *entry, double rate)
+{
+    static float in_b[MAXB], a_b[MAXB], s_b[3][MAXB];
+    static const char *const uris[3] = { FAKE_PAD, FAKE_NAN, FAKE_HOLD };
+    struct omx_clap_instance *a[3] = { NULL }, *b[3] = { NULL };
+    struct fake *nan_a = NULL, *nan_b = NULL;
+    struct omx_clap_chain_config config;
+    struct omx_clap_chain *chain = NULL;
+    char cwhy[OMX_CLAP_WHY_MAX] = "";
+    float *in[1] = { in_b }, *out[1] = { a_b };
+    uint32_t k, blk, equal = 0, finite = 1, opened = 1;
+    const uint32_t blocks = 14, n = 64;
+
+    omx_clap_chain_config_init(&config);
+    config.channels = 1;
+    opened = omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_OK;
+    for (k = 0; k < 3 && opened; k++)
+    {
+        struct omx_clap_chain_member d;
+        uint32_t id;
+
+        a[k] = core_open(entry, uris[k], rate, cwhy);
+        if (k == 1)
+            nan_a = fake_last();
+        b[k] = core_open(entry, uris[k], rate, cwhy);
+        if (k == 1)
+            nan_b = fake_last();
+        opened &= a[k] && b[k];
+        if (!opened)
+            break;
+        omx_clap_chain_member_init(&d);
+        d.instance = a[k];
+        opened &= omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id) == OMX_CLAP_CHAIN_OK;
+    }
+    CHECK(opened && nan_a && nan_b, "chain guards %.0f: pad, nan, hold opened and added (%s)", rate, cwhy);
+    if (!opened || !nan_a || !nan_b)
+        goto out;
+    for (blk = 0; blk < blocks; blk++)
+    {
+        const float *from[2] = { in[0], in[0] };
+
+        nan_a->nan_on = nan_b->nan_on = blk == 3 || blk == 4;
+        if (blk == 7 || blk == 10)
+        {
+            omx_clap_host_bypass(a[0], blk == 7);
+            omx_clap_host_bypass(b[0], blk == 7);
+        }
+        tone(in[0], n, 0.4f, blk * n);
+        omx_clap_chain_process(chain, (const float *const *)in, out, n);
+        for (k = 0; k < 3; k++)
+        {
+            float *to[2] = { s_b[k], s_b[k] };
+
+            omx_clap_host_run_ports(b[k], from, to, n);
+            from[0] = to[0];
+        }
+        equal += bits_equal(out[0], from[0], n);
+        for (k = 0; k < n; k++)
+            finite &= isfinite(out[0][k]);
+    }
+    CHECK(equal == blocks && finite, "chain guards %.0f: a NaN block mid-chain, its recovery and a bypass of the first member, faded out and back: the chain equals the members in series bit for bit (%u of %u blocks), every sample finite",
+          rate, equal, blocks);
+    CHECK(atomic_load(&a[1]->stage.h.nonfinite_blocks) == 2 && atomic_load(&a[1]->stage.h.fault) == OMX_HOSTED_FAULT_NONE,
+          "chain guards %.0f: the two NaN blocks struck the member that made them, not faulted (%u)", rate, atomic_load(&a[1]->stage.h.nonfinite_blocks));
+out:
+    if (chain)
+        omx_clap_chain_destroy(chain);
+    for (k = 0; k < 3; k++)
+    {
+        if (a[k])
+        {
+            omx_clap_host_unpublish(a[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_close(a[k]);
+        }
+        if (b[k])
+        {
+            omx_clap_host_unpublish(b[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_close(b[k]);
+        }
+    }
+}
+
+static void t_chain_lv2(double rate)
+{
+    char why[OMX_CLAP_LV2_WHY_MAX] = "";
+    const clap_plugin_entry_t *entry = omx_clap_lv2_entry(g_fakes, why);
+    static const char *const mono[] = { FAKE_PAD, FAKE_HOLD, FAKE_PAD, NULL };
+    static const char *const stereo[] = { FAKE_PAD2, FAKE_PAD2, NULL, FAKE_PAD2 };
+
+    CHECK(entry != NULL, "chain %.0f: the fakes' entry (%s)", rate, why);
+    if (!entry)
+        return;
+    chain_lv2_case(entry, rate, "mono pad, hold, pad, own stage", mono, 4, 1);
+    chain_lv2_case(entry, rate, "stereo pad, pad, own stage, pad", stereo, 4, 2);
+    t_chain_lv2_guards(entry, rate);
+    omx_clap_lv2_entry_release(entry);
+}
+
 /* ---- the warm-up at the host's block size ---- */
 
 /* A plain LV2 run loop, the way a host with no CLAP body runs a plugin: instantiate, activate, the warm-up in blocks of
@@ -4220,6 +4464,7 @@ int main(int argc, char **argv)
         t_cv(RATES[r]);
         t_cv_core(RATES[r]);
         t_core(RATES[r]);
+        t_chain_lv2(RATES[r]);
         t_warmup_block(RATES[r], MAXB, MAXB);
         t_warmup_block(RATES[r], WARMB, MAXB);
         printf("lv2 clap @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
