@@ -389,7 +389,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) tests/clap_state_busy_test lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/open_timed_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/live_list_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test tests/thread_pool_test tests/thread_pool_tsan tests/thread_pool_bench tests/fake_pool.clap tests/fake_pool_tsan.clap
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) tests/clap_state_busy_test lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/live_list_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test tests/thread_pool_test tests/thread_pool_tsan tests/thread_pool_bench tests/chain_bench tests/fake_pool.clap tests/fake_pool_tsan.clap tests/open_timed_tsan
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -700,6 +700,14 @@ test-thread-pool: tests/thread_pool_test tests/fake_pool.clap
 tests/thread_pool_bench: tests/thread_pool_bench.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -ldl -lpthread -lm
 
+# what a chain of 8 members costs per frame, and a hash of its output over a fixed input: a measurement
+tests/chain_bench: tests/chain_bench.c src/clap_chain.h $(CORE_SO)
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -ldl -lpthread -lm
+
+.PHONY: bench-chain
+bench-chain: tests/chain_bench tests/fake.clap tests/fake_compressor.clap
+	./tests/chain_bench $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
+
 # the same under ThreadSanitizer, the core and the fixture both built with it: the helpers' tasks, the hand-out word, the
 # completion count and the pool's start and end against the audio thread and the control thread (needs libtsan)
 tests/thread_pool_tsan: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
@@ -773,12 +781,12 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 	export PKG_CONFIG_PATH=$(CURDIR)/build/stage/usr/lib/pkgconfig$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}; $(CC) -O2 -Wall -Wextra -Werror -std=gnu99 -D_GNU_SOURCE -DOMX_EXPECT_VERSION_NUM=$(VERSION_NUM)u -o $@ $< \
 	    $$($(PKG_CONFIG) --cflags --libs omx-clap-core) -Wl,-rpath,$(CURDIR)/build/stage/usr/lib -lpthread -lm
 
-# what one stage block costs, as the header is and with the four in_cycle stores relaxed (omx_clap_run's two and
-# omx_clap_run_ports' two): a measurement
+# what one stage block costs, as the header is and with the six in_cycle stores relaxed (omx_clap_run's two,
+# omx_clap_run_ports' two and omx_clap_run_direct_status' two): a measurement
 bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_clap_midi.h src/abi_guard.h src/abi_guard.S
 	mkdir -p build/bench-relaxed
 	sed -e 's/atomic_store(&s->in_cycle, \([01]\));/atomic_store_explicit(\&s->in_cycle, \1, memory_order_relaxed);/' src/clap_stage.h > build/bench-relaxed/clap_stage.h
-	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 4
+	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 6
 	cp src/hosted_stage.h src/clap_host_limits.h src/omx_clap_midi.h src/abi_guard.h build/bench-relaxed/
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< src/abi_guard.S -lm
 	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< src/abi_guard.S -lm

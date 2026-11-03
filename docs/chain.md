@@ -49,6 +49,19 @@ that counts the published changes.
   its output; each is `channels` channels of `OMX_CLAP_CHAIN_FRAMES_MAX` (8192) frames, every channel 64-byte aligned as
   a JACK port buffer is (`OMX_CLAP_CHAIN_ALIGN`), the prototype's `CHAIN_FRAMES_MAX` and `CHAIN_ALIGN`.
 - a chain of one non-bypassed member hands it `inputs` and `outputs` themselves: it runs exactly as it would alone.
+- an instance member's plugin reads the buffer the member before it wrote and writes the member's own, with no copy
+  between them (`omx_clap_host_run_direct`): its main input and output are pointed at those buffers for the block. A
+  member run alone (`omx_clap_host_run_ports`) copies its input onto its output, into its bounce and back, three copies
+  of every channel a block; a chain member makes one on a steady block, its output into its bounce, which a block the
+  control thread holds or stops it for (a parameter flush, a state load, a restart, an unpublish) fades from. The guards are the member's own, as
+  alone and value for value: a steady bypass, a block past its bounce or an unusable block (a process error, a
+  non-finite sample) puts its input on its output, and a change of body (the first block, a recovery, a bypass) has the
+  plugin write its bounce for the block and crossfades onto the output from there. A plugin is never handed one buffer
+  as both its input and its output, whatever its `in_place_pair` says (the adapter declares none for any LV2 plugin, so
+  `lv2:inPlaceBroken` needs nothing more): the input is the dry block the guards fall back on, and the two blocks of
+  the walk already make every member's output distinct from its input at no cost. A member whose main port is wider
+  than two channels, or a call whose input and output are the same buffer (a chain of one member over one buffer),
+  runs the member as alone.
 - a chain with no non-bypassed member copies `inputs` to `outputs` (nothing when they are the same buffers).
 - nothing in the cycle allocates, locks, waits or prints. It raises a flag of its own and reads the published plan of
   the walk (the members in order) with one load, and lowers the flag when it is done.
@@ -99,6 +112,12 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
 
 - a chain's output equals the same members run one after another in series, each into a buffer of its own, bit for
   bit, over blocks of several sizes, and a chain of one member equals that member alone;
+- each instance's plugin reads the buffer the member before it wrote and writes its own, never its input
+  (`t_no_copy`, the plugin's process wrapped to record the buffers it is handed); `lv2/tests/lv2_clap_test.c` holds the
+  same for the LV2 adapter's instances in mono and stereo chains mixed with a stage of its own, and a NaN block, its
+  recovery and a member's bypass inside a chain equal the members in series bit for bit, and `t_held_fades` holds a
+  member for a cycle and then stops it mid-signal: each block that leaves the plugin fades, the chain equal to the
+  members in series bit for bit;
 - the latency is the members' sum, and is re-reported when a member's latency changes;
 - a bypassed member adds nothing: the output and the latency equal a chain built without it;
 - a removed member: the next cycle equals a chain built without it, bit for bit;
