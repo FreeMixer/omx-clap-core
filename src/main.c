@@ -501,10 +501,15 @@ static void term_signal(int sig)
  * PROTOCOL_MAX_COMMANDS entries and drops any past it in silence, which with the note verbs was quit itself, and with
  * pin_layout was quit again. preset_save is not here: this host answers it (preset_save_cb, registered first), so an
  * entry here would be a dead one, and the 64 a mod-host protocol library before FreeMixer/mod-host#6 holds are full. */
+/* preset_show in its instance form, preset_show <N> <load_key | file> (docs/presets.md), the one plugin-hostd's verbs file
+ * declares of this host: mod-host's preset_show <uri> has one word, and a line of two under it would be refused as too
+ * long instead of as a verb this host does not answer */
+#define PRESET_SHOW_INSTANCE "preset_show %i %s"
+
 static void register_unsupported(void)
 {
     static const char *const commands[] = {
-        EFFECT_PRESET_SHOW, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
+        PRESET_SHOW_INSTANCE, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
         MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
         CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
         FEATURE_ENABLE, OUTPUT_DATA_READY,
