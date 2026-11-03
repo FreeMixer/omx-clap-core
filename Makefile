@@ -561,6 +561,12 @@ tests/panel_abi_test: tests/panel_abi_test.c src/omx_clap_ext.h
 	@$(PKG_CONFIG) --exists omxplugins || { echo "test-panel-abi: no omx-plugins-devel (pkg-config omxplugins), whose omx_panel_description.h is the ABI" >&2; exit 1; }
 	$(CC) -Isrc $(shell $(PKG_CONFIG) --cflags omxplugins) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $<
 
+# SHA-256 is libcrypto's: no tracked source carries an implementation of its own, and the check's self-test plants one
+.PHONY: test-no-sha256-copy
+test-no-sha256-copy:
+	./tests/sha256_copy_check.sh
+	./tests/sha256_copy_check.sh --self-test
+
 # the parameter contract's SHA-256, canonical fingerprint and shortest decimals against answers computed elsewhere
 test-param-contract: tests/param_contract_test
 	./tests/param_contract_test

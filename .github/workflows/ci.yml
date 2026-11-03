@@ -154,6 +154,10 @@ jobs:
       - name: Every source names its licence
         run: bash tests/spdx-check.sh
 
+      # SHA-256 is libcrypto's EVP_Digest: no tracked source carries an implementation of its own
+      - name: No source carries its own SHA-256
+        run: make test-no-sha256-copy
+
       # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
       - uses: FreeMixer/.github/.github/actions/mod-host-protocol@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
 
