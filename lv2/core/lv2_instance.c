@@ -24,9 +24,11 @@
 * One instance of an LV2 plugin (see lv2_core.h): instantiate, the ports connected once to the instance's own memory,
 * the default state, activate, the worker thread and its two rings, and the LV2 half of a block.
 *
-* Every port is connected to memory the instance owns, once, on the main thread, before activate: connect_port is not
-* promised real-time safe, and an LV2 plugin may dereference any port it declares. The audio buffers are the
-* instance's too, so a plugin flagged lv2:inPlaceBroken is safe by construction.
+* Every port is connected to memory the instance owns, on the main thread, before activate: an LV2 plugin may dereference
+* any port it declares. A plugin stating lv2:hardRTCapable promises connect_port is safe on the audio thread, and its
+* audio ports may then move onto the host's buffers for a block (lv2_instance_port_bind, docs/fast-path.md); what keeps a
+* plugin flagged lv2:inPlaceBroken apart from its own inputs is the caller's check. Every other port, and every port of
+* any other plugin, stays where it was connected.
 *
 * state:makePath. An instance of a host configured with a state root has a directory of its own under it,
 * <root>/lv2-<pid>-<n>, named at creation (an n no directory of the root holds) and made on the plugin's first request; a path is made only inside it, never
@@ -257,6 +259,7 @@ struct lv2_instance
     // unchanged transport forges nothing. The forge maps through lv2_urid_lookup, which every URID it names was mapped by
     // at instantiate, so the audio role never maps one
     LV2_Atom_Sequence *time_buf;            // NULL: the plugin has no time port
+    void **bound;                           // n_ports, by port index: the memory each is connected to now
     uint32_t time_bytes;
     LV2_URID_Map time_map;
     LV2_Atom_Forge time_forge;
@@ -1399,77 +1402,77 @@ static int buffers_make(struct lv2_instance *in)
     return 0;
 }
 
-/* every port in index order, to the instance's own memory its role names (lv2_plugin.roles) */
-static void ports_connect(struct lv2_instance *in, uint32_t max_frames)
+/* the instance's own memory for port index `i`, as its role names it (lv2_plugin.roles); NULL: a port of no memory */
+static void *port_home(struct lv2_instance *in, uint32_t i)
 {
     const struct lv2_plugin *p = in->plugin;
+    const struct lv2_port_bind *b = &p->roles[i];
+
+    switch (b->role)
+    {
+    case LV2_ROLE_MAIN_IN:
+        return in->audio + b->channel * (size_t)in->max_frames;
+    case LV2_ROLE_MAIN_OUT:
+        return in->audio + (in->at_out + b->channel) * (size_t)in->max_frames;
+    case LV2_ROLE_PATCH_IN:
+        return in->atom_in;
+    case LV2_ROLE_PATCH_OUT:
+        return in->atom_out;
+    case LV2_ROLE_MIDI_IN:
+        return in->midi[0];
+    case LV2_ROLE_MIDI_OUT:
+        return in->midi[1];
+    case LV2_ROLE_TIME:
+        return in->time_buf;
+    case LV2_ROLE_NOTIFY:
+        return in->notify + b->leg * (size_t)in->notify_bytes;
+    case LV2_ROLE_ATOM_IN:
+        return in->atom_in_seq + b->leg * (size_t)in->atom_in_bytes;
+    case LV2_ROLE_EVENT_IN:
+        return in->event_bufs + b->leg * (size_t)in->event_stride;
+    case LV2_ROLE_EVENT_OUT:
+        return in->event_bufs + (p->n_event_in + b->leg) * (size_t)in->event_stride;
+    case LV2_ROLE_AUX_IN:
+        return in->audio + (in->at_aux_in[b->leg] + b->channel) * (size_t)in->max_frames;
+    case LV2_ROLE_AUX_OUT:
+        return in->audio + (in->at_aux_out[b->leg] + b->channel) * (size_t)in->max_frames;
+    case LV2_ROLE_CV_IN:
+        return in->audio + (in->at_cv_in + b->leg) * (size_t)in->max_frames;
+    case LV2_ROLE_CV_OUT:
+        return in->audio + (in->at_cv_out + b->leg) * (size_t)in->max_frames;
+    case LV2_ROLE_LATENCY:
+        return &in->latency_port;
+    case LV2_ROLE_CONTROL:
+        return &in->controls[b->leg];
+    default:
+        return NULL;
+    }
+}
+
+/* every port in index order, to the instance's own memory */
+static void ports_connect(struct lv2_instance *in)
+{
     uint32_t i;
 
-    for (i = 0; i < p->n_ports; i++)
+    for (i = 0; i < in->plugin->n_ports; i++)
     {
-        const struct lv2_port_bind *b = &p->roles[i];
-        void *at;
+        void *at = port_home(in, i);
 
-        switch (b->role)
-        {
-        case LV2_ROLE_MAIN_IN:
-            at = in->audio + b->channel * (size_t)max_frames;
-            break;
-        case LV2_ROLE_MAIN_OUT:
-            at = in->audio + (in->at_out + b->channel) * (size_t)max_frames;
-            break;
-        case LV2_ROLE_PATCH_IN:
-            at = in->atom_in;
-            break;
-        case LV2_ROLE_PATCH_OUT:
-            at = in->atom_out;
-            break;
-        case LV2_ROLE_MIDI_IN:
-            at = in->midi[0];
-            break;
-        case LV2_ROLE_MIDI_OUT:
-            at = in->midi[1];
-            break;
-        case LV2_ROLE_TIME:
-            at = in->time_buf;
-            break;
-        case LV2_ROLE_NOTIFY:
-            at = in->notify + b->leg * (size_t)in->notify_bytes;
-            break;
-        case LV2_ROLE_ATOM_IN:
-            at = in->atom_in_seq + b->leg * (size_t)in->atom_in_bytes;
-            break;
-        case LV2_ROLE_EVENT_IN:
-            at = in->event_bufs + b->leg * (size_t)in->event_stride;
-            break;
-        case LV2_ROLE_EVENT_OUT:
-            at = in->event_bufs + (p->n_event_in + b->leg) * (size_t)in->event_stride;
-            break;
-        case LV2_ROLE_AUX_IN:
-            at = in->audio + (in->at_aux_in[b->leg] + b->channel) * (size_t)max_frames;
-            break;
-        case LV2_ROLE_AUX_OUT:
-            at = in->audio + (in->at_aux_out[b->leg] + b->channel) * (size_t)max_frames;
-            break;
-        case LV2_ROLE_CV_IN:
-            at = in->audio + (in->at_cv_in + b->leg) * (size_t)max_frames;
-            break;
-        case LV2_ROLE_CV_OUT:
-            at = in->audio + (in->at_cv_out + b->leg) * (size_t)max_frames;
-            break;
-        case LV2_ROLE_LATENCY:
-            at = &in->latency_port;
-            break;
-        case LV2_ROLE_CONTROL:
-            at = &in->controls[b->leg];
-            break;
-        default:
-            continue;
-        }
+        in->bound[i] = at;
         if (at)
-            omx_abi_g(&in->abi, "connect_port", (const void *)p->desc->connect_port, OMX_ABI_A(in->handle), OMX_ABI_A(i),
+            omx_abi_g(&in->abi, "connect_port", (const void *)in->plugin->desc->connect_port, OMX_ABI_A(in->handle), OMX_ABI_A(i),
                       OMX_ABI_A(at), 0, 0, 0);
     }
+}
+
+/* [main] every audio port the run moved, back on the instance's own memory: the host's buffers need not outlive it */
+static void ports_home(struct lv2_instance *in)
+{
+    uint32_t i;
+
+    for (i = 0; i < in->plugin->n_ports; i++)
+        if (in->bound[i] != port_home(in, i))
+            lv2_instance_port_bind(in, i, port_home(in, i));
 }
 
 /* instantiate, connect every port, restore the default state: -1 with nothing left instantiated */
@@ -1520,7 +1523,7 @@ static int instance_make(struct lv2_instance *in, double rate, uint32_t min_fram
     in->latency_port = p->latency_def;
     if (buffers_make(in) != 0)
         goto refuse;
-    ports_connect(in, max_frames);
+    ports_connect(in);
     if (inst_on(in, F_DEFAULT_STATE) && lv2_plugin_default_state(&in->abi, p, in->handle, in->state_ptrs) != 0)
         goto drop;
     // a new handle has never seen a patch value: the first block sends each value the host wrote or the plugin reported,
@@ -1586,6 +1589,7 @@ struct lv2_instance *lv2_instance_new(const struct lv2_plugin *p)
     in->blocks = in->at_cv_out + p->n_cv_out;
     in->fopts = *lv2_core_feature_options();
     n = p->n_controls ? p->n_controls : 1u;
+    in->bound = calloc(p->n_ports ? p->n_ports : 1u, sizeof(*in->bound));
     in->controls = calloc(n, sizeof(*in->controls));
     in->shown = calloc(n, sizeof(*in->shown));
     if (inst_on(in, F_WORKER))
@@ -1772,6 +1776,7 @@ void lv2_instance_deactivate(struct lv2_instance *in)
     if (!in || !in->lv2_active)
         return;
     worker_stop(in);
+    ports_home(in);
     if (in->plugin->desc->deactivate)
         omx_abi_g(&in->abi, "deactivate", (const void *)in->plugin->desc->deactivate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     in->lv2_active = 0;
@@ -1789,6 +1794,7 @@ int lv2_instance_reset(struct lv2_instance *in)
     // stopped and joined first. A request or a response from before the reset belongs to the state it clears: both
     // rings start empty, as at activate
     worker_stop(in);
+    ports_home(in);
     if (d->deactivate)
         omx_abi_g(&in->abi, "deactivate", (const void *)d->deactivate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
     if (in->ring_mem)
@@ -1946,6 +1952,25 @@ int lv2_instance_state_load(struct lv2_instance *in, const char *text, char why[
     in->state_dirty = 1;
     lv2_why_set(why, "");
     return 0;
+}
+
+int lv2_instance_direct(const struct lv2_instance *in)
+{
+    return in->plugin->hard_rt && !in->worker;
+}
+
+void lv2_instance_port_bind(struct lv2_instance *in, uint32_t port, float *at)
+{
+    if (in->bound[port] == at)
+        return;
+    in->bound[port] = at;
+    omx_abi_g(&in->abi, "connect_port", (const void *)in->plugin->desc->connect_port, OMX_ABI_A(in->handle), OMX_ABI_A(port),
+              OMX_ABI_A(at), 0, 0, 0);
+}
+
+const float *lv2_instance_port_bound(const struct lv2_instance *in, uint32_t port)
+{
+    return in->bound[port];
 }
 
 float *lv2_instance_audio_in(struct lv2_instance *in, uint32_t c)

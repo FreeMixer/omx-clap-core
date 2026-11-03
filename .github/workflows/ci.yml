@@ -210,6 +210,10 @@ jobs:
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
 
+      # each guard of the no-copy LV2 adapter broken in a copy of the sources, tests/lv2_clap_test red on it
+      - name: The sabotage of the no-copy LV2 adapter
+        run: make test-lv2-direct-sabotage
+
       # each guard of the resource hints broken in a copy of the sources, the test that holds it red (#323)
       - name: The sabotage of the resource hints' guards
         run: make test-resource-hints-sabotage
