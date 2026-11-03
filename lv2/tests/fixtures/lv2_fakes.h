@@ -66,7 +66,7 @@ struct fake
     uint32_t legs, runs;
     double rate;                        // what the host passed to instantiate
     float saw_in_r0;                    // the first sample the R input carried on the last run
-    int nan_on;                         // K_NAN: emit NaN while set
+    int nan_on;                         // K_NAN: emit NaN while set (2: +Inf on even samples, -Inf on odd ones)
     const LV2_Worker_Schedule *sched;
     uint32_t seq;
     LV2_Worker_Respond_Function respond;    // K_WORKER: the respond work() was last handed, and its handle
