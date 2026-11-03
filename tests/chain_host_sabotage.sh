@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The sabotage of the host's chain guards (#104, docs/chain.md): each arm copies the sources into
-# build/sabotage-chain-host-<arm>, breaks one guard of src/effects.c or src/main.c there with one sed, builds and runs
-# make test-chain-host (or, with PLUGIN_HOSTD set, make test-hostd-chain for the arm only the daemon shows) in that
-# copy. The arm holds when the test goes red on the check that names the guard; an arm whose test stays green, goes red
-# on something else, or whose sed changed nothing fails the run. Nothing outside build/sabotage-chain-host-* is touched.
+# The sabotage of the host's chain guards (#104, docs/chain.md): each arm breaks one guard of src/effects.c, src/main.c
+# or src/clap_chain.c with one sed in a copy of the built tree, build/sabotage-chain-host-<arm>, rebuilds there only
+# what the broken source reaches, and runs make test-chain-host (or, with PLUGIN_HOSTD set, make test-hostd-chain for
+# the arm only the daemon shows) in that copy. The arm holds when the test goes red on the check that names the guard;
+# an arm whose test stays green, goes red on something else, whose sed changed nothing, whose copy does not build, or
+# whose test is stopped twice at its bound fails the run. Each test runs in a PipeWire and a network of its own, so the
+# arms run side by side. Two controls run with them and must stay green: a copy with nothing broken (the copy and its
+# rebuild are sound, so a red arm is red on its break) and tests/chain_host_stall.sh (a host that stops answering ends
+# its run, so no arm waits out its bound on a dead host). Nothing outside build/*-chain-host-* is touched.
 #
-# CHAIN_SABOTAGE_JOBS: make's parallel jobs in each copy (default 4); PLUGIN_HOSTD: the daemon, for the hostd arm
-# (skipped, and said, without it); CHAIN_SABOTAGE_ARMS: the arms and drills to run, by name, space-separated (default
-# every one); CHAIN_SABOTAGE_ARM_SECONDS: how long one arm's test may run before it is stopped (default 300; an arm
-# runs in under two minutes): a stopped arm is tried once more, and a second stop fails it as hung
+# CHAIN_SABOTAGE_PARALLEL: the arms run at once (default: the processors, at least 2); CHAIN_SABOTAGE_JOBS: make's
+# parallel jobs in each copy's rebuild (default 2); PLUGIN_HOSTD: the daemon, for the hostd arm (skipped, and said,
+# without it); CHAIN_SABOTAGE_ARMS: the arms, drills and controls to run, by name, space-separated (default every one);
+# CHAIN_SABOTAGE_ARM_SECONDS: how long one arm's test may run before it is stopped (default 300; an arm runs in about
+# two minutes): a stopped arm is tried once more, and a second stop fails it as hung
 
 set -u
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-jobs=${CHAIN_SABOTAGE_JOBS:-4}
+jobs=${CHAIN_SABOTAGE_JOBS:-2}
 limit=${CHAIN_SABOTAGE_ARM_SECONDS:-300}
+parallel=${CHAIN_SABOTAGE_PARALLEL:-$(nproc 2>/dev/null || echo 2)}
+[ "$parallel" -ge 2 ] 2>/dev/null || parallel=2
+verdicts=$root/build/chain-host-sabotage.verdicts
+started=$(date +%s)
 
 # bounded <log> <command...>: the command with its output in <log>, stopped after $limit seconds and run once more if
 # it was; its status, 124 when both runs were stopped
@@ -27,48 +36,75 @@ bounded() {
         timeout --kill-after=10 "$limit" "$@" >"$log" 2>&1
         rc=$?
         [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ] || return "$rc"
-        echo "     stopped after ${limit}s: $log" >&2
+        echo "     stopped after ${limit}s: $log"
     done
     return 124
 }
-failures=0
 
 # an arm or drill CHAIN_SABOTAGE_ARMS names, or every one when it names none
 picked() { [ -z "${CHAIN_SABOTAGE_ARMS:-}" ] || [[ " $CHAIN_SABOTAGE_ARMS " == *" $1 "* ]]; }
 
-# arm <name> <file> <sed expression> <the FAIL line's text> [<make target>: test-chain-host, or test-hostd-chain]
-arm() {
-    local name=$1 file=$2 expr=$3 fail=$4 target=${5:-test-chain-host} dir log rc
-    picked "$name" || return 0
-    dir=$root/build/sabotage-chain-host-$name
-    log=$dir.log
-    rm -f "$log" "$log.build"
-    rm -f "$log" "$log.build"
+# the tree every copy starts from, built once: the host, its libraries and every program and plugin the tests run
+(cd "$root" && make -j"$(nproc 2>/dev/null || echo 2)" omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap \
+    tests/fake_compressor.clap tests/fault-14.clap tests/fake_state.clap tests/fault-0.clap) >"$root/build/chain-host-sabotage.base.log" 2>&1 \
+    || { echo "FAIL chain host sabotage: the tree does not build (log $root/build/chain-host-sabotage.base.log)"; exit 1; }
+rm -rf "$verdicts"
+mkdir -p "$verdicts"
+
+# copy <dir> <file> <sed expression>: the built tree into <dir> with its times kept, so make rebuilds there only what
+# the sed reaches; 1 when the sed changed nothing (said)
+copy() {
+    local dir=$1 file=$2 expr=$3
     rm -rf "$dir"
-    mkdir -p "$dir"
-    cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
-    # what the worktree built is not the copy's: everything is built again from the sabotaged sources
-    make -s -C "$dir" clean >/dev/null 2>&1
+    mkdir -p "$dir/build"
+    tar -C "$root" --exclude=./.git --exclude=./build -cf - . | tar -C "$dir" -xf -
+    cp -p "$root/build/x11-choice" "$dir/build/" 2>/dev/null
     sed -i -e "$expr" "$dir/$file"
     if cmp -s "$root/$file" "$dir/$file"; then
         echo "FAIL $name: the sed left $file as it was"
-        failures=$((failures + 1))
-        return
+        return 1
     fi
-    (cd "$dir" && make -j"$jobs" omx-clap-host) >"$log.build" 2>&1
+}
+
+# rebuilt <dir> <log> <targets...>: the copy's rebuild; a copy that does not build is never counted as caught
+rebuilt() {
+    local dir=$1 log=$2
+    shift 2
+    (cd "$dir" && make -j"$jobs" "$@") >"$log" 2>&1 && return 0
+    echo "FAIL $name: the broken copy does not build, which proves nothing (log $log)"
+    grep -m 3 -E 'error' "$log" | sed 's/^/     /'
+    return 1
+}
+
+# run <name> <function> <args...>: the function in the background, its verdict in $verdicts, at most $parallel at once
+order=0
+run() {
+    local name=$1
+    shift
+    picked "$name" || return 0
+    while [ "$(jobs -rp | wc -l)" -ge "$parallel" ]; do wait -n; done
+    order=$((order + 1))
+    ( name=$name; "$@" ) >"$verdicts/$(printf '%03d' "$order").$name" 2>&1 &
+}
+
+# arm <name> <file> <sed expression> <the FAIL line's text> [<make target>: test-chain-host, or test-hostd-chain]
+arm() { run "$1" arm_body "$@"; }
+arm_body() {
+    local file=$2 expr=$3 fail=$4 target=${5:-test-chain-host} dir log rc
+    dir=$root/build/sabotage-chain-host-$name
+    log=$dir.log
+    copy "$dir" "$file" "$expr" || return
+    rebuilt "$dir" "$log.build" omx-clap-host || return
     bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" make "$target" PLUGIN_HOSTD="${PLUGIN_HOSTD:-}"
     rc=$?
-    cat "$log.build" "$log" >"$log.all" 2>/dev/null && mv "$log.all" "$log" && rm -f "$log.build"
     if [ "$rc" -eq 0 ]; then
         echo "FAIL $name: survived, the test stays green with $file broken (log $log)"
-        failures=$((failures + 1))
     elif [ "$rc" -eq 124 ]; then
         echo "FAIL $name: hung twice, stopped after ${limit}s each (log $log)"
-        failures=$((failures + 1))
+        tail -5 "$log" | sed 's/^/     /'
     elif ! grep -q -E "^FAIL .*$fail" "$log"; then
         echo "FAIL $name: red, but not on \"$fail\" (log $log)"
         grep -E "^FAIL" "$log" | head -5 | sed 's/^/     /'
-        failures=$((failures + 1))
     else
         echo "ok   $name: red as expected: $(grep -m 1 -E "^FAIL .*$fail" "$log")"
     fi
@@ -77,64 +113,51 @@ arm() {
 # drill <name> <file> <sed expression> <fault>: one JACK call made to fail for one instance in a copy of the sources,
 # and tests/chain_host_e2e.sh's drill CHAIN_HOST_FAULT=<fault> run on it, which must stay GREEN: a line JACK fails part
 # way answers the error, frees no instance and runs the chain its read-back names, a refused one changes nothing
-drill() {
-    local name=$1 file=$2 expr=$3 fault=$4 dir log
-    picked "$name" || return 0
+drill() { run "$1" drill_body "$@"; }
+drill_body() {
+    local file=$2 expr=$3 fault=$4 dir log
     dir=$root/build/drill-chain-host-$name
     log=$dir.log
-    rm -f "$log" "$log.build"
-    rm -f "$log" "$log.build"
-    rm -rf "$dir"
-    mkdir -p "$dir"
-    cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
-    make -s -C "$dir" clean >/dev/null 2>&1
-    sed -i -e "$expr" "$dir/$file"
-    if cmp -s "$root/$file" "$dir/$file"; then
-        echo "FAIL drill $name: the sed left $file as it was"
-        failures=$((failures + 1))
-        return
-    fi
-    if (cd "$dir" && make -j"$jobs" omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap \
-            tests/fake_compressor.clap tests/fault-14.clap) >"$log.build" 2>&1 \
-        && bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" CHAIN_HOST_FAULT="$fault" ./tests/chain_host_e2e.sh \
+    copy "$dir" "$file" "$expr" || return
+    rebuilt "$dir" "$log.build" omx-clap-host || return
+    if bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" CHAIN_HOST_FAULT="$fault" ./tests/chain_host_e2e.sh \
         && grep -q -E "^ok   .*answers the error" "$log"; then
         echo "ok   drill $name: $(grep -m 1 -E "^ok   .*answers the error" "$log" | sed 's/^ok   //'), every instance kept"
     else
         echo "FAIL drill $name: a line JACK fails part way is not answered as it should be (log $log)"
         grep -E "^FAIL" "$log" | head -5 | sed 's/^/     /'
-        failures=$((failures + 1))
     fi
 }
 
 # keep <name> <file> <sed expression> <a line the log must show>: a hold put in a copy of the sources, and make
 # test-chain-host run on it, which must stay GREEN and show that line
-keep() {
-    local name=$1 file=$2 expr=$3 ok=$4 dir log
-    picked "$name" || return 0
+keep() { run "$1" keep_body "$@"; }
+keep_body() {
+    local file=$2 expr=$3 ok=$4 dir log
     dir=$root/build/keep-chain-host-$name
     log=$dir.log
-    rm -f "$log" "$log.build"
-    rm -f "$log" "$log.build"
-    rm -rf "$dir"
-    mkdir -p "$dir"
-    cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
-    make -s -C "$dir" clean >/dev/null 2>&1
-    sed -i -e "$expr" "$dir/$file"
-    if cmp -s "$root/$file" "$dir/$file"; then
-        echo "FAIL keep $name: the sed left $file as it was"
-        failures=$((failures + 1))
-        return
-    fi
-    if (cd "$dir" && make -j"$jobs" omx-clap-host) >"$log.build" 2>&1 \
-        && bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" make test-chain-host \
-        && grep -q -E "$ok" "$log"; then
+    copy "$dir" "$file" "$expr" || return
+    rebuilt "$dir" "$log.build" omx-clap-host || return
+    if bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" make test-chain-host && grep -q -E "$ok" "$log"; then
         echo "ok   keep $name: green with the hold: $(grep -m 1 -E "$ok" "$log")"
     else
         echo "FAIL keep $name: red with the hold (log $log)"
         grep -E "^FAIL" "$log" | head -5 | sed 's/^/     /'
-        failures=$((failures + 1))
     fi
 }
+
+# the controls: a copy with nothing broken but a comment, built and run as every arm is, green; and a host that stops
+# answering, whose run ends on its own and names the line
+keep control src/effects.c '1s|^|/* a copy built and run as every arm is, nothing broken */\n|' '^chain host: 0 failed$'
+stall_body() {
+    if bounded "$root/build/stall-chain-host.log" env -C "$root" ./tests/chain_host_stall.sh; then
+        echo "ok   stall: $(grep -m 1 '^ok   a chain host that stops answering' "$root/build/stall-chain-host.log" | sed 's/^ok   //')"
+    else
+        echo "FAIL stall: a chain host that stops answering does not end its run as it should (log $root/build/stall-chain-host.log)"
+        grep -E "^FAIL" "$root/build/stall-chain-host.log" | head -5 | sed 's/^/     /'
+    fi
+}
+run stall stall_body
 
 # 1. a member that joins closes its client, so the chain is one node: left open
 arm one-node src/effects.c '/^static int chain_join/,/^}/s/^        jack_client_close(effect->jack_client);$/        (void)0;/' \
@@ -286,8 +309,11 @@ else
     echo "skip hostd-line: no PLUGIN_HOSTD"
 fi
 
+wait
+cat "$verdicts"/*
+failures=$(cat "$verdicts"/* | grep -c '^FAIL')
 if [ "$failures" -ne 0 ]; then
-    echo "FAIL chain host sabotage: $failures arm(s) did not hold"
+    echo "FAIL chain host sabotage: $failures arm(s) did not hold ($(($(date +%s) - started))s, $parallel at once)"
     exit 1
 fi
-echo "ok   chain host sabotage: every guard seen red"
+echo "ok   chain host sabotage: every guard seen red, both controls green ($(ls "$verdicts" | wc -l) runs in $(($(date +%s) - started))s, $parallel at once)"
