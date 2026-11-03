@@ -519,7 +519,8 @@ jobs:
   chain-host-sabotage:
     name: the sabotage of the host's chain guards
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # about a quarter of an hour, and five minutes more for each arm stopped once (CHAIN_SABOTAGE_ARM_SECONDS)
+    timeout-minutes: 40
     container:
       image: fedora:44
       # the jack tests run the host in a user, net, pid and mount namespace of its own

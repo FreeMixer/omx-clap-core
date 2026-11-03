@@ -9,12 +9,28 @@
 #
 # CHAIN_SABOTAGE_JOBS: make's parallel jobs in each copy (default 4); PLUGIN_HOSTD: the daemon, for the hostd arm
 # (skipped, and said, without it); CHAIN_SABOTAGE_ARMS: the arms and drills to run, by name, space-separated (default
-# every one)
+# every one); CHAIN_SABOTAGE_ARM_SECONDS: how long one arm's test may run before it is stopped (default 300; an arm
+# runs in under two minutes): a stopped arm is tried once more, and a second stop fails it as hung
 
 set -u
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 jobs=${CHAIN_SABOTAGE_JOBS:-4}
+limit=${CHAIN_SABOTAGE_ARM_SECONDS:-300}
+
+# bounded <log> <command...>: the command with its output in <log>, stopped after $limit seconds and run once more if
+# it was; its status, 124 when both runs were stopped
+bounded() {
+    local log=$1 rc
+    shift
+    for _ in 1 2; do
+        timeout --kill-after=10 "$limit" "$@" >"$log" 2>&1
+        rc=$?
+        [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ] || return "$rc"
+        echo "     stopped after ${limit}s: $log" >&2
+    done
+    return 124
+}
 failures=0
 
 # an arm or drill CHAIN_SABOTAGE_ARMS names, or every one when it names none
@@ -22,10 +38,12 @@ picked() { [ -z "${CHAIN_SABOTAGE_ARMS:-}" ] || [[ " $CHAIN_SABOTAGE_ARMS " == *
 
 # arm <name> <file> <sed expression> <the FAIL line's text> [<make target>: test-chain-host, or test-hostd-chain]
 arm() {
-    local name=$1 file=$2 expr=$3 fail=$4 target=${5:-test-chain-host} dir log
+    local name=$1 file=$2 expr=$3 fail=$4 target=${5:-test-chain-host} dir log rc
     picked "$name" || return 0
     dir=$root/build/sabotage-chain-host-$name
     log=$dir.log
+    rm -f "$log" "$log.build"
+    rm -f "$log" "$log.build"
     rm -rf "$dir"
     mkdir -p "$dir"
     cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
@@ -37,8 +55,15 @@ arm() {
         failures=$((failures + 1))
         return
     fi
-    if (cd "$dir" && make -j"$jobs" omx-clap-host && LD_LIBRARY_PATH=$dir make "$target" PLUGIN_HOSTD="${PLUGIN_HOSTD:-}") >"$log" 2>&1; then
+    (cd "$dir" && make -j"$jobs" omx-clap-host) >"$log.build" 2>&1
+    bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" make "$target" PLUGIN_HOSTD="${PLUGIN_HOSTD:-}"
+    rc=$?
+    cat "$log.build" "$log" >"$log.all" 2>/dev/null && mv "$log.all" "$log" && rm -f "$log.build"
+    if [ "$rc" -eq 0 ]; then
         echo "FAIL $name: survived, the test stays green with $file broken (log $log)"
+        failures=$((failures + 1))
+    elif [ "$rc" -eq 124 ]; then
+        echo "FAIL $name: hung twice, stopped after ${limit}s each (log $log)"
         failures=$((failures + 1))
     elif ! grep -q -E "^FAIL .*$fail" "$log"; then
         echo "FAIL $name: red, but not on \"$fail\" (log $log)"
@@ -57,6 +82,8 @@ drill() {
     picked "$name" || return 0
     dir=$root/build/drill-chain-host-$name
     log=$dir.log
+    rm -f "$log" "$log.build"
+    rm -f "$log" "$log.build"
     rm -rf "$dir"
     mkdir -p "$dir"
     cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
@@ -68,8 +95,8 @@ drill() {
         return
     fi
     if (cd "$dir" && make -j"$jobs" omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap \
-            tests/fake_compressor.clap tests/fault-14.clap \
-            && LD_LIBRARY_PATH=$dir CHAIN_HOST_FAULT=$fault ./tests/chain_host_e2e.sh) >"$log" 2>&1 \
+            tests/fake_compressor.clap tests/fault-14.clap) >"$log.build" 2>&1 \
+        && bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" CHAIN_HOST_FAULT="$fault" ./tests/chain_host_e2e.sh \
         && grep -q -E "^ok   .*answers the error" "$log"; then
         echo "ok   drill $name: $(grep -m 1 -E "^ok   .*answers the error" "$log" | sed 's/^ok   //'), every instance kept"
     else
@@ -86,6 +113,8 @@ keep() {
     picked "$name" || return 0
     dir=$root/build/keep-chain-host-$name
     log=$dir.log
+    rm -f "$log" "$log.build"
+    rm -f "$log" "$log.build"
     rm -rf "$dir"
     mkdir -p "$dir"
     cp -r "$root/src" "$root/lv2" "$root/tests" "$root/data" "$root/Makefile" "$root/VERSION" "$dir/"
@@ -96,7 +125,8 @@ keep() {
         failures=$((failures + 1))
         return
     fi
-    if (cd "$dir" && make -j"$jobs" omx-clap-host && LD_LIBRARY_PATH=$dir make test-chain-host) >"$log" 2>&1 \
+    if (cd "$dir" && make -j"$jobs" omx-clap-host) >"$log.build" 2>&1 \
+        && bounded "$log" env -C "$dir" LD_LIBRARY_PATH="$dir" make test-chain-host \
         && grep -q -E "$ok" "$log"; then
         echo "ok   keep $name: green with the hold: $(grep -m 1 -E "$ok" "$log")"
     else
