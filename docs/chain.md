@@ -62,6 +62,13 @@ that counts the published changes.
   the walk already make every member's output distinct from its input at no cost. A member whose main port is wider
   than two channels, or a call whose input and output are the same buffer (a chain of one member over one buffer),
   runs the member as alone.
+- the chain clamps once, at its output, where every instance member alone clamps its own: a member run by the direct
+  body leaves its clamp at `CLAP_HOST_CLAMP_DBFS` to the chain, and when one of them delivered its plugin's output in
+  the cycle the chain clamps `outputs` after the walk and counts what moved in the `clamped_samples` of the last such
+  member. A member's output past the ceiling reaches the next member whole. The scan for non-finite output stays each
+  member's own, the one check a block between members keeps: a block with a NaN or an infinity in it is discarded
+  where it was made and that member's input passed on, so no member after it, a reverb's or a delay's state least, is
+  ever handed one.
 - a chain with no non-bypassed member copies `inputs` to `outputs` (nothing when they are the same buffers).
 - nothing in the cycle allocates, locks, waits or prints. It raises a flag of its own and reads the published plan of
   the walk (the members in order) with one load, and lowers the flag when it is done.
@@ -118,6 +125,9 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
   recovery and a member's bypass inside a chain equal the members in series bit for bit, and `t_held_fades` holds a
   member for a cycle and then stops it mid-signal: each block that leaves the plugin fades, the chain equal to the
   members in series bit for bit;
+- one clamp per chain: +40 dB then -20 dB of 0.5 reaches the output as 5, not as the ceiling's 1.58, nothing counted;
+  +40 dB twice is held at the ceiling at the output, its 64 samples a block counted on the last member and none on the
+  first; and two NaN blocks from a member mid-chain never reach the stateful low-pass after it (`t_chain_lv2_clamp`);
 - the latency is the members' sum, and is re-reported when a member's latency changes;
 - a bypassed member adds nothing: the output and the latency equal a chain built without it;
 - a removed member: the next cycle equals a chain built without it, bit for bit;
