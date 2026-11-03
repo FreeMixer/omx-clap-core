@@ -1,3 +1,29 @@
+omx-clap-host (0.27.0) unstable; urgency=medium
+
+  * A chain runs in place: each member's plugin reads the block the member
+    before it wrote, with one clamp at the chain's output, a quiet block hands
+    the plugin one shared empty event list, and the LV2 adapter runs audio
+    ports on the host's buffers instead of copying (#464, #465, #466, #469).
+    On a Raspberry Pi 5 a 24-member chain costs 56 ns/sample instead of 165
+    for CLAP, 71 instead of 197 for LV2, and an 8-member chain of real work 48
+    instead of 67 ns/frame with the same output.
+  * A block is read for silence only for a plugin that can sleep on it, and in
+    vector runs: a chain fed silence costs no more than one fed a tone (x86,
+    24 members: 5090 against 10854 ns/block) (#472).
+  * The control tick walks only the live instances, tool ids included (#459).
+  * Every plugin call outside process goes through the instance's register
+    guard (#461); an abandoned timed open, the stream bound and the list of
+    binaries are checked (#462); take_role waits out the cycle under way and
+    the log slot is claimed whole (#463).
+  * A non-finite parameter value is refused, and the sample-rate callback is
+    honoured (#458, #460).
+  * Tests: the plugin-hostd end-to-end steps keep their directories in the
+    run's tree and run against plugin-hostd v0.15.9; preset_show's instance
+    form is exercised; the xruns test sees a global client opened at the first
+    tick (#467, #468, #470, #471).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Tue, 03 Nov 2026 15:00:00 +0100
+
 omx-clap-host (0.26.4) unstable; urgency=medium
 
   * A plugin that changed only the floating-point control registers is no
