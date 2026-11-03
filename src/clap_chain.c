@@ -478,10 +478,35 @@ int omx_clap_chain_member_info(struct omx_clap_chain *chain, uint32_t position, 
     return OMX_CLAP_CHAIN_OK;
 }
 
+/* an instance member run by the direct body on the audio thread, its clamp left to the chain's output: `*owed` becomes
+ * the instance when its plugin's output was delivered unclamped, so the chain clamps once, at its output, and counts
+ * what that moved on the last such member. Its scan for non-finite output is its own and is never left: a NaN or an
+ * infinity it makes is discarded there, its input passed, and no member after it, a stateful one least, is handed it.
+ * A member that clamps and does not scan keeps its own clamp, which holds a NaN or an infinity at the ceiling before
+ * the next member is handed it (omx_clap_direct_defers) */
+static void run_direct(struct omx_clap_instance *in, const float *const *from, float *const *to, uint32_t frames,
+                       struct omx_clap_instance **owed)
+{
+    if (omx_clap_host_run_direct(in, from, to, frames, 1u) && omx_clap_direct_defers(&in->stage))
+        *owed = in;
+}
+
+/* the clamp the members left, once over the chain's output, counted in the clamped samples of the last member that left
+ * it */
+static void clamp_out(const struct omx_clap_chain *chain, float *const *outputs, uint32_t frames, struct omx_clap_instance *owed)
+{
+    uint32_t c, moved = 0;
+
+    for (c = 0; c < chain->channels; c++)
+        moved += omx_hosted_clamp(outputs[c], frames);
+    if (moved)
+        omx_hosted_count(&owed->stage.h.clamped_samples, moved);
+}
+
 /* a mono member's step, on the audio thread: both channels summed into its input, as JACK sums two links into one port,
  * the member run on it (or its input passed, bypassed), its output given to both channels. No allocation, no lock */
 static void run_mono(struct omx_clap_chain *chain, const struct chain_step *step, const float *const *from, float *const *to,
-                     uint32_t frames)
+                     uint32_t frames, struct omx_clap_instance **owed)
 {
     float *in = chain->mono_in, *out = chain->mono_out;
     const float *const ins[1] = { in };
@@ -491,7 +516,7 @@ static void run_mono(struct omx_clap_chain *chain, const struct chain_step *step
     for (i = 0; i < frames; i++)
         in[i] = from[0][i] + from[1][i];
     if (step->instance && omx_clap_direct_fits(&step->instance->stage, ins, outs))
-        omx_clap_host_run_direct(step->instance, ins, outs, frames);
+        run_direct(step->instance, ins, outs, frames, owed);
     else if (step->instance)
         omx_clap_host_run_ports(step->instance, ins, outs, frames);
     else if (step->process)
@@ -507,6 +532,7 @@ int omx_clap_chain_process(struct omx_clap_chain *chain, const float *const *inp
     const struct chain_plan *plan;
     const float *const *from;
     float *const *to = outputs;
+    struct omx_clap_instance *owed = NULL;
     uint32_t s;
 
     if (!chain || !inputs || !outputs)
@@ -530,14 +556,17 @@ int omx_clap_chain_process(struct omx_clap_chain *chain, const float *const *inp
 
         to = s + 1 == plan->steps ? outputs : chain->block[s & 1u];
         if (step->mono)
-            run_mono(chain, step, from, to, frames);
+            run_mono(chain, step, from, to, frames, &owed);
         else if (step->instance && omx_clap_direct_fits(&step->instance->stage, from, to))
-            omx_clap_host_run_direct(step->instance, from, to, frames);    // reads `from`, writes `to`: no copy between members
+            run_direct(step->instance, from, to, frames, &owed);    // reads `from`, writes `to`: no copy between members
         else if (step->instance)
             omx_clap_host_run_ports(step->instance, from, to, frames);
         else
             step->process(step->ctx, from, to, frames);
     }
+    // one clamp for the chain, at its output, where every member's own would have been
+    if (owed)
+        clamp_out(chain, outputs, frames, owed);
     atomic_store_explicit(&chain->in_cycle, 0u, memory_order_release);
     return OMX_CLAP_CHAIN_OK;
 }
