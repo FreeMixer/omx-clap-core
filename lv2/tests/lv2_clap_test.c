@@ -4766,6 +4766,30 @@ int main(int argc, char **argv)
     in_child("make path with no root", make_path_no_root);
     in_child("make path with a relative root", make_path_relative_root);
     CHECK(omx_clap_lv2_configure(&config, why) == 0, "configure with omx_clap_lv2_provided, a hold of %u ms (%s)", HOLD_MS, why);
+    // LV2_CLAP_TEST_ONLY=direct: the no-copy adapter's checks alone, at every rate (tests/lv2_direct_sabotage.sh runs one
+    // per guard it breaks); any other value is refused rather than read as the whole run
+    {
+        const char *only = getenv("LV2_CLAP_TEST_ONLY");
+
+        if (only && *only)
+        {
+            if (strcmp(only, "direct") != 0)
+            {
+                printf("FAIL LV2_CLAP_TEST_ONLY=%s: the one section it names is direct\n", only);
+                return 1;
+            }
+            for (r = 0; r < N_RATES; r++)
+            {
+                const int before = g_failures;
+
+                t_direct(RATES[r]);
+                printf("lv2 clap direct @ %.0f: %d failure(s)\n", RATES[r], g_failures - before);
+            }
+            CHECK(rt_allocs == 0, "no allocation inside process() or the CLAP body's run (%d)", rt_allocs);
+            printf("%s\n", g_failures == 0 ? "lv2 clap direct test ok" : "lv2 clap direct test FAILED");
+            return g_failures == 0 ? 0 : 1;
+        }
+    }
     t_entry();
     t_refusals();
     t_midi_refusal();
