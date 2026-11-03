@@ -378,7 +378,6 @@ struct omx_clap_sleep
     struct omx_clap_transport last; ///< the transport the previous block was handed, awake or asleep
     int have_last;                  ///< 1 once `last` holds a block's transport
     _Atomic uint32_t sleeps;        ///< times the plugin went to sleep
-    int keeps_on;                   ///< 1 while the plugin's last process() said CLAP_PROCESS_CONTINUE (omx_clap_sleep_reads)
 };
 
 /** How long a plugin's output must have been silent before it may sleep, in milliseconds. */
@@ -621,6 +620,10 @@ struct omx_clap_instance
     // ABI 20: the plugin's guard (abi_guard.h): every call into the plugin from any thread goes through it, the stage's
     // process too (the stage's guard_off reaches it); the first clobber is read by omx_clap_host_abi_clobber
     struct omx_abi_guard abi;   ///< abi.block counts the process calls
+
+    // the sleep's read of the last status: kept here at the tail, outside struct omx_clap_sleep, which is embedded whole
+    // above and keeps its size, so no member moves; written and read by the audio role only
+    int keeps_on;               ///< 1 while the plugin's last process() said CLAP_PROCESS_CONTINUE (omx_clap_sleep_reads)
 };
 
 
@@ -1276,7 +1279,7 @@ static inline void omx_clap_host_transport_rec(struct omx_clap_instance *in, str
  * plugin that then says another status sleeps at most a block later than if it had been read. */
 static inline int omx_clap_sleep_reads(const struct omx_clap_instance *in)
 {
-    return in->sleep.asleep || !in->sleep.keeps_on;
+    return in->sleep.asleep || !in->keeps_on;
 }
 
 /** The audio role, ahead of a block whose input is `silent` and whose transport record is `rec`: the transport kept for
@@ -1320,8 +1323,8 @@ static inline void omx_clap_host_sleep_after(struct omx_clap_instance *in, clap_
 
     if (said < 0)
         return;
-    z->keeps_on = said == CLAP_PROCESS_CONTINUE;
-    if (z->keeps_on)
+    in->keeps_on = said == CLAP_PROCESS_CONTINUE;
+    if (in->keeps_on)
     {
         // a plugin that keeps on does not sleep: its output is not read, and a sleep it asks for later waits a whole
         // quiet_min_frames of silent output from then
