@@ -120,7 +120,6 @@ jobs:
   test:
     name: build and test
     runs-on: ubuntu-latest
-    # the chain host's sabotage builds and runs the host once per guard and drill, about twenty minutes of it (#104)
     timeout-minutes: 50
     container:
       image: fedora:44
@@ -210,9 +209,7 @@ jobs:
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
 
-      # each guard of the no-copy LV2 adapter broken in a copy of the sources, tests/lv2_clap_test red on it
-      - name: The sabotage of the no-copy LV2 adapter
-        run: make test-lv2-direct-sabotage
+      # the sabotage of the no-copy LV2 adapter runs in a job of its own beside this one: lv2-direct-sabotage below
 
       # each guard of the resource hints broken in a copy of the sources, the test that holds it red (#323)
       - name: The sabotage of the resource hints' guards
@@ -510,7 +507,66 @@ jobs:
             echo "::warning::test-hostd-chain SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
-      # each guard of the host's chain broken in a copy of the sources, the chain tests red on it (#104)
+      # the sabotage of the host's chain guards runs in a job of its own beside this one: chain-host-sabotage below
+
+      - name: Name what this job does not run
+        run: |
+          echo "test-jack and test-identity are NOT run here: they load omx-delay (.clap from the omx-plugins-clap package, .lv2 from omx-plugins-lv2)."
+          echo "They stay in the Makefile for the desk: make test-jack CLAP_TEST_PLUGIN=<omx-delay.clap>; make test-identity."
+
+  # each guard of the host's chain broken in a copy of the sources, the chain tests red on it (#104). About a quarter of an
+  # hour of host runs, in a job of its own beside build and test, on the same container and the same setup.
+  chain-host-sabotage:
+    name: the sabotage of the host's chain guards
+    runs-on: ubuntu-latest
+    # about a quarter of an hour, and five minutes more for each arm stopped once (CHAIN_SABOTAGE_ARM_SECONDS)
+    timeout-minutes: 40
+    container:
+      image: fedora:44
+      # the jack tests run the host in a user, net, pid and mount namespace of its own
+      options: --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined
+    steps:
+      - name: Install the build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
+            lv2-devel lilv-devel sord binutils pipewire-jack-audio-connection-kit-devel pipewire pipewire-devel pipewire-utils jq iproute util-linux procps-ng libasan libubsan libtsan libabigail \
+            python3-numpy python3-lilv \
+            libxcb-devel xorg-x11-server-Xvfb xdotool wayland-devel wayland-protocols-devel weston \
+            dnf5-plugins
+
+      # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
+      # its install script data/ (the hosting codes) installs with, from the OpenMixer channel; mod-host, the LV2 identity test's reference arm;
+      # and omx-plugins-devel, whose omx_panel_description.h is the ABI test-panel-abi holds src/omx_clap_ext.h to
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      - name: Install omx-dsp-devel, omx-contract-devel, mod-host and omx-plugins-devel from the OpenMixer channel
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' mod-host omx-plugins-devel
+          pkg-config --modversion omxdsp
+          pkg-config --atleast-version=3.3.0 omx-contract
+          pkg-config --modversion omxplugins
+          command -v mod-host
+
+      - uses: actions/checkout@v4
+
+      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
+      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
+
+      - name: Install plugin-hostd's headers and build its daemon
+        run: |
+          set -euo pipefail
+          .github/plugin-hostd.sh /tmp/plugin-hostd
+          make -C /tmp/plugin-hostd install_protocol PREFIX=/opt/plugin-hostd
+          make -C /tmp/plugin-hostd plugin-hostd
+          echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
+          echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
+          PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
+
+      - name: Build
+        run: make
+
       - name: The sabotage of the host's chain guards
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
@@ -519,10 +575,34 @@ jobs:
             echo "::warning::test-chain-host-sabotage SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
-      - name: Name what this job does not run
+  # each guard of the no-copy LV2 adapter broken in a copy of the sources, tests/lv2_clap_test's direct section red on it.
+  # A job of its own beside build and test: it needs only the toolchain, the LV2 and CLAP headers and omx-dsp's, and
+  # builds the tree it breaks itself, so it starts when build and test does and waits for nothing.
+  lv2-direct-sabotage:
+    name: the sabotage of the no-copy LV2 adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: fedora:44
+    steps:
+      - name: Install the build tools
         run: |
-          echo "test-jack and test-identity are NOT run here: they load omx-delay (.clap from the omx-plugins-clap package, .lv2 from omx-plugins-lv2)."
-          echo "They stay in the Makefile for the desk: make test-jack CLAP_TEST_PLUGIN=<omx-delay.clap>; make test-identity."
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
+            lv2-devel lilv-devel sord binutils procps-ng util-linux dnf5-plugins
+
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0'
+          pkg-config --modversion omxdsp
+
+      - uses: actions/checkout@v4
+
+      - name: The sabotage of the no-copy LV2 adapter
+        run: DIRECT_SABOTAGE_JOBS=$(nproc) make test-lv2-direct-sabotage
 
   # The ABI of libomx-clap-core.so.1 against the baseline of the last release: an addition needs a new minor, a removal or a
   # change needs a new soname major. Nothing here needs jack or the protocol library.
