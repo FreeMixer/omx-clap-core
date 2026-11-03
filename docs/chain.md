@@ -307,7 +307,7 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   the slot is none of them, so nothing they give back covers a named thread. Round three's lock (the thread-init
   callback trying `g_chain_members` and, when the control thread held it, its client passing dry until the control
   thread applied the name) let a client lose its first cycles: two clients whose first cycles start together collide on
-  the lock, and `make test-parity-lv2` read the host fixture's two instances 0.33 apart at 96 kHz on 7 runs of 20,
+  the lock, and the LV2 parity run against mod-host read the host fixture's two instances 0.33 apart at 96 kHz on 7 runs of 20,
   every one of them with dry cycles logged (1 to 188), none on the 13 identical runs; 0 of 20 since. A head's
   buffer-size callback still tries `g_chain_members` to walk its members (a size it cannot record then waits for
   `chain_members_reconcile`). The process callback takes no lock.
@@ -337,9 +337,6 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   left out not activated): the member runs again with its links, which `jack_deactivate` drops and the rollback makes
   again. One hold keeps the test green: every add holds `g_chain_members` across its client's `jack_activate` until that
   client's thread-init callback has returned, so a callback that waits on the lock fails the add.
-- `make test-parity-lv2` (`tests/lv2_parity_fixture.sh`) runs the host fixture at 96 kHz `LV2_PARITY_REPEATS` times (10
-  by default), a fresh pair of hosts each time, and wants it IDENTICAL to mod-host every time: a client cycle that
-  passes dry where it should have run the plugin shows only on the runs where JACK's threads collide.
 
 ### What a member costs (r1)
 

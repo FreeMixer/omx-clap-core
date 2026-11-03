@@ -194,7 +194,7 @@ instantiate and activate on a live graph? The set is the 979 URIs lilv listed on
 plugins were removed and ams-lv2 installed). The probe is the coverage kit's: a private user,
 net, pid and mount namespace with its own PipeWire (48 kHz, null sink), one URI at a time, 10 s per reply, the desk
 graph checked untouched before and after each arm. Hosted means admitted, instantiated and activated; it is not an
-audio-identity or parity claim (that is `tests/lv2_parity.py`).
+audio-identity claim (that is `tests/clap_lv2_identity.sh`, one plugin at a time).
 
 | host | version | hosted | not hosted |
 |---|---|---|---|
