@@ -453,7 +453,7 @@ struct omx_clap_instance
     _Atomic uint32_t thread_violations;     ///< a [main-thread] host call from the audio role
     _Atomic uint32_t log_calls;  ///< the count of log calls from the plugin
     char last_log[CLAP_HOST_LOG_BYTES];     ///< the last message, written by the control thread's tick
-    _Atomic uint32_t log_pending;  ///< a log message is waiting in `log_ring`
+    _Atomic uint32_t log_pending;  ///< `log_ring`'s state: 0 empty, else a message waits in it (1), a thread writes it (2) or the tick reads it (4)
     _Atomic uint32_t log_fresh;             ///< last_log changed since omx_clap_host_log_take
     char log_ring[CLAP_HOST_LOG_BYTES];     ///< a message lands here: one slot, a lock-free single-message ring
 
@@ -781,7 +781,8 @@ OMX_CLAP_EXPORT void omx_clap_host_close(struct omx_clap_instance *in);
 OMX_CLAP_EXPORT uint32_t omx_clap_host_latency(const struct omx_clap_instance *in);
 
 /** The control thread takes the audio role from whoever holds it: a cycle that arrives meanwhile passes the lane through,
- * one already running is waited for (CLAP_HOST_ROLE_TIMEOUT_US). `role` remembers what to give back. */
+ * one already running is waited for until it returns, however long, and a wait past CLAP_HOST_ROLE_TIMEOUT_US is said
+ * once in the plugin's log. `role` remembers what to give back. */
 OMX_CLAP_EXPORT void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role *role);
 /** Give the audio role back to what `role` remembers, in the `state` omx_clap_host_take_role left. */
 OMX_CLAP_EXPORT void omx_clap_host_release_role(struct omx_clap_instance *in, const struct omx_clap_role *role, uint32_t state);

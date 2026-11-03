@@ -422,19 +422,32 @@ static int main_thread_call(const clap_host_t *host)
     return 0;
 }
 
+/* the states of log_pending: a message waits in log_ring; a thread is writing it; the control thread's tick is reading it */
+#define LOG_SLOT_PENDING    1u
+#define LOG_SLOT_WRITING    2u
+#define LOG_SLOT_READING    4u
+
 static void log_to_ring(struct omx_clap_instance *in, const char *msg)
 {
+    uint32_t state = atomic_load_explicit(&in->log_pending, memory_order_relaxed);
     size_t i = 0;
 
     // one lock-free slot, written by whoever logs, drained by the control thread's tick; a message that arrives before
-    // the drain replaces the last, and nothing is ever written on the RT beyond it
+    // the drain replaces the last, and nothing is ever written on the RT beyond it. A writer claims the slot first: while
+    // another thread writes it or the tick reads it the message is dropped, never waited for nor written over the other
+    do
+    {
+        if (state & (LOG_SLOT_WRITING | LOG_SLOT_READING))
+            return;
+    } while (!atomic_compare_exchange_weak_explicit(&in->log_pending, &state, LOG_SLOT_WRITING, memory_order_acquire,
+                                                    memory_order_relaxed));
     if (msg)
     {
         for (; i < sizeof(in->log_ring) - 1 && msg[i]; i++)
             in->log_ring[i] = msg[i];
         in->log_ring[i] = '\0';
     }
-    atomic_store_explicit(&in->log_pending, 1u, memory_order_release);
+    atomic_store_explicit(&in->log_pending, LOG_SLOT_PENDING, memory_order_release);
 }
 
 static void host_log(const clap_host_t *host, clap_log_severity severity, const char *msg)
@@ -3064,10 +3077,20 @@ void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role 
     while (state != OMX_CLAP_IDLE && state != OMX_CLAP_STOPPED && state != OMX_CLAP_HELD
            && !atomic_compare_exchange_weak(&in->stage.state, &state, OMX_CLAP_HELD))
         ;
-    while (atomic_load(&in->stage.in_cycle) && waited < CLAP_HOST_ROLE_TIMEOUT_US)
+    // the cycle under way is waited out however long it runs: the plugin is never called from two threads at once. Past
+    // CLAP_HOST_ROLE_TIMEOUT_US the wait is said once, when it ends
+    while (atomic_load(&in->stage.in_cycle))
     {
         usleep(CLAP_HOST_ROLE_POLL_US);
         waited += CLAP_HOST_ROLE_POLL_US;
+    }
+    if (waited >= CLAP_HOST_ROLE_TIMEOUT_US)
+    {
+        char line[96];
+
+        snprintf(line, sizeof(line), "the control thread waited %u ms for process() to return before calling the plugin",
+                 waited / 1000u);
+        log_to_ring(in, line);
     }
 
     role->state = state;
@@ -4161,10 +4184,18 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
     // are each said once, so a plugin that logs every tick neither starves them nor is starved for long
     if (!atomic_load_explicit(&in->log_fresh, memory_order_acquire) && unoffered_say(in))
         atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
-    else if (atomic_exchange_explicit(&in->log_pending, 0u, memory_order_acquire))
+    else
     {
-        snprintf(in->last_log, sizeof(in->last_log), "%s", in->log_ring);
-        atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
+        // a message that waits, claimed for the read: one being written waits for the next tick
+        uint32_t pending = LOG_SLOT_PENDING;
+
+        if (atomic_compare_exchange_strong_explicit(&in->log_pending, &pending, LOG_SLOT_READING, memory_order_acquire,
+                                                    memory_order_relaxed))
+        {
+            snprintf(in->last_log, sizeof(in->last_log), "%s", in->log_ring);
+            atomic_store_explicit(&in->log_pending, 0u, memory_order_release);
+            atomic_store_explicit(&in->log_fresh, 1u, memory_order_release);
+        }
     }
     if (atomic_exchange_explicit(&in->latency_changed, 0u, memory_order_relaxed) && in->active && in->latency)
         publish_latency(in);
