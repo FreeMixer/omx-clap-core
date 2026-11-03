@@ -50,7 +50,9 @@ arm after-activate "on a client that was not yet active" \
     's/    if (jack_activate(g_jack_global_client) != 0)/    if (jack_activate(g_jack_global_client) != 0 || jack_set_xrun_callback(g_jack_global_client, xrun_cb, g_jack_global_client))/'
 arm callback-counts-nothing "the first xrun is written at once" \
     's|        xrun_report_note(&g_xruns);|        (void)0;|'
-arm clock-in-microseconds "three more inside the second wait" \
+# a clock whose seconds weigh a thousand times too much lets a line through at each turn of the wall clock's second, so the
+# arm is red on one of the two checks of the second between lines, which one by where the run falls in that second
+arm clock-in-microseconds "(three more inside the second wait|the two lines are [0-9]+ ms apart)" \
     's|(uint64_t)now.tv_sec \* 1000u|(uint64_t)now.tv_sec * 1000000u|'
 arm no-tick "the first xrun is written at once" \
     's|^    xruns_feedback();|    (void)xruns_feedback;|'
