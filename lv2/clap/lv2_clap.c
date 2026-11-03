@@ -1121,15 +1121,109 @@ static inline void leg_copy(float *dst, const float *src, uint32_t n)
         memset(dst, 0, n * sizeof(float));
 }
 
+/* A host buffer a port can run on: the instance's own memory is aligned to 16 bytes and a plugin may rely on it */
+static inline int buffer_fits(const float *p)
+{
+    return p && ((uintptr_t)p & 15u) == 0;
+}
+
+static inline int blocks_overlap(const float *a, const float *b, uint32_t n)
+{
+    return a < b + n && b < a + n;
+}
+
+/* one input port: on the host's buffer when it can be, else on `own` with the samples copied or silence */
+static inline void input_place(struct shim *s, int direct, uint32_t port, float *own, const float *src, uint32_t n)
+{
+    if (direct && buffer_fits(src))
+    {
+        lv2_instance_port_bind(s->in, port, (float *)src);
+        return;
+    }
+    if (direct)
+        lv2_instance_port_bind(s->in, port, own);
+    leg_copy(own, src, n);
+}
+
+/* May output port `port` of a direct instance take `dst`? Not a block some input is on, except one and the same buffer as
+ * the input of its own channel on a plugin not flagged lv2:inPlaceBroken (`own_in`, the port of that input, -1: none); not
+ * a block an output placed before it is on (`placed`, of `n_placed`). */
+static int output_takes(const struct shim *s, const float *dst, int64_t own_in, const uint32_t *placed, uint32_t n_placed, uint32_t n)
+{
+    const struct lv2_plugin *l = s->lv2;
+    uint32_t i, c;
+
+    for (i = 0; i < n_placed; i++)
+        if (blocks_overlap(dst, lv2_instance_port_bound(s->in, placed[i]), n))
+            return 0;
+    for (c = 0; c < l->in_legs; c++)
+    {
+        const float *q = lv2_instance_port_bound(s->in, l->main_in.port[c]);
+
+        if (blocks_overlap(dst, q, n) && (l->in_place_broken || q != dst || (int64_t)l->main_in.port[c] != own_in))
+            return 0;
+    }
+    for (i = 0; i < l->n_aux_in; i++)
+        for (c = 0; c < l->aux_in[i].n; c++)
+            if (blocks_overlap(dst, lv2_instance_port_bound(s->in, l->aux_in[i].port[c]), n))
+                return 0;
+    return 1;
+}
+
+/* every audio output of a direct instance on the host's buffer of its channel where it can be, else on its own memory */
+static void outputs_place(struct shim *s, const clap_process_t *process, uint32_t n)
+{
+    const struct lv2_plugin *l = s->lv2;
+    const clap_audio_buffer_t *b = process->audio_outputs_count ? &process->audio_outputs[0] : NULL;
+    uint32_t placed[LV2_CORE_PORT_CHANNELS * (1u + LV2_CORE_AUX_PORTS)];
+    uint32_t n_placed = 0, leg, c;
+
+    for (leg = 0; leg < l->legs && !l->passthrough; leg++)
+    {
+        const uint32_t port = l->main_out.port[leg];
+        float *dst = host_channel(b, leg);
+        const int64_t own_in = leg < l->in_legs ? (int64_t)l->main_in.port[leg] : -1;
+
+        lv2_instance_port_bind(s->in, port, buffer_fits(dst) && output_takes(s, dst, own_in, placed, n_placed, n)
+                                                ? dst : lv2_instance_audio_out(s->in, leg));
+        placed[n_placed++] = port;
+    }
+    for (leg = 0; leg < l->n_aux_out; leg++)
+    {
+        const clap_audio_buffer_t *a = process->audio_outputs_count > 1u + leg ? &process->audio_outputs[1u + leg] : NULL;
+
+        for (c = 0; c < l->aux_out[leg].n; c++)
+        {
+            const uint32_t port = l->aux_out[leg].port[c];
+            float *dst = host_channel(a, c);
+
+            lv2_instance_port_bind(s->in, port, buffer_fits(dst) && output_takes(s, dst, -1, placed, n_placed, n)
+                                                    ? dst : lv2_instance_aux_out(s->in, leg, c));
+            placed[n_placed++] = port;
+        }
+    }
+}
+
+/* one host output channel after the run: the plugin's port wrote it already, or it is copied from where the port is */
+static inline void output_collect(const struct shim *s, float *dst, uint32_t port, uint32_t n)
+{
+    const float *from = lv2_instance_port_bound(s->in, port);
+
+    if (dst && dst != from)
+        memcpy(dst, from, n * sizeof(float));
+}
+
 static clap_process_status plugin_process(const clap_plugin_t *plugin, const clap_process_t *process)
 {
     struct shim *s = SHIM_OF(plugin);
     const uint32_t n = process->frames_count, legs = s->lv2->legs, m = main_inputs(s->lv2);
     struct lv2_counters c;
     uint32_t leg;
+    int direct;
 
     if (!s->active || s->broken || n > s->max_frames)
         return CLAP_PROCESS_ERROR;
+    direct = lv2_instance_direct(s->in);
     // the fixed block length the plugin was promised: a cycle of another length is the host's fault, refused here
     // and said on the main thread, and the plugin never runs on it
     if (s->fixed_block && n != s->max_frames)
@@ -1141,7 +1235,6 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     }
     for (leg = 0; leg < s->lv2->in_legs; leg++)
     {
-        float *dst = lv2_instance_audio_in(s->in, leg);
         const clap_audio_buffer_t *b = process->audio_inputs_count ? &process->audio_inputs[0] : NULL;
 
         // a channel the host does not hand reads silence, except a mono buffer on a main pair, which feeds both legs
@@ -1149,7 +1242,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
                          : leg < b->channel_count ? b->data32[leg]
                          : s->lv2->in_legs <= 2 ? b->data32[0] : NULL;
 
-        leg_copy(dst, src, n);
+        input_place(s, direct, s->lv2->main_in.port[leg], lv2_instance_audio_in(s->in, leg), src, n);
     }
     for (leg = 0; leg < s->lv2->n_aux_in; leg++)
     {
@@ -1157,7 +1250,7 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         uint32_t c;
 
         for (c = 0; c < s->lv2->aux_in[leg].n; c++)
-            leg_copy(lv2_instance_aux_in(s->in, leg, c), host_channel(b, c), n);
+            input_place(s, direct, s->lv2->aux_in[leg].port[c], lv2_instance_aux_in(s->in, leg, c), host_channel(b, c), n);
     }
     for (leg = 0; leg < s->lv2->n_cv_in; leg++)
     {
@@ -1166,6 +1259,9 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
 
         leg_copy(lv2_instance_cv_in(s->in, leg), host_channel(b, 0), n);
     }
+    // every input is placed: the outputs can be checked against them
+    if (direct)
+        outputs_place(s, process, n);
     {
         struct lv2_time tm;
 
@@ -1204,8 +1300,9 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     {
         const clap_audio_buffer_t *b = &process->audio_outputs[0];
 
+        // a channel past the plugin's own takes its first leg, which is where a connected output already wrote
         for (leg = 0; leg < b->channel_count; leg++)
-            memcpy(b->data32[leg], lv2_instance_audio_out(s->in, leg < legs ? leg : 0), n * sizeof(float));
+            output_collect(s, b->data32[leg], s->lv2->main_out.port[leg < legs ? leg : 0], n);
     }
     for (leg = 0; leg < s->lv2->n_aux_out; leg++)
     {
@@ -1215,8 +1312,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
         // a channel past the plugin's own is silence
         for (c = 0; b && b->data32 && c < b->channel_count; c++)
         {
-            if (b->data32[c])
-                leg_copy(b->data32[c], c < s->lv2->aux_out[leg].n ? lv2_instance_aux_out(s->in, leg, c) : NULL, n);
+            if (!b->data32[c])
+                continue;
+            if (c < s->lv2->aux_out[leg].n)
+                output_collect(s, b->data32[c], s->lv2->aux_out[leg].port[c], n);
+            else
+                memset(b->data32[c], 0, n * sizeof(float));
         }
     }
     for (leg = 0; leg < s->lv2->n_cv_out; leg++)

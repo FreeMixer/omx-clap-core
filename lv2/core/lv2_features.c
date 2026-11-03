@@ -430,9 +430,9 @@ int lv2_feature_offered_within(const struct omx_lv2_feature_options *o, uint32_t
 
     if (instance_kind_of(uri) >= 0)
         return (allowed & (1u << instance_kind_of(uri))) != 0;
-    // lv2:inPlaceBroken is a property some plugins spell as a requirement: every port of an instance is connected to
-    // the instance's own memory, the inputs and the outputs apart, so in-place is never asked of a plugin
-    // (lv2_instance.c) and the demand is met by construction, whatever the options
+    // lv2:inPlaceBroken is a property some plugins spell as a requirement: an output that would share memory with an
+    // input goes on the instance's own memory (docs/fast-path.md), so in-place is never asked of such a plugin and the
+    // demand is met whatever the options
     if (uri && strcmp(uri, LV2_CORE__inPlaceBroken) == 0)
         return 1;
     if (k == F_BOUNDED)
