@@ -1219,26 +1219,32 @@ static void t_no_copy(void)
 /* a plugin that writes its own input (in place, without an in_place_pair) as the chain's first member: a block that
  * falls back on the dry input (a process error) and a block that fades in from it read the input as it was before the
  * plugin ran, never what the plugin left there, and the chain's input is not written on either; the chain equals the
- * same members in series whose plugin leaves its input alone, bit for bit */
+ * same members in series whose plugin leaves its input alone, bit for bit. The same members in series whose plugin
+ * writes its input (each run alone, by the two-leg body) equal them too */
 static void t_input_written(void)
 {
     static const struct spec two[] = { { K_PASS, 0 }, { K_COMP, 0 } };
-    struct set a, b;
+    struct set a, b, s;
     struct io io;
     struct omx_clap_chain *chain;
-    float *kept[CH];
-    uint32_t k, c, equal = 0, kept_in = 0;
+    float *kept[CH], *alone[CH];
+    uint32_t k, c, equal = 0, kept_in = 0, equal_alone = 0;
 
     set_new(&a, two, 2, 0);
     set_new(&b, two, 2, 0);
+    set_new(&s, two, 2, 0);
     io_new(&io);
     for (c = 0; c < CH; c++)
+    {
         kept[c] = block_new();
+        alone[c] = block_new();
+    }
     chain = chain_of(&a, 0, NULL, NULL);
     wrap(a.m[0].instance, 0);
     wrap(b.m[0].instance, 1);
-    g_wrap[0].scribble = 1;     // the chain's plugin writes its input; the one in series does not
-    g_wrap[0].fail_call = g_wrap[1].fail_call = 1;
+    wrap(s.m[0].instance, 2);
+    g_wrap[0].scribble = g_wrap[2].scribble = 1;    // the chain's plugin and the one alone write their input
+    g_wrap[0].fail_call = g_wrap[1].fail_call = g_wrap[2].fail_call = 1;
     // block 0: the plugin's process error, its input passed; block 1: the fade back in from the dry input; then steady
     for (k = 0; k < 4; k++)
     {
@@ -1249,20 +1255,29 @@ static void t_input_written(void)
         if (k < 2)
             kept_in += same(io.in, kept, 128);
         series(&b, (const float *const *)kept, io.b, 128);
+        series(&s, (const float *const *)kept, alone, 128);
         equal += same(io.a, io.b, 128);
+        equal_alone += same(alone, io.b, 128);
     }
     CHECK(g_wrap[0].calls == 4 && atomic_load(&a.m[0].instance->stage.process_errors) == 1,
           "a plugin that writes its input ran every block, the first an error (%u calls)", g_wrap[0].calls);
     CHECK(equal == 4, "and its dry fallback and its fade in read the input as it was, not what it wrote there: the chain equals the members in series, whose plugin leaves its input alone, bit for bit (%u of 4 blocks)",
           equal);
     CHECK(kept_in == 2, "and the chain's input is not written on either block (%u of 2)", kept_in);
+    CHECK(equal_alone == 4, "and run alone by the two-leg body, the same plugin's fallback and fade in read the input as it was: equal to the plugin that leaves its input alone, bit for bit (%u of 4 blocks)",
+          equal_alone);
     unwrap(a.m[0].instance, 0);
     unwrap(b.m[0].instance, 1);
+    unwrap(s.m[0].instance, 2);
     omx_clap_chain_destroy(chain);
     set_free(&a);
     set_free(&b);
+    set_free(&s);
     for (c = 0; c < CH; c++)
+    {
         free(kept[c]);
+        free(alone[c]);
+    }
     io_free(&io);
 }
 
