@@ -1027,7 +1027,12 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     fake_t *fake = plugin->plugin_data;
     const clap_audio_buffer_t *in = &process->audio_inputs[0];
     clap_audio_buffer_t *out = &process->audio_outputs[0];
+    const char *slow = getenv("FAKE_SLOW_PROCESS_MS");
     uint32_t c, i;
+
+    // FAKE_SLOW_PROCESS_MS: each block takes that long, as a plugin stuck in its process does
+    if (slow)
+        usleep((useconds_t)atoi(slow) * 1000u);
 
     fake->process_calls++;
     if (fake->thread_check && !fake->logged_off_role && !fake->thread_check->is_audio_thread(fake->host))
