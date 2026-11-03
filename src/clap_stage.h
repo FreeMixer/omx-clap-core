@@ -2290,7 +2290,10 @@ static inline int omx_clap_outs_finite(const struct omx_clap_stage *s, float *co
  * crossfades between them and `ins` onto `outs`, so the fade reads the same samples it read there; a steady block copies
  * its output into the bounce, so a block the control thread holds or stops the stage for fades from it as there. The
  * plugin is never handed one buffer as both its input and its output, whatever its in_place_pair says: the input is
- * the dry the guards fall back on. `defer` nonzero leaves the clamp of the main output to the caller (the chain clamps
+ * the dry the guards fall back on. On a change of body the plugin is handed a copy of `ins` in the bounce's input legs,
+ * so the dry the fade reads, and the input an unusable block passes, are the input as it was before process() even
+ * for a plugin that writes its input buffer; a steady block hands it `ins` itself, no copy made, and a plugin that
+ * writes its input and then fails a steady block passes what it left there. `defer` nonzero leaves the clamp of the main output to the caller (the chain clamps
  * its output once, omx_clap_chain_process), save on a block the control thread holds or stops the stage for, whose fade
  * from the kept output is clamped here; the scan for non-finite output is never deferred, so no member after this one
  * is handed a NaN or an infinity of its. A stage whose guards scan nothing never defers its clamp: the clamp holds a NaN
@@ -2351,7 +2354,14 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
     }
     steady = steady && want_wet;
     wet = steady ? outs : bounce_out;
-    main_in->data32 = (float **)(uintptr_t)ins;
+    if (steady)
+        main_in->data32 = (float **)(uintptr_t)ins;
+    else
+        // a change of body fades between the plugin's output and `ins`: the plugin is handed a copy of the input in the
+        // bounce, so one that writes its input (in place, with no in_place_pair) leaves the dry this block fades from,
+        // or falls back on, as it was, and never writes the caller's buffer on such a block
+        for (c = 0; c < s->h.n_in; c++)
+            memcpy(bounce_in[c], ins[c], n * sizeof(float));
     s->aout[0].data32 = (float **)(uintptr_t)wet;
     if (t && rec && rec->flags)
     {
