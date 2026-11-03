@@ -62,8 +62,8 @@ int main(int argc, char **argv)
         return 1;
     }
     if (bytes)
-        ret = layout_pin_write(plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), print_sink, stdout, NULL);
-    else if ((ret = layout_pin_write(plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), NULL, NULL, hex)) == 0)
+        ret = layout_pin_write(NULL, plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), print_sink, stdout, NULL);
+    else if ((ret = layout_pin_write(NULL, plugin, plugin->get_extension(plugin, CLAP_EXT_PARAMS), NULL, NULL, hex)) == 0)
         printf("%s:%s\n", PHD_PIN_LAYOUT_SCHEME, hex);
     plugin->destroy(plugin);
     omx_clap_raw_close(&raw);
