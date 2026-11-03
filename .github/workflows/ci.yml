@@ -75,8 +75,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: make private-refs
-        run: make private-refs
+      # FreeMixer/.github's one engine; this repository exempts no file
+      - name: No tracked file names a private repository, issue, branch or path
+        uses: FreeMixer/.github/.github/actions/private-refs-check@v1
 
       # the shared checks run from FreeMixer/.github; no copy of a checker, a pattern list or the commit-msg hook is kept
       - name: No tracked file is a copy of a shared check
@@ -1122,7 +1123,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-      # @main until FreeMixer/.github moves v1 past the action
-      - uses: FreeMixer/.github/.github/actions/commit-message-check@main
+      - uses: FreeMixer/.github/.github/actions/commit-message-check@v1
         with:
           base-ref: ${{ github.event.pull_request.base.ref }}

@@ -376,12 +376,6 @@ version-check:
 	else echo "FAIL VERSION says $(VERSION), the spec says $$spec, debian/changelog says $$deb"; exit 1; fi
 
 # clean rule
-# No tracked file points into a private repository, issue, branch or path (tools/private-refs-check.sh, with its --self-test).
-.PHONY: private-refs
-private-refs:
-	tools/private-refs-check.sh
-	tools/private-refs-check.sh --self-test
-
 .PHONY: docs
 # the C API reference by doxygen, from the installed headers' docstrings; build-time only
 docs: $(CORE_HEADERS) Doxyfile
