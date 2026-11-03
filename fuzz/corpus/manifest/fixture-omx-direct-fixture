@@ -1,0 +1,31 @@
+!urn:openmixer:test:direct-fixture# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+# The no-copy adapter's test plugins (lv2_direct_fixture.c): every plugin of the TTL is listed here, as lilv reads only the
+# plugins a manifest names.
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<urn:openmixer:test:direct-fixture>
+    a lv2:Plugin ;
+    lv2:binary <omx-direct-fixture.so> ;
+    rdfs:seeAlso <omx-direct-fixture.ttl> .
+
+<urn:openmixer:test:direct-fixture#plain>
+    a lv2:Plugin ;
+    lv2:binary <omx-direct-fixture.so> ;
+    rdfs:seeAlso <omx-direct-fixture.ttl> .
+
+<urn:openmixer:test:direct-fixture#worker>
+    a lv2:Plugin ;
+    lv2:binary <omx-direct-fixture.so> ;
+    rdfs:seeAlso <omx-direct-fixture.ttl> .
+
+<urn:openmixer:test:direct-fixture#broken>
+    a lv2:Plugin ;
+    lv2:binary <omx-direct-fixture.so> ;
+    rdfs:seeAlso <omx-direct-fixture.ttl> .
+
+<urn:openmixer:test:direct-fixture#empty>
+    a lv2:Plugin ;
+    lv2:binary <omx-direct-fixture.so> ;
+    rdfs:seeAlso <omx-direct-fixture.ttl> .
