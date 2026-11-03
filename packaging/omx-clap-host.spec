@@ -46,6 +46,7 @@ wrapper process. The LV2 adapter linked into the host maps the host interface,
 presenting the plugin's ports and controls as CLAP ports and parameters. It
 comes with omx-clap-scan, which lists what is in a CLAP bundle and survives a
 plugin that crashes while loading.
+Its documentation is on openmixer.org.
 
 %package tests
 Summary: Fixtures to test a program that drives omx-clap-host
@@ -60,6 +61,7 @@ into up to six effects and records each of them from the same cycles. They are i
 directories CLAP hosts scan, and are of no use to anyone else.
 socket_conformance.py, beside them, checks how any server of the mod-host
 socket protocol splits what it receives into commands.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-core
 Summary: The engine that runs CLAP plugins for omx-clap-host, as a library
@@ -71,6 +73,7 @@ The library that loads and runs CLAP plugins: it checks a plugin before using
 it, activates and warms it up, keeps its parameters and saved state, and runs
 its audio on the thread of the program that hosts it. It knows nothing about
 JACK or sockets, so a program of your own can host CLAP plugins on it as well.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-core-devel
 Summary: Build a program that hosts CLAP plugins on omx-clap-core
@@ -88,6 +91,7 @@ Requires: pkgconfig
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
 headers, the pkg-config file, and the list of functions the library promises
 to keep, with the baseline each release is checked against.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-core-contract
 Summary: omx-clap-core's definitions in omx-contract's contract directory
@@ -103,6 +107,7 @@ omx-clap-core's definitions as files in omx-contract's contract directory,
 for any program that reads them at run time: the hosting limits and refusal
 codes, and the verbs omx-clap-host and plugin-hostd answer, with their
 formats, replies, refusal codes and what each host owes each verb.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-lv2-devel
 Summary: The LV2 adapter of omx-clap-host, as a static library to link
@@ -121,6 +126,7 @@ with its header and pkg-config file, linked at build time, and it loads lilv
 when the first LV2 bundle is opened, so a program that never opens one never
 needs lilv. LV2 at run time is omx-clap-host with lilv-libs, which
 plugin-hostd also runs as the worker of an LV2 plugin.
+Its documentation is on openmixer.org.
 
 %prep
 %autosetup
@@ -145,7 +151,6 @@ make test-lv2
 
 %files
 %license COPYING
-%doc README.md
 %{_bindir}/omx-clap-host
 %{_bindir}/omx-clap-scan
 %{_mandir}/man1/omx-clap-host.1*
