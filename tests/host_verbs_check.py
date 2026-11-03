@@ -38,10 +38,12 @@ import plugin_hostd_client  # noqa: E402  plugin-hostd-tests' lib/plugin_hostd_c
 
 HOST = 'omx-clap-host'
 OWNER = 'omx-clap-core'
+# the package of the protocol library, whose verbs file declares chain, preset_list, ... of this host
+PROTOCOL = 'plugin-hostd-protocol'
 # a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
 # once any installed package declares it, the socket checks it as declared
 # (preset_save is registered in plugin-hostd#131's form, <N> <file> <name...>, not mod-host's four-word one)
-AWAITING = {'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd', 'preset_save': 'plugin-hostd', 'preset_show': 'plugin-hostd'}
+AWAITING = {'preset_list': PROTOCOL, 'preset_get': PROTOCOL, 'preset_save': PROTOCOL, 'preset_show': PROTOCOL}
 
 # per verb: the words after the verb of a well-formed line, and malformed lines with the code each must answer.
 # {fx} is the passthrough instance (no note input, two remote pages, a parameter contract), {synth} the synth.
@@ -68,7 +70,7 @@ EXAMPLES = {
     'idle_hold': ([], [(['a', 'b'], 'invalidOperation')]),
     'note_drops': (['{synth}'], [(['9'], 'instanceNonExists')]),
     'note_out_drops': (['{synth}'], [(['9'], 'instanceNonExists')]),
-    # the verbs of plugin-hostd's package that name this host, checked once that package is installed beside this one
+    # the verbs of the protocol library's package that name this host, checked once that package is installed beside this one
     'chain': (['1', '{fx}', '{fx2}'], [(['x', '{fx}'], 'invalidOperation'), (['1', '{fx}', '{fx}'], 'invalidOperation')]),
     'preset_list': (['{fx}'], []),
     'preset_get': (['{fx}', '0'], []),
@@ -223,8 +225,8 @@ def main():
         print('host_verbs_check: no verb of %s for %s under %s' % (OWNER, HOST, o.contract_path), file=sys.stderr)
         return 2
     # a package the host's registrations lean on must be installed, else its verbs are never driven (#361)
-    step('plugin-hostd' in packages(o.contract_path), "plugin-hostd's package is installed under %s: its verbs file declares chain of %s"
-         % (o.contract_path, HOST))
+    step(PROTOCOL in packages(o.contract_path), "%s's package is installed under %s: its verbs file declares chain of %s"
+         % (PROTOCOL, o.contract_path, HOST))
     print('host_verbs_check: %d verbs name %s, %d of them %s\'s, from %s' % (len(verbs), HOST, len(mine), OWNER, o.contract_path))
 
     # the reverse: what the host registers is what is declared for it

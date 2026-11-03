@@ -26,19 +26,21 @@ CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-
 
 PKG_CONFIG ?= pkg-config
 
-# mod-host protocol library: pkg-config when it is installed, a mod-host checkout otherwise
-ifeq ($(shell $(PKG_CONFIG) --exists mod-host-protocol && echo true), true)
-PROTOCOL_CFLAGS = $(shell $(PKG_CONFIG) --cflags mod-host-protocol)
-PROTOCOL_LIBS = $(shell $(PKG_CONFIG) --libs mod-host-protocol)
+# the protocol library, plugin-hostd-protocol (0.2.0 or later): the socket, the line protocol and the dispatch, and the
+# declared protocol, <plugin-hostd/protocol.h> and the verb headers it includes. pkg-config when it is installed, a
+# checkout of it otherwise (whose data/ is also the verbs package test-host-verbs reads when none is installed)
+PROTOCOL_DIR ?= ../plugin-hostd-protocol
+ifeq ($(shell $(PKG_CONFIG) --exists plugin-hostd-protocol && echo true), true)
+PROTOCOL_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd-protocol)
+PROTOCOL_LIBS = $(shell $(PKG_CONFIG) --libs plugin-hostd-protocol)
 else
-MOD_HOST_DIR ?= ../wt-mod-host-clap
-PROTOCOL_LIB = $(MOD_HOST_DIR)/libmod-host-protocol.so
-PROTOCOL_CFLAGS = -I$(MOD_HOST_DIR)/src
+PROTOCOL_LIB = $(PROTOCOL_DIR)/libplugin-hostd-protocol.so
+PROTOCOL_CFLAGS = -I$(PROTOCOL_DIR)/include
 # the checkout's library is not installed: the binary finds it there through its rpath
-PROTOCOL_LIBS = -L$(MOD_HOST_DIR) -lmod-host-protocol -Wl,-rpath,$(abspath $(MOD_HOST_DIR))
+PROTOCOL_LIBS = -L$(PROTOCOL_DIR) -lplugin-hostd-protocol -Wl,-rpath,$(abspath $(PROTOCOL_DIR))
 endif
 
-# plugin-hostd's protocol and pin headers: pkg-config when plugin-hostd-devel is installed, a plugin-hostd checkout otherwise
+# plugin-hostd's pin header: pkg-config when plugin-hostd-devel is installed, a plugin-hostd checkout otherwise
 PLUGIN_HOSTD_DIR ?= ../plugin-hostd
 ifeq ($(shell $(PKG_CONFIG) --exists plugin-hostd && echo true), true)
 PLUGIN_HOSTD_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd)
@@ -121,14 +123,9 @@ CORE_LINK_TEST = -L. -l$(CORE) -Wl,-rpath,$(CURDIR)
 # libraries
 LIBS = $(JACK_LIBS) -ldl -lpthread -lm
 
-# include paths
+# include paths: the protocol library's first, so <plugin-hostd/protocol.h> and the verb headers are its own whatever
+# plugin-hostd tree gives pin.h
 INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
-# plugin-hostd's include tree searched after every other, for its verb declarations alone (preset_list and preset_get,
-# which plugin-hostd 0.13 and later install): a build whose pin.h comes from an older plugin-hostd still answers them
-PLUGIN_HOSTD_VERBS_DIR ?=
-ifneq ($(PLUGIN_HOSTD_VERBS_DIR),)
-INCS += -idirafter $(PLUGIN_HOSTD_VERBS_DIR)
-endif
 
 LDFLAGS += -Wl,--no-undefined
 
@@ -177,7 +174,7 @@ $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
-	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
+	$(MAKE) -C $(PROTOCOL_DIR) libplugin-hostd-protocol.so
 endif
 
 $(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
@@ -964,17 +961,20 @@ test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/f
 # of its own (tests/host_verbs_e2e.sh): data/ installed into build/verbs-contract as the package installs it, unless
 # OMX_CONTRACT_PATH names the contract directories to read (the packaging job's installed one)
 HOST_VERBS_CONTRACT = $(abspath build/verbs-contract)
-# the plugin-hostd tree whose data/ is the package read beside this one: the checkout of PLUGIN_HOSTD_DIR, or the release
-# checkout CI names (the tag that ships the verbs file)
-PLUGIN_HOSTD_CONTRACT_DIR ?= $(PLUGIN_HOSTD_DIR)
-PLUGIN_HOSTD_VERSION = $(shell sed -n 's/^Version: *//p' $(PLUGIN_HOSTD_CONTRACT_DIR)/packaging/plugin-hostd.spec)
+# the protocol library's package read beside this one, whose verbs file declares chain, preset_list, ... of this host:
+# the installed one (plugin-hostd-protocol-contract), else the data/ of the checkout PROTOCOL_DIR names
+PROTOCOL_CONTRACT_INSTALLED = $(wildcard $(CONTRACTDIR)/$(CONTRACT_SCHEMA_MAJOR)/plugin-hostd-protocol/verbs.json)
 .PHONY: test-host-verbs test-host-verbs-sabotage host-verbs-contract
 host-verbs-contract:
 	rm -rf $(HOST_VERBS_CONTRACT)
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(HOST_VERBS_CONTRACT)
-	@# every other package that names omx-clap-host in its verbs file (plugin-hostd's: chain, preset_list, ...) is read too (#361)
-	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PLUGIN_HOSTD_CONTRACT_DIR)/data/verbs.json && test -n "$(PLUGIN_HOSTD_VERSION)" || { echo "host-verbs-contract: no plugin-hostd checkout at $(PLUGIN_HOSTD_CONTRACT_DIR) (PLUGIN_HOSTD_CONTRACT_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
-	sh $(INSTALL_CONTRACT_DIR) plugin-hostd $(PLUGIN_HOSTD_VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PLUGIN_HOSTD_CONTRACT_DIR)/data $(HOST_VERBS_CONTRACT) data
+	@# every other package that names omx-clap-host in its verbs file (the protocol library's: chain, preset_list, ...) is read too (#361)
+ifneq ($(PROTOCOL_CONTRACT_INSTALLED),)
+	cp -r $(dir $(PROTOCOL_CONTRACT_INSTALLED)) $(HOST_VERBS_CONTRACT)/$(CONTRACT_SCHEMA_MAJOR)/
+else
+	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PROTOCOL_DIR)/data/verbs.json && test -f $(PROTOCOL_DIR)/VERSION || { echo "host-verbs-contract: no plugin-hostd-protocol-contract installed and no plugin-hostd-protocol checkout at $(PROTOCOL_DIR) (PROTOCOL_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
+	sh $(INSTALL_CONTRACT_DIR) plugin-hostd-protocol $(shell cat $(PROTOCOL_DIR)/VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PROTOCOL_DIR)/data $(HOST_VERBS_CONTRACT) data
+endif
 test-host-verbs: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_e2e.sh
 
@@ -996,12 +996,12 @@ test-protocol-library: $(PROG)
 # what the tests read of the verbs data/verbs.json declares, from the header over its renders (src/host_verbs.h) and
 # the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
 HASH := \#
-host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 HOST_PIN_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
 HOST_INFO_DECLARED = $(foreach n,OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
 HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
-# what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
-phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+# what the tests behind plugin-hostd read of the daemon's protocol, from the protocol library's header
+phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE OMX_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED OMX_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
 PHD_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_PLUGIN_HOSTD_PIN_BINARY_MISMATCH_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT OMX_VERB_PIN_SET OMX_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
 

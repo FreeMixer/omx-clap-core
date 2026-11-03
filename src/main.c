@@ -47,11 +47,9 @@
 #include "protocol.h"
 #include "effects.h"
 #include "host_verbs.h"
-// preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from its
-// declaration, which plugin-hostd 0.13 and later install; a build against older headers answers none (omx-clap-core#383)
-#if __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
-#include <plugin-hostd/plugin_hostd_host_verbs.h>
-#endif
+// preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from the
+// protocol library's declaration
+#include <plugin-hostd/plugin_hostd_protocol_host_verbs.h>
 #include "clap_chain.h"
 #include "quiet_death.h"
 

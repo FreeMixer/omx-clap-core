@@ -44,7 +44,7 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pid=$!
 protocol_wait_ready "$runtime/host.log" || { echo "omx-clap-host did not come up" >&2; cat "$runtime/host.log" >&2; exit 2; }
-echo "omx-clap-host on port $port, protocol library: $(grep -o '/[^ ]*libmod-host-protocol[^ ]*' /proc/$pid/maps | sort -u)"
+echo "omx-clap-host on port $port, protocol library: $(grep -o '/[^ ]*libplugin-hostd-protocol[^ ]*' /proc/$pid/maps | sort -u)"
 
 # shellcheck disable=SC2086
 python3 -I "$here/socket_conformance.py" --port "$port" --pid "$pid" ${SOCKET_CONFORMANCE_ARGS:-}

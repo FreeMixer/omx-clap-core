@@ -21,7 +21,7 @@ concurrency:
 env:
   # plugin-hostd from the release we ship: its protocol and pin headers, the daemon the pin test runs behind, the verbs
   # file the host verbs test reads and the tests' lib/ (protocol.sh, plugin_hostd_client.py) all come from this one tag
-  PLUGIN_HOSTD_REF: v0.15.9
+  PLUGIN_HOSTD_REF: v0.16.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
 
@@ -135,15 +135,18 @@ jobs:
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
-      # its install script data/ (the hosting codes) installs with, from the OpenMixer channel; mod-host, the LV2 identity test's reference arm;
+      # its install script data/ (the hosting codes) installs with, from the OpenMixer channel; the protocol library
+      # (plugin-hostd-protocol-devel, its declared protocol, and its verbs package); mod-host, the LV2 identity test's reference arm;
       # and omx-plugins-devel, whose omx_panel_description.h is the ABI test-panel-abi holds src/omx_clap_ext.h to
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
-      - name: Install omx-dsp-devel, omx-contract-devel, mod-host and omx-plugins-devel from the OpenMixer channel
+      - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' mod-host omx-plugins-devel \
+            'plugin-hostd-protocol-devel >= 0.2.0' plugin-hostd-protocol-contract
+          pkg-config --atleast-version=0.2.0 plugin-hostd-protocol
           pkg-config --modversion omxdsp
           pkg-config --atleast-version=3.3.0 omx-contract
           pkg-config --modversion omxplugins
@@ -153,9 +156,6 @@ jobs:
 
       - name: Every source names its licence
         run: bash tests/spdx-check.sh
-
-      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
-      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -383,8 +383,8 @@ jobs:
 
       # The command socket's framing against tests/socket_conformance.py: a command of exactly the receive buffer, many
       # commands in one write, one command over many writes, clients that leave mid-command, the size limit and a random
-      # chunking fuzz (#103). It checks the protocol library the mod-host-protocol step built, which carries
-      # mod-audio/mod-host#113; the log names the library the host loaded.
+      # chunking fuzz (#103). It checks the installed protocol library, libplugin-hostd-protocol; the log names the
+      # library the host loaded.
       - name: Test the command socket's framing
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
@@ -399,9 +399,9 @@ jobs:
       - name: Test the verbs the declarations name for this host
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            # plugin-hostd's verbs file (chain of omx-clap-host), from the checkout the headers were built from
-            make test-host-verbs PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd
-            make test-host-verbs-sabotage PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd
+            # the protocol library's verbs file (chain of omx-clap-host), from the installed plugin-hostd-protocol-contract
+            make test-host-verbs
+            make test-host-verbs-sabotage
           else
             echo "::warning::test-host-verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
@@ -426,13 +426,11 @@ jobs:
           fi
 
       # preset_list, preset_get and preset_load over the socket: fake_synth's preset-discovery factory and the LV2 fixture
-      # bundle through the adapter. The verbs' declarations are plugin-hostd 0.13's, from the tests checkout, searched
-      # after the pinned headers (omx-clap-core#383).
+      # bundle through the adapter. The verbs' declarations are the protocol library's.
       - name: Test presets through the host over jack
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            touch src/main.c
-            make test-jack-presets PLUGIN_HOSTD_VERBS_DIR=/tmp/plugin-hostd/include
+            make test-jack-presets
           else
             echo "::warning::test-jack-presets SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
@@ -545,24 +543,24 @@ jobs:
             dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h takes its DSP words from, and omx-contract's, the contract directory and
-      # its install script data/ (the hosting codes) installs with, from the OpenMixer channel; mod-host, the LV2 identity test's reference arm;
+      # its install script data/ (the hosting codes) installs with, from the OpenMixer channel; the protocol library
+      # (plugin-hostd-protocol-devel, its declared protocol, and its verbs package); mod-host, the LV2 identity test's reference arm;
       # and omx-plugins-devel, whose omx_panel_description.h is the ABI test-panel-abi holds src/omx_clap_ext.h to
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
-      - name: Install omx-dsp-devel, omx-contract-devel, mod-host and omx-plugins-devel from the OpenMixer channel
+      - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' mod-host omx-plugins-devel \
+            'plugin-hostd-protocol-devel >= 0.2.0' plugin-hostd-protocol-contract
+          pkg-config --atleast-version=0.2.0 plugin-hostd-protocol
           pkg-config --modversion omxdsp
           pkg-config --atleast-version=3.3.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
 
       - uses: actions/checkout@v4
-
-      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
-      - uses: FreeMixer/.github/.github/actions/mod-host-protocol@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -642,12 +640,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
-      - uses: FreeMixer/.github/.github/actions/mod-host-rpms@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
-
-      # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, come from the OpenMixer channel
+      # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, and plugin-hostd-protocol-devel come from
+      # the OpenMixer channel
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      # the protocol library's runtime and verbs packages, for the installed-host steps and the clean root
+      - name: Download the protocol library's RPMs from the OpenMixer channel
+        run: |
+          set -euo pipefail
+          dnf download --destdir protocol-rpms --arch ${{ matrix.arch }} --arch noarch plugin-hostd-protocol plugin-hostd-protocol-contract
+          ls protocol-rpms/plugin-hostd-protocol-[0-9]*.${{ matrix.arch }}.rpm protocol-rpms/plugin-hostd-protocol-contract-[0-9]*.noarch.rpm
 
       - name: Fetch plugin-hostd
         run: |
@@ -689,8 +692,9 @@ jobs:
               /usr/share/doc/omx-clap-host/README.md /usr/share/licenses/omx-clap-host/COPYING | sort > expected.txt
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
-            grep -q 'libmod-host-protocol.so.0' requires.txt
-            grep -qx 'mod-host-protocol(.*) >= 0.10.6.f14a230-11.3' requires.txt
+            grep -q 'libplugin-hostd-protocol.so.0' requires.txt
+            grep -qx 'plugin-hostd-protocol(.*) >= 0.2.0' requires.txt
+            ! grep -q 'mod-host-protocol' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
             # the window links libxcb, so the package requires it (#180)
@@ -705,7 +709,7 @@ jobs:
             diff -u <(sed 's,/usr/lib64/,/usr/lib*/,' files.txt) expected.txt
             # the library names no jack and no protocol library
             rpm -qp --requires "$rpm" | tee requires.txt
-            ! grep -q -e jack -e mod-host requires.txt
+            ! grep -q -e jack -e mod-host -e plugin-hostd-protocol requires.txt
           done
           for rpm in rpms/omx-clap-core-devel-[0-9]*.${{ matrix.arch }}.rpm; do
             rpm -qlp "$rpm"
@@ -796,11 +800,11 @@ jobs:
             return 1
           }
           dnf_retry --setopt=install_weak_deps=False pipewire iproute util-linux python3 \
-            mod-host-rpms/mod-host-protocol-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm \
-            plugin-hostd-rpms/plugin-hostd-contract-[0-9]*.noarch.rpm
+            protocol-rpms/plugin-hostd-protocol-[0-9]*.${{ matrix.arch }}.rpm rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm \
+            protocol-rpms/plugin-hostd-protocol-contract-[0-9]*.noarch.rpm
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
-          # plugin-hostd's verbs file names this host too (chain: required), and the check reads it (#361)
-          rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd/verbs.json | grep -q '^plugin-hostd-contract-'
+          # the protocol library's verbs file names this host too (chain: required), and the check reads it (#361)
+          rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd-protocol/verbs.json | grep -q '^plugin-hostd-protocol-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
@@ -838,8 +842,7 @@ jobs:
       - uses: FreeMixer/.github/.github/actions/install-clean@v1
         with:
           rpms: |
-            mod-host-rpms/mod-host-[0-9]*.rpm
-            mod-host-rpms/mod-host-protocol-[0-9]*.${{ matrix.arch }}.rpm
+            protocol-rpms/plugin-hostd-protocol-[0-9]*.${{ matrix.arch }}.rpm
             rpms/omx-clap-core-[0-9]*.${{ matrix.arch }}.rpm
             rpms/omx-clap-core-contract-[0-9]*.noarch.rpm
             rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm
@@ -852,7 +855,8 @@ jobs:
           grep -q "version: $version\$" v.txt
           chroot /tmp/clean-root ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
-          grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+          grep -q 'libplugin-hostd-protocol\.so\.0 => /' ldd.txt
+          ! grep -q 'libmod-host-protocol' ldd.txt
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           # the LV2 adapter is linked in and loads lilv itself, on the first LV2 add
           ! grep -q 'liblilv' ldd.txt
@@ -915,8 +919,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
+      # the CLAP headers, which the distribution does not carry
       - uses: FreeMixer/.github/.github/actions/deb-deps@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
+        with:
+          names: clap-headers
 
       # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the OpenMixer channel
       - name: Add the OpenMixer repository
@@ -943,6 +949,14 @@ jobs:
           pkg-config --modversion plugin-hostd
 
       - uses: FreeMixer/.github/.github/actions/build-deb@v1
+
+      # the protocol library's runtime package, from the channel, for the smoke test's clean container
+      - name: Download libplugin-hostd-protocol0 from the OpenMixer channel
+        run: |
+          set -euo pipefail
+          mkdir -p dep-debs
+          (cd dep-debs && apt-get download libplugin-hostd-protocol0)
+          ls dep-debs/libplugin-hostd-protocol0_*.deb
 
       # what the smoke test runs the installed package against, built here for the architecture
       - name: Build the smoke test fixtures
@@ -1026,7 +1040,7 @@ jobs:
           name: omx-clap-host-ci-debs-${{ matrix.suite }}-${{ matrix.arch }}
           path: |
             debs/*.deb
-            dep-debs/libmod-host-protocol0_*.deb
+            dep-debs/libplugin-hostd-protocol0_*.deb
             smoke
           if-no-files-found: error
           retention-days: 1
@@ -1057,9 +1071,9 @@ jobs:
           set -euo pipefail
           apt-get update -qq
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
-            ./dep-debs/libmod-host-protocol0_*.deb
-          dpkg -s libmod-host-protocol0 | grep '^Status: install ok installed'
-          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libmod-host-protocol0 (>= 0.1.0-8~omx)'
+            ./dep-debs/libplugin-hostd-protocol0_*.deb
+          dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libplugin-hostd-protocol0 (>= 0.2.0~)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'
@@ -1073,7 +1087,7 @@ jobs:
           grep -q "version: ${version%%~*}\$" v.txt
           ldd /usr/bin/omx-clap-host | tee ldd.txt
           ! grep -q 'not found' ldd.txt
-          grep -q 'libmod-host-protocol\.so\.0 => /' ldd.txt
+          grep -q 'libplugin-hostd-protocol\.so\.0 => /' ldd.txt
           grep -q 'libomx-clap-core\.so\.1 => /' ldd.txt
           # the window links libxcb, and the package's Depends brought it (#180)
           grep -q 'libxcb\.so\.1 => /' ldd.txt
