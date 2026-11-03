@@ -127,3 +127,11 @@ stereo-out reverb has `in_1` and `out_1`, `out_2`; a plugin the LV2 adapter cann
 More: [every command, meters, bypass, port layout, latency and scanning](doc/reference.md), the
 manual pages (`man omx-clap-host`, `man omx-clap-scan`) and <https://www.openmixer.org>.
 Building from source: see [BUILDING.md](BUILDING.md).
+
+How the host was measured and why it is built this way, in the technical notes at <https://openmixer.org/notes>:
+[hosting paths compared](https://openmixer.org/notes/hosting-paths-compared),
+[CPU idle states and plugin hosting](https://openmixer.org/notes/cpu-idle-states-and-plugin-hosting),
+[one JACK client for a chain](https://openmixer.org/notes/one-jack-client-for-a-chain),
+[audio layouts](https://openmixer.org/notes/audio-layouts-and-how-the-host-judges-the-fit),
+[the LV2 adapter against mod-host and jalv](https://openmixer.org/notes/the-lv2-adapter-against-mod-host-and-jalv) and
+[could the host take VST3](https://openmixer.org/notes/could-the-host-take-vst3).

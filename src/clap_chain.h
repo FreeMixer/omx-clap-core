@@ -31,7 +31,7 @@
 * re-reported on every change. omx_clap_chain_remove takes a member out and the chain closes around it;
 * omx_clap_chain_order puts the members in a new order in one walk.
 *
-* The chain is generic: it names no trim, fader, strip or bus. It is not a latency win (docs/bench-chain-2026-10-21.md):
+* The chain is generic: it names no trim, fader, strip or bus. It is not a latency win (https://openmixer.org/notes/one-jack-client-for-a-chain):
 * it saves a JACK client and memory per plugin.
 *
 * Every function is a control-thread call, serialised by the chain's lock, except omx_clap_chain_process, the audio

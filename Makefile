@@ -1313,7 +1313,7 @@ test-lv2-validate: $(LV2_BUNDLES)
 	else echo "lv2_validate or sord_validate is not installed: the fixture bundles were not validated"; fi
 .PHONY: test-lv2-validate
 
-# ---- the hosting-paths bench (docs/bench-hosting-paths-*.md) ----
+# ---- the hosting-paths bench (https://openmixer.org/notes/hosting-paths-compared) ----
 
 # the probe (source and recorder over jack), the in-process host (a PipeWire filter over the core and the adapter) and
 # the bench-only bridge that hands omx-clap-host LV2 plugins through the adapter; none of them is installed

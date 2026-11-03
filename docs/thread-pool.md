@@ -4,13 +4,13 @@
 `request_exec(num_tasks)`, and the host calls the plugin's `exec(plugin, task_index)` once for every index from 0 to
 `num_tasks - 1` before `request_exec` returns. A plugin that splits its voices into tasks then uses as many cores as
 the host gives it. This page states how libomx-clap-core runs those tasks, when it spreads them across cores, and what
-was measured (#395).
+was measured.
 
 **What it gains, and for which plugins.** The pool spreads voices only for a plugin that splits them into tasks. Surge
 XT 1.4.0 does not offer `clap.thread-pool` (no `CLAP_EXT_THREAD_POOL` in its extension list, no `request_exec` in its
 source), and none of the 489 plugin descriptors on the Raspberry Pi 5 of the measurement mentions the extension. For
 every other plugin the cores are used by placement: one worker per instrument or chain, pinned across the cores
-(plugin-hostd#226, not yet built). That, not the pool, is what the Pi gains from first. The pool is the host behaviour
+(plugin-hostd's `placement` setting). That, not the pool, is what the Pi gains from first. The pool is the host behaviour
 the extension specifies, and the gate by qualification stands for the plugins that use it.
 
 ## Two paths
@@ -93,8 +93,7 @@ cost of `omx_clap_host_run` in microseconds, 48000 Hz:
 
 No block went over its budget and no wait was late in any run. "Helper busy" is each helper's time inside tasks over
 the run's wall time. The 512-frame load of 48 voices, 6.6 ms of the 10.7 ms block serial, takes 1.7 ms on the pool.
-The raw per-block costs, the summary and the device are in `docs/evidence/thread-pool-pi5-2026-10-29/`
-(`measure.sh` reruns it).
+
 
 Not measured: a real plugin that requests tasks (none on the device does), the pool under JACK's own thread rather
 than the bench's, voices until the first xrun, and 96 kHz. The fixture's tasks are equal in size and touch no shared

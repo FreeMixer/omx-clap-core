@@ -99,8 +99,7 @@ idle rate (every 20 ms), never from the audio thread:
     param_gesture <N> <param> end
 
 `param_set` is mod-host's feedback line, the value as `%f`; `param_gesture`
-is the shape FreeMixer/plugin-hostd#47 proposes for plugin-hostd's
-vocabulary. `<param>` is what `param_set` takes: the CLAP id, or an LV2
+is the shape plugin-hostd's vocabulary uses. `<param>` is what `param_set` takes: the CLAP id, or an LV2
 control port's symbol. Only a parameter `param_set` takes is reported; a
 read-only one is an output, `monitor_output`'s. Of the values one idle tick
 finds for a parameter, the last goes out, before a gesture on it. The plugin
@@ -285,6 +284,13 @@ width (a mono input with a stereo output, a 5.1 pair); every channel of the
 main pair is one jack port, `in_1` to `in_<n>` and `out_1` to `out_<n>`. A
 plugin with a note input, an instrument, may have no audio input: it then
 has `out_<k>` only.
+
+An LV2 plugin's ports are read into this layout by the rules of
+`docs/lv2-compatibility.md` (the rows "Audio, any other layout" and "Port groups"):
+which port is the main one on each side, which are auxiliary, and the channel
+map of each LV2 group type. Why the host describes every port and lets the
+carrier judge the fit, with the survey behind the rules, is the technical note
+[Audio layouts](https://openmixer.org/notes/audio-layouts-and-how-the-host-judges-the-fit).
 
 A plugin with one CLAP note input port gets one jack MIDI input port on its
 client, `effect_<N>:midi_in`. The host reads its jack events on the audio
@@ -739,7 +745,7 @@ draft ids too.
   activate is.
 
 Tuning (`clap.tuning`, a draft) is not offered: the host has no tuning of
-its own to share yet (#186).
+its own to share yet.
 
 `clap.event-registry`: the host reads no event space but CLAP's core one,
 so `query` answers false for every space a plugin names, and the plugin
@@ -825,7 +831,7 @@ none: the host never creates a plugin through it.
 `omx_clap_host_preset_load_key(in, kind, location, load_key)` loads a listed
 preset through the plugin's `clap.preset-load`: a `FILE` preset by its path
 and key, a `PLUGIN` preset by its key alone. It answers -1 when the plugin's `from_location` answers false and also
-when the plugin reported `on_error` through the host's `clap.preset-load` during the call (#401).
+when the plugin reported `on_error` through the host's `clap.preset-load` during the call.
 
 The LV2 adapter's entry offers the same factory for its bundle: one
 provider, `org.openmixer.lv2.pset`, whose one location is the bundle (a
@@ -1087,14 +1093,14 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/audio-ports-config.h` | supported | `clap.audio-ports-config`: the host half offered, its `rescan` (the configuration list changed) reported as a ports rescan (`omx_clap_host_ports_rescanned`) while the plugin is inactive and dropped while it is active, the list read live by every `omx_clap_host_request_layout`; the plugin half read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive: tried after `clap.configurable-audio-ports` when that is not offered, cannot apply the requests or refuses them: the first config whose main ports are the carrier's requested mains in channels and port types is selected, whatever auxiliary ports it also declares (described after), and the description read again; omx-clap-host asks for its lane's width (`-c`, 2 by default) at add and after a reported ports rescan |
 | `ext/audio-ports.h` | supported | the port layout, Port layout above: every port described, `port_type` and `in_place_pair` read; omx-clap-host registers a JACK port per channel of every port, `aux_in_<p>_<k>`/`aux_out_<p>_<k>` for the auxiliary ones; the host's `rescan`, any flags, is reported once by `omx_clap_host_ports_rescanned`, never a restart (`is_rescan_flag_supported` answers false) |
 | `ext/configurable-audio-ports.h` | supported | `clap.configurable-audio-ports/1` (and its draft id): read at open, asked only by `omx_clap_host_request_layout` with the plugin inactive, before `clap.audio-ports-config`: `can_apply_configuration`, then `apply_configuration`, and the description read again; a false from either falls back to `clap.audio-ports-config`, and a plugin neither offers the layout through keeps its declared one (`OMX_CLAP_LAYOUT_DECLARED`) |
-| `ext/context-menu.h` | not planned | the console draws its own menus (decided in #95) |
+| `ext/context-menu.h` | not planned | the console draws its own menus |
 | `ext/event-registry.h` | supported | the host offers it; no event space beyond the core one |
 | `ext/gui.h` | supported | in omx-clap-host, the plugin's own window over Wayland first, then X11, on request: [A plugin's own window](#a-plugins-own-window); never in the console (the GUI decision), and the library offers it only when its caller hands it one (`omx_clap_host_offer_gui`) |
 | `ext/latency.h` | supported | Latency above |
 | `ext/log.h` | supported | the host offers it; the tick drains it |
 | `ext/note-name.h` | supported | Instrument details above |
 | `ext/note-ports.h` | supported | the plugin's ports and the host's dialects, Instrument details above |
-| `ext/param-indication.h` | not supported | to be supported (#95): the console shows mapping and automation state; #187 |
+| `ext/param-indication.h` | not supported | to be supported: the console shows mapping and automation state |
 | `ext/params.h` | supported | parameters, read back, modulation and gestures |
 | `ext/posix-fd-support.h` | supported | A full host above |
 | `ext/preset-load.h` | supported | offered where the configuration asks; `preset_load`, `omx_clap_host_preset_load_key` |
@@ -1112,20 +1118,20 @@ this table does not; a row for a header an older CLAP lacks is kept.
 | `ext/draft/background-activation.h` | not supported | a draft; not decided |
 | `ext/draft/background-progress.h` | not supported | a draft; not decided |
 | `ext/draft/background-state-context.h` | not supported | a draft; not decided |
-| `ext/draft/extensible-audio-ports.h` | not supported | #92 |
+| `ext/draft/extensible-audio-ports.h` | not supported | |
 | `ext/draft/flush-events.h` | not supported | a draft; not decided |
 | `ext/draft/gain-adjustment-metering.h` | supported | read by omx-clap-host's meters (docs/meters.md) |
-| `ext/draft/mini-curve-display.h` | not supported | to be supported (#95): the console's panels draw EQ and dynamics curves; #188 |
+| `ext/draft/mini-curve-display.h` | not supported | to be supported: the console's panels draw EQ and dynamics curves |
 | `ext/draft/octave-number.h` | not supported | a draft; not decided |
 | `ext/draft/param-hovered.h` | not supported | a draft; not decided |
 | `ext/draft/params-origin.h` | not supported | a draft; not decided |
 | `ext/draft/project-location.h` | not supported | a draft; not decided |
-| `ext/draft/resource-directory.h` | not supported | P3 (decided in #95) |
+| `ext/draft/resource-directory.h` | not supported | P3 |
 | `ext/draft/scratch-memory.h` | not supported | a draft; not decided |
 | `ext/draft/transport-control.h` | not supported | a draft; not decided |
 | `ext/draft/triggers.h` | not supported | a draft; not decided |
-| `ext/draft/tuning.h` | not supported | #186 |
-| `ext/draft/undo.h` | not planned | the console keeps its own undo (decided in #95) |
+| `ext/draft/tuning.h` | not supported | |
+| `ext/draft/undo.h` | not planned | the console keeps its own undo |
 | `ext/draft/webview.h` | not planned in the console | a plugin's own UI, as `gui` (the GUI decision) |
 
 Besides the headers: `clap.meters/1`, the console's own meters extension

@@ -1,5 +1,5 @@
-# docs/adapter-seam.tsv: the class of every function of lv2/core, lv2/clap and the src/ headers they include, read from
-# its body (omx-clap-core#287). class: NEUTRAL (a VST3 adapter would use it unchanged), MIXED (neutral logic around a few
+# tools/adapter-seam.tsv: the class of every function of lv2/core, lv2/clap and the src/ headers they include, read from
+# its body. class: NEUTRAL (a VST3 adapter would use it unchanged), MIXED (neutral logic around a few
 # format calls: the hook it needs is in the reason), SPECIFIC (LV2 only). thread: AUDIO, WORKER, MAIN, or ANY.
 # ref: 00a9b2e (the code the classes were read from; tools/adapter-seam.sh measures this ref unless OURS_REF says otherwise)
 # tools/adapter-seam.sh joins it with lizard's function list and sums it; an unclassed function or a stale row fails.

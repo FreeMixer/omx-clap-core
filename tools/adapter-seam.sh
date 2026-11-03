@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# adapter-seam.sh: the numbers of docs/adapter-seam-and-vst3.md, part 1: every function of the LV2 adapter and of the
+# adapter-seam.sh: the numbers of the technical note https://openmixer.org/notes/could-the-host-take-vst3, the seam: every function of the LV2 adapter and of the
 # src/ headers it includes, classed FORMAT-NEUTRAL, MIXED or FORMAT-SPECIFIC, with its NLOC, per file and per area.
 #
 #   adapter-seam.sh                  measure OURS_REF (default: the "# ref:" line of the table) and print every table
@@ -10,8 +10,8 @@
 #   adapter-seam.sh --vst3-packages  the repository count of VST3 plugin packages with and without an LV2/CLAP build
 #                                    (needs dnf; the count of the report was made on Fedora 44 with audinux enabled)
 #
-# The class of each function is a judgement read from its body, kept in docs/adapter-seam.tsv (file, function, class,
-# area, thread, reason). This script only measures and sums, the way tools/hosting-compare.sh of #267 does: lizard
+# The class of each function is a judgement read from its body, kept in tools/adapter-seam.tsv (file, function, class,
+# area, thread, reason). This script only measures and sums, the way tools/hosting-compare.sh does: lizard
 # (LIZARD, default the "lizard" console script on PATH, falling back to "python3 -m lizard") for the functions and
 # their NLOC. A function the table does not class, or a row whose function is gone, is a failure: the table moves
 # with the code or the numbers stop being reproducible.
@@ -24,7 +24,7 @@ export LC_ALL=C
 LIZARD=${LIZARD:-$(command -v lizard || true)}
 LIZARD=${LIZARD:-python3 -m lizard}
 REPO=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
-TABLE=$REPO/docs/adapter-seam.tsv
+TABLE=$REPO/tools/adapter-seam.tsv
 MODE=${1:-}
 # the ref the classes were read from: later code may add or drop functions the table has not seen
 OURS_REF=${OURS_REF:-$(sed -n 's/^# ref: *\([0-9a-f]*\).*/\1/p' "$TABLE" 2>/dev/null | head -1)}
@@ -81,8 +81,8 @@ join -t $'\t' -j1 <(awk -F'\t' '{print $1 "|" $2 "\t" $3 "\t" $4 "\t" $5}' funcs
 missing=$(join -t $'\t' -v1 <(cut -f1,2 funcs | tr '\t' '|' | sort) <(cut -f1,2 classes | tr '\t' '|' | sort) || true)
 stale=$(join -t $'\t' -v2 <(cut -f1,2 funcs | tr '\t' '|' | sort) <(cut -f1,2 classes | tr '\t' '|' | sort) || true)
 if [ -n "$missing$stale" ]; then
-    [ -z "$missing" ] || { echo "functions docs/adapter-seam.tsv does not class:"; tr '|' ' ' <<< "$missing" | sed 's/^/  /'; }
-    [ -z "$stale" ] || { echo "rows of docs/adapter-seam.tsv whose function is gone:"; tr '|' ' ' <<< "$stale" | sed 's/^/  /'; }
+    [ -z "$missing" ] || { echo "functions tools/adapter-seam.tsv does not class:"; tr '|' ' ' <<< "$missing" | sed 's/^/  /'; }
+    [ -z "$stale" ] || { echo "rows of tools/adapter-seam.tsv whose function is gone:"; tr '|' ' ' <<< "$stale" | sed 's/^/  /'; }
     exit 1
 fi
 bad=$(awk -F'\t' '$5 !~ /^(NEUTRAL|MIXED|SPECIFIC)$/ || $7 !~ /^(AUDIO|MAIN|WORKER|ANY)$/ {print $1}' joined)
