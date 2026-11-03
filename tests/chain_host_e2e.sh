@@ -197,12 +197,13 @@ play() {
     done
     sleep 0.5
     set -- "$@"
-    lat_a=$("$latency_probe" "effect_${1##*,}:out_1" capture 2>/dev/null)
-    lat_b=$("$latency_probe" "effect_${2##*,}:out_1" capture 2>/dev/null)
+    lat_a=$(timeout 30 "$latency_probe" "effect_${1##*,}:out_1" capture 2>/dev/null)
+    lat_b=$(timeout 30 "$latency_probe" "effect_${2##*,}:out_1" capture 2>/dev/null)
     [ -n "$lat_a" ] && [ "$lat_a" = "$lat_b" ]
     step $? "$phase: the latency to the last output, ${1%%=*} $lat_a, ${2%%=*} $lat_b (min max frames)"
     echo go >&7
-    timeout 60 tail --pid=$feeder_pid -f /dev/null
+    # a feeder still running after a minute is stopped, so the wait below answers and the step is red, not a hang
+    timeout 60 tail --pid=$feeder_pid -f /dev/null || kill -9 $feeder_pid 2>/dev/null
     wait $feeder_pid
     step $? "$phase: played and recorded ($(grep '^done' "$runtime/$phase.feed" || tail -1 "$runtime/$phase.feed"))"
     exec 7>&-
@@ -372,8 +373,8 @@ wait_nodes 1; step $? "chain 7 10 11 12: one node ($(nodes))"
 ! has_ports 11 && ! has_ports 12; step $? "the members have no port of their own"
 series 20 21 22
 series 30 31 32
-lat_chain=$("$latency_probe" effect_10:out_1 capture 2>/dev/null)
-lat_series=$("$latency_probe" effect_22:out_1 capture 2>/dev/null)
+lat_chain=$(timeout 30 "$latency_probe" effect_10:out_1 capture 2>/dev/null)
+lat_series=$(timeout 30 "$latency_probe" effect_22:out_1 capture 2>/dev/null)
 [ -n "$lat_chain" ] && [ "$lat_chain" = "$lat_series" ] && [ "${lat_chain%% *}" = 64 ]
 step $? "the chain's latency is its members' sum: chain $lat_chain, series $lat_series (min max frames)"
 play p1 chain=10,10 series=20,22 other=30,32
