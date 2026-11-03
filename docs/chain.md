@@ -59,7 +59,10 @@ that counts the published changes.
   plugin read a copy of its input in its bounce and write its bounce for the block, and crossfades onto the output from
   there: a plugin that writes its input buffer leaves the dry that fade, and an unusable block on it, read as it was,
   and does not write the chain's input on such a block. A steady block hands the plugin its input itself, with no copy:
-  a plugin that writes its input and then fails a steady block passes what it left there. A plugin is never handed one buffer
+  a plugin that writes its input and then fails a steady block passes what it left there. A member run alone is held to
+  the same: its two-leg body hands the plugin the bounce's input legs and, on a change of body, takes the dry it fades
+  with from the lane again after process(), which the plugin never sees, and its wide body falls back on the caller's
+  input, not on the wide input blocks the plugin was handed; a steady block reads no dry and copies nothing more. A plugin is never handed one buffer
   as both its input and its output, whatever its `in_place_pair` says (the adapter declares none for any LV2 plugin, so
   `lv2:inPlaceBroken` needs nothing more): the input is the dry block the guards fall back on, and the two blocks of
   the walk already make every member's output distinct from its input at no cost. A member whose main port is wider
@@ -133,7 +136,10 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
   member for a cycle and then stops it mid-signal: each block that leaves the plugin fades, the chain equal to the
   members in series bit for bit; and `t_input_written` has the first member's plugin write its own input and fail its
   first block: the fallback and the fade in after it read the input as it was, the chain's input is not written on
-  either, and the chain equals the members in series whose plugin leaves its input alone, bit for bit;
+  either, and the chain equals the members in series whose plugin leaves its input alone, bit for bit, as do the same
+  members in series whose plugin writes its input (the two-leg body); `tests/clap_stage_test.c` (`t_input_written`)
+  holds the two-leg body's fade in and a bypass's fade out, and the wide body's fallback on a process error, to the
+  input as it was;
 - one clamp per chain: +40 dB then -20 dB of 0.5 reaches the output as 5, not as the ceiling's 1.58, nothing counted;
   +40 dB twice is held at the ceiling at the output, its 64 samples a block counted on the last member and none on the
   first; two NaN blocks from a member mid-chain never reach the stateful low-pass after it; and with the clamp on and

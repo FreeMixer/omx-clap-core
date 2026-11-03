@@ -2153,7 +2153,6 @@ static inline int omx_clap_run_ports_locked(struct omx_clap_stage *s, const floa
 {
     const uint32_t n_in = omx_clap_main_in_channels(s);
     const uint32_t n_out = s->aout[0].channel_count;
-    const float *const *dry = (const float *const *)s->wide_in;
     uint32_t c, moved = 0;
     int usable;
 
@@ -2194,7 +2193,9 @@ static inline int omx_clap_run_ports_locked(struct omx_clap_stage *s, const floa
     usable = omx_clap_aux_out_guard(s, usable, n);
     if (usable != OMX_HOSTED_BLOCK_USABLE)
     {
-        omx_clap_ports_dry(dry, n_in, outs, n_out, n);
+        // the dry is the caller's input, which the plugin never sees: the wide input blocks it was handed it may have
+        // written (in place, with no in_place_pair)
+        omx_clap_ports_dry(ins, n_in, outs, n_out, n);
         omx_hosted_run_end_why(&s->h, usable, &s->process_errors, 0u, NULL, NULL, n);   // counts, strikes, marks the body dry
         return 0;
     }
