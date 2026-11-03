@@ -983,6 +983,16 @@ test-host-verbs: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRA
 test-host-verbs-sabotage: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_sabotage.sh
 
+# the protocol is libplugin-hostd-protocol's (tests/protocol_library_check.sh): the host links it and no
+# libmod-host-protocol, every header of it the sources include is its own, and no tracked file is a copy of a file it
+# ships; then each kind of copy planted in a scratch tree, red, and the check without its rules blind
+.PHONY: test-protocol-library
+test-protocol-library: $(PROG)
+	mkdir -p build
+	$(CC) -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(X11_CFLAGS) $(INCS) $(filter-out -MMD -MP,$(CFLAGS)) -M $(SRC) > build/protocol-deps.txt
+	./tests/protocol_library_check.sh $(PROG) build/protocol-deps.txt
+	./tests/protocol_library_check.sh --self-test
+
 # what the tests read of the verbs data/verbs.json declares, from the header over its renders (src/host_verbs.h) and
 # the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
 HASH := \#

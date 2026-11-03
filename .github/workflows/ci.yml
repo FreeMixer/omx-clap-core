@@ -170,6 +170,11 @@ jobs:
       - name: Build
         run: make
 
+      # the protocol is libplugin-hostd-protocol's: the host links it and no libmod-host-protocol, every header of it the
+      # sources include is its own, and no tracked file is a copy of a file it ships; each kind of copy planted, red
+      - name: The host reads its protocol from libplugin-hostd-protocol and keeps no copy of it
+        run: make test-protocol-library
+
       # omx-clap-scan --fields against the format tables of omx-contract at OMX_CONTRACT_REF, and --json's resource hints
       # against its RESOURCE_HINTS (this job has the toolchain and the CLAP and LV2 headers the scanner and the fake
       # plugins build with)
