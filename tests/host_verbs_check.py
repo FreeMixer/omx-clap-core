@@ -72,6 +72,7 @@ EXAMPLES = {
     'chain': (['1', '{fx}', '{fx2}'], [(['x', '{fx}'], 'invalidOperation'), (['1', '{fx}', '{fx}'], 'invalidOperation')]),
     'preset_list': (['{fx}'], []),
     'preset_get': (['{fx}', '0'], []),
+    'preset_show': (['{fx}', 'preset.json'], []),
     'pin_layout': (['{fx}'], []),
 }
 
