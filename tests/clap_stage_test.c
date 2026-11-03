@@ -136,6 +136,8 @@ struct fake {
   uint32_t flood;        /* K_NOTES: note ons pushed on top of the block's own events */
   float aux_level;       /* every auxiliary output channel written this level each block; 0: auxiliary outputs untouched */
   int aux_nan;           /* the auxiliary outputs written NaN instead, the main output still finite */
+  int scribble;          /* after the block, its main input written over, as a plugin that processes in place without an
+                          * in_place_pair does */
 };
 
 #define PAD_GAIN 0.1f /* -20 dB, the fake's own definition */
@@ -197,7 +199,18 @@ static void notes_push(struct fake *f, const clap_output_events_t *out, uint32_t
   for (uint32_t i = 0; i < f->flood; i++) note_push(out, CLAP_EVENT_NOTE_ON, n - 1, 0, (int16_t)(i / 128 % 16), (int16_t)(i % 128), 1.0);
 }
 
+static clap_process_status f_process_own(const clap_plugin_t *p, const clap_process_t *pr);
+
 static clap_process_status f_process(const clap_plugin_t *p, const clap_process_t *pr) {
+  struct fake *f = (struct fake *)p->plugin_data;
+  const clap_process_status said = f_process_own(p, pr);
+  if (f->scribble && pr->audio_inputs_count)
+    for (uint32_t c = 0; c < f->channels; c++)
+      for (uint32_t i = 0; i < pr->frames_count; i++) pr->audio_inputs[0].data32[c][i] = 12345.0f;
+  return said;
+}
+
+static clap_process_status f_process_own(const clap_plugin_t *p, const clap_process_t *pr) {
   struct fake *f = (struct fake *)p->plugin_data;
   f->runs++;
 #if defined(__x86_64__) || defined(__i386__)
@@ -1985,6 +1998,57 @@ static void t_run_ports_wide(void) {
   }
 }
 
+/* a plugin that writes its own main input (in place, with no in_place_pair) leaves the dry the host reads as it was:
+ * on the two-leg body, the fade in of the first block and the fade out of a bypass equal a twin whose plugin leaves its
+ * input alone, bit for bit; on the wide body, a process error delivers the input as it was */
+static void t_input_written(void) {
+  static struct rig a, b, w;
+  static float la[MAXB], ra[MAXB], lb[MAXB], rb[MAXB];
+  rig_up(&a, K_PAD, 2, QCAP);
+  rig_up(&b, K_PAD, 2, QCAP);
+  a.f.scribble = 1;
+  int equal = 0;
+  for (int k = 0; k < 4; k++) {
+    if (k == 3) {
+      omx_clap_set_bypass(&a.st, 1);
+      omx_clap_set_bypass(&b.st, 1);
+    }
+    ramp(la, 64), fill(ra, 64, 0.25f);
+    ramp(lb, 64), fill(rb, 64, 0.25f);
+    run(&a, la, ra, 64);
+    run(&b, lb, rb, 64);
+    equal += bytes_equal(la, lb, 64) && bytes_equal(ra, rb, 64);
+  }
+  CHECK(a.f.runs == 4 && equal == 4,
+        "input written, two legs: the fade in, the steady blocks and the fade out of a bypass equal the twin that leaves its input alone (%d of 4)",
+        equal);
+
+  static float win[6][MAXB], wout[6][MAXB], ins[6][MAXB], outs[6][MAXB];
+  float *wi[6], *wo[6], *op[6];
+  const float *ip[6];
+  memset(&w, 0, sizeof w);
+  fake_up(&w.f, K_ERROR, 6);
+  w.f.scribble = 1;
+  CHECK(omx_clap_stage_init(&w.st, &(struct omx_hosted_bounce){w.in_l, w.in_r, w.out_l, w.out_r, MAXB}, w.recs, QCAP) == 0 &&
+            w.f.plugin.init(&w.f.plugin) && w.f.plugin.activate(&w.f.plugin, (double)g_rate, 1, MAXB),
+        "input written, wide: stage_init, init, activate");
+  for (uint32_t c = 0; c < 6; c++) {
+    wi[c] = win[c];
+    wo[c] = wout[c];
+    ip[c] = ins[c];
+    op[c] = outs[c];
+    fill(ins[c], MAXB, (float)c * 0.1f + 0.05f);
+  }
+  CHECK(omx_clap_bind_wide(&w.st, wi, 6, wo, 6) == 0 && omx_clap_bind_ports(&w.st, &w.f.plugin, 6, 6) == 0, "input written, wide: bind 6 to 6");
+  omx_clap_arm(&w.st);
+  w.f.error_on = 1;
+  in_rt = 1;
+  omx_clap_run_ports(&w.st, ip, op, MAXB);
+  in_rt = 0;
+  CHECK(w.f.runs == 1 && wide_wet_dry(outs, ins), "input written, wide: a process error delivers the input as it was (%g, %g)",
+        (double)outs[5][0], (double)ins[5][0]);
+}
+
 int main(void) {
   for (size_t ri = 0; ri < sizeof RATES / sizeof RATES[0]; ri++) {
     g_rate = RATES[ri];
@@ -2013,6 +2077,7 @@ int main(void) {
     t_notes_out();
     t_aux_bind_wide();
     t_run_ports_wide();
+    t_input_written();
     t_aux_out_dry();
     CHECK(rt_allocs == 0, "no allocation inside omx_clap_run at %.0f (%d)", (double)g_rate, rt_allocs);
     t_alloc_witness();
