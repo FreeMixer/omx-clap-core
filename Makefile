@@ -1094,6 +1094,7 @@ LV2_BUNDLES = build/lv2/omx-host-fixture.lv2/omx-host-fixture.so build/lv2/omx-w
               build/lv2/omx-midi-echo.lv2/omx-midi-echo.so \
               build/lv2/omx-time-probe.lv2/omx-time-probe.so \
               build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so \
+              build/lv2/omx-direct-fixture.lv2/omx-direct-fixture.so \
               build/lv2/omx-feature-probe.lv2/omx-feature-probe.so \
               build/lv2/omx-path-fixture.lv2/omx-path-fixture.so \
               build/lv2/omx-atom-fixture.lv2/omx-atom-fixture.so \
@@ -1129,6 +1130,11 @@ build/lv2/omx-worker-gain.lv2/omx-worker-gain.so: $(LV2_FIXTURE_DIR)/lv2_worker_
 build/lv2/omx-time-probe.lv2/omx-time-probe.so: $(LV2_FIXTURE_DIR)/lv2_time_probe.c $(LV2_FIXTURE_DIR)/lv2_time_probe.h $(wildcard $(LV2_FIXTURE_DIR)/omx-time-probe.lv2/*.ttl)
 	@mkdir -p $(@D)
 	cp $(LV2_FIXTURE_DIR)/omx-time-probe.lv2/*.ttl $(@D)/
+	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
+
+build/lv2/omx-direct-fixture.lv2/omx-direct-fixture.so: $(LV2_FIXTURE_DIR)/lv2_direct_fixture.c $(LV2_FIXTURE_DIR)/lv2_direct_fixture.h $(wildcard $(LV2_FIXTURE_DIR)/omx-direct-fixture.lv2/*.ttl)
+	@mkdir -p $(@D)
+	cp $(LV2_FIXTURE_DIR)/omx-direct-fixture.lv2/*.ttl $(@D)/
 	$(CC) $(LV2_FIXTURE_CFLAGS) -o $@ $< -lm
 
 build/lv2/omx-sidechain-fixture.lv2/omx-sidechain-fixture.so: $(LV2_FIXTURE_DIR)/lv2_sidechain_fixture.c $(wildcard $(LV2_FIXTURE_DIR)/omx-sidechain-fixture.lv2/*.ttl)
@@ -1238,12 +1244,17 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 .PHONY: test-lv2 test-lv2-core test-lv2-clap test-lv2-link install-lv2
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
-lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h
+lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_direct_fixture.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h
 	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
 test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES) $(LV2_HINTS_BUNDLES)
 	./lv2/tests/lv2_clap_test build/lv2
+
+# each guard of the no-copy adapter broken in a copy of the sources, tests/lv2_direct_sabotage.sh
+.PHONY: test-lv2-direct-sabotage
+test-lv2-direct-sabotage:
+	bash tests/lv2_direct_sabotage.sh
 
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged
 lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h src/omx_clap_raw.h
@@ -1459,6 +1470,14 @@ tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
 # it prints); -O2, the level an engine compiles the inline body at
 tests/hosted_cost_bench: tests/hosted_cost_bench.c $(CORE_SO)
 	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -o $@ $< $(CORE_LINK_TEST) -lm
+
+# the same bench with its LV2 and mixed chains: a binary of its own, as test-hosted-clamp holds the plain one to no libm
+tests/hosted_cost_bench_lv2: tests/hosted_cost_bench.c $(CORE_SO) $(LV2_LIB) src/clap_chain.h
+	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(LV2_CFLAGS) -DHOSTED_COST_LV2 -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -Ilv2/core -Ilv2/clap -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) -ldl -lm
+
+# every plugin of an LV2 directory through the adapter: one line per plugin, tests/lv2_direct_identity.sh compares two trees'
+lv2/tests/lv2_direct_identity: lv2/tests/lv2_direct_identity.c $(LV2_LIB) src/omx_clap_raw.h
+	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
 
 tests/hosted_clamp_test: tests/hosted_clamp_test.c src/hosted_stage.h
 	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -Isrc -o $@ $< -lm

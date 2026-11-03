@@ -312,6 +312,8 @@ struct lv2_plugin
     struct lv2_port_bind *roles;    // n_ports, by port index: what the instance connects each to
     char **required;                // lv2:requiredFeature, NULL-terminated
     int safe_restore;               // state:threadSafeRestore among its features: restore() may run beside run()
+    int hard_rt;                    // lv2:hardRTCapable among its features: connect_port is safe on the audio thread
+    int in_place_broken;            // lv2:inPlaceBroken among its features: an input and an output must not share memory
     void *binary;                   // dlopen'ed by lv2_plugin_load
     const LV2_Descriptor *desc;
     void *uri_node;                 // the lilv node of the URI, for the default state
@@ -510,6 +512,17 @@ float *lv2_instance_aux_out(struct lv2_instance *in, uint32_t port, uint32_t c);
  * the audio buffers are: the host writes an input before the run and reads an output after it. */
 float *lv2_instance_cv_in(struct lv2_instance *in, uint32_t k);
 float *lv2_instance_cv_out(struct lv2_instance *in, uint32_t k);
+
+/* Whether the audio ports may be connected from the audio thread to memory the caller holds for the run (docs/fast-path.md):
+ * a plugin stating lv2:hardRTCapable, with no worker interface. Fixed from activate to deactivate. [audio] */
+int lv2_instance_direct(const struct lv2_instance *in);
+
+/* [audio] Port index `port`, an audio port of a direct instance, on `at` for the next run: connect_port is called only when
+ * that is not where the port already is. Deactivate puts every audio port back on the instance's own memory. */
+void lv2_instance_port_bind(struct lv2_instance *in, uint32_t port, float *at);
+
+/* [audio] The memory audio port `port` is connected to. */
+const float *lv2_instance_port_bound(const struct lv2_instance *in, uint32_t port);
 
 /* [audio] Write the input control `k` (the index in plugin->controls); the bypass and the outputs are not writable. */
 void lv2_instance_control_set(struct lv2_instance *in, uint32_t k, float value);

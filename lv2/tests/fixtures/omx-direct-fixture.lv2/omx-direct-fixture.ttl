@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix work: <http://lv2plug.in/ns/ext/worker#> .
+
+<urn:openmixer:test:direct-fixture>
+    a lv2:Plugin ;
+    doap:name "omx direct fixture (hard RT)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:optionalFeature lv2:hardRTCapable ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+<urn:openmixer:test:direct-fixture#plain>
+    a lv2:Plugin ;
+    doap:name "omx direct fixture (no statement)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+<urn:openmixer:test:direct-fixture#worker>
+    a lv2:Plugin ;
+    doap:name "omx direct fixture (worker)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:optionalFeature lv2:hardRTCapable ;
+    lv2:requiredFeature work:schedule ;
+    lv2:extensionData work:interface ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+<urn:openmixer:test:direct-fixture#broken>
+    a lv2:Plugin ;
+    doap:name "omx direct fixture (in-place broken)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:optionalFeature lv2:hardRTCapable ;
+    lv2:requiredFeature lv2:inPlaceBroken ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
+
+<urn:openmixer:test:direct-fixture#empty>
+    a lv2:Plugin ;
+    doap:name "omx direct fixture (empty)" ;
+    doap:license <https://www.gnu.org/licenses/gpl-3.0.html> ;
+    lv2:optionalFeature lv2:hardRTCapable ;
+    lv2:port [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 0 ; lv2:symbol "in_l" ; lv2:name "In L"
+    ] , [
+        a lv2:AudioPort , lv2:InputPort ; lv2:index 1 ; lv2:symbol "in_r" ; lv2:name "In R"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 2 ; lv2:symbol "out_l" ; lv2:name "Out L"
+    ] , [
+        a lv2:AudioPort , lv2:OutputPort ; lv2:index 3 ; lv2:symbol "out_r" ; lv2:name "Out R"
+    ] .
