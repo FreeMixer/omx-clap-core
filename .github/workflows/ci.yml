@@ -242,6 +242,11 @@ jobs:
       - name: The sabotage of the thread pool's completion wait
         run: make test-thread-pool-sabotage
 
+      # a chain costs no more on silence than on the tone: the host reads a block for silence only for a plugin that can
+      # sleep on it
+      - name: A chain on silence costs no more than on the tone
+        run: make test-silence-cost
+
       # The LV2 adapter: lv2/core against the fixture bundles through lilv, the CLAP face and libomx-clap-core's body
       # around it, and a program linked through the installed pkg-config file alone
       - name: Test the LV2 adapter

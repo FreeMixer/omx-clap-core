@@ -3300,6 +3300,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     in->sleep.have_last = 0;
     in->sleep.quiet_frames = 0;
     in->sleep.quiet_out_frames = 0;
+    in->sleep.keeps_on = 0;
     in->sleep.quiet_min_frames = (uint32_t)(rate * OMX_CLAP_SLEEP_QUIET_MS / 1000.0);
     publish_latency(in);
     if (in->passthrough)
