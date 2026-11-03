@@ -107,6 +107,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <clap/clap.h>
+#include <unistd.h>
 
 #include "omx_clap_ext.h"
 
@@ -1248,9 +1249,15 @@ static const clap_plugin_factory_t g_factory = {
     factory_get_plugin_count, factory_get_plugin_descriptor, fake_abi_create_plugin
 };
 
+/* FAKE_SLOW_INIT_MS: a binary whose file is named slow.clap takes that long in its init, as a plugin that hangs loading
+ * does (tests/open_timed_test.c); the others are not slowed */
 static bool entry_init(const char *path)
 {
-    (void)path;
+    const char *ms = getenv("FAKE_SLOW_INIT_MS");
+    const char *base = path ? strrchr(path, '/') : NULL;
+
+    if (ms && base && !strcmp(base + 1, "slow.clap"))
+        usleep((useconds_t)atoi(ms) * 1000u);
     return true;
 }
 
