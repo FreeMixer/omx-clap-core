@@ -1,9 +1,9 @@
-# The chain object of libomx-clap-core (S1, #311)
+# The chain object of libomx-clap-core
 
 `clap_chain.h` installs beside `clap_host.h` under `include/omx-clap-host/`: an ordered list of stages that one audio
-cycle runs in order, each stage's output the next one's input, in the caller's own thread. It is the mechanics of the
-Stage 0 prototype (`docs/bench-chain-2026-10-21.md`) moved into the library, so omx-clap-host (S2, #104, below), an
-engine's in-process path and plugin-hostd (S3) run one implementation.
+cycle runs in order, each stage's output the next one's input, in the caller's own thread. It is the mechanics measured in
+[One JACK client for a chain](https://openmixer.org/notes/one-jack-client-for-a-chain) moved into the library, so omx-clap-host (below), an
+engine's in-process path and plugin-hostd run one implementation.
 
 The chain is generic. It names no trim, fader, strip or bus: a profile that puts stages in a fixed order is its
 caller's. Stage 0 measured what a chain is for: one JACK client and 22 to 40 percent less memory per plugin. It is not
@@ -116,8 +116,7 @@ Every structure a consumer allocates (`struct omx_clap_chain_config`, `struct om
 `struct omx_clap_chain_report`, `struct omx_clap_chain_member_info`) carries `abi` (`OMX_CLAP_CHAIN_ABI` of the header
 the caller compiled against) and `size` (its `sizeof` as the caller compiled it) as its first two fields. The library
 reads and writes such a structure only when its `abi` is one the library knows and its `size` is exactly the size that
-ABI gives the structure; anything else is refused `OMX_CLAP_CHAIN_ERR_ABI`, nothing read and nothing written (#301:
-never a silent read of a grown structure, never a write past the caller's own). The chain itself is opaque, allocated
+ABI gives the structure; anything else is refused `OMX_CLAP_CHAIN_ERR_ABI`, nothing read and nothing written (never a silent read of a grown structure, never a write past the caller's own). The chain itself is opaque, allocated
 and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layout` and the functions in
 `abi/libomx-clap-core.so.1.abi`, which the `abi` CI job holds the build to; the functions are in the version node
 `OMX_CLAP_CORE_0.16`.
@@ -164,9 +163,9 @@ cycle's bound one frame short, its dry copy dropped, one block for every member 
 refusal waved through, a new order never published, a new order published after a walk without a member, and a change that does not wait for the cycle reading the old plan, which `make
 test-chain-tsan` (the test under ThreadSanitizer, in CI) reports as a race in `publish`.
 
-## omx-clap-host runs the chain line (S2, #104)
+## omx-clap-host runs the chain line
 
-plugin-hostd declares a chain with its `chain` verb (plugin-hostd#101, released in 0.7.0) and gives the chain one
+plugin-hostd declares a chain with its `chain` verb (since plugin-hostd 0.7.0) and gives the chain one
 worker. A worker that runs chains in one client, omx-clap-host for the `clap` and `lv2-clap` rows, is sent the same
 line with the members it holds, in order: after the adds of its replay and before the state, the verb ledger and the
 connections, and again without a member after that member's `remove`. omx-clap-host answers it:
@@ -181,7 +180,7 @@ The members run in ONE JACK client: the client of the first member the line name
 input ports are the chain's input and its main output ports the chain's output; its note ports and auxiliary ports
 stay its own. Every other member closes its own client, so it has no port and is no node of the graph: a chain of N
 plugins is one node, beside the host's own client (`omx-clap-host`, the frame clock, no port). A member's note ports
-go with its client too, and a line does not refuse for them (#400: a third-party LV2 effect such as Calf's declares an atom
+go with its client too, and a line does not refuse for them (a third-party LV2 effect such as Calf's declares an atom
 port that supports MIDI, so it has a note input): the note verbs still reach the member through its ring, its note output
 is dropped, and it gets its note ports again in a client of its own when it leaves. A member's auxiliary ports,
 a side chain among them, move to the head's client as `<head client>:<member client>_aux_in_<p>_<k>` and
@@ -214,7 +213,7 @@ plugin-hostd then ends the chain and runs each member in a worker of its own, an
 The protocol has no code of its own for these refusals; the reason is the
 stderr line. A line of one member is a chain of one: the head in its own client, run through the chain.
 
-### The declaration, and the refusal behind plugin-hostd (#361)
+### The declaration, and the refusal behind plugin-hostd
 
 plugin-hostd's verbs file declares `chain` of omx-clap-host as `required`, and this host implements it: a line of two
 or more members answers `resp 0`. `make test-host-verbs` installs plugin-hostd's package (`PLUGIN_HOSTD_DIR`) beside
@@ -248,10 +247,10 @@ activated again or built again.
   client again, or, when the line names it as a member, joins; the chain forms again in the new head's client.
 - An `add` that `chain_expect <instance> <chain>` named just before it joins that chain at its end, in the head's
   client, one walk: no client of its own is opened, registered or activated, so the graph never sees a node for it.
-  plugin-hostd sends it for each member after a chain's first (plugin-hostd#348), and the line that follows, the
+  plugin-hostd sends it for each member after a chain's first, and the line that follows, the
   chain's order with the new member, changes no walk. An add into a chain this host does not run, or of a plugin not
   as wide as the head's output, answers `resp -902` and leaves nothing of the plugin; an expectation is spent by the
-  add it was sent for. On r1, 24 plugins added into one chain took 887 ms with an add and a line each (the client each
+  add it was sent for. On a 24-thread build machine, 24 plugins added into one chain took 887 ms with an add and a line each (the client each
   add opened and the line closed), against 470 ms for mod-host's 24 clients.
 - `remove` of a member that is not the head takes it out of the walk, the chain closing around it, then frees it.
   `remove` of the head gives every other member a client of its own and frees the head with its client; plugin-hostd's
@@ -341,11 +340,11 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   by default), a fresh pair of hosts each time, and wants it IDENTICAL to mod-host every time: a client cycle that
   passes dry where it should have run the plugin shows only on the runs where JACK's threads collide.
 
-### What a member costs (r1)
+### What a member costs
 
 `bench/chain-cost.sh`: N instances of `tests/fault-0.clap` (a -20 dB pad) in one omx-clap-host, one client each
-against one chain, a PipeWire of its own at 48000 Hz, quantum 128, forced; three repetitions
-(`docs/chain-cost-2026-10-25.csv`). r1: Intel Core Ultra 9 285K, Linux 7.2.11, PipeWire 1.6.10, a rootless container:
+against one chain, a PipeWire of its own at 48000 Hz, quantum 128, forced; three repetitions. An Intel Core Ultra 9
+285K, Linux 7.2.11, PipeWire 1.6.10, a rootless container:
 SCHED_OTHER, no CPU idle hold. The medians of the three:
 
 | N | nodes own / chain | BUSY own, us (sum) | BUSY chain, us | host CPU own, % | host CPU chain, % | RSS own, KiB | RSS chain, KiB |
@@ -362,5 +361,4 @@ SCHED_OTHER, no CPU idle hold. The medians of the three:
 - The host's CPU stays near 2 % of a core whatever the chain's length; one client each it rises with the clients, to
   a median of 8.1 % at N=8 and 8.8 % at N=16 (single repetitions 3.3 to 13.1 %).
 - A member costs about 780 KiB of RSS ((18960 - 7216) / 15), a client of its own about 1070 KiB.
-- Not measured here: the wake-up of each node and the cycle's end, which need RT scheduling and a held idle state (the
-  rig of #104's table, msi for #302's bench).
+- Not measured here: the wake-up of each node and the cycle's end, which need RT scheduling and a held idle state.

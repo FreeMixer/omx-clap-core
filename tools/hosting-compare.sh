@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# hosting-compare.sh: the numbers of docs/hosting-comparison.md, our LV2 adapter against mod-host and jalv.
+# hosting-compare.sh: the numbers of the technical note https://openmixer.org/notes/the-lv2-adapter-against-mod-host-and-jalv,
+# our LV2 adapter against mod-host and jalv.
 #
 #   hosting-compare.sh            clone (or reuse) the subjects at their pinned refs and print every table
 #   hosting-compare.sh --verbose  also print each function with the area its name put it in (to audit the areas)
