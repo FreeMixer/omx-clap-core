@@ -4,10 +4,11 @@
  * What the host adds to a plugin per call and per sample: an empty CLAP (process() returns at once) through
  * omx_clap_host_run on a sustained -6 dBFS tone, 64 warm-up blocks discarded, the p50 and p95 of 2000 blocks at quanta
  * 16 to 1024, a least-squares line through them. Then the same at one quantum with each guard taken off, so the
- * per-sample figure can be split. Then a chain of CHAIN_N members at 48000/256, through omx_clap_chain_process. Prints;
- * not a gate. Built at -O2, as an engine compiles the inline body.
+ * per-sample figure can be split. Then a chain of CHAIN_N members at 48000/256, through omx_clap_chain_process, on the
+ * tone and on silence. Prints; the gate is --silence-gate alone. Built at -O2, as an engine compiles the inline body.
  *
  *   tests/hosted_cost_bench [cpu]                                  the empty CLAP alone, and a chain of them
+ *   tests/hosted_cost_bench --silence-gate [cpu]                   exit 1 when the chain costs more on silence than on the tone
  *   tests/hosted_cost_bench_lv2 <omx-direct-fixture.lv2> [cpu]     the chains alone: CLAP, LV2 and every other one of each
  *
  * The LV2 member is the fixture's #empty, stating lv2:hardRTCapable, so a chain's figure is the host's cost alone.
@@ -109,10 +110,21 @@ static int cell(double sr, uint32_t q, uint32_t guards, long *p50, long *p95)
 #define CHAIN_RATE 48000.0
 #define CHAIN_Q 256u
 #define CHAIN_BLOCKS 4000
+#define SILENCE_GATE_RUNS 3
+#define SILENCE_GATE_SLACK 1.10
 static long CT[CHAIN_BLOCKS];
 
-/* the median block of a chain of CHAIN_N members, `entries[i % n]` naming each; ns/sample of the chain, per channel pair */
-static int chain_cell(const char *name, const clap_plugin_entry_t *const *entries, const char *const *ids, uint32_t n_kinds)
+static void chain_line(const char *name, const char *what, long *t)
+{
+    qsort(t, CHAIN_BLOCKS, sizeof t[0], cmp);
+    printf("chain %-5s %-7s %u members 48000/%u: p50 %ld ns/block  %.3f ns/sample  %.4f ns/sample per member  p95 %ld ns/block\n", name, what, CHAIN_N,
+           CHAIN_Q, t[CHAIN_BLOCKS / 2], (double)t[CHAIN_BLOCKS / 2] / CHAIN_Q, (double)t[CHAIN_BLOCKS / 2] / CHAIN_Q / CHAIN_N, t[CHAIN_BLOCKS * 95 / 100]);
+}
+
+/* the median block of a chain of CHAIN_N members, `entries[i % n]` naming each, made for it and fed the tone or silence
+ * from its first block; ns/sample of the chain, per channel pair; the median in `p50` when it is not NULL */
+static int chain_cell(const char *name, const clap_plugin_entry_t *const *entries, const char *const *ids, uint32_t n_kinds,
+                      int silence, long *p50)
 {
     struct omx_clap_instance *in[CHAIN_N];
     struct omx_clap_chain *chain = NULL;
@@ -149,15 +161,21 @@ static int chain_cell(const char *name, const clap_plugin_entry_t *const *entrie
     for (int b = 0; b < WARM + CHAIN_BLOCKS; b++)
     {
         for (uint32_t i = 0; i < CHAIN_Q; i++, ph++)
-            il[i] = ir[i] = 0.5f * sinf(2.0f * (float)M_PI * 1000.0f * (float)ph / (float)CHAIN_RATE);
+            il[i] = ir[i] = silence ? 0.0f : 0.5f * sinf(2.0f * (float)M_PI * 1000.0f * (float)ph / (float)CHAIN_RATE);
         const long t0 = now_ns();
         omx_clap_chain_process(chain, ins, outs, CHAIN_Q);
         const long t1 = now_ns();
-        if (b >= WARM) CT[b - WARM] = t1 - t0;
+        if (b >= WARM)
+            CT[b - WARM] = t1 - t0;
     }
-    qsort(CT, CHAIN_BLOCKS, sizeof CT[0], cmp);
-    printf("chain %-5s %u members 48000/%u: p50 %ld ns/block  %.3f ns/sample  %.4f ns/sample per member  p95 %ld ns/block\n", name, CHAIN_N, CHAIN_Q,
-           CT[CHAIN_BLOCKS / 2], (double)CT[CHAIN_BLOCKS / 2] / CHAIN_Q, (double)CT[CHAIN_BLOCKS / 2] / CHAIN_Q / CHAIN_N, CT[CHAIN_BLOCKS * 95 / 100]);
+    chain_line(name, silence ? "silence" : "tone", CT);
+    if (p50)
+        *p50 = CT[CHAIN_BLOCKS / 2];
+    // every member asked to stop and one more block run, so the stops are made on the audio role and each unpublish
+    // finds its member stopped instead of waiting out its timeout
+    for (uint32_t i = 0; i < CHAIN_N; i++)
+        omx_clap_request_stop(&in[i]->stage);
+    omx_clap_chain_process(chain, ins, outs, CHAIN_Q);
     omx_clap_chain_destroy(chain);
     for (uint32_t i = 0; i < CHAIN_N; i++)
     {
@@ -183,6 +201,38 @@ int main(int argc, char **argv)
     const int cpu_arg = 1;
 #endif
 
+#ifndef HOSTED_COST_LV2
+    // --silence-gate [cpu]: a chain fed silence from its first block costs no more than one fed the tone. Each is made
+    // SILENCE_GATE_RUNS times, taking turns, and the least of their medians compared; SILENCE_GATE_SLACK is the noise of
+    // a shared machine, far under the gap reading every member's silent input and output for silence opens (twice the
+    // tone's cost)
+    if (argc > 1 && strcmp(argv[1], "--silence-gate") == 0)
+    {
+        long tone = 0, quiet = 0, t, q;
+
+        if (argc > 2)
+        {
+            CPU_ZERO(&set);
+            CPU_SET(atoi(argv[2]), &set);
+            (void)sched_setaffinity(0, sizeof set, &set);
+        }
+        for (int run = 0; run < SILENCE_GATE_RUNS; run++)
+        {
+            if (chain_cell("clap", clap_entry, clap_id, 1, 0, &t) || chain_cell("clap", clap_entry, clap_id, 1, 1, &q))
+                return 2;
+            tone = run == 0 || t < tone ? t : tone;
+            quiet = run == 0 || q < quiet ? q : quiet;
+        }
+        if ((double)quiet > (double)tone * SILENCE_GATE_SLACK)
+        {
+            printf("FAIL the chain costs more on silence than on the tone: %ld ns/block against %ld (more than %.2f times)\n", quiet,
+                   tone, SILENCE_GATE_SLACK);
+            return 1;
+        }
+        printf("ok   the chain costs no more on silence than on the tone: %ld ns/block against %ld\n", quiet, tone);
+        return 0;
+    }
+#endif
     if (argc > cpu_arg)
     {
         CPU_ZERO(&set);
@@ -203,7 +253,11 @@ int main(int argc, char **argv)
             printf("FAIL usage: hosted_cost_bench_lv2 <omx-direct-fixture.lv2, absolute> [cpu] (%s)\n", why);
             return 2;
         }
-        return chain_cell("clap", clap_entry, clap_id, 1) || chain_cell("lv2", &both[1], &both_id[1], 1) || chain_cell("mixed", both, both_id, 2) ? 2 : 0;
+        for (int silence = 0; silence < 2; silence++)
+            if (chain_cell("clap", clap_entry, clap_id, 1, silence, NULL) || chain_cell("lv2", &both[1], &both_id[1], 1, silence, NULL) ||
+                chain_cell("mixed", both, both_id, 2, silence, NULL))
+                return 2;
+        return 0;
     }
 #endif
     for (size_t k = 0; k < nq; k++)
@@ -225,5 +279,5 @@ int main(int argc, char **argv)
         if (cell(sr, 1024, OMX_HOSTED_GUARDS_ALL & ~V[v].off, &a, &b) != 0) return 2;
         printf("q=1024 %-16s p50 %.3f ns/sample  p95 %.3f ns/sample\n", V[v].name, (double)a / 1024, (double)b / 1024);
     }
-    return chain_cell("clap", clap_entry, clap_id, 1) ? 2 : 0;
+    return chain_cell("clap", clap_entry, clap_id, 1, 0, NULL) || chain_cell("clap", clap_entry, clap_id, 1, 1, NULL) ? 2 : 0;
 }

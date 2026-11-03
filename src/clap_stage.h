@@ -2153,7 +2153,6 @@ static inline int omx_clap_run_ports_locked(struct omx_clap_stage *s, const floa
 {
     const uint32_t n_in = omx_clap_main_in_channels(s);
     const uint32_t n_out = s->aout[0].channel_count;
-    const float *const *dry = (const float *const *)s->wide_in;
     uint32_t c, moved = 0;
     int usable;
 
@@ -2194,7 +2193,9 @@ static inline int omx_clap_run_ports_locked(struct omx_clap_stage *s, const floa
     usable = omx_clap_aux_out_guard(s, usable, n);
     if (usable != OMX_HOSTED_BLOCK_USABLE)
     {
-        omx_clap_ports_dry(dry, n_in, outs, n_out, n);
+        // the dry is the caller's input, which the plugin never sees: the wide input blocks it was handed it may have
+        // written (in place, with no in_place_pair)
+        omx_clap_ports_dry(ins, n_in, outs, n_out, n);
         omx_hosted_run_end_why(&s->h, usable, &s->process_errors, 0u, NULL, NULL, n);   // counts, strikes, marks the body dry
         return 0;
     }
@@ -2264,6 +2265,13 @@ static inline void omx_clap_direct_dry(const struct omx_clap_stage *s, const flo
         memcpy(outs[c], ins[c], n * sizeof(float));
 }
 
+/** Whether the direct body leaves the stage's clamp to its caller when asked to: only when it clamps and scans its
+ * output for non-finite samples, so a block it delivers unclamped is finite. */
+static inline int omx_clap_direct_defers(const struct omx_clap_stage *s)
+{
+    return (s->h.guards & (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE)) == (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE);
+}
+
 /** RT: are the `n_out` main channels at `outs` finite? 1 when the stage does not scan. */
 static inline int omx_clap_outs_finite(const struct omx_clap_stage *s, float *const *outs, uint32_t n)
 {
@@ -2282,13 +2290,21 @@ static inline int omx_clap_outs_finite(const struct omx_clap_stage *s, float *co
  * (the first block after publish, a recovery, a commanded bypass) has the plugin write the bounce's output legs and
  * crossfades between them and `ins` onto `outs`, so the fade reads the same samples it read there; a steady block copies
  * its output into the bounce, so a block the control thread holds or stops the stage for fades from it as there. The
- * plugin is never handed one buffer as both its input and its output, whatever
- * its in_place_pair says: the input is the dry the guards fall back on. Returns 1 when the plugin's output was
- * delivered, 0 on every dry path, where the caller silences the auxiliary outputs.
+ * plugin is never handed one buffer as both its input and its output, whatever its in_place_pair says: the input is
+ * the dry the guards fall back on. On a change of body the plugin is handed a copy of `ins` in the bounce's input legs,
+ * so the dry the fade reads, and the input an unusable block passes, are the input as it was before process() even
+ * for a plugin that writes its input buffer; a steady block hands it `ins` itself, no copy made, and a plugin that
+ * writes its input and then fails a steady block passes what it left there. `defer` nonzero leaves the clamp of the main output to the caller (the chain clamps
+ * its output once, omx_clap_chain_process), save on a block the control thread holds or stops the stage for, whose fade
+ * from the kept output is clamped here; the scan for non-finite output is never deferred, so no member after this one
+ * is handed a NaN or an infinity of its. A stage whose guards scan nothing never defers its clamp: the clamp holds a NaN
+ * at the ceiling and an infinity at either one, the only guard left between it and the next member's state
+ * (omx_clap_direct_defers). Returns 1 when the plugin's output was delivered, 0 on every dry path, where
+ * the caller silences the auxiliary outputs.
  */
 static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
                                              clap_event_transport_t *t, const struct omx_clap_transport *rec,
-                                             clap_process_status *said)
+                                             clap_process_status *said, uint32_t defer)
 {
     clap_audio_buffer_t *const main_in = s->passthrough ? &s->ain : (clap_audio_buffer_t *)(uintptr_t)s->proc.audio_inputs;
     float **const bounce_in = main_in->data32, **const bounce_out = s->aout[0].data32;
@@ -2296,13 +2312,26 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
     uint32_t want_wet, steady, c, moved = 0;
     int usable;
 
+    // the clamp is left to the chain only while this member scans its output: its own clamp is the one thing that makes a
+    // NaN or an infinity finite before the member after it is handed the block when the scan is off
+    defer = defer && omx_clap_direct_defers(s);
     if (omx_clap_take_state(s) != OMX_CLAP_PROCESSING)
     {
         // held by the control thread or stopped: a body that was wet fades out once, from the plugin's last output,
         // which the bounce keeps, as the two-leg body does
         if (atomic_load_explicit(&s->h.rendered_wet, memory_order_relaxed) && n <= s->h.max_block)
+        {
             for (c = 0; c < s->h.n_out; c++)
+            {
                 omx_wetdry_xfade_block(outs[c], bounce_out[c], ins[c], n);
+                // the kept output is unclamped when the chain clamps: the chain does not clamp a dry block, so this one
+                // clamps its own fade
+                if (defer && (s->h.guards & OMX_HOSTED_GUARD_CLAMP))
+                    moved += omx_hosted_clamp(outs[c], n);
+            }
+            if (moved)
+                omx_hosted_count(&s->h.clamped_samples, moved);
+        }
         else
             omx_clap_direct_dry(s, ins, outs, n);
         atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
@@ -2326,7 +2355,14 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
     }
     steady = steady && want_wet;
     wet = steady ? outs : bounce_out;
-    main_in->data32 = (float **)(uintptr_t)ins;
+    if (steady)
+        main_in->data32 = (float **)(uintptr_t)ins;
+    else
+        // a change of body fades between the plugin's output and `ins`: the plugin is handed a copy of the input in the
+        // bounce, so one that writes its input (in place, with no in_place_pair) leaves the dry this block fades from,
+        // or falls back on, as it was, and never writes the caller's buffer on such a block
+        for (c = 0; c < s->h.n_in; c++)
+            memcpy(bounce_in[c], ins[c], n * sizeof(float));
     s->aout[0].data32 = (float **)(uintptr_t)wet;
     if (t && rec && rec->flags)
     {
@@ -2347,7 +2383,7 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
         return 0;
     }
     omx_hosted_count(&s->h.runs, 1);
-    if (s->h.guards & OMX_HOSTED_GUARD_CLAMP)
+    if ((s->h.guards & OMX_HOSTED_GUARD_CLAMP) && !defer)
     {
         for (c = 0; c < s->h.n_out; c++)
             moved += omx_hosted_clamp(wet[c], n);
@@ -2374,30 +2410,35 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
 
 /**
  * RT: omx_clap_run_direct_locked inside the cycle bracket, handing a processing block the transport `rec` in `t` (NULL,
- * or `rec` with no flags: transport NULL); the block forgets the notes it was handed. With no plugin the input is passed.
- * `*said`, when `said` is not NULL, is the status process() returned, or -1 when it was not called.
+ * or `rec` with no flags: transport NULL), its clamp deferred as `defer` says; the block forgets the notes it was handed.
+ * With no plugin the input is passed. `*said`, when `said` is not NULL, is the status process() returned, or -1 when it
+ * was not called. Returns 1 when the plugin's output was delivered.
  */
-static inline void omx_clap_run_direct_status(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
-                                              clap_event_transport_t *t, const struct omx_clap_transport *rec,
-                                              clap_process_status *said)
+static inline int omx_clap_run_direct_status(struct omx_clap_stage *s, const float *const *ins, float *const *outs, uint32_t n,
+                                             clap_event_transport_t *t, const struct omx_clap_transport *rec,
+                                             clap_process_status *said, uint32_t defer)
 {
+    int wet;
+
     if (said)
         *said = -1;     // no process() was called
     if (s == NULL || ins == NULL || outs == NULL || n == 0)
-        return;
+        return 0;
     if (s->plugin == NULL)
     {
         omx_clap_direct_dry(s, ins, outs, n);
         s->n_notes = 0;     // no block follows these events: they must not reach the next one with their old frame times
         s->n_sysex = 0;
-        return;
+        return 0;
     }
     atomic_store(&s->in_cycle, 1);
-    if (!omx_clap_run_direct_locked(s, ins, outs, n, t, rec, said))
+    wet = omx_clap_run_direct_locked(s, ins, outs, n, t, rec, said, defer);
+    if (!wet)
         omx_clap_aux_out_silence(s, n);
     s->n_notes = 0;
     s->n_sysex = 0;
     atomic_store(&s->in_cycle, 0);
+    return wet;
 }
 
 /** Whether the direct body can run `s` from `ins` to `outs`: the two legs (no wide bounce), as many channels in as out,

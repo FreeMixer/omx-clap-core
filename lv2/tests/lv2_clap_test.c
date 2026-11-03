@@ -4402,6 +4402,204 @@ out:
     }
 }
 
+/* a one-pole low-pass of the consumer's own, its state the thing a NaN would latch in */
+struct chain_lowpass
+{
+    float z;
+    uint32_t nonfinite_in;      // input samples that were not finite
+};
+
+static void chain_lowpass(void *ctx, const float *const *in, float *const *out, uint32_t n)
+{
+    struct chain_lowpass *lp = ctx;
+
+    for (uint32_t i = 0; i < n; i++)
+    {
+        lp->nonfinite_in += !isfinite(in[0][i]);
+        lp->z += 0.25f * (in[0][i] - lp->z);
+        out[0][i] = lp->z;
+    }
+}
+
+/* a mono chain of the adapter's `uris` (NULL: the low-pass `lp`), opened and published; NULL when one does not open */
+static struct omx_clap_chain *chain_mono(const clap_plugin_entry_t *entry, double rate, const char *const *uris, uint32_t n,
+                                         struct omx_clap_instance **in, struct fake **fk, struct chain_lowpass *lp)
+{
+    struct omx_clap_chain_config config;
+    struct omx_clap_chain *chain = NULL;
+    char cwhy[OMX_CLAP_WHY_MAX] = "";
+
+    omx_clap_chain_config_init(&config);
+    config.channels = 1;
+    if (omx_clap_chain_create(&config, &chain) != OMX_CLAP_CHAIN_OK)
+        return NULL;
+    for (uint32_t k = 0; k < n; k++)
+    {
+        struct omx_clap_chain_member d;
+        uint32_t id;
+
+        omx_clap_chain_member_init(&d);
+        in[k] = NULL;
+        fk[k] = NULL;
+        if (uris[k])
+        {
+            in[k] = core_open(entry, uris[k], rate, cwhy);
+            fk[k] = fake_last();
+            if (!in[k])
+                return chain;
+            d.instance = in[k];
+        }
+        else
+        {
+            d.process = chain_lowpass;
+            d.ctx = lp;
+            d.in_channels = d.out_channels = 1;
+        }
+        omx_clap_chain_add(chain, &d, OMX_CLAP_CHAIN_END, &id);
+    }
+    return chain;
+}
+
+static void chain_mono_free(struct omx_clap_chain *chain, struct omx_clap_instance **in, uint32_t n)
+{
+    if (chain)
+        omx_clap_chain_destroy(chain);
+    for (uint32_t k = 0; k < n; k++)
+        if (in[k])
+        {
+            omx_clap_host_unpublish(in[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_close(in[k]);
+        }
+}
+
+/* one clamp per chain: a member's output past the ceiling reaches the next member whole, the chain's output is clamped
+ * once and counted on the last member that left it; and a NaN block mid-chain never reaches the stateful member after
+ * it, whose state stays finite */
+static void t_chain_lv2_clamp(const clap_plugin_entry_t *entry, double rate)
+{
+    static float in_b[64], out_b[64];
+    static const char *const hot_pad[] = { FAKE_HOT, FAKE_PAD }, *const hot_hot[] = { FAKE_HOT, FAKE_HOT };
+    static const char *const nan_lp[] = { FAKE_PAD, FAKE_NAN, NULL, FAKE_PAD };
+    const float ceiling = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+    float *in[1] = { in_b }, *out[1] = { out_b };
+    struct omx_clap_instance *m[4];
+    struct fake *fk[4];
+    struct chain_lowpass lp = { 0.0f, 0u };
+    struct omx_clap_chain *chain;
+    uint32_t blk, i, all, finite;
+
+    // +40 dB, then -20 dB: the first member's 50 reaches the pad whole, 5 out, nothing clamped anywhere
+    chain = chain_mono(entry, rate, hot_pad, 2, m, fk, &lp);
+    CHECK(chain && m[0] && m[1], "chain clamp %.0f: hot, pad", rate);
+    if (chain && m[0] && m[1])
+    {
+        for (blk = 0; blk < 3; blk++)
+        {
+            for (i = 0; i < 64; i++)
+                in_b[i] = (i & 1) ? -0.5f : 0.5f;
+            omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+        }
+        for (i = 0, all = 1; i < 64; i++)
+            all &= out_b[i] == ((i & 1) ? -0.5f : 0.5f) * 100.0f * PAD_GAIN;
+        CHECK(all && out_b[0] > ceiling * PAD_GAIN, "chain clamp %.0f: no member clamps mid-chain: +40 dB then -20 dB of 0.5 is %g out, not the ceiling's %g",
+              rate, (double)out_b[0], (double)(ceiling * PAD_GAIN));
+        CHECK(atomic_load(&m[0]->stage.h.clamped_samples) == 0 && atomic_load(&m[1]->stage.h.clamped_samples) == 0,
+              "chain clamp %.0f: and nothing is counted clamped (%u, %u)", rate, atomic_load(&m[0]->stage.h.clamped_samples),
+              atomic_load(&m[1]->stage.h.clamped_samples));
+    }
+    chain_mono_free(chain, m, 2);
+
+    // +40 dB twice: 5000 out, held at the ceiling once, at the chain's output, counted on the last member
+    chain = chain_mono(entry, rate, hot_hot, 2, m, fk, &lp);
+    CHECK(chain && m[0] && m[1], "chain clamp %.0f: hot, hot", rate);
+    if (chain && m[0] && m[1])
+    {
+        uint32_t before = 0;
+
+        for (blk = 0; blk < 3; blk++)
+        {
+            for (i = 0; i < 64; i++)
+                in_b[i] = (i & 1) ? -0.5f : 0.5f;
+            before = atomic_load(&m[1]->stage.h.clamped_samples);
+            omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+        }
+        for (i = 0, all = 1; i < 64; i++)
+            all &= out_b[i] == ((i & 1) ? -ceiling : ceiling);
+        CHECK(all, "chain clamp %.0f: the chain's output is held at the +%.1f dBFS ceiling", rate, (double)CLAP_HOST_CLAMP_DBFS);
+        CHECK(atomic_load(&m[1]->stage.h.clamped_samples) - before == 64 && atomic_load(&m[0]->stage.h.clamped_samples) == 0,
+              "chain clamp %.0f: one clamp a block, its 64 samples counted on the last member (%u), none on the first (%u)", rate,
+              atomic_load(&m[1]->stage.h.clamped_samples) - before, atomic_load(&m[0]->stage.h.clamped_samples));
+    }
+    chain_mono_free(chain, m, 2);
+
+    // +40 dB alone, held for a cycle by its control thread mid-signal: no other member leaves the chain a clamp, and its
+    // fade from the output it kept, 50 unclamped, is still held at the ceiling
+    chain = chain_mono(entry, rate, hot_hot, 1, m, fk, &lp);
+    CHECK(chain && m[0], "chain clamp %.0f: hot alone", rate);
+    if (chain && m[0])
+    {
+        struct omx_clap_role role;
+        float worst = 0.0f;
+
+        for (blk = 0; blk < 3; blk++)
+        {
+            for (i = 0; i < 64; i++)
+                in_b[i] = (i & 1) ? -0.5f : 0.5f;
+            omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+        }
+        omx_clap_host_take_role(m[0], &role);
+        omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+        omx_clap_host_release_role(m[0], &role, role.state);
+        for (i = 0; i < 64; i++)
+            worst = fmaxf(worst, fabsf(out_b[i]));
+        CHECK(worst == ceiling, "chain clamp %.0f: a member held mid-signal fades from its kept output, still held at the ceiling (peak %g)",
+              rate, (double)worst);
+    }
+    chain_mono_free(chain, m, 1);
+
+    // pad, NaN, low-pass, pad: two NaN blocks mid-chain ahead of the stateful low-pass
+    chain = chain_mono(entry, rate, nan_lp, 4, m, fk, &lp);
+    CHECK(chain && m[0] && m[1] && fk[1] && m[3], "chain clamp %.0f: pad, nan, low-pass, pad", rate);
+    if (chain && m[0] && m[1] && fk[1] && m[3])
+    {
+        for (blk = 0, finite = 1; blk < 12; blk++)
+        {
+            fk[1]->nan_on = blk == 3 || blk == 4;
+            tone(in_b, 64, 0.4f, blk * 64u);
+            omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+            for (i = 0; i < 64; i++)
+                finite &= isfinite(out_b[i]);
+        }
+        CHECK(lp.nonfinite_in == 0 && isfinite(lp.z) && finite && atomic_load(&m[1]->stage.h.nonfinite_blocks) == 2,
+              "chain clamp %.0f: a NaN block mid-chain never latches in the stateful member after it: it saw %u non-finite samples, its state %g, every output finite, the two blocks struck on the member that made them (%u)",
+              rate, lp.nonfinite_in, (double)lp.z, atomic_load(&m[1]->stage.h.nonfinite_blocks));
+    }
+    chain_mono_free(chain, m, 4);
+
+    // the same chain with the clamp on and the scan for non-finite output off, the guards a host may set: a member's NaN
+    // and infinities are still made finite at that member, by its own clamp, before the stateful low-pass is handed them
+    lp.z = 0.0f;
+    lp.nonfinite_in = 0;
+    chain = chain_mono(entry, rate, nan_lp, 4, m, fk, &lp);
+    CHECK(chain && m[0] && m[1] && fk[1] && m[3], "chain clamp %.0f: pad, nan, low-pass, pad, clamp on, scan off", rate);
+    if (chain && m[0] && m[1] && fk[1] && m[3])
+    {
+        m[0]->stage.h.guards = m[1]->stage.h.guards = m[3]->stage.h.guards = OMX_HOSTED_GUARD_CLAMP;
+        for (blk = 0, finite = 1; blk < 12; blk++)
+        {
+            fk[1]->nan_on = blk == 3 ? 1 : blk == 4 ? 2 : 0;
+            tone(in_b, 64, 0.4f, blk * 64u);
+            omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+            for (i = 0; i < 64; i++)
+                finite &= isfinite(out_b[i]);
+        }
+        CHECK(lp.nonfinite_in == 0 && isfinite(lp.z) && finite && atomic_load(&m[1]->stage.h.nonfinite_blocks) == 0,
+              "chain clamp %.0f: with the scan off, a NaN block and an infinite one mid-chain are clamped where they were made and never latch in the stateful member after it: it saw %u non-finite samples, its state %g, every output finite, nothing struck (%u)",
+              rate, lp.nonfinite_in, (double)lp.z, atomic_load(&m[1]->stage.h.nonfinite_blocks));
+    }
+    chain_mono_free(chain, m, 4);
+}
+
 static void t_chain_lv2(double rate)
 {
     char why[OMX_CLAP_LV2_WHY_MAX] = "";
@@ -4415,6 +4613,7 @@ static void t_chain_lv2(double rate)
     chain_lv2_case(entry, rate, "mono pad, hold, pad, own stage", mono, 4, 1);
     chain_lv2_case(entry, rate, "stereo pad, pad, own stage, pad", stereo, 4, 2);
     t_chain_lv2_guards(entry, rate);
+    t_chain_lv2_clamp(entry, rate);
     omx_clap_lv2_entry_release(entry);
 }
 
