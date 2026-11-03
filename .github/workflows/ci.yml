@@ -210,9 +210,7 @@ jobs:
       - name: The sabotage of the chain's guards
         run: make test-chain-sabotage
 
-      # each guard of the no-copy LV2 adapter broken in a copy of the sources, tests/lv2_clap_test red on it
-      - name: The sabotage of the no-copy LV2 adapter
-        run: make test-lv2-direct-sabotage
+      # the sabotage of the no-copy LV2 adapter runs in a job of its own beside this one: lv2-direct-sabotage below
 
       # each guard of the resource hints broken in a copy of the sources, the test that holds it red (#323)
       - name: The sabotage of the resource hints' guards
@@ -523,6 +521,35 @@ jobs:
         run: |
           echo "test-jack and test-identity are NOT run here: they load omx-delay (.clap from the omx-plugins-clap package, .lv2 from omx-plugins-lv2)."
           echo "They stay in the Makefile for the desk: make test-jack CLAP_TEST_PLUGIN=<omx-delay.clap>; make test-identity."
+
+  # each guard of the no-copy LV2 adapter broken in a copy of the sources, tests/lv2_clap_test's direct section red on it.
+  # A job of its own beside build and test: it needs only the toolchain, the LV2 and CLAP headers and omx-dsp's, and
+  # builds the tree it breaks itself, so it starts when build and test does and waits for nothing.
+  lv2-direct-sabotage:
+    name: the sabotage of the no-copy LV2 adapter
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: fedora:44
+    steps:
+      - name: Install the build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False git gcc make python3 perl-interpreter diffutils pkgconf-pkg-config clap-devel \
+            lv2-devel lilv-devel sord binutils procps-ng util-linux dnf5-plugins
+
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
+        run: |
+          set -euo pipefail
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0'
+          pkg-config --modversion omxdsp
+
+      - uses: actions/checkout@v4
+
+      - name: The sabotage of the no-copy LV2 adapter
+        run: DIRECT_SABOTAGE_JOBS=$(nproc) make test-lv2-direct-sabotage
 
   # The ABI of libomx-clap-core.so.1 against the baseline of the last release: an addition needs a new minor, a removal or a
   # change needs a new soname major. Nothing here needs jack or the protocol library.
