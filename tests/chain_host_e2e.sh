@@ -112,12 +112,37 @@ for arm in chain series; do
 done
 # CHAIN_HOST_STALL=<line>: the chain host is stopped (SIGSTOP) just before that line is sent to it, as a host that
 # stops answering mid-run (a deadlock, a crash whose core dump is slow to finish) would be: tests/chain_host_stall.sh
+#
+# A host that does not answer a line within its 30 s is gone for the rest of the run: what it was doing (alive: its
+# state and kernel wait, then killed so its sockets and nodes go; exited: its status) is said once, on a FAIL line
+# naming the line, and every later line to it answers nothing at once. Without that, each later line waits out its
+# timeout and a run whose host died where a core dump is slow to finish (a crash under a sabotage) never ends.
+# send runs in a command substitution, so the host's end is kept in a file, $runtime/<arm>.gone
+host_gone() {
+    local arm=$1 line=$2 pid=${host_pid[$1]} what
+    : >"$runtime/$arm.gone"
+    if [ -r "/proc/$pid/stat" ] && [ "$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null)" != Z ]; then
+        what="alive, state $(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null), waiting in $(cat "/proc/$pid/wchan" 2>/dev/null); killed"
+        kill -KILL "$pid" 2>/dev/null
+        timeout 5 tail --pid="$pid" -f /dev/null 2>/dev/null
+    else
+        what="exited"
+    fi
+    echo "FAIL the $arm host stopped answering at '$line': $what (core_pattern $(cat /proc/sys/kernel/core_pattern 2>/dev/null))" >&2
+}
 send() {
+    local reply
     if [ "$1" = chain ] && [ -n "${CHAIN_HOST_STALL:-}" ] && [ "$2" = "$CHAIN_HOST_STALL" ] && [ ! -e "$runtime/stalled" ]; then
         : >"$runtime/stalled"
         kill -STOP "${host_pid[chain]}"
     fi
-    protocol_send "${fd[$1]}" 30 "$2"
+    if [ -e "$runtime/$1.gone" ]; then
+        echo
+        return
+    fi
+    reply=$(protocol_send "${fd[$1]}" 30 "$2")
+    [ -n "$reply" ] || host_gone "$1" "$2"
+    printf '%s\n' "$reply"
 }
 expect() {
     local reply
@@ -145,7 +170,7 @@ expect series "add $comp 32" "resp 32"
 
 # the nodes of the graph named effect_10 .. effect_19: the chain host's instances
 nodes() {
-    pw-dump 2>/dev/null | jq -r '.[] | select(.type == "PipeWire:Interface:Node") | .info.props["node.name"] // empty' \
+    timeout 10 pw-dump 2>/dev/null | jq -r '.[] | select(.type == "PipeWire:Interface:Node") | .info.props["node.name"] // empty' \
         | grep -c '^effect_1[0-9]$'
 }
 # a node's ports must be in the graph before it is linked: a closed client's are gone, a new one's come a moment later
@@ -620,6 +645,10 @@ step $? "pass ran on the audio role from its first cycle, in its own client and 
 # a host that saw a guard broken says so in its log (the lock probe of tests/chain_host_sabotage.sh)
 logged=$(grep -h -m 1 '^FAIL' "$runtime/chain.log" "$runtime/series.log" 2>/dev/null | head -1)
 [ -z "$logged" ]; step $? "the hosts logged no FAIL line${logged:+: ${logged#FAIL }}"
+
+for arm in chain series; do
+    [ ! -e "$runtime/$arm.gone" ]; step $? "the $arm host answered every line"
+done
 
 echo "chain host: $failures failed"
 printf 'CHAIN-HOST {"frames":%d,"latency_chain":"%s","latency_series":"%s","failures":%d}\n' "$frames" "$lat_chain" \
