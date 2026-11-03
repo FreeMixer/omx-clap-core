@@ -372,11 +372,12 @@ static inline void omx_hosted_run_end_why(struct omx_hosted_stage *h, int block,
             omx_hosted_count(&h->clamped_samples, moved);
     }
     wet_r = h->n_out == 2 ? h->out_r : h->out_l;
-    if (!want_wet || !atomic_load_explicit(&h->rendered_wet, memory_order_relaxed))
+    if (l != NULL && (!want_wet || !atomic_load_explicit(&h->rendered_wet, memory_order_relaxed)))
     {
         // a change of body fades between the plugin's output and the dry in the bounce's input legs, which the plugin
         // was handed and may have written (in place, with no in_place_pair): they are taken again from the lane, which
-        // the plugin never sees. A steady block reads no dry and copies nothing
+        // the plugin never sees. A steady block reads no dry and copies nothing. A caller that hands no lane (the wide
+        // and direct bodies, on an unusable block only) never reaches here
         memcpy(h->in_l, l, n * sizeof(float));
         memcpy(h->in_r, r ? r : l, n * sizeof(float));
     }
