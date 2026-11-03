@@ -111,6 +111,10 @@ pids+=($!)
 for _ in $(seq 50); do grep -q -x -F "$PHD_READY_LINE" "$runtime/daemon.log" && break; sleep 0.1; done
 grep -q -x -F "$PHD_READY_LINE" "$runtime/daemon.log"
 step $? "plugin-hostd ready on port $port, require_pins 1, omx-clap-host its CLAP worker"
+# the daemon keeps its descriptors and qualification records in this run's tree, never the machine's (as the mapped root
+# of this namespace its default is /var/lib/omx)
+[ -d "$runtime/descriptors" ] && [ -d "$runtime/qualification" ]
+step $? "the daemon's descriptor_dir and qualification_dir are under $runtime"
 exec 3<>"/dev/tcp/127.0.0.1/$port"
 exec 4<>"/dev/tcp/127.0.0.1/$fbport"
 
