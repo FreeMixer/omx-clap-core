@@ -2239,9 +2239,9 @@ static inline int omx_clap_outs_finite(const struct omx_clap_stage *s, float *co
  * body's, value for value (omx_clap_run_locked_status over omx_clap_io_lane): a steady bypass, an oversize block and an
  * unusable block (a process error, non-finite output) leave the input on `outs`, the strike as there; a change of body
  * (the first block after publish, a recovery, a commanded bypass) has the plugin write the bounce's output legs and
- * crossfades between them and `ins` onto `outs`, so the fade reads the same samples it read there. The one difference:
- * a stage stopped while wet passes the input hard, where the two-leg body fades from the bounce's last output, which a
- * steady direct block never wrote. The plugin is never handed one buffer as both its input and its output, whatever
+ * crossfades between them and `ins` onto `outs`, so the fade reads the same samples it read there; a steady block copies
+ * its output into the bounce, so a block the control thread holds or stops the stage for fades from it as there. The
+ * plugin is never handed one buffer as both its input and its output, whatever
  * its in_place_pair says: the input is the dry the guards fall back on. Returns 1 when the plugin's output was
  * delivered, 0 on every dry path, where the caller silences the auxiliary outputs.
  */
@@ -2257,7 +2257,13 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
 
     if (omx_clap_take_state(s) != OMX_CLAP_PROCESSING)
     {
-        omx_clap_direct_dry(s, ins, outs, n);
+        // held by the control thread or stopped: a body that was wet fades out once, from the plugin's last output,
+        // which the bounce keeps, as the two-leg body does
+        if (atomic_load_explicit(&s->h.rendered_wet, memory_order_relaxed) && n <= s->h.max_block)
+            for (c = 0; c < s->h.n_out; c++)
+                omx_wetdry_xfade_block(outs[c], bounce_out[c], ins[c], n);
+        else
+            omx_clap_direct_dry(s, ins, outs, n);
         atomic_store_explicit(&s->h.rendered_wet, 0, memory_order_release);
         return 0;
     }
@@ -2315,6 +2321,12 @@ static inline int omx_clap_run_direct_locked(struct omx_clap_stage *s, const flo
             else
                 omx_wetdry_xfade_block(outs[c], wet[c], ins[c], n);
         }
+    else
+        // the bounce keeps the plugin's last output, which the block after it fades from if the control thread holds
+        // or stops the stage meanwhile (a parameter flush, a state load, a restart, an unpublish): one copy a block,
+        // where the two-leg body makes three
+        for (c = 0; c < s->h.n_out; c++)
+            memcpy(bounce_out[c], outs[c], n * sizeof(float));
     atomic_store_explicit(&s->h.rendered_wet, want_wet, memory_order_release);
     return 1;
 }

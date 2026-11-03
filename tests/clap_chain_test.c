@@ -1208,6 +1208,62 @@ static void t_no_copy(void)
     io_free(&io);
 }
 
+/* a chained member taken out of processing mid-signal by its control thread fades to dry over one block, as alone: held
+ * for one cycle (a parameter flush, a state load, a restart: the control thread holding the audio role) and then
+ * stopped (an unpublish, a deactivate), the chain equal to the members in series, each moved the same way, bit for bit */
+static void t_held_fades(void)
+{
+    static const struct spec three[] = { { K_PASS, 0 }, { K_COMP, 0 }, { K_PASS, 0 } };
+    struct set a, b;
+    struct io io;
+    struct omx_clap_chain *chain;
+    struct omx_clap_role ra, rb;
+    uint32_t k, equal = 0, faded = 1, held = 0, stopped = 0;
+
+    set_new(&a, three, 3, 0);
+    set_new(&b, three, 3, 0);
+    io_new(&io);
+    chain = chain_of(&a, 0, NULL, NULL);
+    for (k = 0; k < 10; k++)
+    {
+        input_block(io.in, 128, k);
+        if (k == 3)
+        {
+            omx_clap_host_take_role(a.m[1].instance, &ra);
+            omx_clap_host_take_role(b.m[1].instance, &rb);
+        }
+        if (k == 7)
+        {
+            omx_clap_request_stop(&a.m[1].instance->stage);
+            omx_clap_request_stop(&b.m[1].instance->stage);
+        }
+        omx_clap_chain_process(chain, (const float *const *)io.in, io.a, 128);
+        series(&b, (const float *const *)io.in, io.b, 128);
+        equal += same(io.a, io.b, 128);
+        if (k == 3 || k == 7)
+        {
+            // the block that leaves the plugin starts on its last output, not on the dry input: the compressor's
+            // input is the passthrough's output, the chain's input here
+            faded &= io.a[0][0] != io.in[0][0] || io.a[1][0] != io.in[1][0];
+            held += k == 3 && atomic_load(&a.m[1].instance->stage.state) == OMX_CLAP_HELD;
+            stopped += k == 7 && omx_clap_stopped(&a.m[1].instance->stage);
+        }
+        if (k == 3)
+        {
+            omx_clap_host_release_role(a.m[1].instance, &ra, ra.state);
+            omx_clap_host_release_role(b.m[1].instance, &rb, rb.state);
+        }
+    }
+    CHECK(held == 1 && stopped == 1, "a member held for a cycle, then stopped, mid-signal");
+    CHECK(equal == 10 && faded,
+          "and it fades to dry over the block that leaves it, as alone: the chain equals the members in series bit for bit (%u of 10 blocks), neither block cut to the dry input",
+          equal);
+    omx_clap_chain_destroy(chain);
+    set_free(&a);
+    set_free(&b);
+    io_free(&io);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 3)
@@ -1232,6 +1288,7 @@ int main(int argc, char **argv)
     t_move_gap();
     t_mono_member();
     t_no_copy();
+    t_held_fades();
     CHECK(omx_clap_host_binaries_open() == 0, "every binary closed (%u open)", omx_clap_host_binaries_open());
     if (g_failures)
     {
