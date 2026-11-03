@@ -84,7 +84,7 @@ start_host() {
     LD_PRELOAD=$shim JACK_XRUN_SHIM_FIFO=$fifo JACK_XRUN_SHIM_LOG=$shimlog "$host" "${args[@]}" >"$runtime/host.log" 2>&1 &
     host_pid=$!
     pids+=("$host_pid")
-    for _ in $(seq 50); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.1; done
+    for _ in $(seq 500); do grep -q "ready!" "$runtime/host.log" && break; sleep 0.01; done
     grep -q "ready!" "$runtime/host.log"
 }
 
@@ -183,11 +183,24 @@ IFS= read -r -d '' -t 5 reply <&3
 [ "${reply:0:6}" = "resp 0" ]; step $? "and answering: $reply"
 
 
-# a host sent its add at once, as plugin-hostd starts a worker, opens no global client: the instance's carries
-: >"$shimlog"
-start_host "$((port + 4))" "$((port + 5))"; step $? "a host for one add ready"
-exec 3<>"/dev/tcp/127.0.0.1/$((port + 4))" 4<>"/dev/tcp/127.0.0.1/$((port + 5))"
-[ "$(cmd "add $pass 1")" = "resp 1" ]; step $? "its add, at once"
+# a host sent its add soon after it started, as plugin-hostd starts a worker, opens no global client: the instance's
+# carries. The add waits a little on the open connection, so that the host's idle ticks run before it (a host that opened
+# the global client at its first tick would be seen here), and still comes well inside the GLOBAL_AFTER_MS (200 ms) the
+# host gives a first add; a start too slow to leave that room is tried again on the next ports
+for try in 0 1 2; do
+    : >"$shimlog"
+    started=$(now_ms)
+    start_host "$((port + 4 + 2 * try))" "$((port + 5 + 2 * try))"; up=$?
+    exec 3<>"/dev/tcp/127.0.0.1/$((port + 4 + 2 * try))" 4<>"/dev/tcp/127.0.0.1/$((port + 5 + 2 * try))"
+    sleep 0.05
+    took=$(($(now_ms) - started))
+    [ "$took" -lt 150 ] && break
+    exec 3>&- 4>&-
+    kill "$host_pid"; wait "$host_pid" 2>/dev/null
+done
+step $up "a host for one add ready"
+[ "$took" -lt 150 ]; step $? "its add $took ms after the host started, under 150"
+[ "$(cmd "add $pass 1")" = "resp 1" ]; step $? "its add"
 sleep 1
 [ "$(grep -c '^set_xrun ' "$shimlog")" -eq 1 ] && ! grep -q '^close ' "$shimlog"
 step $? "one client, the instance's, and no global client opened: $(tr '\n' '|' <"$shimlog")"
