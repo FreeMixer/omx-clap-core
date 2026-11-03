@@ -145,7 +145,7 @@ static void f_run(LV2_Handle h, uint32_t n)
             break;
         case K_NAN:
             for (uint32_t i = 0; i < n; i++)
-                f->out[k][i] = f->nan_on ? NAN : f->in[k][i] * PAD_GAIN;
+                f->out[k][i] = f->nan_on == 2 ? ((i & 1) ? -INFINITY : INFINITY) : f->nan_on ? NAN : f->in[k][i] * PAD_GAIN;
             break;
         case K_HOT:
             for (uint32_t i = 0; i < n; i++)

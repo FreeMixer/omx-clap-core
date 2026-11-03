@@ -56,19 +56,29 @@ that counts the published changes.
   control thread holds or stops it for (a parameter flush, a state load, a restart, an unpublish) fades from. The guards are the member's own, as
   alone and value for value: a steady bypass, a block past its bounce or an unusable block (a process error, a
   non-finite sample) puts its input on its output, and a change of body (the first block, a recovery, a bypass) has the
-  plugin write its bounce for the block and crossfades onto the output from there. A plugin is never handed one buffer
+  plugin read a copy of its input in its bounce and write its bounce for the block, and crossfades onto the output from
+  there: a plugin that writes its input buffer leaves the dry that fade, and an unusable block on it, read as it was,
+  and does not write the chain's input on such a block. A steady block hands the plugin its input itself, with no copy:
+  a plugin that writes its input and then fails a steady block passes what it left there. A member run alone is held to
+  the same: its two-leg body hands the plugin the bounce's input legs and, on a change of body, takes the dry it fades
+  with from the lane again after process(), which the plugin never sees, and its wide body falls back on the caller's
+  input, not on the wide input blocks the plugin was handed; a steady block reads no dry and copies nothing more. A plugin is never handed one buffer
   as both its input and its output, whatever its `in_place_pair` says (the adapter declares none for any LV2 plugin, so
   `lv2:inPlaceBroken` needs nothing more): the input is the dry block the guards fall back on, and the two blocks of
   the walk already make every member's output distinct from its input at no cost. A member whose main port is wider
   than two channels, or a call whose input and output are the same buffer (a chain of one member over one buffer),
   runs the member as alone.
 - the chain clamps once, at its output, where every instance member alone clamps its own: a member run by the direct
-  body leaves its clamp at `CLAP_HOST_CLAMP_DBFS` to the chain, and when one of them delivered its plugin's output in
-  the cycle the chain clamps `outputs` after the walk and counts what moved in the `clamped_samples` of the last such
-  member. A member's output past the ceiling reaches the next member whole. The scan for non-finite output stays each
-  member's own, the one check a block between members keeps: a block with a NaN or an infinity in it is discarded
-  where it was made and that member's input passed on, so no member after it, a reverb's or a delay's state least, is
-  ever handed one.
+  body whose guards both clamp and scan for non-finite output leaves its clamp at `CLAP_HOST_CLAMP_DBFS` to the chain,
+  and when one of them delivered its plugin's output in the cycle the chain clamps `outputs` after the walk and counts
+  what moved in the `clamped_samples` of the last such member. Such a member's output past the ceiling reaches the next
+  member whole. Its scan for non-finite output stays its own, the one check a block between members keeps: a block
+  with a NaN or an infinity in it is discarded where it was made and that member's input passed on, so no member after
+  it, a reverb's or a delay's state least, is handed one. A member that clamps and does not scan (the guards
+  `omx_clap_host_config` sets with `nonfinite` 0 and `clamp` 1) keeps its own clamp, as alone: it holds a NaN at the
+  ceiling and an infinity at the ceiling of its sign before the next member is handed the block. A member that does
+  neither, as a host that turns both guards off runs every member, passes its plugin's NaN or infinity to the next
+  member as it came: with both guards off nothing between members makes a block finite.
 - a chain with no non-bypassed member copies `inputs` to `outputs` (nothing when they are the same buffers).
 - nothing in the cycle allocates, locks, waits or prints. It raises a flag of its own and reads the published plan of
   the walk (the members in order) with one load, and lowers the flag when it is done.
@@ -124,10 +134,17 @@ and freed by the library. The structures are in `abi/libomx-clap-core.so.1.layou
   same for the LV2 adapter's instances in mono and stereo chains mixed with a stage of its own, and a NaN block, its
   recovery and a member's bypass inside a chain equal the members in series bit for bit, and `t_held_fades` holds a
   member for a cycle and then stops it mid-signal: each block that leaves the plugin fades, the chain equal to the
-  members in series bit for bit;
+  members in series bit for bit; and `t_input_written` has the first member's plugin write its own input and fail its
+  first block: the fallback and the fade in after it read the input as it was, the chain's input is not written on
+  either, and the chain equals the members in series whose plugin leaves its input alone, bit for bit, as do the same
+  members in series whose plugin writes its input (the two-leg body); `tests/clap_stage_test.c` (`t_input_written`)
+  holds the two-leg body's fade in and a bypass's fade out, and the wide body's fallback on a process error, to the
+  input as it was;
 - one clamp per chain: +40 dB then -20 dB of 0.5 reaches the output as 5, not as the ceiling's 1.58, nothing counted;
   +40 dB twice is held at the ceiling at the output, its 64 samples a block counted on the last member and none on the
-  first; and two NaN blocks from a member mid-chain never reach the stateful low-pass after it (`t_chain_lv2_clamp`);
+  first; two NaN blocks from a member mid-chain never reach the stateful low-pass after it; and with the clamp on and
+  the scan off, a NaN block and an infinite one from that member reach the low-pass held at the ceiling, its state
+  finite (`t_chain_lv2_clamp`);
 - the latency is the members' sum, and is re-reported when a member's latency changes;
 - a bypassed member adds nothing: the output and the latency equal a chain built without it;
 - a removed member: the next cycle equals a chain built without it, bit for bit;
