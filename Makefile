@@ -389,12 +389,12 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) tests/clap_state_busy_test lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test tests/thread_pool_test tests/thread_pool_tsan tests/thread_pool_bench tests/fake_pool.clap tests/fake_pool_tsan.clap
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) tests/clap_state_busy_test lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/open_timed_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/live_list_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test tests/thread_pool_test tests/thread_pool_tsan tests/thread_pool_bench tests/fake_pool.clap tests/fake_pool_tsan.clap
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
+test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -460,6 +460,16 @@ test-transport: tests/transport_seqlock_test
 # test-transport-tsan also runs the cycle gate: omx-clap-host's restart and relayout against a cycle thread that never
 # stops, the core compiled into the test under ThreadSanitizer (-Wno-tsan: the core's one fence orders atomics only, which
 # ThreadSanitizer sees without it)
+# omx_clap_host_open_timed after its timeout (tests/open_timed_test.c), under ThreadSanitizer: the caller's strings freed
+# and the list of binaries changed on its thread while the abandoned open runs on; the orphan it makes closed
+tests/open_timed_tsan: tests/open_timed_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+
+.PHONY: test-open-timed
+test-open-timed: tests/open_timed_tsan tests/fake.clap
+	TSAN_OPTIONS=halt_on_error=1 ./tests/open_timed_tsan $(abspath tests/fake.clap)
+
 test-transport-tsan: tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/fake.clap
 	TSAN_OPTIONS=halt_on_error=1 ./tests/transport_seqlock_tsan
 	TSAN_OPTIONS=halt_on_error=1 ./tests/cycle_gate_tsan $(abspath tests/fake.clap)
@@ -568,6 +578,39 @@ tests/preset_file_test: tests/preset_file_test.c src/preset_file.c src/preset_fi
 
 tests/msgring_test: tests/msgring_test.c src/omx_msgring.h src/hosted_stage_limits.h
 	$(CC) $(CFLAGS) -Werror -pthread -o $@ $<
+
+# the live instances the control tick walks: tool ids ticked, adds and removals during a walk, ids reused; and the
+# host's source walks that list and no table. The list is the control thread's alone (src/live_list.h)
+test-live-list: tests/live_list_test
+	./tests/live_list_test
+	./tests/live_list_check.sh src/effects.c
+
+tests/live_list_test: tests/live_list_test.c src/live_list.h
+	$(CC) -Isrc $(CFLAGS) -Werror -o $@ $<
+
+# the guards broken: a list that drops the tool ids, one that takes an id twice, a tick that walks the table
+test-live-list-sabotage: tests/live_list_test.c src/live_list.h tests/live_list_check.sh src/effects.c
+	mkdir -p build/live-list-sabotage
+	for arm in tools dup idle direct; do \
+	    cp src/live_list.h build/live-list-sabotage/live_list.h; cp src/effects.c build/live-list-sabotage/effects.c; \
+	    case $$arm in \
+	    tools) sed -i -e '/^static inline void live_add/,/^}/s|    const int at = live_index(list, id - 1);|&\n\n    if (id >= 9990)\n        return;|' build/live-list-sabotage/live_list.h ;; \
+	    dup) sed -i -e '/^static inline void live_add/,/^}/{/ids\[at\] == id)/{N;s|.*|    if (0)\n        return;|}}' build/live-list-sabotage/live_list.h ;; \
+	    idle) sed -i -e '/^void effects_idle(void)/,/^}/s|    LIVE_EACH_INSTANCE(i)|    for (i = 0; i < MAX_PLUGIN_INSTANCES; i++)|' build/live-list-sabotage/effects.c ;; \
+	    direct) sed -i -e '0,/effect_client_set(effect, NULL);/s||effect->jack_client = NULL;|' build/live-list-sabotage/effects.c ;; \
+	    esac; \
+	    if [ $$arm = tools ] || [ $$arm = dup ]; then \
+	        ! cmp -s src/live_list.h build/live-list-sabotage/live_list.h || { echo "sabotage $$arm changed nothing"; exit 1; }; \
+	        $(CC) -Ibuild/live-list-sabotage -Isrc $(CFLAGS) -Werror -o build/live-list-sabotage/test $<; \
+	        if ./build/live-list-sabotage/test > build/live-list-sabotage/$$arm.log 2>&1; then echo "sabotage $$arm: test stayed green"; exit 1; fi; \
+	        grep -q '^FAIL' build/live-list-sabotage/$$arm.log || { echo "sabotage $$arm: no FAIL line"; exit 1; }; \
+	    else \
+	        ! cmp -s src/effects.c build/live-list-sabotage/effects.c || { echo "sabotage $$arm changed nothing"; exit 1; }; \
+	        if ./tests/live_list_check.sh build/live-list-sabotage/effects.c > build/live-list-sabotage/$$arm.log 2>&1; then echo "sabotage $$arm: check stayed green"; exit 1; fi; \
+	        grep -q '^FAIL' build/live-list-sabotage/$$arm.log || { echo "sabotage $$arm: no FAIL line"; exit 1; }; \
+	    fi; \
+	    echo "sabotage $$arm: red as it should"; \
+	done
 
 # the xrun count a worker reports (#371): what is due and when, and the count JACK's thread and the control thread share
 test-xrun-report: tests/xrun_report_test
@@ -895,8 +938,8 @@ tests/jack_xrun_shim.so: tests/jack_xrun_shim.c
 test-jack-params: $(PROG) tests/fake_mover.clap
 	./tests/jack_params_e2e.sh
 
-tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h
-	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< -ldl
+tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h src/abi_guard.h src/abi_guard.S
+	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S -ldl
 
 # the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
 # host answers the add. PLUGIN_HOSTD is the daemon, built in a plugin-hostd checkout by default.

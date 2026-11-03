@@ -89,12 +89,14 @@
  * FAKE_CONTRACT makes every plugin offer org.openmixer.param-contract/1 over its four parameters (0 latency, frames,
  * stepped; the read-only three, no unit, stepped), whole with "good", and with one rule broken otherwise: "fingerprint" (R4, the stated fingerprint is off by one digit), "missing" (R1,
  * no entry for parameter 3), "duplicate" (R1, two entries named activations), "symbol" (R2, a symbol starting with a
- * digit), "step" (R2, a stepped parameter whose step is 2).
+ * digit), "step" (R2, a stepped parameter whose step is 2), "info-late" (R1, clap.params answers false for the first
+ * parameter read after the fingerprint, once: the host's read back in params order).
  * FAKE_STANDARD makes every plugin describe itself through clap.params alone, twelve writable parameters (0 latency in
  * the module "Main/Timing", 1..11 in "Stats", 5 an enum), for the host to answer param_info and the pages from.
  * FAKE_LOG names a file each instance appends "<id> init", "<id> activate", "<id> process" (its first call only) and
  * "<id> destroy" to, which outlives an instance the host destroyed, and "<id> process off the audio role" once when
- * the host's thread-check says process() runs off it.
+ * the host's thread-check says process() runs off it. With FAKE_LOG_RATE set as well, each activate appends
+ * "<id> activate_rate <rate>" after its "<id> activate", the sample rate it was activated at.
  * passthrough also has clap.track-info, whose changed appends "<id> track_info <got> <flags> <a,r,g,b> <name>" with what
  * the host's get answered and, told it is on a bus, calls the host's remote_controls.changed; and clap.remote-controls
  * with two pages, a get past them appending "<id> remote_controls.get past the count". A call of either from any thread
@@ -175,6 +177,7 @@ typedef struct FAKE_T {
     uint32_t latency;
     double latency_param;
     uint32_t activations;
+    uint32_t info_refusals;     // the next calls of params.get_info that answer false (FAKE_CONTRACT info-late)
     uint32_t process_calls;
     uint32_t host_preset_load;
     int logged_process;
@@ -539,6 +542,36 @@ static int standard_set(void)
     return getenv("FAKE_STANDARD") != NULL;
 }
 
+/* FAKE_ABI_BREAK=<call>: that plugin call returns with callee-saved registers changed, every time it is made, as
+ * abi-breaker's process does on its third block: params.count, params.get_info, contract.version, contract.get,
+ * entry.init, entry.get_factory or factory.create_plugin. Each is an assembly stub around its C body, read on every call
+ * so a test may arm it after the instance is open; with the variable unset or naming another call the stub changes
+ * nothing. */
+__attribute__((used, visibility("hidden"))) int fake_abi_named;
+
+static void abi_named_arm(const char *call)
+{
+    const char *named = getenv("FAKE_ABI_BREAK");
+
+    fake_abi_named = named && !strcmp(named, call);
+}
+
+#if defined(__aarch64__)
+#define FAKE_ABI_STUB(fn) \
+    __asm__(".text\n.p2align 2\n.hidden " #fn "\n.globl " #fn "\n" #fn ":\n" \
+            " stp x29, x30, [sp, #-16]!\n mov x29, sp\n bl " #fn "_c\n ldp x29, x30, [sp], #16\n" \
+            " adrp x9, fake_abi_named\n ldr w9, [x9, :lo12:fake_abi_named]\n cbz w9, 1f\n" \
+            " mov x10, #0x7ead\n mov x19, x10\n fmov d15, x10\n" \
+            "1: ret\n")
+#elif defined(__x86_64__)
+#define FAKE_ABI_STUB(fn) \
+    __asm__(".text\n.p2align 4\n.hidden " #fn "\n.globl " #fn "\n" #fn ":\n" \
+            " subq $8, %rsp\n call " #fn "_c\n addq $8, %rsp\n" \
+            " cmpl $0, fake_abi_named(%rip)\n je 1f\n" \
+            " movq $0x7ead, %rbx\n movq $0x7ead, %r15\n" \
+            "1: ret\n")
+#endif
+
 static uint32_t params_count(const clap_plugin_t *plugin)
 {
     (void)plugin;
@@ -547,7 +580,13 @@ static uint32_t params_count(const clap_plugin_t *plugin)
 
 static bool params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_param_info_t *info)
 {
-    (void)plugin;
+    fake_t *fake = plugin->plugin_data;
+
+    if (fake->info_refusals)
+    {
+        fake->info_refusals--;
+        return false;
+    }
     if (index > (standard_set() ? 11u : 3u))
         return false;
     memset(info, 0, sizeof(*info));
@@ -625,8 +664,32 @@ static void params_flush(const clap_plugin_t *plugin, const clap_input_events_t 
     take_events(plugin->plugin_data, in);
 }
 
+__attribute__((used, visibility("hidden"))) uint32_t fake_abi_params_count_c(const clap_plugin_t *plugin);
+__attribute__((used, visibility("hidden"))) bool fake_abi_params_get_info_c(const clap_plugin_t *plugin, uint32_t index,
+                                                                            clap_param_info_t *info);
+uint32_t fake_abi_params_count(const clap_plugin_t *plugin);
+bool fake_abi_params_get_info(const clap_plugin_t *plugin, uint32_t index, clap_param_info_t *info);
+FAKE_ABI_STUB(fake_abi_params_count);
+FAKE_ABI_STUB(fake_abi_params_get_info);
+
+uint32_t fake_abi_params_count_c(const clap_plugin_t *plugin)
+{
+    const uint32_t count = params_count(plugin);
+
+    abi_named_arm("params.count");
+    return count;
+}
+
+bool fake_abi_params_get_info_c(const clap_plugin_t *plugin, uint32_t index, clap_param_info_t *info)
+{
+    const bool ok = params_get_info(plugin, index, info);
+
+    abi_named_arm("params.get_info");
+    return ok;
+}
+
 static const clap_plugin_params_t g_params = {
-    params_count, params_get_info, params_get_value, params_value_to_text, params_text_to_value, params_flush
+    fake_abi_params_count, fake_abi_params_get_info, params_get_value, params_value_to_text, params_text_to_value, params_flush
 };
 
 /* org.openmixer.param-contract/1 over the four parameters: its fingerprint is node's SHA-256 of the canonical
@@ -648,7 +711,11 @@ static uint32_t contract_version(const clap_plugin_t *plugin)
 
 static const char *contract_fingerprint(const clap_plugin_t *plugin)
 {
-    (void)plugin;
+    fake_t *fake = plugin->plugin_data;
+
+    // info-late: the parameter read after the fingerprint has no info, once
+    if (!strcmp(contract_arm(), "info-late"))
+        fake->info_refusals = 1;
     return !strcmp(contract_arm(), "fingerprint") ? "f89aa4a2d94c1b011532ca7f054c182a34b8b13004e017fed2c231b3167a0dc5"
                                                   : CONTRACT_FINGERPRINT;
 }
@@ -674,8 +741,32 @@ static bool contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param
     return true;
 }
 
+__attribute__((used, visibility("hidden"))) uint32_t fake_abi_contract_version_c(const clap_plugin_t *plugin);
+__attribute__((used, visibility("hidden"))) bool fake_abi_contract_get_c(const clap_plugin_t *plugin, clap_id id,
+                                                                         omx_clap_param_contract_entry_t *entry);
+uint32_t fake_abi_contract_version(const clap_plugin_t *plugin);
+bool fake_abi_contract_get(const clap_plugin_t *plugin, clap_id id, omx_clap_param_contract_entry_t *entry);
+FAKE_ABI_STUB(fake_abi_contract_version);
+FAKE_ABI_STUB(fake_abi_contract_get);
+
+uint32_t fake_abi_contract_version_c(const clap_plugin_t *plugin)
+{
+    const uint32_t version = contract_version(plugin);
+
+    abi_named_arm("contract.version");
+    return version;
+}
+
+bool fake_abi_contract_get_c(const clap_plugin_t *plugin, clap_id id, omx_clap_param_contract_entry_t *entry)
+{
+    const bool ok = contract_get(plugin, id, entry);
+
+    abi_named_arm("contract.get");
+    return ok;
+}
+
 static const omx_clap_plugin_param_contract_ext_t g_contract = {
-    contract_version, contract_fingerprint, contract_get
+    fake_abi_contract_version, contract_fingerprint, fake_abi_contract_get
 };
 
 static uint32_t latency_get(const clap_plugin_t *plugin)
@@ -786,9 +877,16 @@ static bool plugin_activate(const clap_plugin_t *plugin, double sample_rate, uin
 {
     fake_t *fake = plugin->plugin_data;
 
-    (void)sample_rate; (void)min_frames; (void)max_frames;
+    (void)min_frames; (void)max_frames;
     fake->activations++;
     fake_log(plugin, "activate");
+    if (getenv("FAKE_LOG_RATE"))
+    {
+        char line[64];
+
+        snprintf(line, sizeof(line), "activate_rate %.0f", sample_rate);
+        fake_log(plugin, line);
+    }
     if (fake->names_on_activate)
     {
         const clap_host_audio_ports_t *host_ports = fake->host->get_extension(fake->host, CLAP_EXT_AUDIO_PORTS);
@@ -1139,13 +1237,32 @@ static const clap_plugin_t *factory_create_plugin(const clap_plugin_factory_t *f
     return &fake->plugin;
 }
 
+__attribute__((used, visibility("hidden"))) const clap_plugin_t *fake_abi_create_plugin_c(const clap_plugin_factory_t *factory,
+                                                                                         const clap_host_t *host, const char *plugin_id);
+const clap_plugin_t *fake_abi_create_plugin(const clap_plugin_factory_t *factory, const clap_host_t *host, const char *plugin_id);
+FAKE_ABI_STUB(fake_abi_create_plugin);
+
+const clap_plugin_t *fake_abi_create_plugin_c(const clap_plugin_factory_t *factory, const clap_host_t *host, const char *plugin_id)
+{
+    const clap_plugin_t *plugin = factory_create_plugin(factory, host, plugin_id);
+
+    abi_named_arm("factory.create_plugin");
+    return plugin;
+}
+
 static const clap_plugin_factory_t g_factory = {
-    factory_get_plugin_count, factory_get_plugin_descriptor, factory_create_plugin
+    factory_get_plugin_count, factory_get_plugin_descriptor, fake_abi_create_plugin
 };
 
+/* FAKE_SLOW_INIT_MS: a binary whose file is named slow.clap takes that long in its init, as a plugin that hangs loading
+ * does (tests/open_timed_test.c); the others are not slowed */
 static bool entry_init(const char *path)
 {
-    (void)path;
+    const char *ms = getenv("FAKE_SLOW_INIT_MS");
+    const char *base = path ? strrchr(path, '/') : NULL;
+
+    if (ms && base && !strcmp(base + 1, "slow.clap"))
+        usleep((useconds_t)atoi(ms) * 1000u);
     return true;
 }
 
@@ -1162,6 +1279,29 @@ static const void *entry_get_factory(const char *factory_id)
     return !strcmp(factory_id, CLAP_PLUGIN_FACTORY_ID) ? &g_factory : NULL;
 }
 
+__attribute__((used, visibility("hidden"))) bool fake_abi_entry_init_c(const char *path);
+__attribute__((used, visibility("hidden"))) const void *fake_abi_entry_get_factory_c(const char *factory_id);
+bool fake_abi_entry_init(const char *path);
+const void *fake_abi_entry_get_factory(const char *factory_id);
+FAKE_ABI_STUB(fake_abi_entry_init);
+FAKE_ABI_STUB(fake_abi_entry_get_factory);
+
+bool fake_abi_entry_init_c(const char *path)
+{
+    const bool ok = entry_init(path);
+
+    abi_named_arm("entry.init");
+    return ok;
+}
+
+const void *fake_abi_entry_get_factory_c(const char *factory_id)
+{
+    const void *factory = entry_get_factory(factory_id);
+
+    abi_named_arm("entry.get_factory");
+    return factory;
+}
+
 CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
-    CLAP_VERSION_INIT, entry_init, entry_deinit, entry_get_factory
+    CLAP_VERSION_INIT, fake_abi_entry_init, entry_deinit, fake_abi_entry_get_factory
 };

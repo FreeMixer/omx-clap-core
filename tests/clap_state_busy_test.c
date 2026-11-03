@@ -118,6 +118,23 @@ int main(int argc, char **argv)
     cycle(in);
     CHECK(atomic_load(&in->stage.state) == OMX_CLAP_PROCESSING, "and it is processing after them");
 
+    // a write whose size wraps past the cap when added to what the stream holds is refused, nothing past the buffer
+    // written, and the next save is whole
+    {
+        unsigned char buf[64 + 8];
+        size_t length = 0;
+        int i, kept = 1;
+
+        memset(buf, 0xa5, sizeof(buf));
+        setenv("FAKE_STATE_HUGE", "1", 1);
+        CHECK(omx_clap_host_state_save(in, buf, 64, &length) == -1, "a write of a size that wraps past the cap is refused");
+        unsetenv("FAKE_STATE_HUGE");
+        for (i = 64; i < (int)sizeof(buf); i++)
+            kept &= buf[i] == 0xa5;
+        CHECK(kept, "and nothing past the buffer is written");
+        CHECK(omx_clap_host_state_save(in, buf, 64, &length) == 0 && length == sizeof(double), "the next save is whole (%zu)", length);
+    }
+
     omx_clap_host_stop(in);
     omx_clap_host_close(in);
     printf("%s\n", g_failures ? "state busy: FAILED" : "state busy: ok");
