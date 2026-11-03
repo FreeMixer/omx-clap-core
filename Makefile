@@ -1487,6 +1487,12 @@ test-hosted-clamp: tests/hosted_clamp_test tests/hosted_cost_bench
 	tests/hosted_clamp_test
 	tests/hosted_clamp_no_libm.sh tests/hosted_cost_bench
 
+# a chain of empty plugins costs no more on silence than on the tone: the silence the host reads for a plugin's sleep is
+# read only for a plugin that can sleep on it (tests/hosted_cost_bench.c --silence-gate)
+.PHONY: test-silence-cost
+test-silence-cost: tests/hosted_cost_bench
+	tests/hosted_cost_bench --silence-gate
+
 .PHONY: test-abi-guard bench-abi-guard
 test-abi-guard: tests/abi_guard_test
 	tests/abi_guard_test

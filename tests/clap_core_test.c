@@ -186,10 +186,14 @@ static void t_abi(void) {
   CHECK(offsetof(struct omx_clap_instance, pool_priority) > offsetof(struct omx_clap_instance, pool_use) &&
             offsetof(struct omx_clap_instance, pool_held) > offsetof(struct omx_clap_instance, pool_priority) &&
             offsetof(struct omx_clap_instance, pool_late) > offsetof(struct omx_clap_instance, pool_held) &&
-            offsetof(struct omx_clap_instance, abi) > offsetof(struct omx_clap_instance, pool_late) &&
-            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, abi) - sizeof(struct omx_abi_guard)
+            offsetof(struct omx_clap_instance, abi) > offsetof(struct omx_clap_instance, pool_late),
+        "the thread pool's gate follows the named slot, the guard follows the gate (%zu)", offsetof(struct omx_clap_instance, abi));
+  /* the sleep's last status is appended after the guard, the instance's last: struct omx_clap_sleep, embedded whole
+   * before the layout extensions, does not grow, so none of them moves */
+  CHECK(offsetof(struct omx_clap_instance, keeps_on) >= offsetof(struct omx_clap_instance, abi) + sizeof(struct omx_abi_guard) &&
+            sizeof(struct omx_clap_instance) - offsetof(struct omx_clap_instance, keeps_on) - sizeof(int)
                 < _Alignof(struct omx_clap_instance),
-        "the thread pool's gate follows the named slot, the guard the instance's last (%zu)", offsetof(struct omx_clap_instance, abi));
+        "the sleep's last status follows the guard, the instance's last (%zu)", offsetof(struct omx_clap_instance, keeps_on));
   config.abi = 0;
   CHECK(omx_clap_host_configure(&config) == -1, "ABI 0 is refused");
   config.abi = 11;

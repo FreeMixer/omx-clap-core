@@ -383,13 +383,40 @@ struct omx_clap_sleep
 /** How long a plugin's output must have been silent before it may sleep, in milliseconds. */
 #define OMX_CLAP_SLEEP_QUIET_MS         200u
 
-/** The quiet of a block: every sample of the lane exactly 0. */
+/** The frames omx_clap_block_silent reads between two looks at what it found: a run with no branch inside, which the
+ * compiler turns into vector loads and ORs, as a loop that leaves at the first sound cannot be. */
+#define OMX_CLAP_SILENT_RUN             32u
+
+/** Whether one leg of `n` frames is silent: every sample's bits but the sign 0, so +0.0 and -0.0 are silence and a NaN,
+ * an infinity or a subnormal is sound, as a compare with 0.0f has it. */
+static inline int omx_clap_leg_silent(const float *x, uint32_t n)
+{
+    uint32_t i = 0, bits, acc;
+
+    for (; i + OMX_CLAP_SILENT_RUN <= n; i += OMX_CLAP_SILENT_RUN)
+    {
+        acc = 0;
+        for (uint32_t j = 0; j < OMX_CLAP_SILENT_RUN; j++)
+        {
+            memcpy(&bits, &x[i + j], sizeof bits);
+            acc |= bits;
+        }
+        if (acc & 0x7fffffffu)
+            return 0;
+    }
+    for (acc = 0; i < n; i++)
+    {
+        memcpy(&bits, &x[i], sizeof bits);
+        acc |= bits;
+    }
+    return !(acc & 0x7fffffffu);
+}
+
+/** The quiet of a block: every sample of the lane exactly 0. A silent block is read once through in vector runs, a
+ * sounding one is left within a run of where its sound starts. */
 static inline int omx_clap_block_silent(const float *l, const float *r, uint32_t n)
 {
-    for (uint32_t i = 0; i < n; i++)
-        if (l[i] != 0.0f || (r && r[i] != 0.0f))
-            return 0;
-    return 1;
+    return omx_clap_leg_silent(l, n) && (!r || omx_clap_leg_silent(r, n));
 }
 
 
@@ -593,6 +620,10 @@ struct omx_clap_instance
     // ABI 20: the plugin's guard (abi_guard.h): every call into the plugin from any thread goes through it, the stage's
     // process too (the stage's guard_off reaches it); the first clobber is read by omx_clap_host_abi_clobber
     struct omx_abi_guard abi;   ///< abi.block counts the process calls
+
+    // the sleep's read of the last status: kept here at the tail, outside struct omx_clap_sleep, which is embedded whole
+    // above and keeps its size, so no member moves; written and read by the audio role only
+    int keeps_on;               ///< 1 while the plugin's last process() said CLAP_PROCESS_CONTINUE (omx_clap_sleep_reads)
 };
 
 
@@ -1243,6 +1274,14 @@ static inline void omx_clap_host_transport_rec(struct omx_clap_instance *in, str
     }
 }
 
+/** The audio role, ahead of a block: whether its input is read for silence. A plugin awake whose last process() said
+ * CLAP_PROCESS_CONTINUE never sleeps on what it said, so its input is not read and the block counts as sounding; a
+ * plugin that then says another status sleeps at most a block later than if it had been read. */
+static inline int omx_clap_sleep_reads(const struct omx_clap_instance *in)
+{
+    return in->sleep.asleep || !in->keeps_on;
+}
+
 /** The audio role, ahead of a block whose input is `silent` and whose transport record is `rec`: the transport kept for
  * the next block's comparison, and 1 when the plugin sleeps through this one (its clock moved on, its auxiliary outputs
  * silent, the lane left as it is), 0 when it runs, woken when it slept. */
@@ -1284,6 +1323,15 @@ static inline void omx_clap_host_sleep_after(struct omx_clap_instance *in, clap_
 
     if (said < 0)
         return;
+    in->keeps_on = said == CLAP_PROCESS_CONTINUE;
+    if (in->keeps_on)
+    {
+        // a plugin that keeps on does not sleep: its output is not read, and a sleep it asks for later waits a whole
+        // quiet_min_frames of silent output from then
+        z->quiet_frames = 0;
+        z->quiet_out_frames = 0;
+        return;
+    }
     for (uint32_t i = 0; i < in->aux_inputs && i < CLAP_HOST_AUX_INPUTS; i++)
         for (uint32_t c = 0; c < in->aux_in[i].channels; c++)
             if (in->aux_in_bound[in->aux_in_base[i] + c])
@@ -1320,7 +1368,7 @@ static inline void omx_clap_host_run(struct omx_clap_instance *in, float *l, flo
     int silent;
 
     omx_clap_host_transport_rec(in, &rec);
-    silent = l && omx_clap_block_silent(l, r, n);
+    silent = l && omx_clap_sleep_reads(in) && omx_clap_block_silent(l, r, n);
     if (omx_clap_host_sleep_skip(in, &rec, silent, n))
         return;
     omx_clap_run_transport_status(&in->stage, l, r, n, &in->transport, &rec, &said);
@@ -1364,24 +1412,28 @@ static inline void omx_clap_host_run_ports(struct omx_clap_instance *in, const f
 
 /** The audio role, a chain member's block (clap_chain.c): the instance's stage run by the direct body from `ins` straight
  * to `outs`, no copy made through the bounce on a steady block (omx_clap_run_direct_status), with the transport, the
- * tempo and the sleep omx_clap_host_run gives the two-leg path; a block it sleeps through passes its input. The caller
- * has checked omx_clap_direct_fits. */
-static inline void omx_clap_host_run_direct(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n)
+ * tempo and the sleep omx_clap_host_run gives the two-leg path; a block it sleeps through passes its input. `defer`
+ * nonzero leaves the clamp of its output to the caller. The caller has checked omx_clap_direct_fits. Returns 1 when the
+ * plugin's output was delivered (unclamped when deferred), 0 when the block passed its input. */
+static inline int omx_clap_host_run_direct(struct omx_clap_instance *in, const float *const *ins, float *const *outs, uint32_t n,
+                                           uint32_t defer)
 {
+    int wet;
     struct omx_clap_transport rec;
     clap_process_status said;
     const float *r = in->stage.h.n_out == 2 ? ins[1] : NULL;
     int silent;
 
     omx_clap_host_transport_rec(in, &rec);
-    silent = omx_clap_block_silent(ins[0], r, n);
+    silent = omx_clap_sleep_reads(in) && omx_clap_block_silent(ins[0], r, n);
     if (omx_clap_host_sleep_skip(in, &rec, silent, n))
     {
         omx_clap_direct_dry(&in->stage, ins, outs, n);
-        return;
+        return 0;
     }
-    omx_clap_run_direct_status(&in->stage, ins, outs, n, &in->transport, &rec, &said);
+    wet = omx_clap_run_direct_status(&in->stage, ins, outs, n, &in->transport, &rec, &said, defer);
     omx_clap_host_sleep_after(in, said, silent, outs[0], in->stage.h.n_out == 2 ? outs[1] : NULL, n);
+    return wet;
 }
 
 /** RT, ahead of the block it belongs to: one MIDI message of the instance's note input at frame `time`, its CLAP notes
