@@ -22,6 +22,11 @@ host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 port=${JACK_E2E_PORT:-5566}
 mover=$here/fake_mover.clap
 uri="clap:$mover#org.omx-clap-host.test.mover"
+# a second host in the same private pipewire starts slower under load (#191): 20s, not the other e2e scripts' 5s
+ready_tries=${JACK_PARAMS_READY_TRIES:-200}
+
+# shellcheck source=tests/host_ready_wait.sh
+. "$here/host_ready_wait.sh"
 
 if [ -z "${JACK_E2E_INSIDE:-}" ]; then
     for f in "$host" "$mover"; do
@@ -68,10 +73,15 @@ start_host() {
     local name=$1
     shift
     exec 3>&- 4>&- 2>/dev/null
+    local held_before=1
+    port_busy "$port" && held_before=0
     env "$@" "$host" -n -p "$port" -f "$((port + 1))" >"$runtime/host.log" 2>&1 &
     pids+=($!)
-    protocol_wait_ready "$runtime/host.log"
-    step $? "omx-clap-host ($name) ready on port $port"
+    if host_ready_wait "$runtime/host.log" "$ready_tries"; then
+        step 0 "omx-clap-host ($name) ready on port $port"
+    else
+        step 1 "omx-clap-host ($name) ready on port $port: $(host_ready_cause "$held_before")"
+    fi
     exec 3<>"/dev/tcp/127.0.0.1/$port"
     exec 4<>"/dev/tcp/127.0.0.1/$((port + 1))"
     feedback=$runtime/feedback-$name.log
