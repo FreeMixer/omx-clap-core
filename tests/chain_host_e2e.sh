@@ -34,6 +34,8 @@ set -u
 
 here=$(cd "$(dirname "$0")" && pwd)
 . "${PLUGIN_HOSTD_TESTS_LIB:-$here/../../plugin-hostd/tests/lib}/protocol.sh"
+# shellcheck source=tests/host_ready_wait.sh
+. "$here/host_ready_wait.sh"
 root=$(dirname "$here")
 host=${OMX_CLAP_HOST:-$root/omx-clap-host}
 frames=${FRAMES:-24000}
@@ -106,8 +108,7 @@ for arm in chain series; do
     FAKE_LOG=$runtime/fake.log "$OMX_CLAP_HOST" -n -p "${port[$arm]}" >"$runtime/$arm.log" 2>&1 &
     pids+=($!)
     host_pid[$arm]=$!
-    for _ in $(seq 100); do grep -q ready "$runtime/$arm.log" && break; sleep 0.1; done
-    grep -q ready "$runtime/$arm.log"; step $? "$arm host ready"
+    host_ready_wait "$runtime/$arm.log" 100; step $? "$arm host ready"
     eval "exec ${fd[$arm]}<>/dev/tcp/127.0.0.1/${port[$arm]}"
 done
 # CHAIN_HOST_STALL=<line>: the chain host is stopped (SIGSTOP) just before that line is sent to it, as a host that
@@ -140,8 +141,24 @@ send() {
         echo
         return
     fi
-    reply=$(protocol_send "${fd[$1]}" 30 "$2")
+    reply=$(answer "$1" "$2")
     [ -n "$reply" ] || host_gone "$1" "$2"
+    printf '%s\n' "$reply"
+}
+# protocol_send with its 30 s read cut into seconds, the host looked at between them: a host that cannot answer ends
+# the wait at once. A read that times out keeps what it read, so a reply that spans a slice is joined whole.
+answer() {
+    local reply= part i rc
+    printf '%s\0' "$2" >&"${fd[$1]}"
+    for ((i = 0; i < 30; i++)); do
+        part=
+        IFS= read -r -d '' -t 1 part <&"${fd[$1]}"
+        rc=$?
+        [ "$rc" -eq 0 ] && { printf '%s\n' "$reply$part"; return; }
+        reply+=$part
+        [ "$rc" -gt 128 ] || break    # not a timeout: the socket is closed
+        host_cannot_answer "${host_pid[$1]}" && break
+    done
     printf '%s\n' "$reply"
 }
 expect() {
@@ -181,7 +198,7 @@ linked() {
 }
 wait_nodes() {
     local want=$1
-    for _ in $(seq 50); do [ "$(nodes)" = "$want" ] && return 0; sleep 0.1; done
+    host_wait "${host_pid[chain]}" 50 '[ "$(nodes)" = "$want" ]' && return 0
     return 1
 }
 [ "$(nodes)" = 3 ]; step $? "three instances, three nodes ($(nodes))"
@@ -328,7 +345,7 @@ if [ -n "${CHAIN_HOST_FAULT:-}" ]; then
     # a member named anew linked in its own client before the line: out_1 and out_2 into effect_30's inputs (the series
     # host's, which no phase records)
     if [ -n "${relinked:-}" ]; then
-        for _ in $(seq 50); do has_ports "$relinked" && break; sleep 0.1; done
+        host_wait "${host_pid[chain]}" 50 'has_ports "$relinked"'
         link "effect_$relinked:out_1" effect_30:in_1
         link "effect_$relinked:out_2" effect_30:in_2
         linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2
@@ -339,7 +356,7 @@ if [ -n "${CHAIN_HOST_FAULT:-}" ]; then
     members=$(readback 7 | sed -n 's/^chain 7: \(.*\) in effect_.*$/\1/p')
     [ "$members" = "$want" ]; step $? "fault $CHAIN_HOST_FAULT: the chain runs $members (want $want)"
     if [ -n "${relinked:-}" ]; then
-        for _ in $(seq 50); do linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2 && break; sleep 0.1; done
+        host_wait "${host_pid[chain]}" 50 'linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2'
         linked "effect_$relinked:out_1" effect_30:in_1 && linked "effect_$relinked:out_2" effect_30:in_2
         step $? "fault $CHAIN_HOST_FAULT: effect_$relinked, stopped and run again, has its links again ($(pw-link -l 2>/dev/null | grep -A2 "^effect_$relinked:out_" | tr '\n' ' '))"
     fi
@@ -447,7 +464,7 @@ expect chain "note_on 13 0 60 100" "resp 0"
 expect chain "note_off 13 0 60 0" "resp 0"
 expect chain "chain 9 15" "resp 0"
 wait_nodes 6; step $? "chain 9 15: 13 in a client of its own again ($(nodes))"
-for _ in $(seq 50); do timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$" && break; sleep 0.1; done
+host_wait "${host_pid[chain]}" 50 'timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$"'
 timeout 10 pw-link -i 2>/dev/null | grep -q "^effect_13:midi_in$"
 step $? "13 has its note port again"
 # a member's auxiliary ports go to the head's client under the member's name, and come back when it leaves
@@ -455,7 +472,7 @@ in_ports() { timeout 10 pw-link -i 2>/dev/null; }
 out_ports() { timeout 10 pw-link -o 2>/dev/null; }
 wait_port() {
     local list=$1 port=$2
-    for _ in $(seq 50); do "$list" | grep -q -x "$port" && return 0; sleep 0.1; done
+    host_wait "${host_pid[chain]}" 50 '"$list" | grep -q -x "$port"' && return 0
     return 1
 }
 # 16 heads chain 8, alone: free it
@@ -482,7 +499,7 @@ expect chain "chain 9 15 17" "resp 0"
 wait_port out_ports effect_15:effect_17_aux_out_1_2; step $? "17 a member again: effect_15:effect_17_aux_out_1_2"
 # remove of the member: its ports go with it
 expect chain "remove 17" "resp 0"
-for _ in $(seq 50); do out_ports | grep -q -x effect_15:effect_17_aux_out_1_2 || break; sleep 0.1; done
+host_wait "${host_pid[chain]}" 50 '! { out_ports | grep -q -x effect_15:effect_17_aux_out_1_2; }'
 ! out_ports | grep -q -x effect_15:effect_17_aux_out_1_2; step $? "remove of member 17 takes its port off the head's client"
 expect chain "add $auxout 17" "resp 17"
 for i in 13 14 15 16 17; do expect chain "remove $i" "resp 0"; done
@@ -519,7 +536,7 @@ unlink_all
 # 3. pass left out: it leaves the walk and is a node of its own again
 expect chain "chain 7 10 12" "resp 0"
 wait_nodes 2; step $? "chain 7 10 12: two nodes, the chain and pass ($(nodes))"
-for _ in $(seq 50); do has_ports 11 && break; sleep 0.1; done
+host_wait "${host_pid[chain]}" 50 'has_ports 11'
 has_ports 11; step $? "pass has its ports again"
 series 20 22
 play p3 chain=10,10 series=20,22
@@ -553,7 +570,7 @@ unlink_all
 # 5b. a move the output hears: pass copies its input, so where it stands is silent. With pass at the head, comp moved
 # after gain sees a block ten times quieter, and the chain must equal pass, gain, comp in series, not pass, comp, gain
 expect chain "chain 7 11 10 12" "resp 0"
-for _ in $(seq 50); do has_ports 11 && ! has_ports 10 && break; sleep 0.1; done
+host_wait "${host_pid[chain]}" 50 'has_ports 11 && ! has_ports 10'
 walk_before=$(walk_of 7)
 expect chain "chain 7 11 12 10" "resp 0"
 walk_after=$(walk_of 7)
@@ -570,7 +587,7 @@ unlink_all
 
 # 6. another head: the chain runs in gain's client
 expect chain "chain 7 12 10 11" "resp 0"
-for _ in $(seq 50); do has_ports 12 && ! has_ports 10 && break; sleep 0.1; done
+host_wait "${host_pid[chain]}" 50 'has_ports 12 && ! has_ports 10'
 wait_nodes 1 && has_ports 12 && ! has_ports 10; step $? "chain 7 12 10 11: one node, gain's ($(nodes))"
 series 22 20 21
 play p6 chain=12,12 series=22,21
@@ -590,7 +607,7 @@ unlink_all
 
 # 8. remove of the head: pass in a client of its own, then a line of one member
 expect chain "remove 12" "resp 0"
-for _ in $(seq 50); do has_ports 11 && break; sleep 0.1; done
+host_wait "${host_pid[chain]}" 50 'has_ports 11'
 has_ports 11 && [ "$(nodes)" = 1 ]; step $? "remove 12: pass alone in its own client ($(nodes))"
 expect chain "chain 7 11" "resp 0"
 play p8 chain=11,11 series=21,21
