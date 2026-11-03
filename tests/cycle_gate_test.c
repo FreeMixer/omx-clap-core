@@ -325,6 +325,27 @@ static void resize_checks(const char *path)
     cycles_wait(&r, 8);
     CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and it runs on the cycle thread, the saved role given back");
 
+    // the graph's rate changes with the block held: the same size at the same rate is nothing to do, at another rate the
+    // instance is activated again at it, its blocks left alone (they do not depend on the rate)
+    {
+        const int calls = b.calls;
+
+        CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 4 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+                  == OMX_CYCLE_GATE_UNCHANGED && r.in->active && r.in->rate == SAMPLE_RATE,
+              "resize: the same size at the same rate changes nothing (rate %.0f)", r.in->rate);
+        CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, 2 * SAMPLE_RATE, 4 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+                  == OMX_CYCLE_GATE_RESIZED && r.in->active && r.in->rate == 2 * SAMPLE_RATE && r.in->max_block == 4 * BLOCK
+                  && b.calls == calls,
+              "resize: the same size at another rate activates the instance again at that rate (%.0f, %u, %d calls)", r.in->rate,
+              r.in->max_block, b.calls - calls);
+        runs = atomic_load(&r.in->stage.h.runs);
+        cycles_wait(&r, 8);
+        CHECK(atomic_load(&r.in->stage.h.runs) > runs, "resize: and runs on the cycle thread at the new rate");
+        CHECK(omx_cycle_gate_resize(&r.gate, r.in, &lock, SAMPLE_RATE, 4 * BLOCK, CLAP_HOST_ROLE_POLL_US, &hook, &pending, why)
+                  == OMX_CYCLE_GATE_RESIZED && r.in->active && r.in->rate == SAMPLE_RATE,
+              "resize: and again at the first rate (%.0f)", r.in->rate);
+    }
+
     // a relayout that waits for the blocks (pending, its role saved): a change with nothing stale activates it
     pthread_mutex_lock(&lock);
     CHECK(omx_cycle_gate_deactivate(&r.gate, r.in, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) == 0, "resize: a relayout deactivates");

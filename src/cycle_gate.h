@@ -187,9 +187,10 @@ struct omx_cycle_gate_blocks {
                                             ///< the rescan reported, for the carrier's relayout to read again
 
 /**
- * A change of the block size, on the control thread (the plugin's deactivate and activate are main-thread calls; the
+ * A change of the block size or of the rate, on the control thread (the plugin's deactivate and activate are main-thread calls; the
  * carrier records the size, omx_cycle_gate_resize_record, and its tick applies it, omx_cycle_gate_resize_tick), under
- * `lock`, the lock every restart and relayout of the instance holds. When the instance is active at another block, the carrier's blocks of an
+ * `lock`, the lock every restart and relayout of the instance holds. When the instance is active at another block or another
+ * rate than `rate`, the carrier's blocks of an
  * active or pending instance are stale, or `pending` holds a relayout's waiting activation, the cycles are shut out: an active instance is stopped and
  * deactivated, the carrier's blocks made again (`blocks`, inside the closed gate, for the cycles copy them), and the
  * instance activated at `nframes` when it was active or pending, armed with the audio role it had (the pending one's
@@ -218,7 +219,8 @@ static inline int omx_cycle_gate_resize(struct omx_cycle_gate *g, struct omx_cla
         // the one the relayout saved
         const int named = waiting && !active && in->audio_role_held;
 
-        if ((active && nframes != in->max_block) || stale || waiting)
+        // an active instance at another block, or at another rate (the graph's rate changed with the block held)
+        if ((active && (nframes != in->max_block || rate != in->rate)) || stale || waiting)
         {
             // stop takes the audio role for this thread and releases it: the cycle's is given back after, a pending
             // relayout's is the one it saved
