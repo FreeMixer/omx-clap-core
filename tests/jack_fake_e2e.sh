@@ -195,6 +195,50 @@ w=$(level effect_0:out_1); near "${w%% *}" 0.25 0.0001; step $? "back at the def
 expect "remove 0" "resp 0"
 expect "quit" "resp 0"
 
+# ---- a change of the graph's rate with the block size held: the rate callback the host
+# registered re-activates each instance at the new rate, a chain's members with their head, through the gate the
+# resize uses; the plugin never runs on at the rate it was first activated at ----
+port=$((port + 1))
+: >"$runtime/fake.log"
+FAKE_LOG=$runtime/fake.log FAKE_LOG_RATE=1 "$host" -n -p "$port" >"$runtime/host3.log" 2>&1 &
+pids+=($!)
+host_pid=$!
+protocol_wait_ready "$runtime/host3.log"; step $? "omx-clap-host ready on port $port, the fake logging the rate of each activate"
+exec 3>&-
+exec 3<>"/dev/tcp/127.0.0.1/$port"
+# the rate the last activate of `id` was at, empty before any
+rate_of() { awk -v id="$1" '$1 == id && $2 == "activate_rate" { r = $3 } END { print r }' "$runtime/fake.log"; }
+rates_of() { grep -c -x -F "$1 activate_rate $2" "$runtime/fake.log"; }
+pass=org.omx-clap-host.test.passthrough
+pw-metadata -n settings 0 clock.force-quantum 256 >/dev/null 2>&1; step $? "the quantum held at 256"
+sleep 0.3
+expect "add clap:$fake#$pass 0" "resp 0"
+expect "add clap:$fake#$pass 1" "resp 1"
+expect "add clap:$fake#$pass 2" "resp 2"
+expect "chain 3 1 2" "resp 0"
+for _ in $(seq 50); do graph_has effect_1:in_1 && ! graph_has effect_2:in_1 && break; sleep 0.1; done
+run pw-link jack_meter_source:out_l effect_0:in_1 && run pw-link jack_meter_source:out_l effect_1:in_1
+step $? "the source's 0.5 into effect_0:in_1 and the chain's, effect_1:in_1"
+r0=$(rate_of "$pass")
+[ -n "$r0" ]; step $? "the passthroughs were activated at the graph's rate, $r0"
+r1=96000; [ "$r0" = 96000 ] && r1=48000
+for _ in $(seq 30); do w=$(level effect_0:out_1) && near "${w%% *}" 0.5 0.0001 && break; sleep 0.1; done
+w=$(level effect_0:out_1); near "${w%% *}" 0.5 0.0001; step $? "at $r0, effect_0:out_1 passes the source's 0.5 ($w)"
+pw-metadata -n settings 0 clock.force-rate "$r1" >/dev/null 2>&1; step $? "the rate forced to $r1, the quantum still 256"
+for _ in $(seq 50); do [ "$(rates_of "$pass" "$r1")" -ge 3 ] && break; sleep 0.1; done
+[ "$(rates_of "$pass" "$r1")" = 3 ]
+step $? "each of the three passthroughs, the lone one and both chain members, activated again at $r1 ($(rates_of "$pass" "$r1"))"
+sleep 0.5
+w=$(level effect_0:out_1); near "${w%% *}" 0.5 0.0001; step $? "at $r1, effect_0:out_1 still passes the source's 0.5 ($w)"
+w=$(level effect_1:out_1); near "${w%% *}" 0.5 0.0001; step $? "and the chain's effect_1:out_1 ($w)"
+pw-metadata -n settings 0 clock.force-rate 0 >/dev/null 2>&1; step $? "the rate unforced"
+for _ in $(seq 50); do [ "$(rate_of "$pass")" = "$r0" ] && [ "$(rates_of "$pass" "$r0")" -ge 6 ] && break; sleep 0.1; done
+[ "$(rates_of "$pass" "$r0")" = 6 ]; step $? "and all three activated again at $r0 ($(rates_of "$pass" "$r0") activates at $r0 in all)"
+pw-metadata -n settings 0 clock.force-quantum 0 >/dev/null 2>&1; step $? "the quantum unforced"
+expect "chain 3 1" "resp 0"
+for i in 2 1 0; do expect "remove $i" "resp 0"; done
+expect "quit" "resp 0"
+
 if [ "$failures" -eq 0 ]; then
     echo "jack fake e2e ok"
     exit 0

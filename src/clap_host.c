@@ -86,6 +86,9 @@ struct omx_clap_binary
     const clap_plugin_entry_t *entry;
     const clap_plugin_factory_t *factory;
     uint32_t refs;
+    // the first clobber the entry's own calls made (entry.init, entry.get_factory), before any instance had a guard:
+    // recorded in each instance made from the binary
+    struct omx_abi_clobber entry_clobber;
     struct omx_clap_binary *next;
 };
 
@@ -97,12 +100,18 @@ struct bounded_stream
     int overflow;
 };
 
+/* an omx_clap_host_open_timed and the thread that opens: the strings are its own copies, and whichever of the two lets
+ * go of the record last frees it, under `lock`. An open abandoned by its timeout closes the instance it makes late,
+ * which nobody will take. */
 struct timed_open
 {
-    const char *path, *id;
+    char *path, *id;
     struct omx_clap_instance *out;
     char why[OMX_CLAP_WHY_MAX];
     int rc;
+    pthread_mutex_t lock;
+    int abandoned;      // the opener gave up waiting: the thread closes what it made and frees the record
+    int done;           // the thread's open has returned
 };
 
 
@@ -113,6 +122,9 @@ struct timed_open
 */
 
 static struct omx_clap_binary *g_binaries;
+/* the list of binaries and their reference counts, changed by an open on any thread (an abandoned timed open goes on in
+ * a thread of its own): held for the list alone, never across a dlopen or a call of the plugin, which may hang */
+static pthread_mutex_t g_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* the defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
@@ -120,7 +132,7 @@ static struct omx_clap_host_config g_config =
     OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, CLAP_HOST_IDLE_HOLD_US
 };
 static int g_configured;
-static int g_sealed;        // a binary was opened: the configuration can no longer change
+static _Atomic int g_sealed;    // a binary was opened: the configuration can no longer change
 static const clap_host_gui_t *g_gui;   // the caller's clap.gui (omx_clap_host_offer_gui), NULL for none
 
 
@@ -136,22 +148,35 @@ static void why_set(char why[OMX_CLAP_WHY_MAX], const char *code)
         snprintf(why, OMX_CLAP_WHY_MAX, "%s", code);
 }
 
+/* under g_binaries_lock: the listed binary dlopen'd from `path` (`entry` NULL), or the linked one of `entry` */
+static struct omx_clap_binary *binary_listed(const char *path, const clap_plugin_entry_t *entry)
+{
+    struct omx_clap_binary *binary;
+
+    for (binary = g_binaries; binary; binary = binary->next)
+        if (entry ? !binary->so && binary->entry == entry : binary->so && strcmp(binary->path, path) == 0)
+            return binary;
+    return NULL;
+}
+
 /* Take `entry` (from a dlopen'd `so`, or linked in when `so` is NULL): version, init, factory. On refusal nothing
  * stays loaded and `reason` says why. */
 static struct omx_clap_binary *binary_adopt(const char *path, void *so, const clap_plugin_entry_t *entry, char *reason, size_t reason_size)
 {
     const clap_plugin_factory_t *factory;
     struct omx_clap_binary *binary;
+    struct omx_abi_guard entry_guard;
 
+    memset(&entry_guard, 0, sizeof(entry_guard));
     if (!entry || !clap_version_is_compatible(entry->clap_version) || !entry->init
-        || !OMX_ABI_BOOL(omx_abi_g(NULL, "entry.init", (const void *)entry->init, OMX_ABI_A(path), 0, 0, 0, 0, 0)))
+        || !OMX_ABI_BOOL(omx_abi_g(&entry_guard, "entry.init", (const void *)entry->init, OMX_ABI_A(path), 0, 0, 0, 0, 0)))
     {
         snprintf(reason, reason_size, "can't init %s", path);
         if (so)
             dlclose(so);
         return NULL;
     }
-    factory = (const clap_plugin_factory_t *)OMX_ABI_CALL(NULL, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
+    factory = (const clap_plugin_factory_t *)OMX_ABI_CALL(&entry_guard, "entry.get_factory", entry->get_factory, CLAP_PLUGIN_FACTORY_ID);
     if (!factory)
     {
         snprintf(reason, reason_size, "no plugin factory in %s", path);
@@ -161,14 +186,46 @@ static struct omx_clap_binary *binary_adopt(const char *path, void *so, const cl
         return NULL;
     }
     binary = calloc(1, sizeof(*binary));
-    binary->path = strdup(path);
+    if (binary)
+        binary->path = strdup(path);
+    if (!binary || !binary->path)
+    {
+        snprintf(reason, reason_size, "no memory for %s", path);
+        free(binary);
+        omx_abi_g(NULL, "entry.deinit", (const void *)entry->deinit, 0, 0, 0, 0, 0, 0);
+        if (so)
+            dlclose(so);
+        return NULL;
+    }
     binary->so = so;
     binary->entry = entry;
     binary->factory = factory;
+    (void)omx_abi_guard_first(&entry_guard, &binary->entry_clobber);
     binary->refs = 1;
-    binary->next = g_binaries;
-    g_binaries = binary;
     g_sealed = 1;
+    pthread_mutex_lock(&g_binaries_lock);
+    {
+        // another thread's open of the same binary listed it while this one loaded: that one is taken, this let go
+        struct omx_clap_binary *listed = binary_listed(path, so ? NULL : entry);
+
+        if (listed)
+            listed->refs++;
+        else
+        {
+            binary->next = g_binaries;
+            g_binaries = binary;
+        }
+        pthread_mutex_unlock(&g_binaries_lock);
+        if (listed)
+        {
+            omx_abi_g(NULL, "entry.deinit", (const void *)entry->deinit, 0, 0, 0, 0, 0, 0);
+            if (so)
+                dlclose(so);
+            free(binary->path);
+            free(binary);
+            return listed;
+        }
+    }
     return binary;
 }
 
@@ -244,14 +301,12 @@ static struct omx_clap_binary *binary_ref(const char *path, char *reason, size_t
             return NULL;
         path = object;
     }
-    for (binary = g_binaries; binary; binary = binary->next)
-    {
-        if (binary->so && strcmp(binary->path, path) == 0)
-        {
-            binary->refs++;
-            return binary;
-        }
-    }
+    pthread_mutex_lock(&g_binaries_lock);
+    if ((binary = binary_listed(path, NULL)))
+        binary->refs++;
+    pthread_mutex_unlock(&g_binaries_lock);
+    if (binary)
+        return binary;
     so = dlopen(path, RTLD_NOW | RTLD_LOCAL);
     if (!so)
     {
@@ -267,14 +322,12 @@ static struct omx_clap_binary *binary_ref_entry(const clap_plugin_entry_t *entry
 {
     struct omx_clap_binary *binary;
 
-    for (binary = g_binaries; binary; binary = binary->next)
-    {
-        if (!binary->so && binary->entry == entry)
-        {
-            binary->refs++;
-            return binary;
-        }
-    }
+    pthread_mutex_lock(&g_binaries_lock);
+    if ((binary = binary_listed(NULL, entry)))
+        binary->refs++;
+    pthread_mutex_unlock(&g_binaries_lock);
+    if (binary)
+        return binary;
     return binary_adopt(id ? id : "", NULL, entry, reason, reason_size);
 }
 
@@ -282,9 +335,14 @@ static void binary_unref(struct omx_clap_binary *binary)
 {
     struct omx_clap_binary **link;
 
-    if (!binary || --binary->refs > 0)
+    if (!binary)
         return;
-
+    pthread_mutex_lock(&g_binaries_lock);
+    if (--binary->refs > 0)
+    {
+        pthread_mutex_unlock(&g_binaries_lock);
+        return;
+    }
     for (link = &g_binaries; *link; link = &(*link)->next)
     {
         if (*link == binary)
@@ -293,6 +351,7 @@ static void binary_unref(struct omx_clap_binary *binary)
             break;
         }
     }
+    pthread_mutex_unlock(&g_binaries_lock);
 
     omx_abi_g(NULL, "entry.deinit", (const void *)binary->entry->deinit, 0, 0, 0, 0, 0, 0);
     if (binary->so)
@@ -1391,6 +1450,12 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
 {
     struct omx_clap_instance *in = calloc(1, sizeof(*in));
 
+    if (!in)
+    {
+        binary_unref(bin);
+        *out = NULL;
+        return -1;
+    }
     in->bin = bin;
     in->desc = desc;
     in->main_thread = pthread_self();
@@ -1407,7 +1472,10 @@ static int instance_create(struct omx_clap_binary *bin, const clap_plugin_descri
     in->host.request_callback = host_request_callback;
     for (uint32_t i = 0; i < OMX_CLAP_FDS; i++)
         in->fds[i].fd = -1;     // before init, which may register one
-    in->plugin = OMX_ABI_CALL(NULL, "factory.create_plugin", bin->factory->create_plugin, bin->factory, &in->host, desc->id);
+    // what the binary's entry changed before this guard existed, then the factory's call through it
+    omx_abi_guard_note(OMX_ABI_GUARD_OF(in), bin->entry_clobber.call, bin->entry_clobber.mask);
+    in->plugin = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "factory.create_plugin", bin->factory->create_plugin, bin->factory, &in->host,
+                              desc->id);
     if (!in->plugin || !OMX_ABI_BOOL(omx_abi_g(OMX_ABI_GUARD_OF(in), "init", (const void *)in->plugin->init, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0)))
     {
         if (in->plugin)
@@ -1533,7 +1601,7 @@ static void contract_read(struct omx_clap_instance *in, uint32_t rows, uint32_t 
     if (reported > rows)
         snprintf(c.why, sizeof(c.why), "R1 more parameters than the host serves");
     else
-        pc_read(&c, in->plugin, in->params, rows);
+        pc_read(&c, OMX_ABI_GUARD_OF(in), in->plugin, in->params, rows);
     in->contract = c.entry;
     in->contract_count = c.entry ? c.count : 0;
     in->contract_version = c.entry ? c.version : 0;
@@ -1563,7 +1631,7 @@ static void contract_recheck(struct omx_clap_instance *in)
     if (reported > rows)
         snprintf(c.why, sizeof(c.why), "more parameters than the host serves");
     else
-        pc_read(&c, in->plugin, in->params, rows);
+        pc_read(&c, OMX_ABI_GUARD_OF(in), in->plugin, in->params, rows);
     if (pc_same(&c, in->contract, in->contract_count, in->contract_version))
     {
         free(in->contract);
@@ -1655,11 +1723,30 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     return 0;
 }
 
+static void timed_open_free(struct timed_open *t)
+{
+    pthread_mutex_destroy(&t->lock);
+    free(t->path);
+    free(t->id);
+    free(t);
+}
+
 static void *timed_open_run(void *arg)
 {
     struct timed_open *t = arg;
+    int abandoned;
 
     t->rc = omx_clap_host_open(t->path, t->id, &t->out, t->why);
+    pthread_mutex_lock(&t->lock);
+    t->done = 1;
+    abandoned = t->abandoned;
+    pthread_mutex_unlock(&t->lock);
+    if (abandoned)
+    {
+        // the opener has gone: what this made late is nobody's
+        omx_clap_host_close(t->out);
+        timed_open_free(t);
+    }
     return NULL;
 }
 
@@ -1974,7 +2061,8 @@ static int64_t ostream_write(const clap_ostream_t *stream, const void *data, uin
 {
     struct bounded_stream *b = stream->ctx;
 
-    if (b->len + size > b->cap)
+    // never b->len + size, which a huge size wraps past the cap
+    if (size > b->cap - b->len)
     {
         b->overflow = 1;
         return -1;
@@ -2845,8 +2933,10 @@ uint32_t omx_clap_host_binaries_open(void)
     const struct omx_clap_binary *binary;
     uint32_t n = 0;
 
+    pthread_mutex_lock(&g_binaries_lock);
     for (binary = g_binaries; binary; binary = binary->next)
         n++;
+    pthread_mutex_unlock(&g_binaries_lock);
     return n;
 }
 
@@ -2854,7 +2944,9 @@ uint32_t omx_clap_host_binaries_open(void)
 int omx_clap_host_create(struct omx_clap_binary *binary, const clap_plugin_descriptor_t *desc, struct omx_clap_instance **out)
 {
     *out = NULL;
+    pthread_mutex_lock(&g_binaries_lock);
     binary->refs++;
+    pthread_mutex_unlock(&g_binaries_lock);
     return instance_create(binary, desc, out);
 }
 
@@ -2897,13 +2989,24 @@ int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_
     struct timed_open *t = calloc(1, sizeof(*t));
     struct timespec until;
     pthread_t th;
-    int rc;
+    int rc, done;
 
-    t->path = path;
-    t->id = id;
+    if (out)
+        *out = NULL;
+    if (!t || !path || !id || !out || !(t->path = strdup(path)) || !(t->id = strdup(id)))
+    {
+        if (t)
+        {
+            free(t->path);
+            free(t);
+        }
+        why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
+        return -1;
+    }
+    pthread_mutex_init(&t->lock, NULL);
     if (pthread_create(&th, NULL, timed_open_run, t) != 0)
     {
-        free(t);
+        timed_open_free(t);
         why_set(why, CLAP_HOST_CODE_HEADLESS_FAILED);
         return -1;
     }
@@ -2917,9 +3020,20 @@ int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_
     }
     if (pthread_timedjoin_np(th, NULL, &until) == ETIMEDOUT)
     {
-        pthread_detach(th);     // abandoned: the worker keeps its own record and frees nothing shared
+        // abandoned: the thread closes what it makes and frees the record, unless it ended between the timeout and here
+        pthread_mutex_lock(&t->lock);
+        t->abandoned = 1;
+        done = t->done;
+        pthread_mutex_unlock(&t->lock);
+        if (done)
+        {
+            pthread_join(th, NULL);
+            omx_clap_host_close(t->out);
+            timed_open_free(t);
+        }
+        else
+            pthread_detach(th);
         why_set(why, CLAP_HOST_CODE_CRASHED_LIVE);
-        *out = NULL;
         return -1;
     }
     rc = t->rc;
@@ -2927,7 +3041,7 @@ int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_
     if (t->out)
         t->out->main_thread = pthread_self();   // the opener's control thread is the main thread
     why_set(why, t->why);
-    free(t);
+    timed_open_free(t);
     return rc;
 }
 
