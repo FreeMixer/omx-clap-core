@@ -145,19 +145,19 @@ send() {
     [ -n "$reply" ] || host_gone "$1" "$2"
     printf '%s\n' "$reply"
 }
-# protocol_send with its 30 s read cut into seconds, the host looked at between them: a host that cannot answer ends
-# the wait at once. A read that times out keeps what it read, so a reply that spans a slice is joined whole.
+# A line's 30 s cut into seconds, the host looked at between them: protocol_send sends it and waits its first second,
+# then, while nothing has come, the reply is waited for a second at a time; a host that cannot answer ends the wait at
+# once. A reply is one short write, so what has come by then is the reply; a read that times out keeps what it read.
 answer() {
-    local reply= part i rc
-    printf '%s\0' "$2" >&"${fd[$1]}"
-    for ((i = 0; i < 30; i++)); do
+    local reply part i rc
+    reply=$(protocol_send "${fd[$1]}" 1 "$2")
+    for ((i = 1; i < 30 && ${#reply} == 0; i++)); do
+        host_cannot_answer "${host_pid[$1]}" && break
         part=
         IFS= read -r -d '' -t 1 part <&"${fd[$1]}"
         rc=$?
-        [ "$rc" -eq 0 ] && { printf '%s\n' "$reply$part"; return; }
         reply+=$part
-        [ "$rc" -gt 128 ] || break    # not a timeout: the socket is closed
-        host_cannot_answer "${host_pid[$1]}" && break
+        [ "$rc" -eq 0 ] || [ "$rc" -gt 128 ] || break    # not a timeout: the socket is closed
     done
     printf '%s\n' "$reply"
 }
