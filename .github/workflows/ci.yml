@@ -78,6 +78,10 @@ jobs:
       - name: make private-refs
         run: make private-refs
 
+      # the shared checks run from FreeMixer/.github; no copy of a checker, a pattern list or the commit-msg hook is kept
+      - name: No tracked file is a copy of a shared check
+        uses: FreeMixer/.github/.github/actions/no-local-copies@v1
+
   contract:
     name: data/ read back through omx-contract's reader, the committed headers and ts module its render
     runs-on: ubuntu-latest
