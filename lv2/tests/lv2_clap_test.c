@@ -4575,6 +4575,29 @@ static void t_chain_lv2_clamp(const clap_plugin_entry_t *entry, double rate)
               rate, lp.nonfinite_in, (double)lp.z, atomic_load(&m[1]->stage.h.nonfinite_blocks));
     }
     chain_mono_free(chain, m, 4);
+
+    // the same chain with the clamp on and the scan for non-finite output off, the guards a host may set: a member's NaN
+    // and infinities are still made finite at that member, by its own clamp, before the stateful low-pass is handed them
+    lp.z = 0.0f;
+    lp.nonfinite_in = 0;
+    chain = chain_mono(entry, rate, nan_lp, 4, m, fk, &lp);
+    CHECK(chain && m[0] && m[1] && fk[1] && m[3], "chain clamp %.0f: pad, nan, low-pass, pad, clamp on, scan off", rate);
+    if (chain && m[0] && m[1] && fk[1] && m[3])
+    {
+        m[0]->stage.h.guards = m[1]->stage.h.guards = m[3]->stage.h.guards = OMX_HOSTED_GUARD_CLAMP;
+        for (blk = 0, finite = 1; blk < 12; blk++)
+        {
+            fk[1]->nan_on = blk == 3 ? 1 : blk == 4 ? 2 : 0;
+            tone(in_b, 64, 0.4f, blk * 64u);
+            omx_clap_chain_process(chain, (const float *const *)in, out, 64);
+            for (i = 0; i < 64; i++)
+                finite &= isfinite(out_b[i]);
+        }
+        CHECK(lp.nonfinite_in == 0 && isfinite(lp.z) && finite && atomic_load(&m[1]->stage.h.nonfinite_blocks) == 0,
+              "chain clamp %.0f: with the scan off, a NaN block and an infinite one mid-chain are clamped where they were made and never latch in the stateful member after it: it saw %u non-finite samples, its state %g, every output finite, nothing struck (%u)",
+              rate, lp.nonfinite_in, (double)lp.z, atomic_load(&m[1]->stage.h.nonfinite_blocks));
+    }
+    chain_mono_free(chain, m, 4);
 }
 
 static void t_chain_lv2(double rate)
