@@ -247,6 +247,97 @@ static void sleep_section(struct omx_clap_instance *in, ext_stats_t *st, int (*s
     CHECK(st->process_calls == calls + 3, "SLEEP waits for three blocks of silent output, the window, then sleeps (%u)",
           st->process_calls - calls);
 
+    /* CONTINUE then CONTINUE_IF_NOT_QUIET on silence: the input of the block after a CONTINUE is not read, so the plugin
+     * that changes its answer on silence sleeps one block later than if it had been, never later than that */
+    in->sleep.quiet_min_frames = 0;
+    st->ring = 0;
+    transport(tsrc, 0, 120.0, 0.0);     // stopped and unchanged from here: the transport wakes nothing
+    st->status = CLAP_PROCESS_CONTINUE;
+    run(in, 0.5f);
+    run(in, 0.0f);
+    run(in, 0.0f);
+    CHECK(!in->sleep.asleep && in->keeps_on, "CONTINUE on silence: awake, its input not read");
+    st->status = CLAP_PROCESS_CONTINUE_IF_NOT_QUIET;
+    calls = st->process_calls;
+    for (i = 0; i < 5; i++)
+        run(in, 0.0f);
+    CHECK(st->process_calls == calls + 2 && in->sleep.asleep && !in->keeps_on,
+          "CONTINUE then CONTINUE_IF_NOT_QUIET on silence: two blocks processed, one a block late, then asleep (%u)",
+          st->process_calls - calls);
+
+    /* what the scan reads on a sleeping plugin: -0.0 is silence; a NaN, an infinity or one sounding sample, the last of
+     * a block of odd length past the vector runs, wakes it */
+    {
+        static const uint32_t lens[] = { 1, 31, 33, 65, 255 };
+        static const float wakers[] = { NAN, INFINITY, 1e-3f };
+        const uint32_t guards = in->stage.h.guards;
+
+        // the plugin passes what it wakes on to its output: no guard strikes it for that, here only the scan is read
+        in->stage.h.guards = 0;
+        st->status = CLAP_PROCESS_SLEEP;
+        run(in, 0.0f);
+        run(in, 0.0f);
+        calls = st->process_calls;
+        run(in, -0.0f);
+        CHECK(st->process_calls == calls && in->sleep.asleep, "asleep, a block of -0.0 is silence: not processed (%u)",
+              st->process_calls - calls);
+        for (size_t w = 0; w < sizeof wakers / sizeof wakers[0]; w++)
+            for (size_t k = 0; k < sizeof lens / sizeof lens[0]; k++)
+            {
+                const uint32_t n = lens[k];
+
+                run(in, 0.0f);      // asleep again
+                calls = st->process_calls;
+                for (i = 0; i < n; i++)
+                    g_l[i] = g_r[i] = -0.0f;
+                g_r[n - 1] = wakers[w];
+                omx_clap_host_run(in, g_l, g_r, n);
+                CHECK(st->process_calls == calls + 1, "%.0f Hz: %g in the last right sample of %u frames wakes it (%u)", rate,
+                      (double)wakers[w], n, st->process_calls - calls);
+            }
+        in->stage.h.guards = guards;
+        run(in, 0.0f);      // the block after the woken one: what the plugin left on the lane is gone
+    }
+}
+
+/* omx_clap_block_silent at lengths about the vector run: a block is silence when every sample is +0.0 or -0.0; one
+ * sounding sample anywhere, a NaN, an infinity or a subnormal, on either leg, is sound; nothing past `n` is read */
+static void scan_section(void)
+{
+    static const uint32_t lens[] = { 1, 2, 7, 31, 32, 33, 63, 64, 65, 96, 97, 255, 256, 257 };
+    static const float sounds[] = { NAN, -NAN, INFINITY, -INFINITY, 1e-3f, -1e-3f, 1e-40f };
+    static float l[300], r[300];
+    uint32_t silent = 0, heard = 0, past = 0, tried = 0, cases = 0;
+
+    for (size_t k = 0; k < sizeof lens / sizeof lens[0]; k++)
+    {
+        const uint32_t n = lens[k];
+
+        for (uint32_t i = 0; i < n; i++)
+        {
+            l[i] = (i & 1) ? -0.0f : 0.0f;
+            r[i] = (i & 1) ? 0.0f : -0.0f;
+        }
+        l[n] = r[n] = 1.0f;     // just past the block: never read
+        silent += omx_clap_block_silent(l, r, n) && omx_clap_block_silent(l, NULL, n);
+        past += omx_clap_block_silent(l, r, n);
+        for (size_t s = 0; s < sizeof sounds / sizeof sounds[0]; s++)
+            for (uint32_t at = 0; at < n; at++)
+            {
+                const float keep = l[at];
+
+                l[at] = sounds[s];
+                heard += !omx_clap_block_silent(l, r, n) && !omx_clap_block_silent(r, l, n) && !omx_clap_block_silent(l, NULL, n);
+                l[at] = keep;
+                tried++;
+            }
+        l[n] = r[n] = 0.0f;
+        cases++;
+    }
+    CHECK(silent == cases, "the scan: a block of +0.0 and -0.0 is silence on one leg and on two, at %u lengths (%u)", cases, silent);
+    CHECK(past == cases, "the scan: a sounding sample just past the block is not read (%u of %u)", past, cases);
+    CHECK(heard == tried, "the scan: a NaN, an infinity, a sounding sample or a subnormal at any frame of either leg is sound (%u of %u)",
+          heard, tried);
 }
 
 /* the caller's clap.gui, as a host that shows windows offers it; never called here */
@@ -406,6 +497,8 @@ int main(int argc, char **argv)
           st->pool_nested_ok, st->pool_nested_refused);
     st->pool_nested = 0;
     st->pool_request = 0;
+
+    scan_section();
 
     /* the sleep at the floor rates: the 200 ms window and the tail are rate-scaled */
     {
