@@ -789,7 +789,7 @@ jobs:
     name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), built and linted
     needs: changes
     if: needs.changes.outputs.packages == 'true'
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OMX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -930,7 +930,7 @@ jobs:
   deb-smoke:
     name: DEBs (${{ matrix.suite }}, ${{ matrix.arch }}), installed in a clean container
     needs: deb
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || github.event.pull_request.head.repo.fork && 'ubuntu-latest' || vars.OMX_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
