@@ -24,6 +24,8 @@ env:
   PLUGIN_HOSTD_REF: v0.15.9
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
+  # plugin-hostd-protocol's verbs file (plugin-hostd's verbs, chain of omx-clap-host among them), from this release tag
+  PROTOCOL_REF: v0.2.0
 
 jobs:
   # The packages and their smoke tests are built from the whole tree but fuzz/, bench/, the top-level pages and the licence:
@@ -402,9 +404,12 @@ jobs:
       - name: Test the verbs the declarations name for this host
         run: |
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            # plugin-hostd's verbs file (chain of omx-clap-host), from the checkout the headers were built from
-            make test-host-verbs PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd
-            make test-host-verbs-sabotage PLUGIN_HOSTD_CONTRACT_DIR=/tmp/plugin-hostd
+            # plugin-hostd-protocol's verbs file (chain of omx-clap-host), from the release the headers come from
+            git init -q /tmp/plugin-hostd-protocol
+            git -C /tmp/plugin-hostd-protocol fetch -q --depth 1 https://github.com/FreeMixer/plugin-hostd-protocol "refs/tags/$PROTOCOL_REF"
+            git -C /tmp/plugin-hostd-protocol checkout -q FETCH_HEAD
+            make test-host-verbs PROTOCOL_CONTRACT_DIR=/tmp/plugin-hostd-protocol
+            make test-host-verbs-sabotage PROTOCOL_CONTRACT_DIR=/tmp/plugin-hostd-protocol
           else
             echo "::warning::test-host-verbs SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
@@ -802,10 +807,10 @@ jobs:
           }
           dnf_retry --setopt=install_weak_deps=False pipewire iproute util-linux python3 \
             rpms/omx-clap-host-[0-9]*.${{ matrix.arch }}.rpm \
-            plugin-hostd-rpms/plugin-hostd-contract-[0-9]*.noarch.rpm
+            plugin-hostd-rpms/plugin-hostd-contract-[0-9]*.noarch.rpm plugin-hostd-protocol-contract
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
-          # plugin-hostd's verbs file names this host too (chain: required), and the check reads it (#361)
-          rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd/verbs.json | grep -q '^plugin-hostd-contract-'
+          # plugin-hostd-protocol's verbs file names this host too (chain: required), and the check reads it
+          rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd-protocol/verbs.json | grep -q '^plugin-hostd-protocol-contract-'
           scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
