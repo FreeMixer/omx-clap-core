@@ -3933,6 +3933,139 @@ int effects_preset_load_reply(int effect_id, const char *location, char *reply, 
     return ret;
 }
 
+/* a state body of a shown file: its bytes become their decoded size; -1 for bytes that are no base64 */
+static int preset_show_body(struct pj *body)
+{
+    struct pj size;
+    const char *bytes;
+    uint8_t *data;
+    size_t len = 0;
+
+    if (!body || body->type != PJ_OBJECT || !(bytes = pj_get_str(body, "bytes")))
+        return 0;
+    if (!(data = preset_base64_decode(bytes, &len)))
+        return -1;
+    free(data);
+    memset(&size, 0, sizeof(size));
+    if (pj_number(&size, (double)len) != 0 || pj_set(body, "size", &size) != 0)
+        return -1;
+    for (size_t i = 0; i < body->n; i++)
+        if (!strcmp(body->keys[i], "bytes"))
+        {
+            // the member goes, the others keep their order
+            free(body->keys[i]);
+            pj_free(&body->kids[i]);
+            memmove(&body->keys[i], &body->keys[i + 1], (body->n - i - 1) * sizeof(*body->keys));
+            memmove(&body->kids[i], &body->kids[i + 1], (body->n - i - 1) * sizeof(*body->kids));
+            body->n--;
+            break;
+        }
+    return 0;
+}
+
+/* "resp 0 <json>" of a tree, malloc'd into *reply */
+static int preset_show_reply(const struct pj *v, char **reply)
+{
+    char *text = pj_write(v, 0);
+    size_t n;
+
+    if (!text)
+        return ERR_MEMORY_ALLOCATION;
+    n = strlen(text) + sizeof("resp 0 ");
+    if ((*reply = malloc(n)) != NULL)
+        snprintf(*reply, n, "resp 0 %s", text);
+    free(text);
+    return *reply ? SUCCESS : ERR_MEMORY_ALLOCATION;
+}
+
+/* preset_show of a listed preset: its name, loadKey and location as the key names them (docs/presets.md). A PLUGIN
+ * location (plugin:<key>, an LV2 preset's URI) is "plugin" with the key; a file: key is the file's file:// URI, with
+ * the key inside it for a container and null for a file of one preset. */
+static int preset_show_listed(const char *encoded, const char *name, char **reply)
+{
+    char key[2 * PATH_MAX + 16], loc[2 * PATH_MAX + 32];
+    const char *load_key = key;
+    struct pj doc, v;
+    struct stat st;
+    int ret = ERR_MEMORY_ALLOCATION;
+
+    snprintf(key, sizeof(key), "%s", encoded);
+    preset_key_decode(key);
+    snprintf(loc, sizeof(loc), "plugin");
+    if (!strncmp(key, HOST_PRESET_KEY_PLUGIN, strlen(HOST_PRESET_KEY_PLUGIN)))
+        load_key = key + strlen(HOST_PRESET_KEY_PLUGIN);
+    else if (!strncmp(key, HOST_PRESET_KEY_FILE, strlen(HOST_PRESET_KEY_FILE)))
+    {
+        char *path = key + strlen(HOST_PRESET_KEY_FILE), *mark;
+
+        load_key = NULL;
+        if (stat(path, &st) != 0 && (mark = strrchr(path, '#')) != NULL)
+        {
+            *mark = '\0';
+            load_key = mark + 1;
+        }
+        snprintf(loc, sizeof(loc), "file://%s", path);
+    }
+    pj_object(&doc);
+    memset(&v, 0, sizeof(v));
+    if (pj_set_string(&doc, "name", name) == 0 && (load_key ? pj_set_string(&doc, "loadKey", load_key) == 0
+                                                            : pj_set(&doc, "loadKey", &v) == 0) &&
+        pj_set_string(&doc, "location", loc) == 0)
+        ret = preset_show_reply(&doc, reply);
+    pj_free(&doc);
+    return ret;
+}
+
+int effects_preset_show(int effect_id, const char *location, char **reply)
+{
+    effect_t *effect;
+    uint32_t i;
+    int pass;
+
+    *reply = NULL;
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    if (location[0] == '/')
+    {
+        char path[PATH_MAX];
+        const char *format;
+        struct pj doc, *files;
+        int ret;
+
+        snprintf(path, sizeof(path), "%s", location);
+        preset_key_decode(path);
+        memset(&doc, 0, sizeof(doc));
+        if (pj_read_file(path, &doc) != 0 || doc.type != PJ_OBJECT || !(format = pj_get_str(&doc, "format")) ||
+            (strcmp(format, PRESET_FORMAT_PARAMS) && strcmp(format, PRESET_FORMAT_STATE)) ||
+            preset_show_body(pj_get(&doc, "state")) != 0)
+        {
+            pj_free(&doc);
+            return ERR_LV2_INVALID_PRESET_URI;
+        }
+        files = pj_get(pj_get(&doc, "state"), "files");
+        for (i = 0; files && files->type == PJ_ARRAY && i < files->n; i++)
+            if (preset_show_body(&files->kids[i]) != 0)
+            {
+                pj_free(&doc);
+                return ERR_LV2_INVALID_PRESET_URI;
+            }
+        ret = preset_show_reply(&doc, reply);
+        pj_free(&doc);
+        return ret;
+    }
+    // a key of the last preset_list; a key it does not hold is looked for in a listing read again, once
+    for (pass = 0; pass < 2; pass++)
+    {
+        for (i = 0; i < effect->presets_count; i++)
+            if (!strcmp(effect->preset_keys[i], location))
+                return preset_show_listed(effect->preset_keys[i], effect->preset_names[i], reply);
+        if (pass == 0 && effects_preset_list(effect_id) < 0)
+            break;
+    }
+    return ERR_LV2_INVALID_PRESET_URI;
+}
+
 int effects_state_save(const char *dir)
 {
     char filename[PATH_MAX];

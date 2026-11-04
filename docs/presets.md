@@ -37,7 +37,12 @@ Verbs
 - `preset_show` answers what a load would apply, on one line of JSON: for a file, the document with each state body's
   `bytes` replaced by its decoded `size`; for a listed preset, its `name`, `loadKey` and `location`.
 
-Not answered yet: `preset_show` (registered as unsupported, -902), and the feedback below after a load.
+  For a listed preset `loadKey` is the key inside its location and `location` names where it lives: `plugin` for a
+  `PLUGIN` location (a `plugin:<key>` key, or an LV2 preset's URI), `file://<path>` for a file, `loadKey` then the key
+  inside a container or null for a file of one preset. A key the last `preset_list` does not hold is looked for in a
+  listing read again; one the plugin does not list answers -523 (`PRESET_NOT_OFFERED`), and a file that is no preset
+  file -524 (`PRESET_INVALID`): the codes plugin-hostd's verbs file declares for `preset_show`, not `preset_load`'s
+  `resp -104 <code>`.
 
 After a load the host reports every parameter whose value the load moved as mod-host's `param_set <N> <symbol> <value>`
 feedback line, the same line a value the plugin moves by itself gives (plugin-hostd relays it as the parameter-feedback

@@ -80,6 +80,9 @@ int effects_preset_get(int effect_id, int index, char *reply, size_t size);
 int effects_preset_save(int effect_id, const char *path, const char *name, char *reply, size_t size);
 /* preset_load: a preset file (an absolute path) or a key of preset_get; the reply line, a refusal's with its code */
 int effects_preset_load_reply(int effect_id, const char *location, char *reply, size_t size);
+/* preset_show <N> <key | file>: "resp 0 <json>" malloc'd into *reply on SUCCESS (docs/presets.md); a file that is no
+ * preset file and a key the plugin does not list answer ERR_LV2_INVALID_PRESET_URI with *reply NULL */
+int effects_preset_show(int effect_id, const char *location, char **reply);
 int effects_state_save(const char *dir);
 int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);
