@@ -24,7 +24,8 @@ export LC_ALL=C
 LIZARD=${LIZARD:-$(command -v lizard || true)}
 LIZARD=${LIZARD:-python3 -m lizard}
 REPO=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
-TABLE=$REPO/tools/adapter-seam.tsv
+# TABLE names another table, for the sabotage arm that drops a row
+TABLE=${TABLE:-$REPO/tools/adapter-seam.tsv}
 MODE=${1:-}
 # the ref the classes were read from: later code may add or drop functions the table has not seen
 OURS_REF=${OURS_REF:-$(sed -n 's/^# ref: *\([0-9a-f]*\).*/\1/p' "$TABLE" 2>/dev/null | head -1)}
