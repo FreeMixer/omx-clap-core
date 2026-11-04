@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: abi
 
 # libomx-clap-core.so.1 compared with the baseline of its last release (abi/libomx-clap-core.so.1.abi): tests/abi-check.sh

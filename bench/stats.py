@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 """The bench's readers, run with -I beside the private graph.
 
   stats.py ports <node name>          the node's audio ports, inputs then outputs, as "in <name>" / "out <name>" lines

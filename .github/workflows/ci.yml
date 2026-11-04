@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: ci
 
 # The tests that need no audio server run on every push and pull request, then the RPMs are built as
@@ -167,8 +169,8 @@ jobs:
       # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
       - uses: FreeMixer/.github/.github/actions/wave-deps@main
 
-      - name: Every source names its licence
-        run: bash tests/spdx-check.sh
+      - name: Every file a comment can be written in opens with its licence
+        uses: FreeMixer/.github/.github/actions/spdx-check@c67b6d0e09fd9f7cf9a8dd24ff41ea30d99f893c
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |

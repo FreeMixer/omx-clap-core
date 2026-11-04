@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # omx-clap-host runs plugin-hostd's chain line in one JACK client (#104, docs/chain.md), in a PipeWire of its own: two
 # hosts from the same cycles of one deterministic input (tests/jack_identity),
