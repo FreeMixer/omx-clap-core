@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.27.0
+Version:        0.28.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -195,6 +195,21 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.28.0-1
+- preset_show answers what a load would apply, on one line of JSON: a listed preset's
+  name, key and location, or a preset file's document; a key the plugin does not list
+  answers -523 and a file that is no preset file -524 (#480, plugin-hostd#269).
+- A CLAP plugin's presets are listed by omx-clap-scan --json in a process of its own, so
+  a plugin whose discovery disturbs a live instance no longer takes it down: Surge XT 1.4
+  died on preset_list (#480).
+- An LV2 plugin lists and loads the presets of every bundle on the LV2 path that names it
+  and holds no binary (the user's, the ones Zynthian ships); a preset with a file: URI
+  loads by either path, and integer, long, double and bool values apply (#480).
+- preset_list and preset_get are found again in a build against plugin-hostd-protocol
+  0.2.0, and a build that finds no verbs header fails instead of dropping them (#480).
+- Tests: the chain end-to-end run ends at once when the host can answer nothing more, and
+  the sabotage arms run side by side (#476).
+
 * Tue Nov 03 2026 Pau Aliagas <linuxnow@gmail.com> - 0.27.0-1
 - A chain runs in place: each member's plugin reads the block the member before it wrote,
   with one clamp at the chain's output, a quiet block hands the plugin one shared empty

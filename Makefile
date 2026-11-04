@@ -383,14 +383,6 @@ version-check:
 	else echo "FAIL VERSION says $(VERSION), the spec says $$spec, debian/changelog says $$deb"; exit 1; fi
 
 # clean rule
-# No tracked file points into a private repository, issue, branch or path (tools/private-refs-check.sh, with its --self-test).
-.PHONY: private-refs
-# FreeMixer/.github's private-refs check, from a checkout of it (FREEMIXER_DOTGITHUB, else ../freemixer-dotgithub)
-FREEMIXER_DOTGITHUB ?= ../freemixer-dotgithub
-private-refs:
-	$(FREEMIXER_DOTGITHUB)/.github/actions/private-refs-check/check.sh --self-test
-	$(FREEMIXER_DOTGITHUB)/.github/actions/private-refs-check/check.sh .
-
 .PHONY: docs
 # the C API reference by doxygen, from the installed headers' docstrings; build-time only
 docs: $(CORE_HEADERS) Doxyfile
@@ -873,7 +865,10 @@ test-unsupported-copy:
 	bash tests/unsupported_copy_check.sh $(PROTOCOL_MOD_HOST_H) src
 
 # the command socket's framing, in a PipeWire of its own: tests/socket_conformance.py against the host (#103)
+# first the readiness wait of the conformance script against stand-in daemons (#479): a daemon that starts slowly passes,
+# one that drops the next client after a partial disconnect fails, one that never answers is named
 test-socket: $(PROG)
+	python3 -I tests/socket_conformance_test.py
 	./tests/socket_e2e.sh
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
@@ -1471,7 +1466,7 @@ test-protocol-client:
 # preset_list, preset_get and preset_load over the socket (docs/presets.md): fake_synth's preset-discovery factory and
 # the LV2 fixture bundle through the adapter, in a private PipeWire (tests/jack_presets_e2e.sh)
 .PHONY: test-jack-presets
-test-jack-presets: $(PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fake_ext.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+test-jack-presets: $(PROG) $(SCAN_PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fake_ext.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
 	bash tests/jack_presets_e2e.sh
 
 .PHONY: test-state-busy

@@ -1861,6 +1861,11 @@ const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[
     return &slot->entry;
 }
 
+int omx_clap_lv2_load_data(const char *bundle_path)
+{
+    return g_configured ? lv2_world_load_data(bundle_path) : -1;
+}
+
 void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry)
 {
     uint32_t i;

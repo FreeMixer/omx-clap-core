@@ -193,7 +193,7 @@ static char *read_manifest(const char *bundle)
 }
 
 /* one directory of the path: each bundle in it, in name order */
-static int walk_dir(const char *dir, const char *uri, lv2_locate_fn fn, void *ctx)
+static int walk_dir(const char *dir, const char *uri, int data_only, lv2_locate_fn fn, void *ctx)
 {
     struct dirent **names = NULL;
     int n, i, ret = 0;
@@ -210,11 +210,16 @@ static int walk_dir(const char *dir, const char *uri, lv2_locate_fn fn, void *ct
             && stat(bundle, &st) == 0 && S_ISDIR(st.st_mode) && (text = read_manifest(bundle)) != NULL)
         {
             const int names_it = lv2_locate_manifest_names(text, uri);
+            // a data bundle names the plugin and holds no binary of any plugin. The word is looked for in the text, not
+            // read as lv2:binary: this unit reads manifests with no lilv and no world (lv2_locate.h), and is linked
+            // into omx-clap-scan's field dump too. The word anywhere (a comment, a URI) only keeps a bundle out, so a
+            // data bundle may be missed, never a plugin's bundle with its code loaded as data
+            const int data = names_it == 1 && !strstr(text, "binary");
 
             free(text);
             if (names_it == LV2_LOCATE_READ_FAILED)
                 ret = LV2_LOCATE_READ_FAILED;
-            else if (names_it)
+            else if (names_it && (!data_only || data))
                 ret = fn(bundle, ctx);
         }
         free(names[i]);
@@ -223,7 +228,7 @@ static int walk_dir(const char *dir, const char *uri, lv2_locate_fn fn, void *ct
     return ret;
 }
 
-int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx)
+static int locate(const char *path, const char *uri, int data_only, lv2_locate_fn fn, void *ctx)
 {
     const char *home = getenv("HOME");
     char *copy, *save = NULL, *dir;
@@ -253,8 +258,18 @@ int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx)
             expanded[--n] = '\0';
         if (expanded[0] != '/')
             continue;       // a relative directory would depend on where the host was started
-        ret = walk_dir(expanded, uri, fn, ctx);
+        ret = walk_dir(expanded, uri, data_only, fn, ctx);
     }
     free(copy);
     return ret;
+}
+
+int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx)
+{
+    return locate(path, uri, 0, fn, ctx);
+}
+
+int lv2_locate_data(const char *path, const char *uri, lv2_locate_fn fn, void *ctx)
+{
+    return locate(path, uri, 1, fn, ctx);
 }

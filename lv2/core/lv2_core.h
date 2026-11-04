@@ -415,6 +415,12 @@ extern const char *const lv2_core_provided[];
 struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX]);
 void lv2_bundle_unref(struct lv2_bundle *bundle);
 
+/* [main] A bundle of data for the world's plugins (presets in a bundle of their own: the user's, a distribution's) at
+ * `path`, an absolute directory: loaded once and kept for the life of the process, as a plugin's bundle is. Its
+ * statements are the world's; no plugin of it is listed or created through it. 0, or -1 when lilv cannot be loaded or
+ * memory runs out. */
+int lv2_world_load_data(const char *path);
+
 /* The plugins the bundle holds (its own, never another bundle's), with their URI and name. */
 uint32_t lv2_bundle_count(const struct lv2_bundle *bundle);
 const char *lv2_bundle_uri(const struct lv2_bundle *bundle, uint32_t index);
