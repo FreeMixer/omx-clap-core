@@ -2993,7 +2993,8 @@ int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_
 
     if (out)
         *out = NULL;
-    if (!t || !path || !id || !out || !(t->path = strdup(path)) || !(t->id = strdup(id)))
+    // `id` may be NULL, as omx_clap_host_open takes it: the factory's first descriptor; only a given id is copied
+    if (!t || !path || !out || !(t->path = strdup(path)) || (id && !(t->id = strdup(id))))
     {
         if (t)
         {
