@@ -72,7 +72,8 @@ EXAMPLES = {
     'chain': (['1', '{fx}', '{fx2}'], [(['x', '{fx}'], 'invalidOperation'), (['1', '{fx}', '{fx}'], 'invalidOperation')]),
     'preset_list': (['{fx}'], []),
     'preset_get': (['{fx}', '0'], []),
-    'preset_show': (['{fx}', 'preset.json'], []),
+    'preset_show': (['{fx}', '{preset}'], [(['{fx}', 'plugin:none'], 'presetNotOffered'), (['{fx}', '{missing}'], 'presetInvalid'),
+                                         (['9', '{preset}'], 'instanceNonExists')]),
     'pin_layout': (['{fx}'], []),
 }
 
@@ -255,7 +256,13 @@ def main():
                        ('add clap:%s#org.omx-clap-host.test.passthrough %s' % (o.fake, fx2), 'resp ' + fx2)):
         got = host.send(line)
         step(got == want, '%s -> %s' % (line, got))
-    subst = {'fx': fx, 'fx2': fx2, 'synth': synth, 'scheme': o.layout_scheme, 'pin': o.layout_scheme + ':' + '0' * 64}
+    # a preset file of the passthrough's, params only, for preset_show's file form
+    preset = os.path.join(tempfile.mkdtemp(prefix='host-verbs-'), 'preset.json')
+    with open(preset, 'w') as f:
+        json.dump({'format': 'org.openmixer.preset/1', 'plugin': {'id': 'org.omx-clap-host.test.passthrough'},
+                   'id': 'p', 'name': 'P', 'params': [{'symbol': '0', 'unit': '', 'value': 0.5}]}, f)
+    subst = {'fx': fx, 'fx2': fx2, 'synth': synth, 'scheme': o.layout_scheme, 'pin': o.layout_scheme + ':' + '0' * 64,
+             'preset': preset, 'missing': os.path.join(os.path.dirname(preset), 'missing.json')}
 
     for v in verbs:
         name, level, codes = v['verb'], v['level'], v['codes']

@@ -79,6 +79,10 @@ extern const char *const omx_clap_lv2_provided[];
  * bundle's plugins, each with descriptor id = its LV2 URI. */
 const clap_plugin_entry_t *omx_clap_lv2_entry(const char *bundle_path, char why[OMX_CLAP_LV2_WHY_MAX]);
 void omx_clap_lv2_entry_release(const clap_plugin_entry_t *entry);
+/* [main-thread] A bundle of data for a plugin (its presets in a bundle of their own) loaded into the adapter's world and
+ * kept: the presets it holds list and load as the plugin's own bundle's do. 0, or -1 when the adapter is not configured,
+ * lilv cannot be loaded or memory runs out. */
+int omx_clap_lv2_load_data(const char *bundle_path);
 
 /* [main-thread] The directory a state save of `plugin` (one this adapter created) copies the files its state names to,
  * <state_root>/lv2-<pid>-<n>.saved: its length, and as much of it as `size` holds, NUL-terminated, in `buf`; 0 and ""
