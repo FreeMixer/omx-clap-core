@@ -151,6 +151,7 @@ make test-lv2
 
 %files
 %license COPYING
+%doc README.md
 %{_bindir}/omx-clap-host
 %{_bindir}/omx-clap-scan
 %{_mandir}/man1/omx-clap-host.1*
@@ -159,15 +160,19 @@ make test-lv2
 
 %files tests
 %license COPYING
+%doc README.md
 %{_libexecdir}/omx-clap-host/tests/
 
 %files -n omx-clap-core
 %license COPYING
+%doc README.md
 %{_libdir}/libomx-clap-core.so.1
 %{_libdir}/libomx-clap-core.so.%{version}
 %{_datadir}/omx-clap-core/ts/
 
 %files -n omx-clap-core-devel
+%license COPYING
+%doc README.md
 %{_libdir}/libomx-clap-core.so
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
@@ -176,10 +181,12 @@ make test-lv2
 
 %files -n omx-clap-core-contract
 %license COPYING
+%doc README.md
 %{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING
+%doc README.md
 %{_libdir}/libomx-clap-lv2.a
 %{_libdir}/pkgconfig/omx-clap-lv2.pc
 %{_includedir}/omx-clap-lv2/
