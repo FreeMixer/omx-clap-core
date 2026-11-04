@@ -75,8 +75,8 @@
  * instance's note ids, beside its stage; 7: the instance's note output; 8: the plugin's clap.voice-info, 0.11; 9: the
  * instance's MPE zones, a lower and an upper, 0.11; 10: what the plugin tells the host's note-ports, note-name and
  * voice-info, 0.12; 11: timers, file descriptors, the thread pool, the tail and the sleep, 0.12; 12:
- * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to CLAP_HOST_AUX_INPUTS and
- * CLAP_HOST_AUX_OUTPUTS auxiliary ports of up to CLAP_HOST_PORT_CHANNELS channels, and the configuration's
+ * libomx-clap-core.so.1, every audio port described (struct omx_clap_port), up to OMX_HOSTED_STAGE_AUX_INPUTS and
+ * OMX_HOSTED_STAGE_AUX_OUTPUTS auxiliary ports of up to OMX_HOSTED_STAGE_PORT_CHANNELS channels, and the configuration's
  * lane_channels; 13: the stage's wide bounce, wide_in, wide_out and wide, carried by omx_clap_run_ports; 14: the
  * plugin's clap.surround and clap.ambisonic, which describe a surround and an ambisonic port, the ports rescan the
  * tick reports, the plugin's clap.configurable-audio-ports and clap.audio-ports-config, which
@@ -128,8 +128,6 @@
 
 /** The roster's refusal: an index below count() whose get_info does not answer. */
 #define OMX_CLAP_PARAM_ROW_UNREADABLE   "clap.param-row-unreadable"
-/** The widest params->count() the core trusts, under its host-limits name (CLAP_HOST_PARAM_COUNT_MAX). */
-#define OMX_CLAP_PARAM_COUNT_MAX        CLAP_HOST_PARAM_COUNT_MAX
 
 #if defined(__GNUC__)
 #define OMX_CLAP_EXPORT                 __attribute__((visibility("default")))  ///< marks a function as exported from the library
@@ -149,7 +147,7 @@ struct omx_clap_host_config
 {
     uint32_t abi;               ///< OMX_CLAP_CORE_ABI of the header the caller was compiled against
     uint32_t size;              ///< sizeof of this structure as the caller was compiled: a field appended later is the default to it
-    int clamp;                  ///< clamp the plugin's output at CLAP_HOST_CLAMP_DBFS
+    int clamp;                  ///< clamp the plugin's output at OMX_HOSTED_STAGE_CLAMP_DBFS
     int nonfinite;              ///< scan the output for non-finite samples and strike the stage on them
     int warmup;                 ///< warm the plugin up before publish and restart it after
     int note_inputs;            ///< admit an instrument and one note input; refuse any note input when 0
@@ -163,7 +161,7 @@ struct omx_clap_host_config
     uint32_t lane_channels;     ///< the widest main port the caller's lane carries, 2 by default; 0 carries any width
                                 ///< (activation refuses a wider main port with CLAP_HOST_CODE_WIDER_THAN_STRIP)
     int32_t idle_hold_us;       ///< ABI 16: what /dev/cpu_dma_latency is held at while an instance is active, in
-                                ///< microseconds: CLAP_HOST_IDLE_HOLD_US (10, C1 only) by default, 0 refuses every idle
+                                ///< microseconds: OMX_HOSTED_STAGE_IDLE_HOLD_US (10, C1 only) by default, 0 refuses every idle
                                 ///< state, OMX_CLAP_IDLE_HOLD_OFF holds nothing (omx_clap_host_idle_hold_set changes it later)
 };
 
@@ -198,7 +196,7 @@ struct omx_clap_thread_pool_info
     uint32_t holders;           ///< the active instances holding the pool
     uint32_t cores;             ///< the cores of the affinity mask when the pool was last asked for
     int32_t priority;           ///< the helpers' SCHED_FIFO priority, 0 the normal class
-    char state[CLAP_HOST_LOG_BYTES];  ///< empty, or why the last instance that asked for the pool runs serial
+    char state[OMX_HOSTED_STAGE_LOG_BYTES];  ///< empty, or why the last instance that asked for the pool runs serial
     uint64_t requests;          ///< the requests the pool ran
     uint64_t busy;              ///< the requests run serial because another audio thread held the pool
     uint64_t late;              ///< the requests whose wait for the helpers ran past the block
@@ -268,7 +266,7 @@ struct omx_clap_param_tag
 struct omx_clap_param_in
 {
     clap_input_events_t stage_in;  ///< the stage's own list, which this one reads through
-    struct omx_clap_param_tag tag[2 * CLAP_HOST_PARAM_QUEUE_DEPTH];  ///< the tags, by ring position modulo two laps
+    struct omx_clap_param_tag tag[2 * OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH];  ///< the tags, by ring position modulo two laps
 };
 
 /** What a parameter's value means, from the plugin's org.openmixer.param-contract/1 (its symbol, unit, scale and step)
@@ -440,11 +438,11 @@ struct omx_clap_instance
     struct omx_clap_port main_in,  ///< the main input port: channels 0 is none (a source)
                          main_out; ///< the main output port
     uint32_t aux_outputs;       ///< auxiliary output ports, after the main one
-    struct omx_clap_port aux_out[CLAP_HOST_AUX_OUTPUTS];  ///< each auxiliary output port, in the plugin's order
-    float *aux_out_bound[CLAP_HOST_AUX_OUTPUTS * CLAP_HOST_PORT_CHANNELS];  ///< the caller's buffers per output channel,
+    struct omx_clap_port aux_out[OMX_HOSTED_STAGE_AUX_OUTPUTS];  ///< each auxiliary output port, in the plugin's order
+    float *aux_out_bound[OMX_HOSTED_STAGE_AUX_OUTPUTS * OMX_HOSTED_STAGE_PORT_CHANNELS];  ///< the caller's buffers per output channel,
                                 ///< port i's from aux_out_base[i]; NULL: the plugin writes its scratch
-    uint32_t aux_out_base[CLAP_HOST_AUX_OUTPUTS];  ///< where each auxiliary output's channels start in aux_out_bound
-    uint32_t aux_out_frames[CLAP_HOST_AUX_OUTPUTS];  ///< the frames each bound output holds
+    uint32_t aux_out_base[OMX_HOSTED_STAGE_AUX_OUTPUTS];  ///< where each auxiliary output's channels start in aux_out_bound
+    uint32_t aux_out_frames[OMX_HOSTED_STAGE_AUX_OUTPUTS];  ///< the frames each bound output holds
     uint32_t note_inputs;       ///< 0 or 1; the dialect the host feeds it
     uint32_t note_dialect;  ///< the note dialect the host feeds the plugin
     uint32_t note_dialects;  ///< every dialect the note input's port declared, not just note_dialect
@@ -479,10 +477,10 @@ struct omx_clap_instance
     _Atomic uint32_t state_dirty;  ///< the plugin's state changed
     _Atomic uint32_t thread_violations;     ///< a [main-thread] host call from the audio role
     _Atomic uint32_t log_calls;  ///< the count of log calls from the plugin
-    char last_log[CLAP_HOST_LOG_BYTES];     ///< the last message, written by the control thread's tick
+    char last_log[OMX_HOSTED_STAGE_LOG_BYTES];     ///< the last message, written by the control thread's tick
     _Atomic uint32_t log_pending;  ///< `log_ring`'s state: 0 empty, else a message waits in it (1), a thread writes it (2) or the tick reads it (4)
     _Atomic uint32_t log_fresh;             ///< last_log changed since omx_clap_host_log_take
-    char log_ring[CLAP_HOST_LOG_BYTES];     ///< a message lands here: one slot, a lock-free single-message ring
+    char log_ring[OMX_HOSTED_STAGE_LOG_BYTES];     ///< a message lands here: one slot, a lock-free single-message ring
 
     // clap.track-info: what the host's get answers, set by omx_clap_host_track_info_set; the plugin's own extension
     const clap_plugin_track_info_t *track_info;  ///< the plugin's clap.track-info extension
@@ -509,11 +507,11 @@ struct omx_clap_instance
 
     // the auxiliary inputs: one port each, and the caller's buffers bound to it (NULL: the silence)
     uint32_t aux_inputs;  ///< auxiliary input ports, after the main one
-    struct omx_clap_port aux_in[CLAP_HOST_AUX_INPUTS];  ///< each auxiliary input port, in the plugin's order
-    float *aux_in_bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];  ///< the caller's buffers per input channel,
+    struct omx_clap_port aux_in[OMX_HOSTED_STAGE_AUX_INPUTS];  ///< each auxiliary input port, in the plugin's order
+    float *aux_in_bound[OMX_HOSTED_STAGE_AUX_INPUTS * OMX_HOSTED_STAGE_PORT_CHANNELS];  ///< the caller's buffers per input channel,
                                 ///< port i's from aux_in_base[i]; NULL: the silence
-    uint32_t aux_in_base[CLAP_HOST_AUX_INPUTS];  ///< where each auxiliary input's channels start in aux_in_bound
-    uint32_t aux_in_frames[CLAP_HOST_AUX_INPUTS];  ///< the frames each bound input holds
+    uint32_t aux_in_base[OMX_HOSTED_STAGE_AUX_INPUTS];  ///< where each auxiliary input's channels start in aux_in_bound
+    uint32_t aux_in_frames[OMX_HOSTED_STAGE_AUX_INPUTS];  ///< the frames each bound input holds
     struct omx_clap_aux_in aux_list;  ///< the auxiliary inputs' process list
 
     // the plugin's clap.meters/1 (ABI 4): read once at open and fixed for the instance's life, so any thread reads them
@@ -716,7 +714,7 @@ OMX_CLAP_EXPORT int omx_clap_host_create(struct omx_clap_binary *binary, const c
  * extensions, each step judged: the descriptor's feature list is not read (a plugin is admitted by its ports, #257),
  * init must succeed headless with only the declared host extensions offered, the audio ports must declare
  * one main output and at most one main input (none for a source), the two of any widths, every port of 1 to
- * CLAP_HOST_PORT_CHANNELS channels and at most CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS auxiliary ports, and no
+ * OMX_HOSTED_STAGE_PORT_CHANNELS channels and at most OMX_HOSTED_STAGE_AUX_INPUTS and OMX_HOSTED_STAGE_AUX_OUTPUTS auxiliary ports, and no
  * note input unless the configuration admits one; every port is described in the instance (main_in, main_out, aux_in,
  * aux_out). An auxiliary output writes a scratch buffer until the caller binds its own with
  * omx_clap_host_bind_aux_output; an auxiliary input (a side chain) is fed silence until the caller binds its buffers
@@ -812,7 +810,7 @@ OMX_CLAP_EXPORT void omx_clap_host_close(struct omx_clap_instance *in);
 OMX_CLAP_EXPORT uint32_t omx_clap_host_latency(const struct omx_clap_instance *in);
 
 /** The control thread takes the audio role from whoever holds it: a cycle that arrives meanwhile passes the lane through,
- * one already running is waited for until it returns, however long, and a wait past CLAP_HOST_ROLE_TIMEOUT_US is said
+ * one already running is waited for until it returns, however long, and a wait past OMX_HOSTED_STAGE_ROLE_TIMEOUT_US is said
  * once in the plugin's log. `role` remembers what to give back. */
 OMX_CLAP_EXPORT void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role *role);
 /** Give the audio role back to what `role` remembers, in the `state` omx_clap_host_take_role left. */
@@ -826,7 +824,7 @@ OMX_CLAP_EXPORT void omx_clap_host_bypass(struct omx_clap_instance *in, int on);
 OMX_CLAP_EXPORT int omx_clap_host_bypassed(const struct omx_clap_instance *in);
 
 /** Parameter rows: how many, and the `index`-th, in get_info order with the non-rows skipped. Every read of the plugin's
- * count() is capped at CLAP_HOST_PARAM_COUNT_MAX (clap_host_limits.h): the rows past it are not served and their ids are
+ * count() is capped at OMX_HOSTED_STAGE_PARAM_COUNT_MAX (clap_host_limits.h): the rows past it are not served and their ids are
  * not looked up, and the open leaves one log message saying so (omx_clap_host_log_take). The roster is whole or refused: when an index below count() does not answer get_info, the count is 0 and every row is refused. Each call
  * walks the plugin's whole list once (O(n)), so reading every row by index is O(n^2): param_roster reads them in one. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_param_count(struct omx_clap_instance *in);
@@ -834,7 +832,7 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_param_count(struct omx_clap_instance *in)
 OMX_CLAP_EXPORT int omx_clap_host_param_row(struct omx_clap_instance *in, uint32_t index, struct omx_clap_param_row *row);
 
 /** The whole roster in one call: every row, in get_info order with the non-rows skipped, read in one pass over count()
- * capped at CLAP_HOST_PARAM_COUNT_MAX. `*rows` is malloc'd (the caller frees it) and the count returned; 0 with `*rows` NULL when there is no
+ * capped at OMX_HOSTED_STAGE_PARAM_COUNT_MAX. `*rows` is malloc'd (the caller frees it) and the count returned; 0 with `*rows` NULL when there is no
  * row (no parameter, or none of them a row). -1 with `*why` (when `why` is not NULL) OMX_CLAP_PARAM_ROW_UNREADABLE when
  * an index below count() does not answer get_info (never the rows read so far) or the rows cannot be allocated. */
 OMX_CLAP_EXPORT int omx_clap_host_param_roster(struct omx_clap_instance *in, struct omx_clap_param_row **rows, const char **why);
@@ -1332,7 +1330,7 @@ static inline void omx_clap_host_sleep_after(struct omx_clap_instance *in, clap_
         z->quiet_out_frames = 0;
         return;
     }
-    for (uint32_t i = 0; i < in->aux_inputs && i < CLAP_HOST_AUX_INPUTS; i++)
+    for (uint32_t i = 0; i < in->aux_inputs && i < OMX_HOSTED_STAGE_AUX_INPUTS; i++)
         for (uint32_t c = 0; c < in->aux_in[i].channels; c++)
             if (in->aux_in_bound[in->aux_in_base[i] + c])
                 return;     // a side chain the host does not read for silence: never asleep

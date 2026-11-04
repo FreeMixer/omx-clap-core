@@ -102,7 +102,7 @@ struct omx_clap_chain
 
     /* the two blocks between members, `channels` channels of OMX_CLAP_CHAIN_FRAMES_MAX frames each, one allocation */
     float *block_mem;
-    float *block[2][CLAP_HOST_PORT_CHANNELS];
+    float *block[2][OMX_HOSTED_STAGE_PORT_CHANNELS];
     /* a mono member's input and output, OMX_CLAP_CHAIN_FRAMES_MAX frames each, in the same allocation (a stereo chain) */
     float *mono_in, *mono_out;
 };
@@ -170,7 +170,7 @@ static void publish(struct omx_clap_chain *chain)
         }
     atomic_store(&chain->live, next);
     while (atomic_load(&chain->in_cycle) != 0u)
-        usleep(CLAP_HOST_UNPUBLISH_POLL_US);
+        usleep(OMX_HOSTED_STAGE_UNPUBLISH_POLL_US);
     atomic_store_explicit(&chain->members, chain->count, memory_order_relaxed);
     atomic_store_explicit(&chain->running, running, memory_order_relaxed);
     atomic_fetch_add_explicit(&chain->revision, 1u, memory_order_relaxed);
@@ -227,7 +227,7 @@ int omx_clap_chain_create(const struct omx_clap_chain_config *config, struct omx
         return OMX_CLAP_CHAIN_ERR_ARG;
     if (!abi_ok(config->abi, config->size, sizeof(*config)))
         return OMX_CLAP_CHAIN_ERR_ABI;
-    if (config->channels == 0 || config->channels > CLAP_HOST_PORT_CHANNELS)
+    if (config->channels == 0 || config->channels > OMX_HOSTED_STAGE_PORT_CHANNELS)
         return OMX_CLAP_CHAIN_ERR_WIDTH;
     chain = calloc(1, sizeof(*chain));
     if (!chain)

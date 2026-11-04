@@ -32,7 +32,7 @@
  *     thread that ran a lane is true, a thread outside reads false, and every thread reads false once unpublished.
  *  4. THE ROSTER is whole or refused: 257 parameters give 257 rows, a hole below count() refuses with
  *     clap.param-row-unreadable and no rows, and param_count and param_row refuse it too; the same plugin without the
- *     hole gives 4. A plugin claiming 10000000 parameters is served OMX_CLAP_PARAM_COUNT_MAX rows.
+ *     hole gives 4. A plugin claiming 10000000 parameters is served OMX_HOSTED_STAGE_PARAM_COUNT_MAX rows.
  *  5. THE TEMPO: omx_clap_host_run hands the plugin no transport with no tempo given or none published, a transport
  *     carrying the bpm and only HAS_TEMPO once one is, a change at the next block, none once withdrawn; the tempo
  *     fixture (fault mode 16) reads 120 bpm as a level of 0.12.
@@ -74,27 +74,6 @@
 #include "../src/clap_host.h"
 #include "../src/clap_meters.h"
 #include "../src/hosted_stage_limits.h"
-
-/* hosted_stage_limits.h and clap_host_limits.h are two renders of HOSTED_STAGE_LIMITS (data/hosting.json): every
- * number the core reads has one value under both names, so a host reading OMX_HOSTED_STAGE_* reads the core's own */
-_Static_assert(OMX_HOSTED_STAGE_WARMUP_BLOCKS == CLAP_HOST_WARMUP_BLOCKS, "warm-up blocks");
-_Static_assert(OMX_HOSTED_STAGE_WARMUP_LEVEL_DBFS == CLAP_HOST_WARMUP_LEVEL_DBFS, "warm-up level");
-_Static_assert(OMX_HOSTED_STAGE_NON_FINITE_STRIKES == CLAP_HOST_NON_FINITE_STRIKES, "strikes");
-_Static_assert(OMX_HOSTED_STAGE_CLAMP_DBFS == CLAP_HOST_CLAMP_DBFS, "clamp");
-_Static_assert(OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH == CLAP_HOST_PARAM_QUEUE_DEPTH, "queue depth");
-_Static_assert(OMX_HOSTED_STAGE_EVENTS_PER_BLOCK == CLAP_HOST_EVENTS_PER_BLOCK, "events per block");
-_Static_assert(OMX_HOSTED_STAGE_UNPUBLISH_POLL_US == CLAP_HOST_UNPUBLISH_POLL_US, "unpublish poll");
-_Static_assert(OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US == CLAP_HOST_UNPUBLISH_TIMEOUT_US, "unpublish timeout");
-_Static_assert(OMX_HOSTED_STAGE_NOTES_PER_BLOCK == CLAP_HOST_NOTES_PER_BLOCK, "notes per block");
-_Static_assert(OMX_HOSTED_STAGE_PORT_CHANNELS == CLAP_HOST_PORT_CHANNELS, "port width");
-_Static_assert(OMX_HOSTED_STAGE_AUX_OUTPUTS == CLAP_HOST_AUX_OUTPUTS, "auxiliary outputs");
-_Static_assert(OMX_HOSTED_STAGE_AUX_INPUTS == CLAP_HOST_AUX_INPUTS, "auxiliary inputs");
-_Static_assert(OMX_HOSTED_STAGE_STATE_MAX_BYTES == CLAP_HOST_STATE_MAX_BYTES, "state bytes");
-_Static_assert(OMX_HOSTED_STAGE_LOG_BYTES == CLAP_HOST_LOG_BYTES, "log bytes");
-_Static_assert(OMX_HOSTED_STAGE_ROLE_POLL_US == CLAP_HOST_ROLE_POLL_US, "role poll");
-_Static_assert(OMX_HOSTED_STAGE_ROLE_TIMEOUT_US == CLAP_HOST_ROLE_TIMEOUT_US, "role timeout");
-_Static_assert(OMX_HOSTED_STAGE_PARAM_COUNT_MAX == CLAP_HOST_PARAM_COUNT_MAX, "parameter count cap");
-_Static_assert(OMX_HOSTED_STAGE_LATENCY_HOLD_MS == CLAP_HOST_LATENCY_HOLD_MS, "latency hold");
 
 static int failures = 0;
 #define CHECK(cond, ...)                                   \
@@ -585,9 +564,9 @@ static void t_roster_count_is_ceilinged(void) {
   uint32_t last = 0;
   const int got = roster_read(10000000u, UINT32_MAX, &why, &last);
   printf("clap_core: roster of 10000000 params -> %d rows, last id %u, refusal %s\n", got, last, why ? why : "none");
-  CHECK(got == (int)OMX_CLAP_PARAM_COUNT_MAX, "a plugin claiming 10M params is capped at %u rows (got %d)", OMX_CLAP_PARAM_COUNT_MAX, got);
-  CHECK(last == 1000u + OMX_CLAP_PARAM_COUNT_MAX - 1u, "the last row served is the cap's own index (id %u, want %u)", last,
-        1000u + OMX_CLAP_PARAM_COUNT_MAX - 1u);
+  CHECK(got == (int)OMX_HOSTED_STAGE_PARAM_COUNT_MAX, "a plugin claiming 10M params is capped at %u rows (got %d)", OMX_HOSTED_STAGE_PARAM_COUNT_MAX, got);
+  CHECK(last == 1000u + OMX_HOSTED_STAGE_PARAM_COUNT_MAX - 1u, "the last row served is the cap's own index (id %u, want %u)", last,
+        1000u + OMX_HOSTED_STAGE_PARAM_COUNT_MAX - 1u);
 }
 
 /* ---- 8. the side chain ---- */
@@ -800,7 +779,7 @@ static void t_side_chain_refused(void) {
   char why[OMX_CLAP_WHY_MAX];
   struct omx_clap_instance *in = NULL;
 
-  g_sc_side = CLAP_HOST_AUX_INPUTS + 1;
+  g_sc_side = OMX_HOSTED_STAGE_AUX_INPUTS + 1;
   g_sc_width = 2;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "one side chain past the core's count is refused");
   CHECK(strcmp(why, "hosting.topology.too-many-ports") == 0, "and the code is hosting.topology.too-many-ports (%s)", why);
@@ -809,15 +788,15 @@ static void t_side_chain_refused(void) {
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_in[0].channels == 3, "a side chain of three channels is admitted (%s)", why);
   if (in) omx_clap_host_close(in);
   in = NULL;
-  g_sc_width = CLAP_HOST_PORT_CHANNELS + 1;
+  g_sc_width = OMX_HOSTED_STAGE_PORT_CHANNELS + 1;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of 65 channels is refused");
   CHECK(strcmp(why, "hosting.topology.port-too-wide") == 0, "and the code is hosting.topology.port-too-wide (%s)", why);
   g_sc_width = 0;
   CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == -1 && in == NULL, "a side chain of no channels is refused");
   CHECK(strcmp(why, "hosting.topology.port-without-channels") == 0, "and the code is hosting.topology.port-without-channels (%s)", why);
   g_sc_width = 2;
-  g_sc_side = CLAP_HOST_AUX_INPUTS;
-  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_inputs == CLAP_HOST_AUX_INPUTS, "exactly the core's count is admitted (%s)", why);
+  g_sc_side = OMX_HOSTED_STAGE_AUX_INPUTS;
+  CHECK(omx_clap_host_open_entry(&SC_ENTRY, SC_DESC.id, &in, why) == 0 && in && in->aux_inputs == OMX_HOSTED_STAGE_AUX_INPUTS, "exactly the core's count is admitted (%s)", why);
   if (in) omx_clap_host_close(in);
   g_sc_side = 1;
 }
@@ -1306,7 +1285,7 @@ static void t_notes_out(void) {
         in->note_inputs);
   atomic_store(&g_no_runs, 0);
   CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate it (%s)", why);
-  CHECK(atomic_load(&g_no_runs) >= CLAP_HOST_WARMUP_BLOCKS && omx_clap_host_notes_out(in, got, OMX_CLAP_NOTE_OUT_DEPTH + 8) == 0 &&
+  CHECK(atomic_load(&g_no_runs) >= OMX_HOSTED_STAGE_WARMUP_BLOCKS && omx_clap_host_notes_out(in, got, OMX_CLAP_NOTE_OUT_DEPTH + 8) == 0 &&
             atomic_load(&in->note_out.dropped) == 0 && atomic_load(&in->note_out.unmapped) == 0,
         "the warm-up ran (%u blocks) and sent nothing out", atomic_load(&g_no_runs));
   omx_clap_host_publish(in, pthread_self());

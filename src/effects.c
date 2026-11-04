@@ -152,8 +152,8 @@ typedef struct EFFECT_T {
     uint32_t chain_member;
     struct CHAIN_T *_Atomic chain_run;
     struct omx_cycle_gate chain_gate;
-    jack_port_t *input_ports[CLAP_HOST_PORT_CHANNELS];
-    jack_port_t *output_ports[CLAP_HOST_PORT_CHANNELS];
+    jack_port_t *input_ports[OMX_HOSTED_STAGE_PORT_CHANNELS];
+    jack_port_t *output_ports[OMX_HOSTED_STAGE_PORT_CHANNELS];
     uint32_t in_ports, out_ports;           // the main ports registered at add: what each cycle reads and writes
     /* a JACK port per auxiliary channel, registered at add in the description's order (port by port, channel by
      * channel), and the block each is bound to: one aux_frames long per channel, the JACK buffer size, made again when
@@ -224,8 +224,8 @@ typedef struct CHAIN_T {
 /* a client of its own made ready for a member that leaves its chain, before the chain changes (client_ready) */
 typedef struct {
     jack_client_t *client;
-    jack_port_t *inputs[CLAP_HOST_PORT_CHANNELS];
-    jack_port_t *outputs[CLAP_HOST_PORT_CHANNELS];
+    jack_port_t *inputs[OMX_HOSTED_STAGE_PORT_CHANNELS];
+    jack_port_t *outputs[OMX_HOSTED_STAGE_PORT_CHANNELS];
     jack_port_t *midi_in, *midi_out;    // the note ports of a plugin that has them
 } own_client_t;
 
@@ -673,8 +673,8 @@ static void chain_stage(void *ctx, const float *const *inputs, float *const *out
 static int process(jack_nframes_t nframes, void *arg)
 {
     effect_t *effect = arg;
-    const float *inputs[CLAP_HOST_PORT_CHANNELS];
-    float *outputs[CLAP_HOST_PORT_CHANNELS];
+    const float *inputs[OMX_HOSTED_STAGE_PORT_CHANNELS];
+    float *outputs[OMX_HOSTED_STAGE_PORT_CHANNELS];
     const chain_t *chain;
     uint32_t c;
 
@@ -1024,7 +1024,7 @@ static void resize_apply(effect_t *effect)
     uint32_t nframes;
     int ret;
 
-    ret = omx_cycle_gate_resize_tick(&effect->gate, effect->clap, &g_reactivate, rate, CLAP_HOST_ROLE_POLL_US, &blocks,
+    ret = omx_cycle_gate_resize_tick(&effect->gate, effect->clap, &g_reactivate, rate, OMX_HOSTED_STAGE_ROLE_POLL_US, &blocks,
                                      &effect->pending, why, &nframes);
     // a change applied: the transport reads time at the graph's rate from now on
     if (nframes)
@@ -1327,8 +1327,8 @@ static int clap_state_save(struct omx_clap_instance *clap, const char *filename)
         return ERR_INVALID_OPERATION;
 
     omx_clap_host_settle(clap, QUEUE_SETTLE_US);
-    buffer = malloc(CLAP_HOST_STATE_MAX_BYTES);
-    if (!buffer || omx_clap_host_state_save(clap, buffer, CLAP_HOST_STATE_MAX_BYTES, &length) != 0)
+    buffer = malloc(OMX_HOSTED_STAGE_STATE_MAX_BYTES);
+    if (!buffer || omx_clap_host_state_save(clap, buffer, OMX_HOSTED_STAGE_STATE_MAX_BYTES, &length) != 0)
     {
         free(buffer);
         return ERR_LV2_CANT_LOAD_STATE;
@@ -1360,14 +1360,14 @@ static int clap_state_load(struct omx_clap_instance *clap, const char *filename)
     if (!file)
         return ERR_LV2_CANT_LOAD_STATE;
 
-    buffer = malloc(CLAP_HOST_STATE_MAX_BYTES);
+    buffer = malloc(OMX_HOSTED_STAGE_STATE_MAX_BYTES);
     if (!buffer)
     {
         fclose(file);
         return ERR_LV2_CANT_LOAD_STATE;
     }
-    length = fread(buffer, 1, CLAP_HOST_STATE_MAX_BYTES, file);
-    ok = !ferror(file) && length < CLAP_HOST_STATE_MAX_BYTES;
+    length = fread(buffer, 1, OMX_HOSTED_STAGE_STATE_MAX_BYTES, file);
+    ok = !ferror(file) && length < OMX_HOSTED_STAGE_STATE_MAX_BYTES;
     fclose(file);
 
     if (ok)
@@ -1445,7 +1445,7 @@ static void ports_relayout(effect_t *effect)
     out_kind = clap->main_out.kind;
     pthread_mutex_lock(&g_reactivate);
     // the cycles stop the stage, then are shut out of the instance until it is armed again or left inactive
-    if (omx_cycle_gate_deactivate(&effect->gate, clap, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US) != 0)
+    if (omx_cycle_gate_deactivate(&effect->gate, clap, OMX_HOSTED_STAGE_ROLE_POLL_US, OMX_HOSTED_STAGE_ROLE_TIMEOUT_US) != 0)
     {
         pthread_mutex_unlock(&g_reactivate);
         return;
@@ -1520,7 +1520,7 @@ static void clap_idle(effect_t *effect)
         // the cycles keep running: they stop the stage, then are shut out across the deactivate (omx_cycle_gate_restart),
         // and a buffer-size re-activation waits
         pthread_mutex_lock(&g_reactivate);
-        restarted = omx_cycle_gate_restart(&effect->gate, clap, CLAP_HOST_ROLE_POLL_US, CLAP_HOST_ROLE_TIMEOUT_US);
+        restarted = omx_cycle_gate_restart(&effect->gate, clap, OMX_HOSTED_STAGE_ROLE_POLL_US, OMX_HOSTED_STAGE_ROLE_TIMEOUT_US);
         pthread_mutex_unlock(&g_reactivate);
         if (restarted == OMX_CLAP_RESTART_RESCANNED)
             effect->relayout_pending = 1;
@@ -2237,7 +2237,7 @@ static void links_forget(stopped_t *stopped)
  * there is no memory for them */
 static int links_record(effect_t *effect, stopped_t *stopped)
 {
-    jack_port_t *ports[2 * CLAP_HOST_PORT_CHANNELS];
+    jack_port_t *ports[2 * OMX_HOSTED_STAGE_PORT_CHANNELS];
     uint32_t n_ports = 0, p;
 
     stopped->effect = effect;
@@ -2463,7 +2463,7 @@ static void chain_start(chain_t *chain, int id, effect_t *head, struct omx_clap_
     chain->id = id;
     atomic_store_explicit(&chain->count, 0, memory_order_relaxed);
     (void)chain_insert(chain, head, 0);
-    omx_cycle_gate_close(&head->chain_gate, CLAP_HOST_ROLE_POLL_US);
+    omx_cycle_gate_close(&head->chain_gate, OMX_HOSTED_STAGE_ROLE_POLL_US);
     atomic_store_explicit(&head->chain_run, chain, memory_order_relaxed);
     omx_cycle_gate_open(&head->chain_gate);
 }
@@ -2474,7 +2474,7 @@ static void chain_end(chain_t *chain)
 {
     effect_t *head = chain->head;
 
-    omx_cycle_gate_close(&head->chain_gate, CLAP_HOST_ROLE_POLL_US);
+    omx_cycle_gate_close(&head->chain_gate, OMX_HOSTED_STAGE_ROLE_POLL_US);
     atomic_store_explicit(&head->chain_run, NULL, memory_order_relaxed);
     omx_cycle_gate_open(&head->chain_gate);
     omx_clap_chain_destroy(chain->walk);
@@ -2663,7 +2663,7 @@ static int configure_lv2_with(const char *root, char why[OMX_CLAP_LV2_WHY_MAX])
     config.worker_poll_us = OMX_HOSTED_STAGE_WORKER_POLL_US;
     config.worker_ring_bytes = OMX_HOSTED_STAGE_WORKER_RING_BYTES;
     config.atom_buffer_bytes = LV2_ATOM_BUFFER_BYTES;
-    config.latency_hold_ms = CLAP_HOST_LATENCY_HOLD_MS;
+    config.latency_hold_ms = OMX_HOSTED_STAGE_LATENCY_HOLD_MS;
     config.lilv_soname = NULL;
     config.state_root = root;
     if (omx_clap_lv2_configure(&config, why) != 0)
@@ -3748,10 +3748,10 @@ int effects_preset_save(int effect_id, const char *path, const char *name, char 
     {
         char *b64;
 
-        body = malloc(CLAP_HOST_STATE_MAX_BYTES);
+        body = malloc(OMX_HOSTED_STAGE_STATE_MAX_BYTES);
         omx_clap_host_settle(effect->clap, QUEUE_SETTLE_US);
         if (!body || omx_clap_host_state_save_context(effect->clap, CLAP_STATE_CONTEXT_FOR_PRESET, body,
-                                                      CLAP_HOST_STATE_MAX_BYTES, &body_len) != 0)
+                                                      OMX_HOSTED_STAGE_STATE_MAX_BYTES, &body_len) != 0)
         {
             ret = -2;
             goto out;

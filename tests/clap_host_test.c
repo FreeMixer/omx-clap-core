@@ -883,7 +883,7 @@ static void unoffered_threads(const char *path)
 static void unoffered_overflow(const char *path)
 {
     struct omx_clap_instance *instance = NULL;
-    char id[64], last[CLAP_HOST_LOG_BYTES] = "";
+    char id[64], last[OMX_HOSTED_STAGE_LOG_BYTES] = "";
     const char *line;
     unsigned i, ticks, said = 0, counts = 0;
 
@@ -1204,7 +1204,7 @@ static void t_bounce_at_limits(const char *path)
     CHECK(g_allocs > before, "the counter sees the shared library's allocations (%u in the open)", g_allocs - before);
     if (!in)
         return;
-    CHECK(in->aux_inputs == CLAP_HOST_AUX_INPUTS && in->aux_outputs == CLAP_HOST_AUX_OUTPUTS && in->aux_in[63].channels == 64 &&
+    CHECK(in->aux_inputs == OMX_HOSTED_STAGE_AUX_INPUTS && in->aux_outputs == OMX_HOSTED_STAGE_AUX_OUTPUTS && in->aux_in[63].channels == 64 &&
               in->aux_out[63].channels == 64 && in->aux_out_base[63] == 63 * 64,
           "64 auxiliary inputs and 64 auxiliary outputs of 64 channels each");
     CHECK(omx_clap_host_activate(in, SAMPLE_RATE, MAX_BLOCK, why) == 0, "activate at blocks of %u frames (%s)", MAX_BLOCK, why);
@@ -1717,7 +1717,7 @@ static void fake_plugin_checks(const char *path)
     float *outputs[2] = { out_l, out_r };
     double value;
 
-    CHECK(CLAP_HOST_PORT_CHANNELS == 64, "CLAP_HOST_PORT_CHANNELS is %u", CLAP_HOST_PORT_CHANNELS);
+    CHECK(OMX_HOSTED_STAGE_PORT_CHANNELS == 64, "OMX_HOSTED_STAGE_PORT_CHANNELS is %u", OMX_HOSTED_STAGE_PORT_CHANNELS);
     CHECK(open_ok(path, FAKE_WIDEN, &instance) && instance->in_channels == 1 && instance->channels == 2,
           "open %s: a main pair of different widths is admitted", FAKE_WIDEN);
     if (instance)
@@ -2374,7 +2374,7 @@ static void synth_checks(const char *path)
     static const midi_at_t running_off[] = { { 10, { 0x90, 69, 127 }, 3 }, { 20, { 0x90, 60, 0 }, 3 }, { 40, { 0x90, 69, 0 }, 3 } };
     static const midi_at_t others[] = { { 0, { 0xb0, 1, 64 }, 3 }, { 1, { 0xe0, 0, 64 }, 3 }, { 2, { 0xc0, 5, 0 }, 2 }, { 3, { 0xf8, 0, 0 }, 1 } };
     static const midi_at_t held[] = { { 0, { 0x90, 69, 127 }, 3 } };
-    midi_at_t flood[CLAP_HOST_NOTES_PER_BLOCK + 45];
+    midi_at_t flood[OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 45];
     float out_l[BLOCK], out_r[BLOCK];
     float stop_l[BLOCK], stop_r[BLOCK];
     struct omx_clap_instance *synth;
@@ -2461,7 +2461,7 @@ static void synth_checks(const char *path)
     if (!synth)
         return;
     // each note on a key of its own (128 keys a channel), so no note on ends an earlier one under its id
-    for (i = 0; i < CLAP_HOST_NOTES_PER_BLOCK + 44; i++)
+    for (i = 0; i < OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44; i++)
     {
         flood[i].time = i % BLOCK;
         flood[i].data[0] = (uint8_t)(0x90 | (i / 128));
@@ -2470,15 +2470,15 @@ static void synth_checks(const char *path)
         flood[i].size = 3;
     }
     // the last message a note off: the note ons stop OMX_CLAP_NOTES_RESERVED short of the end, the note off arrives
-    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].time = BLOCK - 1;
-    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].data[0] = 0x80;
-    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].data[1] = 69;
-    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].data[2] = 0;
-    flood[CLAP_HOST_NOTES_PER_BLOCK + 44].size = 3;
-    run_block(synth, flood, CLAP_HOST_NOTES_PER_BLOCK + 45, out_l, out_r);
-    CHECK(atomic_load(&synth->stage.notes_delivered) == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
+    flood[OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44].time = BLOCK - 1;
+    flood[OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44].data[0] = 0x80;
+    flood[OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44].data[1] = 69;
+    flood[OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44].data[2] = 0;
+    flood[OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44].size = 3;
+    run_block(synth, flood, OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 45, out_l, out_r);
+    CHECK(atomic_load(&synth->stage.notes_delivered) == OMX_HOSTED_STAGE_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
           atomic_load(&synth->stage.notes_dropped) == OMX_CLAP_NOTES_RESERVED + 44 && atomic_load(&synth->stage.releases_dropped) == 0,
-          "%u note ons and a note off: %u delivered, the note off with them, %u dropped, %u of them releases", CLAP_HOST_NOTES_PER_BLOCK + 44,
+          "%u note ons and a note off: %u delivered, the note off with them, %u dropped, %u of them releases", OMX_HOSTED_STAGE_NOTES_PER_BLOCK + 44,
           atomic_load(&synth->stage.notes_delivered), atomic_load(&synth->stage.notes_dropped), atomic_load(&synth->stage.releases_dropped));
     omx_clap_host_close(synth);
     CHECK(omx_clap_host_binaries_open() == 0, "synth binary closed");
@@ -2639,7 +2639,7 @@ static void test_role_waits(const char *path)
     took = now_ms() - t0;
     in_cycle = atomic_load(&instance->stage.in_cycle);
     CHECK(!in_cycle, "role wait: take_role returns only once that block has left the plugin, past the %u us timeout (%.0f ms)",
-          CLAP_HOST_ROLE_TIMEOUT_US, took);
+          OMX_HOSTED_STAGE_ROLE_TIMEOUT_US, took);
     omx_clap_host_release_role(instance, &role, role.state);
     pthread_join(t, NULL);
     unsetenv("FAKE_SLOW_PROCESS_MS");
@@ -2654,7 +2654,7 @@ static void test_role_waits(const char *path)
 /* the plugin's log slot, written from two threads at once while the control thread drains it: every line taken is one
  * of the lines written, whole, never two mixed or cut */
 #define LOG_ROUNDS 20000u
-struct log_writer { struct omx_clap_instance *instance; char line[CLAP_HOST_LOG_BYTES]; _Atomic int *stop; };
+struct log_writer { struct omx_clap_instance *instance; char line[OMX_HOSTED_STAGE_LOG_BYTES]; _Atomic int *stop; };
 static void *log_writer_run(void *arg)
 {
     struct log_writer *w = arg;
@@ -2673,7 +2673,7 @@ static void test_log_slot(const char *path)
     _Atomic int stop = 0;
     pthread_t t[2];
     unsigned taken = 0, mixed = 0, i;
-    char bad[CLAP_HOST_LOG_BYTES] = "";
+    char bad[OMX_HOSTED_STAGE_LOG_BYTES] = "";
 
     if (!open_ok(path, FAKE_PASSTHROUGH, &instance))
     {
@@ -3167,7 +3167,7 @@ int main(int argc, char **argv)
     int finite = 1;
     uint32_t b, i;
     double value;
-    static uint8_t state[CLAP_HOST_STATE_MAX_BYTES];
+    static uint8_t state[OMX_HOSTED_STAGE_STATE_MAX_BYTES];
     size_t state_length = 0;
 
     if (!path)

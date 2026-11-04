@@ -69,7 +69,7 @@ that counts the published changes.
   than two channels, or a call whose input and output are the same buffer (a chain of one member over one buffer),
   runs the member as alone.
 - the chain clamps once, at its output, where every instance member alone clamps its own: a member run by the direct
-  body whose guards both clamp and scan for non-finite output leaves its clamp at `CLAP_HOST_CLAMP_DBFS` to the chain,
+  body whose guards both clamp and scan for non-finite output leaves its clamp at `OMX_HOSTED_STAGE_CLAMP_DBFS` to the chain,
   and when one of them delivered its plugin's output in the cycle the chain clamps `outputs` after the walk and counts
   what moved in the `clamped_samples` of the last such member. Such a member's output past the ceiling reaches the next
   member whole. Its scan for non-finite output stays its own, the one check a block between members keeps: a block

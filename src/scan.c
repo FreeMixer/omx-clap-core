@@ -395,24 +395,24 @@ static const char *normalization_name(uint32_t normalization)
  * stores), in index order without it; an ambisonic port's ordering and normalisation from clap.ambisonic, ACN and SN3D
  * marked assumed without it or when its get_config answers false. For a plugin the core admits, put_audio_ports takes
  * `assumed` from the description (its ambisonic_assumed). Nothing for any other port, nor for a surround port of more
- * than CLAP_HOST_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is as long as the plugin says it
- * is, up to CLAP_HOST_PORT_CHANNELS ids.
+ * than OMX_HOSTED_STAGE_PORT_CHANNELS channels, which the core refuses port-too-wide; a map is as long as the plugin says it
+ * is, up to OMX_HOSTED_STAGE_PORT_CHANNELS ids.
  */
 static void port_layout(const struct omx_clap_instance *instance, const clap_audio_port_info_t *info, bool is_input, uint32_t index,
-                        uint8_t map[CLAP_HOST_PORT_CHANNELS], struct layout_port_text *t)
+                        uint8_t map[OMX_HOSTED_STAGE_PORT_CHANNELS], struct layout_port_text *t)
 {
     t->kind = kind_name(info->port_type);
-    if (!strcmp(t->kind, CLAP_PORT_SURROUND) && info->channel_count <= CLAP_HOST_PORT_CHANNELS)
+    if (!strcmp(t->kind, CLAP_PORT_SURROUND) && info->channel_count <= OMX_HOSTED_STAGE_PORT_CHANNELS)
     {
         uint32_t n = info->channel_count, c;
 
         if (instance->surround && instance->surround->get_channel_map)
-            n = OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "surround.get_channel_map", instance->surround->get_channel_map, instance->plugin, is_input, index, map, CLAP_HOST_PORT_CHANNELS);
+            n = OMX_ABI_CALL(OMX_ABI_GUARD_OF(instance), "surround.get_channel_map", instance->surround->get_channel_map, instance->plugin, is_input, index, map, OMX_HOSTED_STAGE_PORT_CHANNELS);
         else
             for (c = 0; c < n; c++)
                 map[c] = (uint8_t)c;
         t->map = map;
-        t->map_n = n > CLAP_HOST_PORT_CHANNELS ? CLAP_HOST_PORT_CHANNELS : n;
+        t->map_n = n > OMX_HOSTED_STAGE_PORT_CHANNELS ? OMX_HOSTED_STAGE_PORT_CHANNELS : n;
     }
     else if (!strcmp(t->kind, CLAP_PORT_AMBISONIC))
     {
@@ -481,7 +481,7 @@ static void put_audio_ports(FILE *out, const struct omx_clap_instance *instance,
             fprintf(out, "%s\"%s\":[", dir ? "," : "", is_input ? "inputs" : "outputs");
         for (i = 0; i < count; i++)
         {
-            uint8_t map[CLAP_HOST_PORT_CHANNELS];
+            uint8_t map[OMX_HOSTED_STAGE_PORT_CHANNELS];
             struct layout_port_text t;
 
             memset(&info, 0, sizeof(info));

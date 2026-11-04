@@ -5,7 +5,7 @@
  *
  *   ./tests/clap_untrusted_test
  *
- *  1. THE COUNT IS CAPPED at CLAP_HOST_PARAM_COUNT_MAX (2048): a plugin reporting exactly 2048 parameters serves them all;
+ *  1. THE COUNT IS CAPPED at OMX_HOSTED_STAGE_PARAM_COUNT_MAX (2048): a plugin reporting exactly 2048 parameters serves them all;
  *     one reporting 2049 or 10000000 serves the first 2048, an id past them is not a parameter of it, and the open
  *     leaves one log message saying so. The layout pin of a plugin past the cap is refused, never pinned short.
  *  2. A FAILED ALLOCATION REFUSES: the read-back table that open sizes from the count cannot be had, and the open is
@@ -24,6 +24,7 @@
 
 #include "../src/clap_host.h"
 #include "../src/clap_host_limits.h"
+#include "../src/hosted_stage_limits.h"
 #include "../src/layout_pin.h"
 
 static int failures = 0;
@@ -140,7 +141,7 @@ static struct omx_clap_instance *open_with(uint32_t n, char why[OMX_CLAP_WHY_MAX
 }
 
 /* ---- 1. the count is capped ---- */
-#define CAP CLAP_HOST_PARAM_COUNT_MAX
+#define CAP OMX_HOSTED_STAGE_PARAM_COUNT_MAX
 
 /* A plugin reporting `n` parameters: every way of reading them stops at min(n, CAP), and the open says so once when it
  * capped. */
@@ -153,7 +154,7 @@ static void count_is_capped(uint32_t n) {
   omx_clap_host_tick(in);
   const char *said = omx_clap_host_log_take(in);
   if (n > CAP) {
-    char text[CLAP_HOST_LOG_BYTES];
+    char text[OMX_HOSTED_STAGE_LOG_BYTES];
     snprintf(text, sizeof text, "the plugin reports %u parameters; the host serves the first %u", n, CAP);
     CHECK(said && strcmp(said, text) == 0, "%u parameters: the open says it capped them (%s)", n, said ? said : "nothing");
   } else {
@@ -183,7 +184,7 @@ static void count_is_capped(uint32_t n) {
 
 static void t_count_is_capped(void) {
   CHECK(CAP == 2048u, "the cap is 2048 (%u)", CAP);
-  CHECK(OMX_CLAP_PARAM_COUNT_MAX == CAP, "clap_host.h's OMX_CLAP_PARAM_COUNT_MAX is the same number");
+  CHECK(OMX_HOSTED_STAGE_PARAM_COUNT_MAX == CAP, "clap_host.h's OMX_HOSTED_STAGE_PARAM_COUNT_MAX is the same number");
   count_is_capped(CAP);         /* exactly the cap: whole, nothing said */
   count_is_capped(CAP + 1u);    /* one past: capped */
   count_is_capped(10000000u);   /* far past: capped */

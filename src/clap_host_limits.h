@@ -22,38 +22,17 @@
 #define CLAP_HOST_LIMITS_H
 /*
  * GENERATED — DO NOT EDIT BY HAND.
- * Rendered from HOSTED_STAGE_LIMITS, HOSTING_IDLE_CODES and HOSTING_WINDOW_CODES of data/hosting.json, where this
- * tree declares its stage limits and the codes of the dimensions it owns. The rendered file is kept in this repository so the
- * library builds on its own; the numbers and codes are changed where they are declared and the file is
+ * Rendered from HOSTING_IDLE_CODES and HOSTING_WINDOW_CODES of data/hosting.json, where this tree declares the codes
+ * of the dimensions it owns. The stage's numbers are hosted_stage_limits.h's, spelled once. The rendered file is kept in
+ * this repository so the library builds on its own; the codes are changed where they are declared and the file is
  * re-rendered, never edited here. Every other refusal code is declared in data/hosting/ and rendered as
  * omx_clap_core_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*).
  */
 
 /** @file
- * @brief The limits of the hosting code, and the codes of the idle and window dimensions. */
+ * @brief The codes of the idle and window dimensions. */
 
 #include <stddef.h>
-
-/** the stage and the host: every number the core reads */
-#define CLAP_HOST_WARMUP_BLOCKS 64u
-#define CLAP_HOST_WARMUP_LEVEL_DBFS -6.0f  ///< the level of the warm-up signal, in dBFS
-#define CLAP_HOST_NON_FINITE_STRIKES 3u  ///< the blocks of non-finite output that strike a stage
-#define CLAP_HOST_CLAMP_DBFS 24.0f  ///< the level the output is clamped at, in dBFS
-#define CLAP_HOST_PARAM_QUEUE_DEPTH 256u  ///< the records the parameter queue holds
-#define CLAP_HOST_EVENTS_PER_BLOCK 64u  ///< the parameter events delivered in one block
-#define CLAP_HOST_UNPUBLISH_POLL_US 100u  ///< the poll interval while an unpublish waits for the audio thread, in microseconds
-#define CLAP_HOST_UNPUBLISH_TIMEOUT_US 2000000u  ///< the longest an unpublish waits for the audio thread, in microseconds
-#define CLAP_HOST_NOTES_PER_BLOCK 256u  ///< the note events delivered in one block
-#define CLAP_HOST_PORT_CHANNELS 64u  ///< the channels a port is limited to, main or auxiliary
-#define CLAP_HOST_AUX_OUTPUTS 64u  ///< the auxiliary output ports the core accepts beyond the main one
-#define CLAP_HOST_AUX_INPUTS 64u  ///< the auxiliary input ports the core accepts beyond the main one
-#define CLAP_HOST_STATE_MAX_BYTES 1048576u  ///< the largest plugin state the core saves or loads, in bytes
-#define CLAP_HOST_LOG_BYTES 256u  ///< the size of a plugin log message, in bytes
-#define CLAP_HOST_ROLE_POLL_US 1000u  ///< the poll interval while the audio role is taken, in microseconds
-#define CLAP_HOST_ROLE_TIMEOUT_US 200000u  ///< the wait for the audio role past which a stop gives up or take_role says so, in microseconds
-#define CLAP_HOST_PARAM_COUNT_MAX 2048u  ///< the widest parameter count the core trusts
-#define CLAP_HOST_LATENCY_HOLD_MS 250u  ///< the hold before a hosted stage's new latency takes effect, in milliseconds
-#define CLAP_HOST_IDLE_HOLD_US 10u  ///< the latency the library holds /dev/cpu_dma_latency at while an instance is active, in microseconds: 10 keeps the cores in C1
 
 /** the idle dimension, what the library answers about its hold of /dev/cpu_dma_latency (#296), and the window dimension, why omx-clap-host shows no plugin window (#180) */
 #define CLAP_HOST_CODE_IDLE_HOLD_REFUSED "hosting.idle.hold-refused"  ///< the device could not be opened for writing (no permission, or no such device): the host runs with no hold

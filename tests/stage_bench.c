@@ -60,10 +60,10 @@ int main(void)
 {
     static struct omx_clap_stage st;
     static float in_l[BLOCK], in_r[BLOCK], out_l[BLOCK], out_r[BLOCK], l[BLOCK], r[BLOCK];
-    static struct omx_clap_param_record recs[CLAP_HOST_PARAM_QUEUE_DEPTH];
+    static struct omx_clap_param_record recs[OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH];
     double ns[RUNS];
 
-    if (omx_clap_stage_init(&st, &(struct omx_hosted_bounce){in_l, in_r, out_l, out_r, BLOCK}, recs, CLAP_HOST_PARAM_QUEUE_DEPTH) != 0
+    if (omx_clap_stage_init(&st, &(struct omx_hosted_bounce){in_l, in_r, out_l, out_r, BLOCK}, recs, OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH) != 0
         || omx_clap_bind(&st, &PAD, 2) != 0)
         return 1;
     omx_clap_arm(&st);

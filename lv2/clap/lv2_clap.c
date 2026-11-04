@@ -89,6 +89,7 @@
 #include <clap/ext/note-ports.h>
 
 #include "clap_host_limits.h"
+#include "hosted_stage_limits.h"
 #include "lv2_core.h"
 #include "omx_clap_midi.h"
 #include "abi_guard.h"
@@ -101,10 +102,7 @@
 #pragma GCC diagnostic pop
 
 // an adapter's auxiliary port is one CLAP auxiliary port: the adapter admits exactly what the core's limits admit
-_Static_assert(LV2_CORE_AUX_PORTS == CLAP_HOST_AUX_INPUTS, "the auxiliary inputs are the core's");
-_Static_assert(LV2_CORE_AUX_PORTS == CLAP_HOST_AUX_OUTPUTS, "the auxiliary outputs are the core's");
-_Static_assert(LV2_CORE_PORT_CHANNELS == CLAP_HOST_PORT_CHANNELS, "an adapter's port has a core port's channels");
-
+// (LV2_CORE_AUX_PORTS and OMX_HOSTED_STAGE_PORT_CHANNELS are the core's own numbers)
 
 /*
 ************************************************************************************************************************
@@ -1175,7 +1173,7 @@ static void outputs_place(struct shim *s, const clap_process_t *process, uint32_
 {
     const struct lv2_plugin *l = s->lv2;
     const clap_audio_buffer_t *b = process->audio_outputs_count ? &process->audio_outputs[0] : NULL;
-    uint32_t placed[LV2_CORE_PORT_CHANNELS * (1u + LV2_CORE_AUX_PORTS)];
+    uint32_t placed[OMX_HOSTED_STAGE_PORT_CHANNELS * (1u + LV2_CORE_AUX_PORTS)];
     uint32_t n_placed = 0, leg, c;
 
     for (leg = 0; leg < l->legs && !l->passthrough; leg++)
@@ -1335,11 +1333,8 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     return CLAP_PROCESS_CONTINUE;
 }
 
-/* the longest state a load reads: the same bound as the core's CLAP_HOST_STATE_MAX_BYTES */
-#define LV2_CLAP_STATE_MAX_BYTES 1048576u
-
 /* the whole stream, read until the host returns 0: NULL-terminated, malloc'd; false when the host fails, the state runs
- * past LV2_CLAP_STATE_MAX_BYTES, or memory runs out */
+ * past OMX_HOSTED_STAGE_STATE_MAX_BYTES, or memory runs out */
 static bool read_all(const clap_istream_t *stream, char **out)
 {
     size_t cap = 4096, n = 0;
@@ -1372,7 +1367,7 @@ static bool read_all(const clap_istream_t *stream, char **out)
         if (r == 0)
             break;
         n += (size_t)r;
-        if (n > LV2_CLAP_STATE_MAX_BYTES)
+        if (n > OMX_HOSTED_STAGE_STATE_MAX_BYTES)
         {
             free(buf);
             return false;

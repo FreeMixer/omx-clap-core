@@ -93,7 +93,7 @@ static pthread_mutex_t g_pool_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t g_holders;          // the active instances holding the pool; the control thread's, under g_pool_lock
 static uint32_t g_cores;            // the cores of the mask when the pool was last asked for
 static int32_t g_priority;          // the helpers' priority
-static char g_state[CLAP_HOST_LOG_BYTES];   // why the last instance that asked runs serial
+static char g_state[OMX_HOSTED_STAGE_LOG_BYTES];   // why the last instance that asked runs serial
 static pthread_t g_join[OMX_CLAP_THREAD_POOL_HELPERS_MAX];  // what pthread_create answered, for the join
 static struct pool_helper g_helper[OMX_CLAP_THREAD_POOL_HELPERS_MAX];
 

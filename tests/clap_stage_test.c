@@ -326,7 +326,7 @@ static void fake_up(struct fake *f, enum kind kind, uint32_t channels) {
 struct rig {
   struct omx_clap_stage st;
   float in_l[MAXB], in_r[MAXB], out_l[MAXB], out_r[MAXB];
-  struct omx_clap_param_record recs[CLAP_HOST_PARAM_QUEUE_DEPTH];
+  struct omx_clap_param_record recs[OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH];
   struct fake f;
 };
 
@@ -445,9 +445,9 @@ static void t_bypass_reset(void) {
 /* ---- 5. EVENT DRAIN: order, fields, two blocks, a full ring ---- */
 static void t_events(void) {
   struct rig g;
-  rig_up(&g, K_CLOBBER, 2, CLAP_HOST_PARAM_QUEUE_DEPTH);
+  rig_up(&g, K_CLOBBER, 2, OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH);
   int cookie_a, cookie_b;
-  const uint32_t total = CLAP_HOST_EVENTS_PER_BLOCK + 3u;
+  const uint32_t total = OMX_HOSTED_STAGE_EVENTS_PER_BLOCK + 3u;
   for (uint32_t k = 0; k < total; k++)
     CHECK(omx_clap_param_push(&g.st, (clap_id)(100 + k), (double)k * 0.25, (k & 1) ? &cookie_a : &cookie_b) == 0,
           "push %u accepted", k);
@@ -458,7 +458,7 @@ static void t_events(void) {
   omx_denormals_off();
 #endif
   run(&g, l, r, 64);
-  CHECK(g.f.ev_per_block[0] == CLAP_HOST_EVENTS_PER_BLOCK, "block 1 carried eventsPerBlock (%u)", g.f.ev_per_block[0]);
+  CHECK(g.f.ev_per_block[0] == OMX_HOSTED_STAGE_EVENTS_PER_BLOCK, "block 1 carried eventsPerBlock (%u)", g.f.ev_per_block[0]);
   CHECK(omx_clap_queue_pending(&g.st.queue) == 3, "the surplus stays in the ring (%u)", omx_clap_queue_pending(&g.st.queue));
 #if defined(__x86_64__) || defined(__i386__)
   CHECK(g.f.ftz_inside, "FTZ/DAZ were set when process() began");
@@ -512,7 +512,7 @@ static void t_constant(void) {
   fill(l, 64, 0.5f), fill(r, 64, 0.5f);
   run(&g, l, r, 64);
   int all = 1;
-  for (uint32_t i = 0; i < 64; i++) all &= l[i] == omx_db_to_lin(CLAP_HOST_CLAMP_DBFS) && r[i] == omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+  for (uint32_t i = 0; i < 64; i++) all &= l[i] == omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS) && r[i] == omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS);
   CHECK(all, "a constant +40 dB block reads the ceiling on EVERY sample: expanded before the clamp");
   CHECK(atomic_load(&g.st.h.nonfinite_blocks) == 0, "the garbage past sample 0 was never scanned");
   CHECK(atomic_load(&g.st.constant_channels) == 4, "two channels x two blocks expanded (%u)", atomic_load(&g.st.constant_channels));
@@ -548,12 +548,12 @@ static void t_discard(enum kind kind) {
   omx_wetdry_xfade_block(want, dl, wet, 64);
   CHECK(bytes_equal(l, want, 64), "a recovery fades back in from dry");
   *bad = 1;
-  for (uint32_t k = 1; k < CLAP_HOST_NON_FINITE_STRIKES; k++) {
+  for (uint32_t k = 1; k < OMX_HOSTED_STAGE_NON_FINITE_STRIKES; k++) {
     ramp(l, 64), ramp(r, 64);
     run(&g, l, r, 64);
   }
   CHECK(atomic_load(&g.st.h.fault) == (kind == K_ERROR ? OMX_HOSTED_FAULT_PROCESS_ERROR : OMX_HOSTED_FAULT_NONFINITE),
-        "faulted at the strike count (%u) as %s, never as the plugin's output when it did not run", CLAP_HOST_NON_FINITE_STRIKES,
+        "faulted at the strike count (%u) as %s, never as the plugin's output when it did not run", OMX_HOSTED_STAGE_NON_FINITE_STRIKES,
         kind == K_ERROR ? "a process error" : "non-finite output");
   *bad = 0;
   const uint32_t runs = atomic_load(&g.st.h.runs);
@@ -576,8 +576,8 @@ static void t_clamp(void) {
   }
   int all = 1;
   for (uint32_t i = 0; i < 64; i++)
-    all &= l[i] == ((i & 1) ? -omx_db_to_lin(CLAP_HOST_CLAMP_DBFS) : omx_db_to_lin(CLAP_HOST_CLAMP_DBFS));
-  CHECK(all, "every +40 dB sample held at the +%.1f dBFS ceiling", (double)CLAP_HOST_CLAMP_DBFS);
+    all &= l[i] == ((i & 1) ? -omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS) : omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS));
+  CHECK(all, "every +40 dB sample held at the +%.1f dBFS ceiling", (double)OMX_HOSTED_STAGE_CLAMP_DBFS);
   CHECK(atomic_load(&g.st.h.clamped_samples) == 256, "counted (%u)", atomic_load(&g.st.h.clamped_samples));
   CHECK(atomic_load(&g.st.h.nonfinite_blocks) == 0, "never a strike");
 }
@@ -591,11 +591,11 @@ static void t_prime(void) {
   g.f.plugin.activate(&g.f.plugin, (double)g_rate, 1, MAXB);
   omx_clap_bind(&g.st, &g.f.plugin, 2);
   CHECK(omx_clap_prime(&g.st, 128) == 0, "a clean plugin warms up with no bad block");
-  CHECK(g.f.runs == CLAP_HOST_WARMUP_BLOCKS, "warm-up ran %u blocks (%u)", CLAP_HOST_WARMUP_BLOCKS, g.f.runs);
+  CHECK(g.f.runs == OMX_HOSTED_STAGE_WARMUP_BLOCKS, "warm-up ran %u blocks (%u)", OMX_HOSTED_STAGE_WARMUP_BLOCKS, g.f.runs);
   CHECK(g.f.starts == 1 && g.f.stops == 1, "the control thread held the audio role: start/stop_processing once each");
   CHECK(g.f.resets == 1, "the warm-up ends in ONE reset(), so no tail longer than its silent half survives (%u)", g.f.resets);
   CHECK(atomic_load(&g.st.h.runs) == 0, "the live counter is untouched");
-  CHECK(g.st.steady_time == (int64_t)CLAP_HOST_WARMUP_BLOCKS * 128, "steady_time advanced through the warm-up");
+  CHECK(g.st.steady_time == (int64_t)OMX_HOSTED_STAGE_WARMUP_BLOCKS * 128, "steady_time advanced through the warm-up");
   omx_clap_arm(&g.st);
   CHECK(omx_clap_prime(&g.st, 128) == UINT32_MAX, "a published stage refuses to warm up");
 
@@ -606,7 +606,7 @@ static void t_prime(void) {
   omx_clap_stage_init(&b.st, &(struct omx_hosted_bounce){b.in_l, b.in_r, b.out_l, b.out_r, MAXB}, b.recs, QCAP);
   b.f.plugin.activate(&b.f.plugin, (double)g_rate, 1, MAXB);
   omx_clap_bind(&b.st, &b.f.plugin, 2);
-  CHECK(omx_clap_prime(&b.st, 128) == CLAP_HOST_WARMUP_BLOCKS, "a non-finite plugin refuses publish");
+  CHECK(omx_clap_prime(&b.st, 128) == OMX_HOSTED_STAGE_WARMUP_BLOCKS, "a non-finite plugin refuses publish");
 }
 
 /* the warm-up on a wide stage: every channel of the 6/6 main pair and every auxiliary block is written, a full
@@ -616,7 +616,7 @@ static void t_prime_wide(void) {
   static struct omx_clap_aux_in a;
   static float win[6][MAXB], wout[6][MAXB], aux_scratch[2][MAXB], aux_silence[MAXB], side[MAXB];
   float *wi[6], *wo[6], *scratch[2] = {aux_scratch[0], aux_scratch[1]}, *sidep[1] = {side};
-  static float *bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];
+  static float *bound[OMX_HOSTED_STAGE_AUX_INPUTS * OMX_HOSTED_STAGE_PORT_CHANNELS];
   const struct omx_clap_port aux_out = {.channels = 2}, aux_in = {.channels = 1};
   const uint32_t base[1] = {0};
   const float SENTINEL = 7.0f;
@@ -651,7 +651,7 @@ static void t_prime_wide(void) {
   CHECK(aux_scratch[0][0] == 0.0f && aux_scratch[0][MAXB - 1] == 0.0f && aux_scratch[1][0] == 0.0f && aux_scratch[1][MAXB - 1] == 0.0f,
         "prime wide: every auxiliary output block's first and last frame were written");
   CHECK(side[0] == SENTINEL && side[MAXB - 1] == SENTINEL, "prime wide: the caller's auxiliary input is read, its samples kept");
-  CHECK(g.f.peak_last_in == omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS), "prime wide: channel 5 carried the warm-up level (%g)",
+  CHECK(g.f.peak_last_in == omx_db_to_lin(OMX_HOSTED_STAGE_WARMUP_LEVEL_DBFS), "prime wide: channel 5 carried the warm-up level (%g)",
         (double)g.f.peak_last_in);
 }
 
@@ -876,10 +876,10 @@ static void t_midi2(void) {
 
   /* a release keeps its reserve as MIDI 2.0 too: with the block full up to the reserve, a note off still goes */
   ns_up(1, CLAP_NOTE_DIALECT_MIDI2, CLAP_NOTE_DIALECT_MIDI2);
-  for (uint32_t k = 0; k < CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1u; k++)
+  for (uint32_t k = 0; k < OMX_HOSTED_STAGE_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1u; k++)
     ns_in(0, ON_MAX, sizeof ON_MAX);
   ns_in(1, ON_VEL0, sizeof ON_VEL0);
-  CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1u && atomic_load(&NS.notes_dropped) == 1 &&
+  CHECK(NS.n_notes == OMX_HOSTED_STAGE_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1u && atomic_load(&NS.notes_dropped) == 1 &&
             m2_is(NS.n_notes - 1, 0x40823c00u, 0x80000000u),
         "MIDI 2.0: past the reserve a note on is dropped and a release still goes (%u, %u)", NS.n_notes, atomic_load(&NS.notes_dropped));
 
@@ -1552,10 +1552,10 @@ static void t_note_priority(void) {
           (last->header.type == CLAP_EVENT_NOTE_OFF ? last->note.key == 60 : last->midi.data[0] == 0x80 && last->midi.data[1] == 60),
           "%s: %u note ons then a note off: the note off arrives (the block ends at time %u, type %u)", what, NP_FLOOD,
           last->header.time, last->header.type);
-    CHECK(NS.n_notes <= CLAP_HOST_NOTES_PER_BLOCK && NS.n_notes + atomic_load(&NS.notes_dropped) == n,
+    CHECK(NS.n_notes <= OMX_HOSTED_STAGE_NOTES_PER_BLOCK && NS.n_notes + atomic_load(&NS.notes_dropped) == n,
           "%s: every message is delivered or counted (%u + %u of %u)", what, NS.n_notes, atomic_load(&NS.notes_dropped), n);
-    CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
-          atomic_load(&NS.notes_dropped) == NP_FLOOD - (CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED) &&
+    CHECK(NS.n_notes == OMX_HOSTED_STAGE_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED + 1 &&
+          atomic_load(&NS.notes_dropped) == NP_FLOOD - (OMX_HOSTED_STAGE_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED) &&
           atomic_load(&NS.releases_dropped) == 0,
           "%s: the note ons stop %u slots short of the end, the note off takes one of them (%u delivered, %u dropped, %u releases)",
           what, OMX_CLAP_NOTES_RESERVED, NS.n_notes, atomic_load(&NS.notes_dropped), atomic_load(&NS.releases_dropped));
@@ -1580,10 +1580,10 @@ static void t_note_priority(void) {
     for (i = 0; i < NP_FLOOD; i++) { NP[i][0] = 0x80; NP[i][1] = (uint8_t)(i % 128); NP[i][2] = 0; }
     np_feed(NP, NP_FLOOD);
     np_survivors_in_order(NP, NP_FLOOD, what);
-    CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK && atomic_load(&NS.notes_dropped) == NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK,
-          "%s: %u note offs: %u delivered, the %u past the block counted (%u, %u)", what, NP_FLOOD, CLAP_HOST_NOTES_PER_BLOCK,
-          NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK, NS.n_notes, atomic_load(&NS.notes_dropped));
-    CHECK(atomic_load(&NS.releases_dropped) == NP_FLOOD - CLAP_HOST_NOTES_PER_BLOCK,
+    CHECK(NS.n_notes == OMX_HOSTED_STAGE_NOTES_PER_BLOCK && atomic_load(&NS.notes_dropped) == NP_FLOOD - OMX_HOSTED_STAGE_NOTES_PER_BLOCK,
+          "%s: %u note offs: %u delivered, the %u past the block counted (%u, %u)", what, NP_FLOOD, OMX_HOSTED_STAGE_NOTES_PER_BLOCK,
+          NP_FLOOD - OMX_HOSTED_STAGE_NOTES_PER_BLOCK, NS.n_notes, atomic_load(&NS.notes_dropped));
+    CHECK(atomic_load(&NS.releases_dropped) == NP_FLOOD - OMX_HOSTED_STAGE_NOTES_PER_BLOCK,
           "%s: the note offs past the block are counted as releases (%u)", what, atomic_load(&NS.releases_dropped));
 
     /* the flood, then exactly enough note offs to fill the reserve but one, then all notes off: the list ends full, on it */
@@ -1598,7 +1598,7 @@ static void t_note_priority(void) {
       M[NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1][2] = 0;
       np_feed(M, NP_FLOOD + OMX_CLAP_NOTES_RESERVED);
       np_survivors_in_order(M, NP_FLOOD + OMX_CLAP_NOTES_RESERVED, what);
-      CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK && NS.notes[NS.n_notes - 1].header.time == NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1 &&
+      CHECK(NS.n_notes == OMX_HOSTED_STAGE_NOTES_PER_BLOCK && NS.notes[NS.n_notes - 1].header.time == NP_FLOOD + OMX_CLAP_NOTES_RESERVED - 1 &&
             atomic_load(&NS.releases_dropped) == 0,
             "%s: %u note ons, %u note offs and all notes off: the block is full and ends on all notes off (%u, %u releases dropped)",
             what, NP_FLOOD, OMX_CLAP_NOTES_RESERVED - 1, NS.n_notes, atomic_load(&NS.releases_dropped));
@@ -1612,7 +1612,7 @@ static void t_note_priority(void) {
       n = np_flood(NP_FLOOD, NOT_RELEASES, 4);
       np_feed(NP, n);
       np_survivors_in_order(NP, n, what);
-      CHECK(NS.n_notes == CLAP_HOST_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED && atomic_load(&NS.releases_dropped) == 0,
+      CHECK(NS.n_notes == OMX_HOSTED_STAGE_NOTES_PER_BLOCK - OMX_CLAP_NOTES_RESERVED && atomic_load(&NS.releases_dropped) == 0,
             "%s: a pedal pressed, a bend, a pressure and local control after the flood are dropped, none a release (%u, %u)", what,
             NS.n_notes, atomic_load(&NS.releases_dropped));
     }
@@ -1705,10 +1705,10 @@ static void t_aux_bind_wide(void) {
   CHECK(g.st.aout[1].data32[0] == scratch[0] && g.st.aout[2].data32[0] == scratch[1] && g.st.aout[2].data32[5] == scratch[6] &&
             g.st.aout[3].data32[0] == scratch[7] && g.st.aout[3].data32[1] == scratch[8],
         "aux: each output channel is its own scratch block, in port order");
-  const struct omx_clap_port too_wide = {.channels = CLAP_HOST_PORT_CHANNELS + 1};
+  const struct omx_clap_port too_wide = {.channels = OMX_HOSTED_STAGE_PORT_CHANNELS + 1};
   CHECK(omx_clap_bind_aux(&g.st, scratch, 1, &too_wide) == -1, "aux: an output wider than the limit is refused");
 
-  static float *bound[CLAP_HOST_AUX_INPUTS * CLAP_HOST_PORT_CHANNELS];
+  static float *bound[OMX_HOSTED_STAGE_AUX_INPUTS * OMX_HOSTED_STAGE_PORT_CHANNELS];
   const uint32_t base[2] = {0, 4};
   CHECK(omx_clap_bind_aux_in(&a, silence, 2, ins, bound, base) == 0, "aux: two inputs of 4 and 1 channels, none bound");
   CHECK(a.n_aux_in == 2 && a.ains[1].channel_count == 4 && a.ains[2].channel_count == 1, "aux: the inputs keep their widths");
@@ -1778,7 +1778,7 @@ static void aux_rig_up(struct rig *g, float (*scratch)[MAXB], int wide, float **
 static void t_aux_out_dry(void) {
   static struct rig g;
   static float scratch[2][MAXB], l[MAXB], r[MAXB], win[6][MAXB], wout[6][MAXB], ins[6][MAXB], outs[6][MAXB];
-  const float ceiling = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+  const float ceiling = omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS);
   float *wi[6], *wo[6], *op[6];
   const float *ip[6];
   uint32_t runs;
@@ -1908,7 +1908,7 @@ static void t_run_ports_wide(void) {
     op[c] = outs[c];
     fill(ins[c], MAXB, (float)c * 0.1f);
   }
-  CHECK(omx_clap_bind_wide(&g.st, wi, CLAP_HOST_PORT_CHANNELS + 1, wo, 6) == -1, "wide: an input wider than the limit is refused");
+  CHECK(omx_clap_bind_wide(&g.st, wi, OMX_HOSTED_STAGE_PORT_CHANNELS + 1, wo, 6) == -1, "wide: an input wider than the limit is refused");
   wi[5] = NULL;
   CHECK(omx_clap_bind_wide(&g.st, wi, 6, wo, 6) == -1, "wide: a channel with no block is refused");
   wi[5] = win[5];
@@ -1942,7 +1942,7 @@ static void t_run_ports_wide(void) {
   in_rt = 0;
   CHECK(atomic_load(&g.st.h.clamped_samples) == 4 * MAXB, "wide: every sample of the four channels past +24 dBFS clamped (%u)",
         atomic_load(&g.st.h.clamped_samples));
-  CHECK(outs[5][0] == omx_db_to_lin(CLAP_HOST_CLAMP_DBFS), "wide: the sixth channel at the ceiling (%g)", (double)outs[5][0]);
+  CHECK(outs[5][0] == omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS), "wide: the sixth channel at the ceiling (%g)", (double)outs[5][0]);
   g.f.kind = K_NAN;
   g.f.nan_on = 1;
   in_rt = 1;
