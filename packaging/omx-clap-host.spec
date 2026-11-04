@@ -12,16 +12,16 @@ Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
-# the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise; a floor only
-BuildRequires: plugin-hostd-protocol-devel >= 0.2.0
-# plugin-db's pin.h: the layout fingerprint pin_expect names, one implementation; a floor only
-BuildRequires: pkgconfig(plugin-db) >= 0.1.0
+# the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise
+BuildRequires: (plugin-hostd-protocol-devel >= 0.3.0 with plugin-hostd-protocol-devel < 0.4)
+# plugin-db's pin.h: the layout fingerprint pin_expect names, one implementation
+BuildRequires: (plugin-db-devel >= 0.1.0 with plugin-db-devel < 0.2)
 BuildRequires: clap-devel
 BuildRequires: pkgconfig(libcrypto)
-BuildRequires: omx-dsp-devel >= 0.18.0
+BuildRequires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
 # the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0); omx_clap_ext.h, preset_file.c and scan.c include omx_param_units.h and omx_json_write.h (3.9.0)
-BuildRequires: omx-contract-devel >= 3.9.0
+BuildRequires: (omx-contract-devel >= 3.9.0 with omx-contract-devel < 4)
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -35,7 +35,7 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
-Requires: plugin-hostd-protocol%{?_isa} >= 0.2.0
+Requires: (plugin-hostd-protocol%{?_isa} >= 0.3.0 with plugin-hostd-protocol%{?_isa} < 0.4)
 # an LV2 plugin is a lilv instance, mapped by the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
 
@@ -84,9 +84,9 @@ License: GPL-3.0-or-later
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
-Requires: omx-dsp-devel >= 0.18.0
+Requires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
 # omxcontract/omx_resource_hints.h, which clap_host.h includes, and omx_param_units.h, which omx_clap_ext.h includes (3.9.0)
-Requires: omx-contract-devel >= 3.9.0
+Requires: (omx-contract-devel >= 3.9.0 with omx-contract-devel < 4)
 Requires: omx-clap-core-contract = %{version}-%{release}
 Requires: pkgconfig
 
@@ -101,7 +101,7 @@ Summary: omx-clap-core's definitions in omx-contract's contract directory
 License: GPL-3.0-or-later
 BuildArch: noarch
 # the contract directory, its schema and its reader's own package
-Requires: omx-contract-data >= 3.3.0
+Requires: (omx-contract-data >= 3.3.0 with omx-contract-data < 4)
 # the files lived in omx-clap-core-devel before this package
 Conflicts: omx-clap-core-devel < %{version}-%{release}
 

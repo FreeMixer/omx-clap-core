@@ -158,9 +158,9 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
-          pkg-config --modversion plugin-hostd-protocol
-          pkg-config --modversion omxdsp
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.3.0' mod-host omx-plugins-devel
+          pkg-config --atleast-version=0.3.0 plugin-hostd-protocol
+          pkg-config --atleast-version=0.30.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
@@ -579,9 +579,9 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
-          pkg-config --modversion plugin-hostd-protocol
-          pkg-config --modversion omxdsp
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.3.0' mod-host omx-plugins-devel
+          pkg-config --atleast-version=0.3.0 plugin-hostd-protocol
+          pkg-config --atleast-version=0.30.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
@@ -636,8 +636,8 @@ jobs:
       - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0'
-          pkg-config --modversion omxdsp
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0'
+          pkg-config --atleast-version=0.30.0 omxdsp
 
       - uses: actions/checkout@v4
 
@@ -720,7 +720,7 @@ jobs:
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libplugin-hostd-protocol.so.0' requires.txt
-            grep -qx 'plugin-hostd-protocol(.*) >= 0.2.0' requires.txt
+            grep -qx '(plugin-hostd-protocol(.*) >= 0.3.0 with plugin-hostd-protocol(.*) < 0.4)' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
             # the window links libxcb, so the package requires it (#180)
@@ -1101,7 +1101,7 @@ jobs:
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
             ./proto-debs/libplugin-hostd-protocol0_*.deb
           dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
-          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libplugin-hostd-protocol0 (>= 0.2.0)'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libplugin-hostd-protocol0 (>= 0.3.0~), libplugin-hostd-protocol0 (<< 0.4~)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'
