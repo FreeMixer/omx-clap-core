@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The waits on a host the e2e tests share: for its "ready!" line (jack_params_e2e.sh and jack_params_ready_sabotage.sh,
 # so the sabotage arms hold the wait exactly as the e2e test runs it, #191), and, once it runs, for a condition it should
