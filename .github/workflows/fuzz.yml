@@ -6,8 +6,9 @@ name: fuzz
 # body it carries and the manifest.ttl the host reads without lilv, each built with clang under AddressSanitizer and
 # UndefinedBehaviorSanitizer and fuzzed for 60 s from its seed corpus; every mutant of fuzz/sabotage/ found at the check
 # it names; every check's own record met; the coverage witness held to its floor; the corpus current; and each harness
-# linked fully static. An input that crashes a harness is uploaded as the fuzz-findings artifact. Only Fedora's
-# toolchain is installed: no package of the FreeMixer channel, so no floor to declare.
+# linked fully static. An input that crashes a harness is uploaded as the fuzz-findings artifact. Fedora's toolchain is
+# installed and, of the FreeMixer channel, omx-contract-devel alone: the preset reader the harnesses are built from
+# writes JSON strings through its one writer, <omxcontract/omx_json_write.h> (3.9.0).
 
 on:
   pull_request:
@@ -69,6 +70,13 @@ jobs:
         run: |
           dnf install -y --setopt=install_weak_deps=False --setopt=retries=10 git clang compiler-rt llvm make gawk \
             diffutils glibc-static
+
+      # src/preset_file.c, which every harness is built from, includes <omxcontract/omx_json_write.h>
+      - name: Add the OpenMixer repository
+        uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      - name: Install omx-contract-devel from the OpenMixer channel
+        run: dnf install -y --setopt=install_weak_deps=False --setopt=retries=10 'omx-contract-devel >= 3.9.0'
 
       - uses: actions/checkout@v4
 

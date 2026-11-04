@@ -13,7 +13,7 @@ Build-Depends: debhelper-compat (= 13),
                libssl-dev,
                libplugin-hostd-protocol-dev (>= 0.2.0),
                libomxdsp-dev (>= 0.18.0),
-               libomx-contract-dev (>= 3.3.0),
+               libomx-contract-dev (>= 3.9.0),
                plugin-db-dev (>= 0.1.0~),
                pkgconf,
                python3
@@ -75,7 +75,7 @@ Package: libomx-clap-core-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libomx-contract-dev (>= 3.3.0), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
+Depends: libomx-contract-dev (>= 3.9.0), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
 Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, and the list of functions the library

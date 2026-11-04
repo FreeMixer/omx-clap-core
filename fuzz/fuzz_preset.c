@@ -38,9 +38,10 @@
  *
  * The writer's format: compact, no whitespace; pretty, each item on a line of its own indented two spaces for each
  * level, ": " after a member name, the closing bracket on a line of its own under its opener unless the container is
- * empty, and a newline at the end. A string escapes '"' and '\\' with a backslash, a newline, tab and carriage return as
- * \n, \t and \r, and every other byte under 0x20 as \u00xx in lower case; a number is written as its own text, which
- * the reader took only when it is one RFC 8259 number.
+ * empty, and a newline at the end. A string escapes '"' and '\\' with a backslash, a backspace, tab, newline, form feed
+ * and carriage return as \b, \t, \n, \f and \r, and every other byte under 0x20 as \u00xx in lower case (omx-contract's
+ * one writer, <omxcontract/omx_json_write.h>); a number is written as its own text, which the reader took only when it
+ * is one RFC 8259 number.
  */
 
 #include <math.h>
@@ -447,8 +448,8 @@ static void tx_string(struct text *t, const char *s)
     for (; *s; s++)
     {
         const unsigned char c = (unsigned char)*s;
-        const char esc[6] = { '\\', c == 0x0A ? 'n' : c == 0x09 ? 't' : c == 0x0D ? 'r' : 'u', '0', '0', hex[c >> 4],
-                              hex[c & 15] };
+        const char esc[6] = { '\\', c == 0x0A ? 'n' : c == 0x09 ? 't' : c == 0x0D ? 'r' : c == 0x08 ? 'b' : c == 0x0C ? 'f' : 'u',
+                              '0', '0', hex[c >> 4], hex[c & 15] };
 
         if (c == '"' || c == '\\')
         {
