@@ -731,7 +731,8 @@ OMX_CLAP_EXPORT int omx_clap_host_open(const char *path, const char *id, struct 
 OMX_CLAP_EXPORT int omx_clap_host_open_entry(const clap_plugin_entry_t *entry, const char *id, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX]);
 
 /** The same as omx_clap_host_open behind a joinable timed worker: a file whose load never returns is abandoned after
- * `timeout_ms`, `why` reads CLAP_HOST_CODE_CRASHED_LIVE, and the caller is never blocked past the timeout. */
+ * `timeout_ms`, `why` reads CLAP_HOST_CODE_CRASHED_LIVE, and the caller is never blocked past the timeout. `id` is
+ * omx_clap_host_open's: NULL creates the factory's first descriptor. */
 OMX_CLAP_EXPORT int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_ms, struct omx_clap_instance **out, char why[OMX_CLAP_WHY_MAX]);
 
 /**
