@@ -531,7 +531,7 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(OMX_VERB_PIN_LAYOUT_FMT, pin_layout_cb);
     protocol_add_command(OMX_VERB_PRESET_LIST_FMT, preset_list_cb);
     protocol_add_command(OMX_VERB_PRESET_GET_FMT, preset_get_cb);
-    protocol_add_command(OMX_VERB_CHAIN " ...", chain_cb);
+    protocol_add_command(OMX_VERB_CHAIN_FMT, chain_cb);
     protocol_add_command(OMX_VERB_AUDIO_PORTS_FMT, audio_ports_cb);
     protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
     protocol_add_command(OMX_VERB_HIDE_EXTERNAL_UI_FMT, hide_external_ui_cb);

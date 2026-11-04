@@ -33,6 +33,9 @@ PROTOCOL_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd-protocol)
 PROTOCOL_LIBS = $(shell $(PKG_CONFIG) --libs plugin-hostd-protocol)
 else
 PROTOCOL_DIR ?= ../plugin-hostd-protocol
+# absolute and exported, so a copy of the tree built elsewhere (the sabotage arms) finds the same checkout
+override PROTOCOL_DIR := $(abspath $(PROTOCOL_DIR))
+export PROTOCOL_DIR
 PROTOCOL_LIB = $(PROTOCOL_DIR)/libplugin-hostd-protocol.so
 PROTOCOL_CFLAGS = -I$(PROTOCOL_DIR)/include
 # the checkout's library is not installed: the binary finds it there through its rpath
@@ -972,17 +975,17 @@ test-hostd-chain: $(PROG) tests/jack_identity tests/fake_compressor.clap tests/f
 # of its own (tests/host_verbs_e2e.sh): data/ installed into build/verbs-contract as the package installs it, unless
 # OMX_CONTRACT_PATH names the contract directories to read (the packaging job's installed one)
 HOST_VERBS_CONTRACT = $(abspath build/verbs-contract)
-# the plugin-hostd tree whose data/ is the package read beside this one: the checkout of PLUGIN_HOSTD_DIR, or the release
-# checkout CI names (the tag that ships the verbs file)
-PLUGIN_HOSTD_CONTRACT_DIR ?= $(PLUGIN_HOSTD_DIR)
-PLUGIN_HOSTD_VERSION = $(shell sed -n 's/^Version: *//p' $(PLUGIN_HOSTD_CONTRACT_DIR)/packaging/plugin-hostd.spec)
+# the plugin-hostd-protocol tree whose data/ (its verbs file, plugin-hostd's verbs) is the package read beside this one:
+# the checkout of PROTOCOL_DIR, or the release checkout CI names
+PROTOCOL_CONTRACT_DIR ?= $(PROTOCOL_DIR)
+PROTOCOL_VERSION = $(shell sed -n 's/^Version: *//p' $(PROTOCOL_CONTRACT_DIR)/packaging/plugin-hostd-protocol.spec)
 .PHONY: test-host-verbs test-host-verbs-sabotage host-verbs-contract
 host-verbs-contract:
 	rm -rf $(HOST_VERBS_CONTRACT)
 	$(MAKE) --no-print-directory install-contract DESTDIR= CONTRACTDIR=$(HOST_VERBS_CONTRACT)
-	@# every other package that names omx-clap-host in its verbs file (plugin-hostd's: chain, preset_list, ...) is read too (#361)
-	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PLUGIN_HOSTD_CONTRACT_DIR)/data/verbs.json && test -n "$(PLUGIN_HOSTD_VERSION)" || { echo "host-verbs-contract: no plugin-hostd checkout at $(PLUGIN_HOSTD_CONTRACT_DIR) (PLUGIN_HOSTD_CONTRACT_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
-	sh $(INSTALL_CONTRACT_DIR) plugin-hostd $(PLUGIN_HOSTD_VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PLUGIN_HOSTD_CONTRACT_DIR)/data $(HOST_VERBS_CONTRACT) data
+	@# every other package that names omx-clap-host in its verbs file (plugin-hostd-protocol's: chain, preset_list, ...) is read too
+	@test -n "$(INSTALL_CONTRACT_DIR)" && test -f $(PROTOCOL_CONTRACT_DIR)/data/verbs.json && test -n "$(PROTOCOL_VERSION)" || { echo "host-verbs-contract: no plugin-hostd-protocol checkout at $(PROTOCOL_CONTRACT_DIR) (PROTOCOL_CONTRACT_DIR), whose verbs file declares chain of omx-clap-host" >&2; exit 1; }
+	sh $(INSTALL_CONTRACT_DIR) plugin-hostd-protocol $(PROTOCOL_VERSION) $(CONTRACT_SCHEMA_MAJOR) $(PROTOCOL_CONTRACT_DIR)/data $(HOST_VERBS_CONTRACT) data
 test-host-verbs: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(OMX_CONTRACT_PATH),,host-verbs-contract)
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_e2e.sh
 

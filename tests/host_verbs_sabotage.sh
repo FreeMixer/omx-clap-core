@@ -81,13 +81,13 @@ hosted undeclared 's/protocol_add_command(OMX_VERB_NOTE_DROPS_FMT, note_drops_cb
 nopkg=$root/build/sabotage-host-verbs-nopkg
 rm -rf "$nopkg" "$nopkg.log"
 mkdir -p "$nopkg"
-src=$(for d in ${OMX_CONTRACT_PATH//:/ }; do [ -f "$d/3/plugin-hostd/verbs.json" ] && { echo "$d"; break; }; done)
+src=$(for d in ${OMX_CONTRACT_PATH//:/ }; do [ -f "$d/3/plugin-hostd-protocol/verbs.json" ] && { echo "$d"; break; }; done)
 if [ -z "$src" ]; then
-    echo "FAIL nopkg: no plugin-hostd/verbs.json under $OMX_CONTRACT_PATH"; failures=$((failures + 1))
+    echo "FAIL nopkg: no plugin-hostd-protocol/verbs.json under $OMX_CONTRACT_PATH"; failures=$((failures + 1))
 else
-    cp -r "$src/3" "$nopkg/" && rm -rf "$nopkg/3/plugin-hostd"
+    cp -r "$src/3" "$nopkg/" && rm -rf "$nopkg/3/plugin-hostd-protocol"
     OMX_CONTRACT_PATH=$nopkg "$root/tests/host_verbs_e2e.sh" >"$nopkg.log" 2>&1
-    judge nopkg "$nopkg.log" "plugin-hostd's package is installed" $?
+    judge nopkg "$nopkg.log" "plugin-hostd-protocol's package is installed" $?
 fi
 # a chain line of two members refused, as the report of #361 has it
 hosted chain2 's/resp = effects_chain(id, instances, n);/resp = n > 1 ? ERR_INVALID_OPERATION : effects_chain(id, instances, n);/' 'chain 1 0 2 \(required\)'
