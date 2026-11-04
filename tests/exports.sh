@@ -36,7 +36,8 @@ needed=$(readelf -d "$lib" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p')
 echo "ok   needs: $(echo $needed)"
 for n in $needed; do
     case $n in
-        libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|ld-linux*.so.*) ;;
+        # libcrypto: the parameter contract's SHA-256 (EVP_Digest), the one digest the core and plugin-hostd share
+        libc.so.*|libm.so.*|libdl.so.*|libpthread.so.*|ld-linux*.so.*|libcrypto.so.*) ;;
         *) echo "FAIL the core needs $n"; status=1 ;;
     esac
 done

@@ -15,6 +15,7 @@ BuildRequires: plugin-hostd-protocol-devel >= 0.2.0
 # plugin-hostd's pin.h: the layout fingerprint pin_expect names, one implementation, plugin-hostd's
 BuildRequires: pkgconfig(plugin-hostd) >= 0.5.0
 BuildRequires: clap-devel
+BuildRequires: pkgconfig(libcrypto)
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
 # the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0)
@@ -114,6 +115,8 @@ Summary: The LV2 adapter of omx-clap-host, as a static library to link
 License: GPL-3.0-or-later
 Requires: omx-clap-core-devel%{?_isa} = %{version}-%{release}
 Requires: clap-devel
+# the parameter contract's fingerprint is libcrypto's SHA-256: a program that links the static adapter links it too
+Requires: pkgconfig(libcrypto)
 Requires: pkgconfig
 
 %description -n omx-clap-lv2-devel

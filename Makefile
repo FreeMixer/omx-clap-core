@@ -123,10 +123,13 @@ CORE_LINK = -L. -l$(CORE) $(RPATH)
 CORE_LINK_TEST = -L. -l$(CORE) -Wl,-rpath,$(CURDIR)
 
 # libraries
+# SHA-256, the parameter contract's fingerprint: OpenSSL's libcrypto
+CRYPTO_CFLAGS := $(shell $(PKG_CONFIG) --cflags libcrypto)
+CRYPTO_LIBS := $(shell $(PKG_CONFIG) --libs libcrypto)
 LIBS = $(JACK_LIBS) -ldl -lpthread -lm
 
 # include paths
-INCS = $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
+INCS = $(CRYPTO_CFLAGS) $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 # plugin-hostd's include tree searched after every other, for its verb declarations alone (preset_list and preset_get,
 # which plugin-hostd 0.13 and later install): a build whose pin.h comes from an older plugin-hostd still answers them
 PLUGIN_HOSTD_VERBS_DIR ?=
@@ -167,7 +170,7 @@ all: $(PROG) $(SCAN_PROG) $(LV2_LIB)
 
 # the core: names no jack, no socket and nothing of the protocol library
 $(CORE_FILE): $(CORE_OBJ) $(CORE_MAP)
-	$(CC) -shared -Wl,-soname,$(CORE_SONAME) -Wl,--version-script=$(CORE_MAP) -Wl,--no-undefined $(CORE_OBJ) -ldl -lpthread -lm -o $@
+	$(CC) -shared -Wl,-soname,$(CORE_SONAME) -Wl,--version-script=$(CORE_MAP) -Wl,--no-undefined $(CORE_OBJ) $(CRYPTO_LIBS) -ldl -lpthread -lm -o $@
 
 $(CORE_SONAME): $(CORE_FILE)
 	ln -sf $< $@
@@ -177,7 +180,7 @@ $(CORE_SO): $(CORE_SONAME)
 
 # linking rule: the LV2 adapter is linked in, and lilv is not: the adapter dlopens it on the first LV2 add
 $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(OBJ) $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
+	$(CC) $(OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
@@ -185,7 +188,7 @@ $(PROTOCOL_LIB):
 endif
 
 $(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
-	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
+	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # the preset census (tools/preset-census.c): every plugin's preset-discovery factory, preset-load and state, one TSV line
 # each; built on demand, never installed
@@ -235,7 +238,7 @@ build/nox11/window.o: src/window.c
 	@mkdir -p build/nox11
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 $(NOX11_PROG): $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 # the adapter calls its plugins through its own copy of the guard (src/abi_guard.S), named apart by OMX_ABI_LV2
@@ -400,7 +403,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-unsupported-copy test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
+test: test-no-sha256-copy test-unsupported-copy test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -470,7 +473,7 @@ test-transport: tests/transport_seqlock_test
 # and the list of binaries changed on its thread while the abandoned open runs on; the orphan it makes closed
 tests/open_timed_tsan: tests/open_timed_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 .PHONY: test-open-timed
 test-open-timed: tests/open_timed_tsan tests/fake.clap
@@ -482,13 +485,13 @@ test-transport-tsan: tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/fa
 
 tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 # the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
 # control thread publishes, and build into the other
 tests/clap_chain_tsan: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 test-chain-tsan: tests/clap_chain_tsan tests/fake.clap tests/fake_compressor.clap
 	TSAN_OPTIONS=halt_on_error=1 ./tests/clap_chain_tsan $(abspath tests/fake.clap) $(abspath tests/fake_compressor.clap)
@@ -507,7 +510,7 @@ test-cycle-gate-sabotage: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $
 	! cmp -s src/cycle_gate.h build/cycle-gate-sabotage/cycle_gate.h
 	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
 	    -Wextra -Werror -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u \
-	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 	! TSAN_OPTIONS=halt_on_error=1 ./build/cycle-gate-sabotage/test $(abspath tests/fake.clap) > build/cycle-gate-sabotage/log 2>&1
 	grep -q 'ThreadSanitizer: data race' build/cycle-gate-sabotage/log
 
@@ -572,7 +575,7 @@ test-param-contract: tests/param_contract_test
 	./tests/param_contract_test
 
 tests/param_contract_test: tests/param_contract_test.c src/param_contract.h src/omx_clap_ext.h src/abi_guard.S
-	$(CC) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S -lm
+	$(CC) $(CLAP_CFLAGS) $(CRYPTO_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S $(CRYPTO_LIBS) -lm
 
 # the preset file of docs/presets.md on its own: JSON both ways, values exact, unknown members kept, base64, load keys
 .PHONY: test-preset-file
@@ -664,7 +667,7 @@ tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_S
 
 tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
-	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 # the core compiled into the test, so it holds the unoffered table's flag where it lives: the library exports nothing for it
 tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
@@ -718,7 +721,7 @@ bench-chain: tests/chain_bench tests/fake.clap tests/fake_compressor.clap
 # completion count and the pool's start and end against the audio thread and the control thread (needs libtsan)
 tests/thread_pool_tsan: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) src/abi_guard.S -ldl -lpthread -lm
+	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 tests/fake_pool_tsan.clap: tests/fake_pool.c
 	$(CC) $(CLAP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -fPIC -fvisibility=hidden -pthread -Wall -Wextra -Werror -fsanitize=thread -shared -o $@ $< -lm
@@ -734,7 +737,7 @@ test-thread-pool-sabotage: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC
 	! cmp -s src/thread_pool.c build/thread-pool-sabotage/thread_pool.c
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o build/thread-pool-sabotage/test $< \
-	    $(filter-out src/thread_pool.c,$(CORE_SRC)) build/thread-pool-sabotage/thread_pool.c src/abi_guard.S -ldl -lpthread -lm
+	    $(filter-out src/thread_pool.c,$(CORE_SRC) $(CRYPTO_LIBS)) build/thread-pool-sabotage/thread_pool.c src/abi_guard.S -ldl -lpthread -lm
 	! ./build/thread-pool-sabotage/test $(abspath tests/fake_pool.clap) > build/thread-pool-sabotage/log 2>&1
 	grep -q '^FAIL 40 requests, every task done before request_exec returned' build/thread-pool-sabotage/log || \
 	    { n=$$(nproc); if [ "$$n" -lt 2 ]; then echo "skip one core: the sabotage needs a helper"; else cat build/thread-pool-sabotage/log; exit 1; fi; }
@@ -857,6 +860,12 @@ tests/clap_scan_test: tests/clap_scan_test.c
 # no mod-host verb is refused by a list of this host's own: the protocol library's list does it (tests/unsupported_copy_check.sh,
 # with its self test), read from the protocol's mod-host.h
 PROTOCOL_MOD_HOST_H = $(firstword $(wildcard $(patsubst -I%,%/mod-host.h,$(filter -I%,$(PROTOCOL_CFLAGS)))))
+# SHA-256 is libcrypto's: no source carries one of its own (tests/no_sha256_copy.sh, with its self test)
+.PHONY: test-no-sha256-copy
+test-no-sha256-copy:
+	bash tests/no_sha256_copy.sh --self-test
+	bash tests/no_sha256_copy.sh .
+
 .PHONY: test-unsupported-copy
 test-unsupported-copy:
 	@test -n "$(PROTOCOL_MOD_HOST_H)" || { echo "test-unsupported-copy: no mod-host.h under the protocol's include path" >&2; exit 1; }
@@ -1256,7 +1265,7 @@ test-lv2-asan: $(LV2_ASAN_DIR)/lv2_asan_test $(LV2_ASAN_DIR)/omx-midi-echo.lv2/o
 test-lv2: test-lv2-core test-lv2-clap test-lv2-link test-lv2-validate test-lv2-asan
 
 lv2/tests/lv2_clap_test: lv2/tests/lv2_clap_test.c $(LV2_LIB) $(CORE_SO) lv2/tests/lv2_test_util.h $(LV2_FIXTURE_DIR)/lv2_direct_fixture.h $(LV2_FIXTURE_DIR)/lv2_fakes.h $(LV2_FIXTURE_DIR)/lv2_event_fixture.h $(LV2_FIXTURE_DIR)/lv2_ll_midi_fixture.h $(LV2_FIXTURE_DIR)/lv2_hints_fixture.h
-	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
+	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK_TEST) $(LV2_WRAP) -Wl,--wrap=pthread_create -ldl -lpthread -lm
 
 # lv2/clap: the CLAP face of the adapter, and the arms whose body is libomx-clap-core's run through it
 test-lv2-clap: lv2/tests/lv2_clap_test $(LV2_BUNDLES) $(LV2_HINTS_BUNDLES)
@@ -1269,7 +1278,7 @@ test-lv2-direct-sabotage:
 
 # the adapter's cost per process() call at 96 and 192 kHz, quantum 128: figures printed, nothing judged
 lv2/tests/lv2_cost: lv2/tests/lv2_cost.c $(LV2_LIB) lv2/tests/lv2_test_util.h src/omx_clap_raw.h
-	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
+	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) -ldl -lpthread -lm
 
 # the adapter as a program outside this tree sees it: installed into a prefix of its own, found through its pkg-config
 # file and linked by that alone
@@ -1329,11 +1338,11 @@ build/bench/probe: bench/probe.c
 
 build/bench/inproc: bench/inproc.c $(LV2_LIB) $(CORE_SO)
 	@mkdir -p $(@D)
-	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(CLAP_CFLAGS) $(PIPEWIRE_CFLAGS) $(CFLAGS) -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) $(PIPEWIRE_LIBS) -ldl -lpthread -lm
+	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(CLAP_CFLAGS) $(PIPEWIRE_CFLAGS) $(CFLAGS) -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK_TEST) $(PIPEWIRE_LIBS) -ldl -lpthread -lm
 
 build/bench/omx-lv2-bridge.clap: bench/lv2_bridge.c $(LV2_LIB)
 	@mkdir -p $(@D)
-	$(CC) -Ilv2/core -Ilv2/clap $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
+	$(CC) -Ilv2/core -Ilv2/clap $(CLAP_CFLAGS) $(CFLAGS) -Werror -shared -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) -ldl -lpthread -lm
 
 bench-tools: $(PROG) $(BENCH_TOOLS) tests/fault-0.clap tests/fault-14.clap build/lv2/omx-lv2-fakes.lv2/omx-lv2-fakes.so
 .PHONY: bench bench-tools
@@ -1484,11 +1493,11 @@ tests/hosted_cost_bench: tests/hosted_cost_bench.c $(CORE_SO)
 
 # the same bench with its LV2 and mixed chains: a binary of its own, as test-hosted-clamp holds the plain one to no libm
 tests/hosted_cost_bench_lv2: tests/hosted_cost_bench.c $(CORE_SO) $(LV2_LIB) src/clap_chain.h
-	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(LV2_CFLAGS) -DHOSTED_COST_LV2 -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -Ilv2/core -Ilv2/clap -o $@ $< $(LV2_LIB) $(CORE_LINK_TEST) -ldl -lm
+	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(LV2_CFLAGS) -DHOSTED_COST_LV2 -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -Ilv2/core -Ilv2/clap -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK_TEST) -ldl -lm
 
 # every plugin of an LV2 directory through the adapter: one line per plugin, tests/lv2_direct_identity.sh compares two trees'
 lv2/tests/lv2_direct_identity: lv2/tests/lv2_direct_identity.c $(LV2_LIB) src/omx_clap_raw.h
-	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) -ldl -lpthread -lm
+	$(CC) $(LV2_TEST_CFLAGS) $(CLAP_CFLAGS) -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) -ldl -lpthread -lm
 
 tests/hosted_clamp_test: tests/hosted_clamp_test.c src/hosted_stage.h
 	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -Isrc -o $@ $< -lm
