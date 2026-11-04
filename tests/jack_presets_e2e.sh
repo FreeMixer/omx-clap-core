@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# preset_list, preset_get, preset_load and preset_show over the host's socket (docs/presets.md), in a PipeWire of its own: the script
+# preset_list (its discovery run by omx-clap-scan, out of the host's process), preset_get, preset_load and preset_show over the host's socket (docs/presets.md), in a PipeWire of its own: the script
 # re-runs itself in a private user, net, pid and mount namespace, starts pipewire on a private runtime dir and the host
 # with tests/fake_synth.clap, whose preset-discovery factory lists two presets of a PLUGIN location for synth-poly (one
 # also naming a plugin of another format), one for the file's plain synth only that synth-poly's list leaves out
@@ -48,20 +48,44 @@ mkdir -p "$runtime/user presets"
 printf 'File One\n' >"$runtime/user presets/one.fspreset"
 printf '#container\nBox A=a\nBox B=b\n' >"$runtime/user presets/box.fspreset"
 export FAKE_SYNTH_PRESET_DIR="$runtime/user presets" FAKE_SYNTH_PRESET_LOG=$runtime/loads.txt FAKE_SYNTH_PRESET_OTHER=1
+export FAKE_SYNTH_PRESET_PIDS=$runtime/listing-pids.txt
 export FAKE_MOVER_AT=1000000000
 
 pipewire >"$runtime/pw.log" 2>&1 &
 for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 [ -S "$runtime/pipewire-0" ] || { echo "pipewire did not come up" >&2; cat "$runtime/pw.log" >&2; exit 2; }
 
-LV2_PATH=$bundles "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
+# the LV2 path reaches the fixture's bundle through a link, as plugin-hostd's world narrowed to the plugin does, and holds
+# a user's preset of the fixture in a bundle of its own, reached through a linked directory: its file: URI lists by the
+# real directory, the one other hosts name it by, and loads by either
+mkdir -p "$runtime/world" "$runtime/user/my-fixture.lv2"
+ln -s "$bundles/omx-host-fixture.lv2" "$runtime/world/omx-host-fixture.lv2"
+ln -s "$runtime/user" "$runtime/user-link"
+cat >"$runtime/user/my-fixture.lv2/manifest.ttl" <<'TTL'
+@prefix lv2:  <http://lv2plug.in/ns/lv2core#> .
+@prefix pset: <http://lv2plug.in/ns/ext/presets#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+<Mine.ttl> a pset:Preset ; lv2:appliesTo <urn:openmixer:test:host-fixture> ; rdfs:seeAlso <Mine.ttl> .
+TTL
+cat >"$runtime/user/my-fixture.lv2/Mine.ttl" <<'TTL'
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix pset:  <http://lv2plug.in/ns/ext/presets#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix state: <http://lv2plug.in/ns/ext/state#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+<> a pset:Preset ; lv2:appliesTo <urn:openmixer:test:host-fixture> ; rdfs:label "mine" ;
+    lv2:port [ lv2:symbol "gain_db" ; pset:value -12 ] ;
+    state:state [ <urn:openmixer:test:host-fixture#offset_db> "-6.0"^^xsd:float ] .
+TTL
+
+LV2_PATH=$runtime/world:$runtime/user-link "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pid=$!
 for _ in $(seq 100); do grep -q 'ready!' "$runtime/host.log" && break; sleep 0.1; done
 grep -q 'ready!' "$runtime/host.log" || { echo "omx-clap-host did not come up" >&2; cat "$runtime/host.log" >&2; exit 2; }
 
-python3 -I - "$port" "$fixtures/fake_synth.clap" "$runtime" "$fixtures/fake_mover.clap" "$fixtures/fake_ext.clap" <<'PY'
+python3 -I - "$port" "$fixtures/fake_synth.clap" "$runtime" "$fixtures/fake_mover.clap" "$fixtures/fake_ext.clap" "$pid" <<'PY'
 import base64, json, socket, sys
-port, synth, runtime, mover, ext = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+port, synth, runtime, mover, ext, host_pid = int(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
 s = socket.create_connection(('127.0.0.1', port), timeout=20)
 def ask(line):
     s.sendall(line.encode() + b'\0')
@@ -90,6 +114,12 @@ want = [('plugin:init', 'Init'), ('plugin:bright', 'Bright "pad"'),
         ('file:' + d + 'one.fspreset', 'File One')]
 count = ask('preset_list 1')
 check(count == 'resp %d' % len(want), 'preset_list counts the presets for synth-poly and leaves out the one for the plain synth (%s)' % count)
+try:
+    pids = open(runtime + '/listing-pids.txt').read().split()
+except OSError:
+    pids = []
+check(pids and host_pid not in pids, "the plugin's preset discovery ran in a process of its own, never beside the instance in the host's (%s, host %s)"
+      % (pids, host_pid))
 got = [ask('preset_get 1 %d' % i) for i in range(len(want))]
 check(got == ['resp 0 %s %s' % kn for kn in want], 'preset_get gives each key, a space written %%20, and its name: %s' % got)
 check(not any(k.split(' ')[2].startswith('/') for k in got), 'no key is an absolute path, which plugin-hostd reads as a preset file')
@@ -129,13 +159,23 @@ check(r != 'resp 0', 'a file: key the plugin reports through on_error is not ans
 
 lv2 = 'urn:openmixer:test:host-fixture'
 check(ask('add %s 2' % lv2) == 'resp 2', 'the LV2 fixture is added through the adapter')
-check(ask('preset_list 2') == 'resp 2', "preset_list counts the bundle's two presets for the fixture, not the CV twin's")
-rows = [ask('preset_get 2 %d' % i) for i in range(2)]
-check(rows == ['resp 0 %s-preset:loud loud' % lv2, 'resp 0 %s-preset:quiet quiet' % lv2],
-      "preset_get gives each LV2 preset's URI as its key and its label: %s" % rows)
+check(ask('preset_list 2') == 'resp 3', "preset_list counts the bundle's two presets for the fixture, not the CV twin's, and the user's one")
+rows = [ask('preset_get 2 %d' % i) for i in range(3)]
+mine = 'file://' + runtime + '/user/my-fixture.lv2/Mine.ttl'
+check(sorted(rows) == sorted(['resp 0 %s-preset:loud loud' % lv2, 'resp 0 %s-preset:quiet quiet' % lv2, 'resp 0 %s mine' % mine]),
+      "preset_get gives each LV2 preset's URI as its key and its label, a file: URI by its real directory: %s" % rows)
+check(ask('param_get 2 gain_db').split()[-1] in ('-20.0000', '-20.000000', '-20'), 'gain at its default before: %s' % ask('param_get 2 gain_db'))
+check(ask('preset_load 2 ' + mine) == 'resp 0', "the user's preset loads by the URI its real directory gives")
+r = ask('param_get 2 gain_db')
+check(r.split()[-1] in ('-12.0000', '-12.000000', '-12'), 'and its pset:value -12, an integer literal (an atom:Int), sets the gain: %s' % r)
+check(ask('preset_load 2 file://' + runtime + '/user-link/my-fixture.lv2/Mine.ttl') == 'resp 0', 'and by the one the link gives')
+check(ask('preset_load 2 file://' + runtime + '/user/my-fixture.lv2/None.ttl') == 'resp -104 PRESET_NOT_OFFERED',
+      'a file: URI of no preset of the plugin is refused')
 check(ask('preset_load 2 %s-preset:quiet' % lv2) == 'resp 0', 'a listed LV2 key loads')
 r = shown('preset_show 2 %s-preset:quiet' % lv2)
 check(r == {'name': 'quiet', 'loadKey': '%s-preset:quiet' % lv2, 'location': 'plugin'}, 'preset_show of an LV2 preset names it by its label and URI: %s' % r)
+r = shown('preset_show 2 ' + mine)
+check(r == {'name': 'mine', 'loadKey': mine, 'location': 'plugin'}, "preset_show of the user's LV2 preset: its URI is its key: %s" % r)
 check(ask('preset_load 2 %s-preset:none' % lv2) != 'resp 0', 'an LV2 key the bundle does not hold is refused')
 
 # a preset file of ours: fake_mover, parameters and no state

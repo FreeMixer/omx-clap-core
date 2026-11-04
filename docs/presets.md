@@ -16,9 +16,15 @@ Verbs
     preset_show <N> <load_key | file>  resp 0 <json>
 
 - `preset_list` counts the plugin's own presets: a CLAP plugin's through its file's `clap.preset-discovery-factory`
-  (every provider, every location, as `omx_clap_host_presets` reads them), an LV2 plugin's through the adapter's entry,
-  which lists the bundle's `pset:Preset` resources by lilv. Only presets that name the instance's plugin count. A
-  plugin that offers none answers `resp 0`.
+  (every provider, every location, as `omx_clap_host_presets` reads them), read by `omx-clap-scan --json <file>` in a
+  process of its own: the discovery runs the plugin's own code, and beside a live instance it can break it (Surge XT
+  1.4 rebuilds tables its processing reads, and the instance died on the audio thread). Without the scanner beside the
+  host (or `OMX_CLAP_SCAN`) it is read in process. An LV2 plugin's are listed through the adapter's entry, which lists
+  every `pset:Preset` that applies to it by lilv: its bundle's, and those of every bundle on the LV2 path that names
+  the plugin and holds no binary (the user's presets, a distribution's), loaded into the adapter's world at the add. An
+  LV2 preset's `file:` URI is given with its directory resolved, so a preset has one key whether its bundle is reached
+  through a link (plugin-hostd's narrowed world) or not, and `preset_load` takes either form. Only presets that name
+  the instance's plugin count. A plugin that offers none answers `resp 0`.
 - `preset_get` answers one of them, 0 to count - 1, in the listing's order: the key `preset_load` and `preset_show`
   take, and its name (the rest of the line). The key is the preset's URI for LV2, `file:<path>` for a CLAP `FILE`
   location holding one preset, `file:<path>#<key>` for one inside a container, `plugin:<key>` for a `PLUGIN` location;

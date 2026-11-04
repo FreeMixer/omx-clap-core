@@ -58,6 +58,10 @@ typedef int (*lv2_locate_fn)(const char *bundle, void *ctx);
  * nonzero return, or LV2_LOCATE_READ_FAILED when a manifest's own allocation failed before every bundle was looked at. */
 int lv2_locate(const char *path, const char *uri, lv2_locate_fn fn, void *ctx);
 
+/* lv2_locate over the data bundles of `uri` alone: a manifest that names it and holds no binary (the word "binary"
+ * nowhere in it), such as a bundle of presets for the plugin, the user's or a distribution's. */
+int lv2_locate_data(const char *path, const char *uri, lv2_locate_fn fn, void *ctx);
+
 /* Whether the text of a manifest names `uri`, as lv2_locate reads it: 1, 0, or LV2_LOCATE_READ_FAILED when the
  * reader's own allocation failed. */
 int lv2_locate_manifest_names(const char *text, const char *uri);
