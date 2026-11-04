@@ -3,7 +3,8 @@
 """Self-test of tests/socket_conformance.py's readiness wait (#479), against stand-in daemons.
 
   slow     answers nothing for 5 s after start, then conforms: must pass (the 2 s bound is not paid for start-up)
-  dropper  conforms, but closes the first client that connects after one left in mid-command: must fail partial-disconnect
+  good     conforms: must pass
+  dropper  conforms until a client leaves in mid-command, then closes every client that connects: must fail partial-disconnect
   dead     accepts and never answers: must exit 2 naming the socket, after --ready-timeout
 
 Run with python3 -I; the standard library only."""
@@ -24,7 +25,6 @@ class StandIn:
         self.mode = mode
         self.ready_at = time.time() + (5 if mode == "slow" else 0)
         self.poisoned = False
-        self.lock = threading.Lock()
         self.srv = socket.socket()
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(("127.0.0.1", 0))
@@ -38,14 +38,18 @@ class StandIn:
                 c, _ = self.srv.accept()
             except OSError:
                 return
-            threading.Thread(target=self.serve, args=(c,), daemon=True).start()
+            if self.mode == "dropper":
+                # one client at a time, to its end: the disconnect of a client is seen before the next one is
+                # accepted, so whether that next one is dropped never depends on thread timing. (A thread per client
+                # set the flag after the client's EOF was read, and a client that connected first was served.)
+                self.serve(c)
+            else:
+                threading.Thread(target=self.serve, args=(c,), daemon=True).start()
 
     def serve(self, c):
-        with self.lock:
-            drop = self.mode == "dropper" and self.poisoned
-            if drop:
-                self.poisoned = False
-        if drop:
+        # once poisoned the daemon stays so: a flag cleared by the first client dropped made every second client of
+        # the 200 that leave mid-command a survivor, and the check client after them depended on the parity
+        if self.poisoned:
             c.close()
             return
         buf = b""
@@ -88,6 +92,8 @@ def main():
     good = True
     rc, out, dt = run("slow")
     good &= expect("slow-start", rc == 0 and dt >= 5, "5 s to the first answer, 2 s bound: exit %d after %.1f s\n%s" % (rc, dt, out if rc else ""))
+    rc, out, _ = run("good")
+    good &= expect("good-daemon", rc == 0, "exit %d\n%s" % (rc, out if rc else ""))
     rc, out, _ = run("dropper")
     good &= expect("drops-next-client", rc == 1 and "FAIL partial-disconnect" in out, "exit %d" % rc)
     rc, out, dt = run("dead", "--ready-timeout", "1")
