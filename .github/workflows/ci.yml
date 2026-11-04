@@ -162,6 +162,9 @@ jobs:
           pkg-config --modversion omxplugins
           command -v mod-host
 
+      - name: Install plugin-pin's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-pin-devel >= 0.1.0'
+
       - uses: actions/checkout@v4
 
       - name: Every source names its licence
@@ -562,6 +565,9 @@ jobs:
           pkg-config --modversion omxplugins
           command -v mod-host
 
+      - name: Install plugin-pin's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-pin-devel >= 0.1.0'
+
       - uses: actions/checkout@v4
 
       - name: Install plugin-hostd's headers and build its daemon
@@ -799,7 +805,8 @@ jobs:
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
           # plugin-hostd-protocol's verbs file names this host too (chain: required), and the check reads it
           rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd-protocol/verbs.json | grep -q '^plugin-hostd-protocol-contract-'
-          scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
+          dnf install -y --setopt=install_weak_deps=False plugin-pin-devel
+          scheme=$(printf '#include <plugin-pin/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-pin) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
               ./tests/host_verbs_e2e.sh
