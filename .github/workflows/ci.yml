@@ -155,10 +155,10 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
           pkg-config --modversion plugin-hostd-protocol
           pkg-config --modversion omxdsp
-          pkg-config --atleast-version=3.3.0 omx-contract
+          pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
 
@@ -166,6 +166,11 @@ jobs:
 
       - name: Every source names its licence
         run: bash tests/spdx-check.sh
+
+      # the units table and the JSON string writer are omx-contract's: no copy of either is in this tree
+      # (tests/no_contract_copy.py, with its self test)
+      - name: No copy of omx-contract's units table or JSON writer
+        run: make test-no-contract-copy
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -555,10 +560,10 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
           pkg-config --modversion plugin-hostd-protocol
           pkg-config --modversion omxdsp
-          pkg-config --atleast-version=3.3.0 omx-contract
+          pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
 
@@ -606,7 +611,7 @@ jobs:
       - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0'
+          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0'
           pkg-config --modversion omxdsp
 
       - uses: actions/checkout@v4
