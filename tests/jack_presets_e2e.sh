@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
-# preset_list, preset_get and preset_load over the host's socket (docs/presets.md), in a PipeWire of its own: the script
+# preset_list, preset_get, preset_load and preset_show over the host's socket (docs/presets.md), in a PipeWire of its own: the script
 # re-runs itself in a private user, net, pid and mount namespace, starts pipewire on a private runtime dir and the host
 # with tests/fake_synth.clap, whose preset-discovery factory lists two presets of a PLUGIN location for synth-poly (one
 # also naming a plugin of another format), one for the file's plain synth only that synth-poly's list leaves out
@@ -103,6 +103,23 @@ for (key, name), record in zip(want, ['1|-|init', '1|-|bright', '0|%sbox.fsprese
     r = ask('preset_load 1 ' + key)
     check(r == 'resp 0' and loads()[before:] == [record], 'preset_load %s hands the plugin %s (%s, %s)' % (key, record, r, loads()[before:]))
 check(ask('preset_load 1 plugin:missing') != 'resp 0', 'a key the plugin refuses is not answered resp 0')
+# preset_show of a listed preset: its name, the key inside its location, and the location
+def shown(line):
+    r = ask(line)
+    try:
+        return json.loads(r[len('resp 0 '):]) if r.startswith('resp 0 ') else r
+    except ValueError:
+        return r
+check(shown('preset_show 1 plugin:bright') == {'name': 'Bright "pad"', 'loadKey': 'bright', 'location': 'plugin'},
+      'preset_show of a PLUGIN key names it, its key and the plugin as its location: %s' % shown('preset_show 1 plugin:bright'))
+r = shown('preset_show 1 file:' + d + 'box.fspreset#b')
+check(r == {'name': 'Box B', 'loadKey': 'b', 'location': 'file://' + path + 'box.fspreset'},
+      'preset_show of a preset inside a container: its key inside it and the file, the space decoded: %s' % r)
+r = shown('preset_show 1 file:' + d + 'one.fspreset')
+check(r == {'name': 'File One', 'loadKey': None, 'location': 'file://' + path + 'one.fspreset'},
+      'preset_show of a file of one preset: no key inside it: %s' % r)
+check(ask('preset_show 1 plugin:missing') == 'resp -523', 'preset_show of a key the plugin does not list answers -523 PRESET_NOT_OFFERED')
+check(ask('preset_show 9 plugin:init') == 'resp -3', 'preset_show of an instance that does not exist answers -3')
 # a file: key, a space in its path written %20 (#401; an absolute path with no file: is a preset file of ours), and a file: key the plugin reports through on_error while answering true
 before = len(loads())
 r = ask('preset_load 1 file:' + (runtime + '/user presets/one.fspreset').replace(' ', '%20'))
@@ -117,6 +134,8 @@ rows = [ask('preset_get 2 %d' % i) for i in range(2)]
 check(rows == ['resp 0 %s-preset:loud loud' % lv2, 'resp 0 %s-preset:quiet quiet' % lv2],
       "preset_get gives each LV2 preset's URI as its key and its label: %s" % rows)
 check(ask('preset_load 2 %s-preset:quiet' % lv2) == 'resp 0', 'a listed LV2 key loads')
+r = shown('preset_show 2 %s-preset:quiet' % lv2)
+check(r == {'name': 'quiet', 'loadKey': '%s-preset:quiet' % lv2, 'location': 'plugin'}, 'preset_show of an LV2 preset names it by its label and URI: %s' % r)
 check(ask('preset_load 2 %s-preset:none' % lv2) != 'resp 0', 'an LV2 key the bundle does not hold is refused')
 
 # a preset file of ours: fake_mover, parameters and no state
@@ -179,6 +198,13 @@ st = d.get('state', {})
 check(d.get('carries') == 'params+state' and st.get('context') == 'preset' and base64.b64decode(st.get('bytes', '')) == b'preset',
       'it carries params+state, its body the plugin saved for the preset context: %s' % st)
 check(ask('preset_load 4 %s' % withstate) == 'resp 0', 'the state file loads back')
+r = shown('preset_show 4 %s' % withstate)
+want = dict(d, state={k: v for k, v in st.items() if k != 'bytes'})
+want['state']['size'] = len(base64.b64decode(st.get('bytes', '')))
+check(r == want, "preset_show of a file is its document, the state body's bytes as their decoded size: %s" % r)
+r = shown('preset_show 3 "%s"' % saved)
+check(r == json.load(open(saved)), 'preset_show of a params file is the file as it is: %s' % r)
+check(ask('preset_show 3 %s/junk.json' % runtime) == 'resp -524', 'preset_show of a file that is not JSON answers -524 PRESET_INVALID')
 sys.exit(1 if failed else 0)
 PY
 status=$?
