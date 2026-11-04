@@ -110,12 +110,27 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install doxygen
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends doxygen
+      - name: Install doxygen and lizard
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends doxygen
+          pipx install lizard==1.24.1
 
       - name: make docs
         run: make docs
+
+      # every function of the LV2 adapter at the table's pinned ref has a class (tools/adapter-seam.tsv), and a table
+      # missing one row is red: a row dropped with its code while the ref stays pinned is caught here
+      - name: The adapter seam table classes every function of its ref
+        run: |
+          tools/adapter-seam.sh > /dev/null
+          grep -v -m1 -n '^#' tools/adapter-seam.tsv | cut -d: -f1 > "$RUNNER_TEMP/row"
+          sed "$(cat "$RUNNER_TEMP/row")d" tools/adapter-seam.tsv > "$RUNNER_TEMP/short.tsv"
+          if TABLE="$RUNNER_TEMP/short.tsv" tools/adapter-seam.sh > /dev/null 2>&1; then
+            echo "::error::the adapter seam check passed a table missing a row"; exit 1
+          fi
 
   test:
     name: build and test
