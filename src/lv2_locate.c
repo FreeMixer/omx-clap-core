@@ -210,7 +210,10 @@ static int walk_dir(const char *dir, const char *uri, int data_only, lv2_locate_
             && stat(bundle, &st) == 0 && S_ISDIR(st.st_mode) && (text = read_manifest(bundle)) != NULL)
         {
             const int names_it = lv2_locate_manifest_names(text, uri);
-            // a data bundle names the plugin and holds no binary of any plugin
+            // a data bundle names the plugin and holds no binary of any plugin. The word is looked for in the text, not
+            // read as lv2:binary: this unit reads manifests with no lilv and no world (lv2_locate.h), and is linked
+            // into omx-clap-scan's field dump too. The word anywhere (a comment, a URI) only keeps a bundle out, so a
+            // data bundle may be missed, never a plugin's bundle with its code loaded as data
             const int data = names_it == 1 && !strstr(text, "binary");
 
             free(text);

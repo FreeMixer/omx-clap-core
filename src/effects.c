@@ -35,6 +35,8 @@
 #include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#include <poll.h>
+#include <signal.h>
 #include <errno.h>
 #include <float.h>
 #include <limits.h>
@@ -72,6 +74,7 @@
 #include "omx_clap_lv2.h"
 #include "host-dispatch.h"
 #include "socket.h"
+#include <plugin-hostd/protocol.h>
 
 
 /*
@@ -202,6 +205,7 @@ typedef struct EFFECT_T {
     uint32_t lv2_params_count;
     char **preset_keys, **preset_names;     // the last preset_list, the rows preset_get answers, encoded keys
     uint32_t presets_count;
+    int presets_listed;                     // a preset_list has made the rows: preset_show reads them, never lists again
     uint32_t param_events_dropped;          // the library's count of dropped parameter events, as last seen
     uint32_t abi_said;                      // 1 once the feedback port was told this plugin changed a callee-saved register
     clap_id *gestures_open;                 // the parameters whose gesture begin went out on the feedback port, no end yet
@@ -3487,6 +3491,9 @@ struct preset_listing
 
 /* the largest output of omx-clap-scan --json read for a preset listing: some thousands of presets, each a line */
 #define PRESET_SCAN_MAX_BYTES (32u * 1024u * 1024u)
+/* how long omx-clap-scan has to list a plugin's presets: three fifths of plugin-hostd's rpc timeout, the time a worker
+ * has to answer before the daemon kills it with every instance it holds, so the refusal reaches the daemon first */
+#define PRESET_SCAN_DEADLINE_MS (PHD_DEFAULT_RPC_TIMEOUT_MS * 3 / 5)
 
 extern char **environ;
 
@@ -3665,10 +3672,24 @@ static int scanner_path(char *out, size_t size)
     return (size_t)snprintf(out, size, "%s/omx-clap-scan", self) < size && access(out, X_OK) == 0 ? 0 : -1;
 }
 
+static int64_t monotonic_ms(void)
+{
+    struct timespec t;
+
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (int64_t)t.tv_sec * 1000 + t.tv_nsec / 1000000;
+}
+
+/* what presets_scanned found: a listing, no scanner to run (the caller may list in process), or a scanner that ran and
+ * failed (it crashed, exited non-zero, outlived PRESET_SCAN_DEADLINE_MS, wrote more than PRESET_SCAN_MAX_BYTES or no JSON):
+ * the listing is refused, never made in process, where the plugin's discovery would run beside the live instance */
+enum { SCAN_LISTED = 0, SCAN_ABSENT = -1, SCAN_FAILED = -2 };
+
 /* the presets of a CLAP file listed out of process: omx-clap-scan --json <file>, each of its "presets" handed to
  * preset_collect as the library's listing hands it. A plugin's preset-discovery factory runs the plugin's own code, and
  * in process it runs beside the live instance: Surge XT 1.4 rebuilds tables its processing reads, and the instance dies
- * on the audio thread (SIGSEGV, plugin-hostd#269). 0, or -1 when the scanner cannot be run or its output read. */
+ * on the audio thread (SIGSEGV, plugin-hostd#269). The scanner gets PRESET_SCAN_DEADLINE_MS, then it is killed and
+ * reaped: a worker that let it run on would be killed by plugin-hostd's rpc timeout with every instance it holds. */
 static int presets_scanned(const char *path, struct preset_listing *l)
 {
     char scanner[PATH_MAX], *text = NULL;
@@ -3676,13 +3697,14 @@ static int presets_scanned(const char *path, struct preset_listing *l)
     size_t used = 0, cap = 0;
     posix_spawn_file_actions_t fa;
     struct pj doc, *files;
-    int fds[2], status, ret = -1;
+    int fds[2], status = 0, ret = SCAN_FAILED, overrun = 0, timed_out = 0;
+    int64_t deadline;
     pid_t pid;
     ssize_t n;
     size_t f, i, k;
 
     if (scanner_path(scanner, sizeof(scanner)) != 0 || pipe2(fds, O_CLOEXEC) != 0)
-        return -1;
+        return SCAN_ABSENT;
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_adddup2(&fa, fds[1], STDOUT_FILENO);
     posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
@@ -3692,16 +3714,36 @@ static int presets_scanned(const char *path, struct preset_listing *l)
     if (status != 0)
     {
         close(fds[0]);
-        return -1;
+        return SCAN_ABSENT;
     }
+    deadline = monotonic_ms() + PRESET_SCAN_DEADLINE_MS;
     for (;;)
     {
+        struct pollfd pfd = { fds[0], POLLIN, 0 };
+        int64_t left = deadline - monotonic_ms();
+        int r;
+
+        if (left <= 0)
+        {
+            timed_out = 1;
+            break;
+        }
+        if ((r = poll(&pfd, 1, (int)left)) < 0 && errno == EINTR)
+            continue;
+        if (r <= 0)
+        {
+            timed_out = r == 0;
+            break;
+        }
         if (cap - used < 65536)
         {
             char *bigger = cap < PRESET_SCAN_MAX_BYTES ? realloc(text, cap + 262144) : NULL;
 
             if (!bigger)
+            {
+                overrun = 1;
                 break;
+            }
             text = bigger;
             cap += 262144;
         }
@@ -3712,13 +3754,25 @@ static int presets_scanned(const char *path, struct preset_listing *l)
         used += (size_t)n;
     }
     close(fds[0]);
+    if (timed_out || overrun)
+        kill(pid, SIGKILL);
     while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
         ;
+    if (timed_out)
+        fprintf(stderr, "%s: omx-clap-scan listed no presets in %d ms: killed\n", path, PRESET_SCAN_DEADLINE_MS);
+    else if (overrun)
+        fprintf(stderr, "%s: omx-clap-scan wrote more than %u bytes: killed\n", path, PRESET_SCAN_MAX_BYTES);
+    else if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        fprintf(stderr, "%s: omx-clap-scan failed listing the presets (%s %d)\n", path,
+                WIFSIGNALED(status) ? "signal" : "exit", WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status));
     memset(&doc, 0, sizeof(doc));
-    if (text && WIFEXITED(status) && WEXITSTATUS(status) == 0 && pj_parse(text, used, &doc) == 0 &&
-        (files = pj_get(&doc, "files")) && files->type == PJ_ARRAY)
+    if (timed_out || overrun || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        ;
+    else if (!text || pj_parse(text, used, &doc) != 0 || !(files = pj_get(&doc, "files")) || files->type != PJ_ARRAY)
+        fprintf(stderr, "%s: omx-clap-scan's listing is no JSON of files\n", path);
+    else
     {
-        ret = 0;
+        ret = SCAN_LISTED;
         for (f = 0; f < files->n && !l->failed; f++)
         {
             struct pj *presets = pj_get(&files->kids[f], "presets");
@@ -3765,13 +3819,28 @@ int effects_preset_list(int effect_id)
     l.lv2 = effect->lv2_entry != NULL;
     if (effect->lv2_entry)
         omx_clap_host_entry_presets(effect->lv2_entry, preset_collect, &l);
-    else if (!effect->clap_path || presets_scanned(effect->clap_path, &l) != 0)
+    else
     {
-        // no scanner to run: in process, as before it
-        presets_forget_listing(&l);
-        omx_clap_host_presets(effect->clap->bin, preset_collect, &l);
+        const int scanned = effect->clap_path ? presets_scanned(effect->clap_path, &l) : SCAN_ABSENT;
+
+        if (scanned == SCAN_FAILED)
+        {
+            // a scanner that ran and failed is a refusal: never the in-process run it was there to keep out
+            presets_forget_listing(&l);
+            free(l.keys);
+            free(l.names);
+            presets_forget(effect);
+            return OMX_REPLY_PLUGIN_HOSTD_NO_PRESET_LIST_RESP;
+        }
+        if (scanned == SCAN_ABSENT)
+        {
+            // no scanner beside this host, or none could be started: in process, as before it
+            presets_forget_listing(&l);
+            omx_clap_host_presets(effect->clap->bin, preset_collect, &l);
+        }
     }
     presets_forget(effect);
+    effect->presets_listed = 1;
     if (l.failed)
     {
         effect->preset_keys = l.keys;
@@ -4295,14 +4364,17 @@ int effects_preset_show(int effect_id, const char *location, char **reply)
         pj_free(&doc);
         return ret;
     }
-    // a key of the last preset_list; a key it does not hold is looked for in a listing read again, once
-    for (pass = 0; pass < 2; pass++)
+    // a key of the last preset_list; with none made yet, the listing is made once. A listing made is not made again for
+    // a key it lacks: a CLAP plugin's runs the scanner whole, and a key no listing gave is one the plugin does not offer
+    for (pass = 0;; pass++)
     {
         for (i = 0; i < effect->presets_count; i++)
             if (!strcmp(effect->preset_keys[i], location))
                 return preset_show_listed(effect->preset_keys[i], effect->preset_names[i], effect->lv2_entry != NULL, reply);
-        if (pass == 0 && effects_preset_list(effect_id) < 0)
+        if (pass > 0 || effect->presets_listed)
             break;
+        if (effects_preset_list(effect_id) < 0)
+            return ERR_INVALID_OPERATION;     // the listing was refused: preset_show declares no code of preset_list's
     }
     return ERR_LV2_INVALID_PRESET_URI;
 }

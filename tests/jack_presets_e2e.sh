@@ -49,6 +49,19 @@ printf 'File One\n' >"$runtime/user presets/one.fspreset"
 printf '#container\nBox A=a\nBox B=b\n' >"$runtime/user presets/box.fspreset"
 export FAKE_SYNTH_PRESET_DIR="$runtime/user presets" FAKE_SYNTH_PRESET_LOG=$runtime/loads.txt FAKE_SYNTH_PRESET_OTHER=1
 export FAKE_SYNTH_PRESET_PIDS=$runtime/listing-pids.txt
+# the scanner the host runs for a CLAP listing: a stand-in that runs the real one, or by $runtime/scan-mode is slow (it
+# outlives the host's deadline), crashes, or writes no JSON
+cat >"$runtime/scan-standin.sh" <<SH
+#!/bin/sh
+case "\$(cat "$runtime/scan-mode" 2>/dev/null)" in
+slow) exec sleep 30 ;;
+crash) kill -SEGV \$\$ ;;
+junk) echo 'not json' ;;
+*) exec "$root/omx-clap-scan" "\$@" ;;
+esac
+SH
+chmod +x "$runtime/scan-standin.sh"
+export OMX_CLAP_SCAN=$runtime/scan-standin.sh
 export FAKE_MOVER_AT=1000000000
 
 pipewire >"$runtime/pw.log" 2>&1 &
@@ -120,6 +133,29 @@ except OSError:
     pids = []
 check(pids and host_pid not in pids, "the plugin's preset discovery ran in a process of its own, never beside the instance in the host's (%s, host %s)"
       % (pids, host_pid))
+# a scanner that fails is a refusal (-515 NO_PRESET_LIST), inside the host's deadline, and never a listing in process
+import time
+for mode, what in (('slow', 'outlives the deadline'), ('crash', 'crashes'), ('junk', 'writes no JSON')):
+    open(runtime + '/scan-mode', 'w').write(mode)
+    t = time.time()
+    r = ask('preset_list 1')
+    took = time.time() - t
+    try:
+        pids = open(runtime + '/listing-pids.txt').read().split()
+    except OSError:
+        pids = []
+    check(r == 'resp -515' and took < 4.5 and host_pid not in pids,
+          'a scanner that %s: the listing is refused in %.1f s, under the rpc timeout, and not made in process (%s, %s)'
+          % (what, took, r, pids))
+open(runtime + '/scan-mode', 'w').write('real')
+check(ask('preset_list 1') == count, 'the real scanner lists again: %s' % count)
+# preset_show of a key the listing lacks reads the listing made; it does not run the scanner again
+open(runtime + '/scan-mode', 'w').write('slow')
+t = time.time()
+r = ask('preset_show 1 plugin:nowhere')
+check(r == 'resp -523' and time.time() - t < 1, 'preset_show of a key the listing lacks answers -523 without a second scan (%s, %.1f s)'
+      % (r, time.time() - t))
+open(runtime + '/scan-mode', 'w').write('real')
 got = [ask('preset_get 1 %d' % i) for i in range(len(want))]
 check(got == ['resp 0 %s %s' % kn for kn in want], 'preset_get gives each key, a space written %%20, and its name: %s' % got)
 check(not any(k.split(' ')[2].startswith('/') for k in got), 'no key is an absolute path, which plugin-hostd reads as a preset file')
