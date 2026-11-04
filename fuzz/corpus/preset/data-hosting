@@ -10,24 +10,16 @@
         "guard": "CLAP_HOST_LIMITS_H",
         "project": "omx-clap-host",
         "banner": [
-          "Rendered from HOSTED_STAGE_LIMITS, HOSTING_IDLE_CODES and HOSTING_WINDOW_CODES of data/hosting.json, where this",
-          "tree declares its stage limits and the codes of the dimensions it owns. The rendered file is kept in this repository so the",
-          "library builds on its own; the numbers and codes are changed where they are declared and the file is",
+          "Rendered from HOSTING_IDLE_CODES and HOSTING_WINDOW_CODES of data/hosting.json, where this tree declares the codes",
+          "of the dimensions it owns. The stage's numbers are hosted_stage_limits.h's, spelled once. The rendered file is kept in",
+          "this repository so the library builds on its own; the codes are changed where they are declared and the file is",
           "re-rendered, never edited here. Every other refusal code is declared in data/hosting/ and rendered as",
           "omx_clap_core_vocabulary.h (clap_host.h's CLAP_HOST_CODE_*)."
         ],
-        "brief": "The limits of the hosting code, and the codes of the idle and window dimensions.",
+        "brief": "The codes of the idle and window dimensions.",
         "includes": [
           "stddef.h"
         ],
-        "numbers": {
-          "comment": "the stage and the host: every number the core reads",
-          "prefix": "CLAP_HOST_",
-          "omit": [
-            "worker*"
-          ],
-          "levels": "*Dbfs"
-        },
         "codes": {
           "comment": "the idle dimension, what the library answers about its hold of /dev/cpu_dma_latency (#296), and the window dimension, why omx-clap-host shows no plugin window (#180)",
           "prefix": "CLAP_HOST_CODE_"
@@ -38,16 +30,19 @@
         "guard": "HOSTED_STAGE_LIMITS_H",
         "project": "omx-clap-host",
         "banner": [
-          "Rendered from HOSTED_STAGE_LIMITS of data/hosting.json, every number spelled OMX_HOSTED_STAGE_<FIELD> as",
-          "omx-contract's omx_contract_limits.h spelled it, the worker fields included, for a host that reads those",
-          "names. The rendered file is kept in this repository so the library builds on its own; the numbers are",
-          "changed where they are declared and the file is re-rendered, never edited here. This render spells no",
-          "description beside a number (the descriptions are the docs of HOSTED_STAGE_LIMITS, and warmupBlocks has",
-          "none yet), so the file is not in the Doxyfile's INPUT: Doxygen would warn on every undocumented define."
+          "Rendered from HOSTED_STAGE_LIMITS of data/hosting.json: every number of the stage, spelled once,",
+          "OMX_HOSTED_STAGE_<FIELD>, as omx-contract's omx_contract_limits.h spelled it, the worker fields included. The rendered",
+          "file is kept in this repository so the library builds on its own; the numbers are changed where they are declared and",
+          "the file is re-rendered, never edited here."
         ],
-        "brief": "The hosted stage's numbers, as the OMX_HOSTED_STAGE_ names a host reads.",
-        "scalars": {
-          "comment": "every number of the stage, sorted by name: an integer literal, any other a float literal and its _DOUBLE spelling"
+        "brief": "The hosted stage's numbers, the one spelling the core and a host read.",
+        "includes": [
+          "stddef.h"
+        ],
+        "numbers": {
+          "comment": "the stage and the host: every number the core reads",
+          "prefix": "OMX_HOSTED_STAGE_",
+          "levels": "*Dbfs"
         }
       }
     ],
