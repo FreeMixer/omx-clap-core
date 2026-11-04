@@ -401,7 +401,7 @@ semitones on the members and 2 on the master, MPE's defaults, until RPN 0 on
 that zone's master or one of its members sets another; the zone's own
 configuration message returns them to the defaults, and the other zone's stay.
 
-A cycle takes 256 messages (`CLAP_HOST_NOTES_PER_BLOCK`), and keeps the last
+A cycle takes 256 messages (`OMX_HOSTED_STAGE_NOTES_PER_BLOCK`), and keeps the last
 128 of them (`OMX_CLAP_NOTES_RESERVED`) for releases: a note off, a note on
 with velocity 0, all sound off, reset all controllers, all notes off and the
 mode changes that imply it, and a sustain, sostenuto or hold pedal let go.
@@ -534,7 +534,7 @@ A time past the cycle is written on its last frame, and a time before the
 previous event's on the previous event's frame, since a jack MIDI buffer
 holds its events in order. The library keeps the plugin's output in a
 lock-free ring of 256 events (`OMX_CLAP_NOTE_OUT_DEPTH`, a block's
-`CLAP_HOST_NOTES_PER_BLOCK`), written inside `process()` and read on the
+`OMX_HOSTED_STAGE_NOTES_PER_BLOCK`), written inside `process()` and read on the
 audio thread right after it; past it an event is dropped and counted.
 Only a processing cycle fills it: the warm-up and a parameter flush send
 nothing out. `note_out_drops <N>` answers `resp 0 <dropped> <unmapped>

@@ -28,7 +28,7 @@
 
 #include <stdint.h>
 
-/* the target a fresh configuration carries: CLAP_HOST_IDLE_HOLD_US, as data/hosting.json declares it */
+/* the target a fresh configuration carries: OMX_HOSTED_STAGE_IDLE_HOLD_US, as data/hosting.json declares it */
 int32_t idle_hold_target_default(void);
 
 /* the target the configuration settled on, before any instance */

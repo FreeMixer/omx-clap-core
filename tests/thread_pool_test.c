@@ -148,7 +148,7 @@ int main(int argc, char **argv)
 {
     struct omx_clap_instance *in = NULL;
     struct omx_clap_thread_pool_info info;
-    char why[OMX_CLAP_WHY_MAX], log[CLAP_HOST_LOG_BYTES];
+    char why[OMX_CLAP_WHY_MAX], log[OMX_HOSTED_STAGE_LOG_BYTES];
     const uint32_t n = cores();
     const uint32_t helpers = n > 1u ? (n - 1u < OMX_CLAP_THREAD_POOL_HELPERS_MAX ? n - 1u : OMX_CLAP_THREAD_POOL_HELPERS_MAX) : 0u;
 

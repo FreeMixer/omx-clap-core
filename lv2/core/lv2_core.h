@@ -64,6 +64,7 @@
 #include "omx_lv2_features.h"
 #include "lv2_rtmempool.h"
 #include "omx_clap_core_vocabulary.h"
+#include "hosted_stage_limits.h"
 
 /* The pool's URI as the specification spells it: the header's LV2_RTSAFE_MEMORY_POOL__Pool macro drops the '#'
  * ("…/rtmempoolPool"), and that is what a plugin compiled against it asks for, while a description written by hand
@@ -83,12 +84,10 @@
 /* the smallest atom buffer an instance gets, whatever the configuration says: bytes, a multiple of 8 */
 #define LV2_CORE_ATOM_BYTES_MIN         1024u
 
-/* the channels one audio port may have, the core's CLAP_HOST_PORT_CHANNELS; one more is refused */
-#define LV2_CORE_PORT_CHANNELS          64
-
-/* the auxiliary audio ports a side may have, the core's CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS, the CV ports of
+/* the auxiliary audio ports a side may have, the core's OMX_HOSTED_STAGE_AUX_INPUTS and OMX_HOSTED_STAGE_AUX_OUTPUTS, the CV ports of
  * that side counted with them (each is one more auxiliary port to the core); one more is refused */
-#define LV2_CORE_AUX_PORTS              64
+#define LV2_CORE_AUX_PORTS              OMX_HOSTED_STAGE_AUX_INPUTS
+_Static_assert(OMX_HOSTED_STAGE_AUX_INPUTS == OMX_HOSTED_STAGE_AUX_OUTPUTS, "a side's auxiliary ports are one limit, inputs or outputs");
 
 /* the atom inputs that are neither MIDI, the patch input nor the time port (a control port for the plugin's GUI) a plugin
  * may have: each gets a sequence buffer of its own, emptied before every block; one more is refused */
@@ -217,10 +216,10 @@ enum lv2_port_kind
 struct lv2_audio_port
 {
     uint32_t n;                                     // channels, 0 for an absent main
-    uint32_t port[LV2_CORE_PORT_CHANNELS];          // the plugin's port index of each channel, in map order
+    uint32_t port[OMX_HOSTED_STAGE_PORT_CHANNELS];          // the plugin's port index of each channel, in map order
     char *name;                                     // the group's label or name, else the port's name
     uint32_t kind;                                  // an lv2_port_kind
-    uint8_t map[LV2_CORE_PORT_CHANNELS];            // CLAP surround ids for a surround kind; ACN indices for ambisonic and
+    uint8_t map[OMX_HOSTED_STAGE_PORT_CHANNELS];            // CLAP surround ids for a surround kind; ACN indices for ambisonic and
                                                     // a mixed-order ambisonic group (kind unknown); all 0 for a port no
                                                     // group type orders
 };

@@ -88,7 +88,7 @@
 #define OMX_CLAP_CHAIN_ERR_ABI          (-1)    ///< a structure of an ABI the library does not know, or of another size
 #define OMX_CLAP_CHAIN_ERR_ARG          (-2)    ///< a NULL, a position past the end, a member neither or both kinds
 #define OMX_CLAP_CHAIN_ERR_WIDTH        (-3)    ///< a member's input or output is not as wide as the chain (a mono member in a stereo chain excepted), or a chain
-                                                ///< width out of 1 to CLAP_HOST_PORT_CHANNELS
+                                                ///< width out of 1 to OMX_HOSTED_STAGE_PORT_CHANNELS
 #define OMX_CLAP_CHAIN_ERR_FULL         (-4)    ///< the chain holds OMX_CLAP_CHAIN_MEMBERS_MAX members already
 #define OMX_CLAP_CHAIN_ERR_NO_MEMBER    (-5)    ///< no member by that id, or no member at that position
 #define OMX_CLAP_CHAIN_ERR_MEMORY       (-6)    ///< the chain or its blocks could not be allocated
@@ -113,7 +113,7 @@ struct omx_clap_chain_config
 {
     uint32_t abi;               ///< OMX_CLAP_CHAIN_ABI of the header the caller was compiled against
     uint32_t size;              ///< sizeof of this structure as the caller was compiled
-    uint32_t channels;          ///< the chain's width, 1 to CLAP_HOST_PORT_CHANNELS: every member's input and output
+    uint32_t channels;          ///< the chain's width, 1 to OMX_HOSTED_STAGE_PORT_CHANNELS: every member's input and output
     omx_clap_chain_latency_fn latency_changed;  ///< called when the latency changes; NULL: nothing called
     void *ctx;                  ///< handed to latency_changed
 };

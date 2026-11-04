@@ -8,14 +8,15 @@
 //
 // <whole-read json> is `omx-contract render --target json` of the contract directory that holds omx-clap-core's
 // package: HOSTED_STAGE_LIMITS as the reader parsed it, not as a render spelled it. Each field of HOSTED_STAGE_LIMITS
-// must stand in <src dir>/hosted_stage_limits.h as OMX_HOSTED_STAGE_<FIELD> with its value, and each field but the
-// worker ones in clap_host_limits.h as CLAP_HOST_<FIELD>; each code of the package's codes items (HOSTING_IDLE_CODES,
-// the dimension this tree owns, #296) as CLAP_HOST_CODE_<NAME> with its string; a define the declaration lacks, or one
-// it names that is missing or differs, is a failure. Every other refusal code is omx-contract's
+// must stand in <src dir>/hosted_stage_limits.h as OMX_HOSTED_STAGE_<FIELD> with its value, its one spelling; each code
+// of the package's codes items (HOSTING_IDLE_CODES, the dimension this tree owns) in clap_host_limits.h as
+// CLAP_HOST_CODE_<NAME> with its string; a define the declaration lacks, or one it names that is missing or differs, is
+// a failure. A define of a field under another name anywhere in <src dir> or the lv2/ beside it (CLAP_HOST_<FIELD>,
+// say) is a second spelling of a declared number and a failure too: the fields are read from the declaration. Every other refusal code is omx-contract's
 // (tests/hosting-codes-check.sh holds them). The self test changes every value of both files in turn, drops it, and
-// adds one the declaration does not name, and each of those must fail the check.
+// adds one the declaration does not name, and plants a second spelling of a field, and each of those must fail.
 // Exit 0 held; 1 a difference; 2 usage.
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 
 const snake = (s) => s.replace(/([A-Z])/g, '_$1').toUpperCase();
 
@@ -26,14 +27,35 @@ function expected(read) {
   const stage = new Map();
   for (const [k, v] of Object.entries(limits)) {
     stage.set(`OMX_HOSTED_STAGE_${snake(k)}`, v);
-    if (!k.startsWith('worker')) host.set(`CLAP_HOST_${snake(k)}`, v);
   }
   for (const [name, item] of Object.entries(items)) {
     // this tree's codes items are the ones of the sheet's own file: omx-contract's hosting/*.json are not rendered here
     if (!name.endsWith('_CODES') || item.kind !== 'codes' || item.rel !== items.HOSTED_STAGE_LIMITS.rel) continue;
     for (const [k, c] of Object.entries(item.value)) host.set(`CLAP_HOST_CODE_${snake(k)}`, c.code);
   }
-  return { 'clap_host_limits.h': host, 'hosted_stage_limits.h': stage };
+  return { 'clap_host_limits.h': host, 'hosted_stage_limits.h': stage, fields: Object.keys(limits).map(snake) };
+}
+
+// every define, in every C file given, whose name ends in a declared field and is not its one spelling
+function respellings(fields, sources) {
+  const bad = [];
+  for (const [file, text] of Object.entries(sources)) {
+    for (const m of text.matchAll(/^\s*#\s*define\s+([A-Z0-9_]+)\b/gm)) {
+      const f = fields.find((x) => m[1] === x || m[1].endsWith(`_${x}`));
+      if (f && m[1] !== `OMX_HOSTED_STAGE_${f}`) bad.push(`${file}: ${m[1]} spells the declared ${f} again (OMX_HOSTED_STAGE_${f})`);
+    }
+  }
+  return bad;
+}
+
+// the C sources of a directory and the lv2/ beside it
+function cSources(dir) {
+  const out = {};
+  for (const d of [dir, `${dir}/../lv2/core`, `${dir}/../lv2/clap`]) {
+    if (!existsSync(d)) continue;
+    for (const f of readdirSync(d)) if (/\.[ch]$/.test(f) && f !== 'hosted_stage_limits.h') out[`${d}/${f}`] = readFileSync(`${d}/${f}`, 'utf8');
+  }
+  return out;
 }
 
 // the defines of a header: name to its value, a number read as one and a string as the text between its quotes
@@ -49,6 +71,7 @@ function defines(text) {
 function check(want, texts) {
   const bad = [];
   for (const [file, names] of Object.entries(want)) {
+    if (file === 'fields') continue;
     const have = defines(texts[file]);
     for (const [n, v] of names) {
       if (!have.has(n)) bad.push(`${file}: ${n} is declared (${JSON.stringify(v)}) and not defined`);
@@ -68,12 +91,13 @@ if (args.length !== 2) { console.error(readFileSync(new URL(import.meta.url), 'u
 const [readPath, dir] = args;
 const want = expected(readFileSync(readPath, 'utf8'));
 const texts = {};
-for (const f of Object.keys(want)) texts[f] = readFileSync(`${dir}/${f}`, 'utf8');
+for (const f of Object.keys(want)) if (f !== 'fields') texts[f] = readFileSync(`${dir}/${f}`, 'utf8');
+const sources = cSources(dir);
 
-const bad = check(want, texts);
+const bad = [...check(want, texts), ...respellings(want.fields, sources)];
 if (bad.length) { for (const b of bad) console.error(`hosting-values-check: ${b}`); process.exit(1); }
-const total = [...Object.values(want)].reduce((a, m) => a + m.size, 0);
-if (!self) { console.log(`hosting-values-check: ${total} declared values held by src/clap_host_limits.h and src/hosted_stage_limits.h`); process.exit(0); }
+const total = want['clap_host_limits.h'].size + want['hosted_stage_limits.h'].size;
+if (!self) { console.log(`hosting-values-check: ${total} declared values held by src/hosted_stage_limits.h and src/clap_host_limits.h, each spelled once in ${Object.keys(sources).length} C files`); process.exit(0); }
 
 // one sabotage arm per declared value, and one per define the declaration does not name
 let arms = 0;
@@ -85,12 +109,20 @@ const arm = (what, file, fn) => {
   if (check(want, mutated).length === 0) { console.error(`hosting-values-check: self test: ${what} was not caught`); missed++; }
 };
 for (const [file, names] of Object.entries(want)) {
+  if (file === 'fields') continue;
   for (const [n, v] of names) {
     const re = new RegExp(`^(#define ${n} )(.*)$`, 'm');
     arm(`changing ${n}`, file, (t) => t.replace(re, (_, a, b) => a + (typeof v === 'string' ? '"x' + v + '"' : `${v + 1}u`) + (b.includes('///') ? '  ' + b.slice(b.indexOf('///')) : '')));
     arm(`dropping ${n}`, file, (t) => t.replace(re, ''));
   }
   arm(`adding a define to ${file}`, file, (t) => t.replace('\n#endif', `\n#define ${file.startsWith('hosted') ? 'OMX_HOSTED_STAGE_EXTRA' : 'CLAP_HOST_EXTRA'} 1\n#endif`));
+}
+// a second spelling of each field, planted in a source of the tree, must be caught
+for (const f of want.fields) {
+  arms++;
+  const [first] = Object.keys(sources);
+  const planted = { ...sources, [first]: `${sources[first]}\n#define CLAP_HOST_${f} 1\n` };
+  if (respellings(want.fields, planted).length === 0) { console.error(`hosting-values-check: self test: a second spelling of ${f} was not caught`); missed++; }
 }
 if (missed) process.exit(1);
 console.log(`hosting-values-check: self test: ${arms} sabotage arms, each caught`);

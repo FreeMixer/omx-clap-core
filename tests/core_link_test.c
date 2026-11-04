@@ -197,7 +197,7 @@ int main(int argc, char **argv)
     CHECK(strcmp(instance->host.name, "omx-clap-core") == 0, "the plugin is told it is in %s", instance->host.name);
     CHECK(omx_clap_host_activate(instance, SAMPLE_RATE, BLOCK, why) == 0, "activate");
     CHECK(omx_clap_host_param_read(instance, FAKE_PARAM_ACTIVATIONS, &value) == 0 && value == 2.0, "the warm-up restarted the plugin: activated %g times", value);
-    CHECK(omx_clap_host_param_read(instance, FAKE_PARAM_PROCESS_CALLS, &value) == 0 && value == CLAP_HOST_WARMUP_BLOCKS, "the warm-up ran %g blocks", value);
+    CHECK(omx_clap_host_param_read(instance, FAKE_PARAM_PROCESS_CALLS, &value) == 0 && value == OMX_HOSTED_STAGE_WARMUP_BLOCKS, "the warm-up ran %g blocks", value);
     CHECK(atomic_load(&instance->stage.h.runs) == 0 && atomic_load(&instance->stage.steady_time) == 0, "and left the live counters and the clock alone");
     CHECK(omx_clap_host_param_read(instance, FAKE_PARAM_HOST_PRESET, &value) == 0 && value == 0.0, "the preset-load host extension is not offered");
     omx_clap_host_publish(instance, pthread_self());
@@ -207,7 +207,7 @@ int main(int argc, char **argv)
     memcpy(in_r, in_l, sizeof(in_l));
     for (b = 0; b < 3; b++)
         omx_clap_run_io(&instance->stage, inputs, outputs, BLOCK);
-    CHECK(max_abs(out_l, BLOCK) <= omx_db_to_lin(CLAP_HOST_CLAMP_DBFS) * 1.0000001f && max_abs(out_l, BLOCK) > 15.0f && atomic_load(&instance->stage.h.clamped_samples) > 0,
+    CHECK(max_abs(out_l, BLOCK) <= omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS) * 1.0000001f && max_abs(out_l, BLOCK) > 15.0f && atomic_load(&instance->stage.h.clamped_samples) > 0,
           "the clamp: +40 dBFS leaves at %g (%u samples moved)", (double)max_abs(out_l, BLOCK), atomic_load(&instance->stage.h.clamped_samples));
 
     // a non-finite block is discarded (the lane passes dry) and, at the strike count, the stage is out for good
@@ -215,12 +215,12 @@ int main(int argc, char **argv)
     memcpy(in_r, in_l, sizeof(in_l));
     omx_clap_run_io(&instance->stage, inputs, outputs, BLOCK);
     in_l[3] = NAN;
-    for (b = 0; b < CLAP_HOST_NON_FINITE_STRIKES; b++)
+    for (b = 0; b < OMX_HOSTED_STAGE_NON_FINITE_STRIKES; b++)
     {
         omx_clap_run_io(&instance->stage, inputs, outputs, BLOCK);
         CHECK(all_finite(out_l, BLOCK) == 0 || isnan(in_l[3]), "block %u of the non-finite input reaches the lane as it came (dry)", b);
     }
-    CHECK(atomic_load(&instance->stage.h.nonfinite_blocks) == CLAP_HOST_NON_FINITE_STRIKES && atomic_load(&instance->stage.h.fault) == OMX_HOSTED_FAULT_NONFINITE,
+    CHECK(atomic_load(&instance->stage.h.nonfinite_blocks) == OMX_HOSTED_STAGE_NON_FINITE_STRIKES && atomic_load(&instance->stage.h.fault) == OMX_HOSTED_FAULT_NONFINITE,
           "the scan: %u strikes and the stage is faulted for good", atomic_load(&instance->stage.h.nonfinite_blocks));
     CHECK(atomic_load(&instance->thread_violations) == 0, "no thread violation");
 

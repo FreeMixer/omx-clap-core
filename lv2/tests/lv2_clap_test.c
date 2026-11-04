@@ -4020,7 +4020,7 @@ static void t_core(double rate)
     CHECK(in && f, "core %.0f: the pad through omx_clap_host_open_entry and activate (%s)", rate, cwhy);
     if (!in || !f)
         return;
-    CHECK(f->runs == CLAP_HOST_WARMUP_BLOCKS && atomic_load(&in->stage.h.runs) == 0, "core %.0f: the warm-up ran %u blocks, the live counters untouched", rate, f->runs);
+    CHECK(f->runs == OMX_HOSTED_STAGE_WARMUP_BLOCKS && atomic_load(&in->stage.h.runs) == 0, "core %.0f: the warm-up ran %u blocks, the live counters untouched", rate, f->runs);
     CHECK(in->stage.h.in_l[0] == 0.0f, "core %.0f: the warm-up ends silent", rate);
     CHECK(omx_clap_host_latency(in) == pad_latency_frames(rate), "core %.0f: the latency the restart after the warm-up took: %u frames", rate, omx_clap_host_latency(in));
     CHECK(f->activations == 3 && f->deactivations == 2,
@@ -4084,7 +4084,7 @@ static void t_core(double rate)
     runs = f->runs;
     core_run(in, big, NULL, MAXB + 1);
     CHECK(bits_equal(big, bx, MAXB + 1) && f->runs == runs && atomic_load(&in->stage.h.oversize_blocks) == 1, "core %.0f: a block past the bounce is passed through, not run, counted", rate);
-    omx_clap_host_unpublish(in, CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+    omx_clap_host_unpublish(in, OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
     omx_clap_host_close(in);
 
     // the mono mirror: a 2x2 plugin on a mono lane sees the lane on both inputs, and only L comes back
@@ -4102,7 +4102,7 @@ static void t_core(double rate)
             want[i] = x[i] * PAD_GAIN;
         CHECK(f->saw_in_r0 == x[0], "core %.0f: the 2x2 plugin's R input carried the mono lane (%g vs %g)", rate, f->saw_in_r0, x[0]);
         CHECK(bits_equal(l, want, 64), "core %.0f: only the plugin's L comes back to the mono lane", rate);
-        omx_clap_host_unpublish(in, CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+        omx_clap_host_unpublish(in, OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
         omx_clap_host_close(in);
     }
 
@@ -4125,13 +4125,13 @@ static void t_core(double rate)
         core_run(in, l, NULL, 64);
         CHECK(l[0] == x[0] && fabsf(l[32] - (x[32] + (x[32] * PAD_GAIN - x[32]) * 0.5f)) < 1e-7f, "core %.0f: recovery fades dry -> wet over one block", rate);
         f->nan_on = 1;
-        for (k = 1, all = 1; k < CLAP_HOST_NON_FINITE_STRIKES; k++)
+        for (k = 1, all = 1; k < OMX_HOSTED_STAGE_NON_FINITE_STRIKES; k++)
         {
             memcpy(l, x, sizeof(l));
             core_run(in, l, NULL, 64);
             all &= bits_equal(l, x, 64);
         }
-        CHECK(all && atomic_load(&in->stage.h.fault) == OMX_HOSTED_FAULT_NONFINITE, "core %.0f: faulted at %u strikes, each discarded", rate, CLAP_HOST_NON_FINITE_STRIKES);
+        CHECK(all && atomic_load(&in->stage.h.fault) == OMX_HOSTED_FAULT_NONFINITE, "core %.0f: faulted at %u strikes, each discarded", rate, OMX_HOSTED_STAGE_NON_FINITE_STRIKES);
         f->nan_on = 0;
         runs = f->runs;
         for (blk = 0, all = 1; blk < 4; blk++)
@@ -4141,7 +4141,7 @@ static void t_core(double rate)
             all &= bits_equal(l, x, 64);
         }
         CHECK(all && f->runs == runs, "core %.0f: faulted stays dry after the plugin recovers, and is never run again", rate);
-        omx_clap_host_unpublish(in, CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+        omx_clap_host_unpublish(in, OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
         omx_clap_host_close(in);
     }
 
@@ -4156,11 +4156,11 @@ static void t_core(double rate)
             core_run(in, l, NULL, 64);
         }
         for (i = 0, all = 1; i < 64; i++)
-            all &= l[i] == ((i & 1) ? -omx_db_to_lin(CLAP_HOST_CLAMP_DBFS) : omx_db_to_lin(CLAP_HOST_CLAMP_DBFS));
-        CHECK(all, "core %.0f: every +40 dB sample held at the +%.1f dBFS ceiling", rate, (double)CLAP_HOST_CLAMP_DBFS);
+            all &= l[i] == ((i & 1) ? -omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS) : omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS));
+        CHECK(all, "core %.0f: every +40 dB sample held at the +%.1f dBFS ceiling", rate, (double)OMX_HOSTED_STAGE_CLAMP_DBFS);
         CHECK(atomic_load(&in->stage.h.clamped_samples) == 128, "core %.0f: 128 clamped samples counted (%u)", rate, atomic_load(&in->stage.h.clamped_samples));
         CHECK(atomic_load(&in->stage.h.nonfinite_blocks) == 0 && atomic_load(&in->stage.h.fault) == OMX_HOSTED_FAULT_NONE, "core %.0f: a clamp is never a strike", rate);
-        omx_clap_host_unpublish(in, CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+        omx_clap_host_unpublish(in, OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
         omx_clap_host_close(in);
     }
 
@@ -4306,12 +4306,12 @@ out:
         if (a[k])
         {
             a[k]->stage.plugin = w[k].own;
-            omx_clap_host_unpublish(a[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_unpublish(a[k], OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
             omx_clap_host_close(a[k]);
         }
         if (b[k])
         {
-            omx_clap_host_unpublish(b[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_unpublish(b[k], OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
             omx_clap_host_close(b[k]);
         }
     }
@@ -4391,12 +4391,12 @@ out:
     {
         if (a[k])
         {
-            omx_clap_host_unpublish(a[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_unpublish(a[k], OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
             omx_clap_host_close(a[k]);
         }
         if (b[k])
         {
-            omx_clap_host_unpublish(b[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_unpublish(b[k], OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
             omx_clap_host_close(b[k]);
         }
     }
@@ -4467,7 +4467,7 @@ static void chain_mono_free(struct omx_clap_chain *chain, struct omx_clap_instan
     for (uint32_t k = 0; k < n; k++)
         if (in[k])
         {
-            omx_clap_host_unpublish(in[k], CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+            omx_clap_host_unpublish(in[k], OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
             omx_clap_host_close(in[k]);
         }
 }
@@ -4480,7 +4480,7 @@ static void t_chain_lv2_clamp(const clap_plugin_entry_t *entry, double rate)
     static float in_b[64], out_b[64];
     static const char *const hot_pad[] = { FAKE_HOT, FAKE_PAD }, *const hot_hot[] = { FAKE_HOT, FAKE_HOT };
     static const char *const nan_lp[] = { FAKE_PAD, FAKE_NAN, NULL, FAKE_PAD };
-    const float ceiling = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+    const float ceiling = omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS);
     float *in[1] = { in_b }, *out[1] = { out_b };
     struct omx_clap_instance *m[4];
     struct fake *fk[4];
@@ -4525,7 +4525,7 @@ static void t_chain_lv2_clamp(const clap_plugin_entry_t *entry, double rate)
         }
         for (i = 0, all = 1; i < 64; i++)
             all &= out_b[i] == ((i & 1) ? -ceiling : ceiling);
-        CHECK(all, "chain clamp %.0f: the chain's output is held at the +%.1f dBFS ceiling", rate, (double)CLAP_HOST_CLAMP_DBFS);
+        CHECK(all, "chain clamp %.0f: the chain's output is held at the +%.1f dBFS ceiling", rate, (double)OMX_HOSTED_STAGE_CLAMP_DBFS);
         CHECK(atomic_load(&m[1]->stage.h.clamped_samples) - before == 64 && atomic_load(&m[0]->stage.h.clamped_samples) == 0,
               "chain clamp %.0f: one clamp a block, its 64 samples counted on the last member (%u), none on the first (%u)", rate,
               atomic_load(&m[1]->stage.h.clamped_samples) - before, atomic_load(&m[0]->stage.h.clamped_samples));
@@ -4645,9 +4645,9 @@ static int plain_lv2_run(const char *uri, double rate, uint32_t warm, uint32_t n
     d->connect_port(h, 0, in);
     d->connect_port(h, 2, &lat);
     d->activate(h);
-    for (b = 0; b < CLAP_HOST_WARMUP_BLOCKS; b++)
+    for (b = 0; b < OMX_HOSTED_STAGE_WARMUP_BLOCKS; b++)
     {
-        const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
+        const float v = b < OMX_HOSTED_STAGE_WARMUP_BLOCKS / 2u ? omx_db_to_lin(OMX_HOSTED_STAGE_WARMUP_LEVEL_DBFS) : 0.0f;
 
         for (i = 0; i < warm; i++)
             in[i] = v;
@@ -4696,7 +4696,7 @@ static void t_warmup_block(double rate, uint32_t act, uint32_t n)
         tone(got + b * n, n, 0.5f, b * n);
         core_run(in, got + b * n, NULL, n);
     }
-    omx_clap_host_unpublish(in, CLAP_HOST_UNPUBLISH_POLL_US, CLAP_HOST_UNPUBLISH_TIMEOUT_US);
+    omx_clap_host_unpublish(in, OMX_HOSTED_STAGE_UNPUBLISH_POLL_US, OMX_HOSTED_STAGE_UNPUBLISH_TIMEOUT_US);
     omx_clap_host_close(in);
     omx_clap_lv2_entry_release(entry);
     CHECK(plain_lv2_run(FAKE_HOLD, rate, act, n, LIVE, want) == 0, "warm-up %.0f: the plain LV2 loop ran the sample-and-hold", rate);

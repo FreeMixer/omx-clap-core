@@ -9,7 +9,7 @@ INPUT                  = src/clap_host.h \
                          src/omx_msgring.h \
                          src/clap_stage.h \
                          src/hosted_stage.h \
-                         src/clap_host_limits.h \
+                         src/clap_host_limits.h src/hosted_stage_limits.h \
                          src/omx_clap_ext.h \
                          src/omx_clap_raw.h \
                          src/clap_chain.h

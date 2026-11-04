@@ -57,6 +57,7 @@
 #include <omxdsp/omx_wetdry.h>
 
 #include "clap_host_limits.h"
+#include "hosted_stage_limits.h"
 
 
 /*
@@ -71,7 +72,7 @@
 #define CLAP_HOST_POST(cond, label) ((void)0)  ///< states the postcondition `cond` under `label` when the consumer defines it, nothing otherwise
 #endif
 
-/** what a stage guards, per stage: the clamp at CLAP_HOST_CLAMP_DBFS and the scan for non-finite output with its strike */
+/** what a stage guards, per stage: the clamp at OMX_HOSTED_STAGE_CLAMP_DBFS and the scan for non-finite output with its strike */
 #define OMX_HOSTED_GUARD_CLAMP          1u
 #define OMX_HOSTED_GUARD_NONFINITE      2u  ///< scan the output for non-finite samples
 #define OMX_HOSTED_GUARDS_ALL           (OMX_HOSTED_GUARD_CLAMP | OMX_HOSTED_GUARD_NONFINITE)  ///< every guard
@@ -126,7 +127,7 @@ struct omx_hosted_stage
     _Atomic uint32_t runs;              ///< live plugin calls
     _Atomic uint32_t nonfinite_blocks;  ///< discarded blocks: non-finite output (a CLAP_PROCESS_ERROR block is the
                                         ///< format's own counter, struck through omx_hosted_run_end_why)
-    _Atomic uint32_t clamped_samples;   ///< samples clamped at CLAP_HOST_CLAMP_DBFS
+    _Atomic uint32_t clamped_samples;   ///< samples clamped at OMX_HOSTED_STAGE_CLAMP_DBFS
     _Atomic uint32_t oversize_blocks;   ///< a block longer than the bounce: passed through, not run
 };
 
@@ -184,7 +185,7 @@ static inline void omx_hosted_count(_Atomic uint32_t *c, uint32_t by)
 static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
 {
     enum { RUN = 16 };
-    const float c = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+    const float c = omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS);
     const float low = -c;
     uint32_t moved = 0;
     uint32_t i = 0;
@@ -221,7 +222,7 @@ static inline uint32_t omx_hosted_clamp(float *b, uint32_t n)
 static inline void omx_hosted_strike_as(_Atomic uint32_t *blocks, _Atomic uint32_t *fault, uint32_t kind)
 {
     omx_hosted_count(blocks, 1);
-    if (atomic_load_explicit(blocks, memory_order_relaxed) >= CLAP_HOST_NON_FINITE_STRIKES)
+    if (atomic_load_explicit(blocks, memory_order_relaxed) >= OMX_HOSTED_STAGE_NON_FINITE_STRIKES)
         atomic_store_explicit(fault, kind, memory_order_relaxed);
 }
 
@@ -394,8 +395,8 @@ static inline void omx_hosted_run_end(struct omx_hosted_stage *h, int usable, ui
 }
 
 /**
- * Control thread, the warm-up: CLAP_HOST_WARMUP_BLOCKS blocks of `n` frames through `block`, the format's own drain, run
- * and MXCSR path, the first half held at CLAP_HOST_WARMUP_LEVEL_DBFS, the second half silent, touching every bounce page.
+ * Control thread, the warm-up: OMX_HOSTED_STAGE_WARMUP_BLOCKS blocks of `n` frames through `block`, the format's own drain, run
+ * and MXCSR path, the first half held at OMX_HOSTED_STAGE_WARMUP_LEVEL_DBFS, the second half silent, touching every bounce page.
  * Returns how many blocks `block` reported unusable (anything but 0 means do not publish), or UINT32_MAX when `n` does
  * not fit the bounce. The live counters are untouched.
  */
@@ -406,9 +407,9 @@ static inline uint32_t omx_hosted_prime(struct omx_hosted_stage *h, uint32_t n, 
 
     if (n == 0 || n > h->max_block)
         return UINT32_MAX;
-    for (b = 0; b < CLAP_HOST_WARMUP_BLOCKS; b++)
+    for (b = 0; b < OMX_HOSTED_STAGE_WARMUP_BLOCKS; b++)
     {
-        const float v = b < CLAP_HOST_WARMUP_BLOCKS / 2u ? omx_db_to_lin(CLAP_HOST_WARMUP_LEVEL_DBFS) : 0.0f;
+        const float v = b < OMX_HOSTED_STAGE_WARMUP_BLOCKS / 2u ? omx_db_to_lin(OMX_HOSTED_STAGE_WARMUP_LEVEL_DBFS) : 0.0f;
 
         for (i = 0; i < n; i++)
             h->in_l[i] = h->in_r[i] = v;

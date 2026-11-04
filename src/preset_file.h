@@ -57,7 +57,7 @@
 #define PRESET_CODE_PLUGIN_CHANGED  "PRESET_PLUGIN_CHANGED"
 #define PRESET_CODE_LOAD_REFUSED    "LOAD_REFUSED"
 
-/* the largest preset file read, in bytes: a state body of CLAP_HOST_STATE_MAX_BYTES in base64 and its parameters */
+/* the largest preset file read, in bytes: a state body of OMX_HOSTED_STAGE_STATE_MAX_BYTES in base64 and its parameters */
 #define PRESET_FILE_MAX_BYTES (3u * 1024u * 1024u)
 /* how deep a file's arrays and objects nest at most */
 #define PRESET_JSON_DEPTH_MAX 32
