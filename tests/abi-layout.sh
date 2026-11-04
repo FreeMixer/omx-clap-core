@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # The layout of every public structure, member by member, against the one recorded at the last release, read with
 # pahole from the debug info of an object that includes the installed headers. abidw leaves _Atomic members out of its
 # dump (#117), so abi-check.sh would pass a counter of struct omx_clap_stage added, removed or moved; this check sees

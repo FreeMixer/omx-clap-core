@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The chain's members under ThreadSanitizer (#104, make test-chain-host-tsan): tests/chain_host_e2e.sh's stress
 # (CHAIN_HOST_STRESS rounds, the quantum changed all along, each change the head's buffer-size callback walking its

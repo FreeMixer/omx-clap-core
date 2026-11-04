@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of the host's chain guards (#104, docs/chain.md): each arm breaks one guard of src/effects.c, src/main.c
 # or src/clap_chain.c with one sed in a copy of the built tree, build/sabotage-chain-host-<arm>, rebuilds there only
