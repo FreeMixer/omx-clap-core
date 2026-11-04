@@ -388,7 +388,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage
+test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -843,7 +843,10 @@ tests/clap_scan_test: tests/clap_scan_test.c
 	$(CC) $(CFLAGS) -Werror -o $@ $<
 
 # the command socket's framing, in a PipeWire of its own: tests/socket_conformance.py against the host (#103)
+# first the readiness wait of the conformance script against stand-in daemons (#479): a daemon that starts slowly passes,
+# one that drops the next client after a partial disconnect fails, one that never answers is named
 test-socket: $(PROG)
+	python3 -I tests/socket_conformance_test.py
 	./tests/socket_e2e.sh
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
@@ -939,6 +942,11 @@ tests/jack_xrun_shim.so: tests/jack_xrun_shim.c
 # feedback port, in order, and the values read again when there were more than the ring holds
 test-jack-params: $(PROG) tests/fake_mover.clap
 	./tests/jack_params_e2e.sh
+
+# the sabotage of tests/host_ready_wait.sh (#191): a host that never logs ready!, a port a listener already held,
+# and a host merely slow inside the longer bound; no jack or namespace needed, so this runs everywhere test-jack-params does not
+test-jack-params-ready-sabotage: tests/host_ready_wait.sh tests/jack_params_ready_sabotage.sh
+	./tests/jack_params_ready_sabotage.sh
 
 tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h src/abi_guard.h src/abi_guard.S
 	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S -ldl
@@ -1037,6 +1045,10 @@ test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_la
 # each guard of the host's chain broken in a copy of the tree, the test seen red on the check that names it
 test-chain-host-sabotage:
 	PLUGIN_HOSTD=$(PLUGIN_HOSTD) ./tests/chain_host_sabotage.sh
+
+# the chain e2e against a chain host that stops answering mid-run: it must end on its own, red, and name the line
+test-chain-host-stall: $(PROG) tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
+	./tests/chain_host_stall.sh
 
 tests/jack_identity: tests/jack_identity.c
 	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -lm
@@ -1445,7 +1457,7 @@ test-protocol-client:
 # preset_list, preset_get and preset_load over the socket (docs/presets.md): fake_synth's preset-discovery factory and
 # the LV2 fixture bundle through the adapter, in a private PipeWire (tests/jack_presets_e2e.sh)
 .PHONY: test-jack-presets
-test-jack-presets: $(PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fake_ext.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
+test-jack-presets: $(PROG) $(SCAN_PROG) tests/fake_synth.clap tests/fake_mover.clap tests/fake_ext.clap build/lv2/omx-host-fixture.lv2/omx-host-fixture.so
 	bash tests/jack_presets_e2e.sh
 
 .PHONY: test-state-busy

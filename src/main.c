@@ -48,9 +48,21 @@
 #include "effects.h"
 #include "host_verbs.h"
 // preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from its
-// declaration, which plugin-hostd 0.13 and later install; a build against older headers answers none (omx-clap-core#383)
-#if __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
+// declaration, which libplugin-hostd-protocol installs from 0.2.0 (plugin-hostd 0.16.0) and plugin-hostd itself before
+// (0.13 to 0.15). A build that finds neither would answer no preset_list, and presets are a must: it does not build.
+#if __has_include(<plugin-hostd/plugin_hostd_protocol_host_verbs.h>)
+#include <plugin-hostd/plugin_hostd_protocol_host_verbs.h>
+#elif __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
 #include <plugin-hostd/plugin_hostd_host_verbs.h>
+#endif
+#if __has_include(<plugin-hostd/plugin_hostd_protocol_vocabulary.h>)
+#include <plugin-hostd/plugin_hostd_protocol_vocabulary.h>
+#elif __has_include(<plugin-hostd/plugin_hostd_vocabulary.h>)
+#include <plugin-hostd/plugin_hostd_vocabulary.h>
+#endif
+#if !defined(OMX_VERB_PRESET_GET_FMT) || !defined(OMX_VERB_PRESET_LIST_FMT) || !defined(OMX_VERB_PIN_LAYOUT_FMT) || \
+    !defined(OMX_REPLY_PLUGIN_HOSTD_PRESET_NOT_OFFERED_RESP) || !defined(OMX_REPLY_PLUGIN_HOSTD_PRESET_INVALID_RESP)
+#error "plugin-hostd's host verbs (preset_list, preset_get, pin_layout) or its preset refusals not found: install plugin-hostd-protocol-devel >= 0.2.0"
 #endif
 #include "clap_chain.h"
 #include "quiet_death.h"
@@ -396,6 +408,24 @@ static void preset_load_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+/* preset_show <N> <key | file>: "resp 0 <json>", or one of the codes plugin-hostd's verbs file declares for it:
+ * PRESET_INVALID for a file that is no preset file, PRESET_NOT_OFFERED for a key the plugin does not list */
+static void preset_show_cb(proto_t *proto)
+{
+    char *reply = NULL;
+    const char *location = proto->list[2];
+    int resp = effects_preset_show(atoi(proto->list[1]), location, &reply);
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else if (resp == ERR_LV2_INVALID_PRESET_URI)
+        protocol_response_int(location[0] == '/' ? OMX_REPLY_PLUGIN_HOSTD_PRESET_INVALID_RESP
+                                                 : OMX_REPLY_PLUGIN_HOSTD_PRESET_NOT_OFFERED_RESP, proto);
+    else
+        protocol_response_int(resp, proto);
+    free(reply);
+}
+
 static void preset_save_cb(proto_t *proto)
 {
     char reply[SOCKET_MSG_BUFFER_SIZE], name[SOCKET_MSG_BUFFER_SIZE];
@@ -502,14 +532,13 @@ static void term_signal(int sig)
  * pin_layout was quit again. preset_save is not here: this host answers it (preset_save_cb, registered first), so an
  * entry here would be a dead one, and the 64 a mod-host protocol library before FreeMixer/mod-host#6 holds are full. */
 /* preset_show in its instance form, preset_show <N> <load_key | file> (docs/presets.md), the one plugin-hostd's verbs file
- * declares of this host: mod-host's preset_show <uri> has one word, and a line of two under it would be refused as too
- * long instead of as a verb this host does not answer */
+ * declares of this host (preset_show_cb): mod-host's preset_show <uri> has one word and is not answered here */
 #define PRESET_SHOW_INSTANCE "preset_show %i %s"
 
 static void register_unsupported(void)
 {
     static const char *const commands[] = {
-        PRESET_SHOW_INSTANCE, EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
+        EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
         MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
         CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
         FEATURE_ENABLE, OUTPUT_DATA_READY,
@@ -528,6 +557,7 @@ static int host_init(int socket_port, int feedback_port)
     // preset_load and preset_save as docs/presets.md has them, before the dispatch's and the unsupported list's
     protocol_add_command(EFFECT_PRESET_LOAD, preset_load_cb);
     protocol_add_command("preset_save %i %s ...", preset_save_cb);
+    protocol_add_command(PRESET_SHOW_INSTANCE, preset_show_cb);
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
