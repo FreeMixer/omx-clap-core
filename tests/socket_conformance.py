@@ -10,13 +10,14 @@ command whose answer it knows (a regular expression), and prints one line per ca
     ok   <case> <detail>
     FAIL <case> <detail>
 
-Exit status: 0 when every case held, 1 when one failed, 2 when the server could not be reached.
+Exit status: 0 when every case held, 1 when one failed, 2 when the server never answered (--ready-timeout).
+Before the cases it waits, untimed, for the first answer, so --timeout bounds framing and not start-up.
 
 The server must answer the command the same with trailing spaces added (mod-host's parser trims them): that is how
 commands of an exact size are made. Run with python3 -I; the standard library only.
 
     socket_conformance.py --port 5555 [--command cpu_load] [--answer '^resp 0 '] [--limit 16777216]
-                          [--fuzz 100000] [--seed N] [--pid PID] [--only case,case]
+                          [--fuzz 100000] [--seed N] [--ready-timeout 30] [--pid PID] [--only case,case]
 """
 
 import argparse
@@ -101,6 +102,31 @@ class Conn:
             self.s.close()
         except OSError:
             pass
+
+
+def wait_ready(args):
+    """waits, untimed by --timeout, until the server answers the harmless command once; returns an error text or None
+
+    The first answer of a daemon started a moment ago can take seconds (loading, a cold cache). That is start-up, not
+    framing, so it is waited for here with a limit of its own (--ready-timeout) and no case pays for it."""
+    end = time.time() + args.ready_timeout
+    last = "no connection"
+    while time.time() < end:
+        try:
+            c = Conn(args)
+        except OSError as e:
+            last = "cannot connect: %s" % e
+            time.sleep(0.1)
+            continue
+        c.send(padded(args.command, len(args.command) + 1))
+        got = c.answers(1, wait=max(end - time.time(), 0))
+        closed = c.closed
+        c.close()
+        if got:
+            return None
+        last = "connection closed without an answer" if closed else "connected, no answer"
+        time.sleep(0.1)
+    return "%s:%d never answered %r within %g s (%s)" % (args.host, args.port, args.command, args.ready_timeout, last)
 
 
 def padded(cmd, size):
@@ -341,14 +367,15 @@ def main():
     ap.add_argument("--seed", type=int)
     ap.add_argument("--connections", type=int, default=1000)
     ap.add_argument("--timeout", type=float, default=2.0, help="seconds to wait for an answer")
+    ap.add_argument("--ready-timeout", type=float, default=30.0,
+                    help="seconds to wait, before the cases, for the first answer of the server (start-up is not timed by --timeout)")
     ap.add_argument("--pid", type=int, help="the server's pid, to report its RSS around the sequential case")
     ap.add_argument("--only", help="comma-separated cases: " + ",".join(CASES))
     args = ap.parse_args()
 
-    try:
-        Conn(args).close()
-    except OSError as e:
-        print("cannot connect to %s:%d: %s" % (args.host, args.port, e))
+    err = wait_ready(args)
+    if err:
+        print("not ready: " + err)
         return 2
 
     only = args.only.split(",") if args.only else CASES
