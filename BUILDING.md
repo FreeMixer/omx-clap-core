@@ -1,13 +1,15 @@
 Building omx-clap-host
 ======================
 
-make [MOD_HOST_DIR=<mod-host checkout>] [PLUGIN_HOSTD_DIR=<plugin-hostd checkout>] [CLAP_CFLAGS=-I<clap headers>] [JACK_DIR=<jack install tree>]
+make [PROTOCOL_DIR=<plugin-hostd-protocol checkout>] [PLUGIN_HOSTD_DIR=<plugin-hostd checkout>] [CLAP_CFLAGS=-I<clap headers>] [JACK_DIR=<jack install tree>]
 
-The protocol is mod-host's `libmod-host-protocol.so.0`, linked as a shared
-library: from `pkg-config mod-host-protocol` when it is installed
-(mod-host's `make install-lib`, or the mod-host-protocol-devel package),
-otherwise from `MOD_HOST_DIR`, a mod-host tree where the library is built
-if missing and whose path becomes the binary's rpath. The layout pin's
+The protocol is plugin-hostd-protocol's `libplugin-hostd-protocol.so.0`, linked
+as a shared library, with its headers and the declaration of plugin-hostd's
+verbs (`plugin-hostd/plugin_hostd_protocol_host_verbs.h`): from `pkg-config
+plugin-hostd-protocol` when it is installed (the plugin-hostd-protocol-devel
+package), otherwise from `PROTOCOL_DIR` (default `../plugin-hostd-protocol`), a
+checkout where the library is built if missing and whose path becomes the
+binary's rpath. The layout pin's
 serialisation is plugin-hostd's header `plugin-hostd/pin.h`: from `pkg-config
 plugin-hostd` (the plugin-hostd-devel package) or from
 `PLUGIN_HOSTD_DIR/include`. The verbs the host answers past mod-host's are this

@@ -26,16 +26,17 @@ CORE_TS = ts/omx-clap-core-hosting.js ts/omx-clap-core-hosting.d.ts ts/omx-clap-
 
 PKG_CONFIG ?= pkg-config
 
-# mod-host protocol library: pkg-config when it is installed, a mod-host checkout otherwise
-ifeq ($(shell $(PKG_CONFIG) --exists mod-host-protocol && echo true), true)
-PROTOCOL_CFLAGS = $(shell $(PKG_CONFIG) --cflags mod-host-protocol)
-PROTOCOL_LIBS = $(shell $(PKG_CONFIG) --libs mod-host-protocol)
+# the protocol library, its headers and its verb declarations (<plugin-hostd/plugin_hostd_protocol_host_verbs.h>):
+# pkg-config when plugin-hostd-protocol-devel is installed, a plugin-hostd-protocol checkout otherwise
+ifeq ($(shell $(PKG_CONFIG) --exists plugin-hostd-protocol && echo true), true)
+PROTOCOL_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd-protocol)
+PROTOCOL_LIBS = $(shell $(PKG_CONFIG) --libs plugin-hostd-protocol)
 else
-MOD_HOST_DIR ?= ../wt-mod-host-clap
-PROTOCOL_LIB = $(MOD_HOST_DIR)/libmod-host-protocol.so
-PROTOCOL_CFLAGS = -I$(MOD_HOST_DIR)/src
+PROTOCOL_DIR ?= ../plugin-hostd-protocol
+PROTOCOL_LIB = $(PROTOCOL_DIR)/libplugin-hostd-protocol.so
+PROTOCOL_CFLAGS = -I$(PROTOCOL_DIR)/include
 # the checkout's library is not installed: the binary finds it there through its rpath
-PROTOCOL_LIBS = -L$(MOD_HOST_DIR) -lmod-host-protocol -Wl,-rpath,$(abspath $(MOD_HOST_DIR))
+PROTOCOL_LIBS = -L$(PROTOCOL_DIR) -lplugin-hostd-protocol -Wl,-rpath,$(abspath $(PROTOCOL_DIR))
 endif
 
 # plugin-hostd's protocol and pin headers: pkg-config when plugin-hostd-devel is installed, a plugin-hostd checkout otherwise
@@ -177,7 +178,7 @@ $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
-	$(MAKE) -C $(MOD_HOST_DIR) libmod-host-protocol.so
+	$(MAKE) -C $(PROTOCOL_DIR) libplugin-hostd-protocol.so
 endif
 
 $(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)

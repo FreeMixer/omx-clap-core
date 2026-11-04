@@ -68,6 +68,8 @@
 #include "preset_file.h"
 #include "omx_clap_lv2.h"
 #include "host-dispatch.h"
+/* a remote page on the wire has the protocol's slots, and a CLAP page has as many */
+_Static_assert(HOST_REMOTE_PAGE_SLOTS == CLAP_REMOTE_CONTROLS_COUNT, "a remote page has CLAP's slots");
 #include "socket.h"
 
 
