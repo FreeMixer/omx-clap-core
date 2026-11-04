@@ -5,7 +5,8 @@
 // slow.clap sleeps in its entry's init (FAKE_SLOW_INIT_MS), so the open is abandoned. The caller then frees the path and
 // the id it passed, as it may, and opens and closes the fake on its own thread while the abandoned open goes on, both
 // changing the core's list of binaries; when the late open ends, the instance it made, which nobody will take, is closed
-// and its binary let go. ThreadSanitizer halts on a read of the freed strings or an unordered change of the list.
+// and its binary let go. ThreadSanitizer halts on a read of the freed strings or an unordered change of the list. Last,
+// a timed open with no id is an open with no id: the factory's first descriptor.
 
 #include <limits.h>
 #include <stdio.h>
@@ -92,6 +93,15 @@ int main(int argc, char **argv)
     if (keep)
         omx_clap_host_close(keep);
     CHECK(omx_clap_host_binaries_open() == 0, "no binary is left open (%u)", omx_clap_host_binaries_open());
+
+    // the id is omx_clap_host_open's: NULL is the factory's first descriptor, not a refusal (0.27.0 refused it, and an
+    // open of a plugin that answers came back -1 with the headless code)
+    in = NULL;
+    rc = omx_clap_host_open_timed(argv[1], NULL, 5000, &in, why);
+    CHECK(rc == 0 && in, "a timed open with no id opens the factory's first descriptor, as an open does (%d, %s)", rc, why);
+    if (in)
+        omx_clap_host_close(in);
+    CHECK(omx_clap_host_binaries_open() == 0, "and lets its binary go (%u)", omx_clap_host_binaries_open());
 
     unlink(slow);
     rmdir(dir);
