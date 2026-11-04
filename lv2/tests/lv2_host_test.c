@@ -197,7 +197,7 @@ static void run_block(struct lv2_instance *in, const float *x, float *y)
 {
     memcpy(lv2_instance_audio_in(in, 0), x, BLOCK * sizeof(float));
     g_in_run = 1;
-    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_run(in, BLOCK);
     g_in_run = 0;
     memcpy(y, lv2_instance_audio_out(in, 0), BLOCK * sizeof(float));
 }
@@ -775,7 +775,7 @@ static void t_atom_ui(void)
             t.frame = at;
             lv2_instance_time(in, b == 0 ? &t : NULL);
             g_in_run = 1;
-            lv2_instance_run(in, n, NULL, NULL);
+            lv2_instance_run(in, n);
             g_in_run = 0;
             for (i = 0; i < n; i++)
             {
@@ -893,7 +893,7 @@ static void t_cv_run(double rate)
         memcpy(lv2_instance_audio_in(in, 0), x, n * sizeof(float));
         memcpy(lv2_instance_cv_in(in, 0), m, n * sizeof(float));
         g_in_run = 1;
-        lv2_instance_run(in, n, NULL, NULL);
+        lv2_instance_run(in, n);
         g_in_run = 0;
         for (i = 0; i < n; i++)
         {
@@ -938,7 +938,7 @@ static void t_cv_many(void)
                 for (i = 0; i < n; i++)
                     lv2_instance_cv_in(in, k)[i] = (float)(at + i) / 256.0f - (float)k * 0.125f;
             g_in_run = 1;
-            lv2_instance_run(in, n, NULL, NULL);
+            lv2_instance_run(in, n);
             g_in_run = 0;
             for (i = 0; i < n; i++)
             {
@@ -971,7 +971,7 @@ static void t_cv_many(void)
                 x[i] = 0.5f * sinf(0.0613f * (float)(at + i));
             memcpy(lv2_instance_audio_in(in, 0), x, n * sizeof(float));
             g_in_run = 1;
-            lv2_instance_run(in, n, NULL, NULL);
+            lv2_instance_run(in, n);
             g_in_run = 0;
             for (k = 0; k < 16; k++)
                 for (i = 0; i < n; i++)
@@ -1014,7 +1014,7 @@ static void t_sources(void)
 static void run_ctl(struct lv2_instance *in)
 {
     g_in_run = 1;
-    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_run(in, BLOCK);
     g_in_run = 0;
 }
 
@@ -1113,6 +1113,16 @@ struct got
     uint32_t size[64];
 };
 
+/* each event of the last run's MIDI output to fn, the cursor walked the way the adapter walks it */
+static void midi_out_each(const struct lv2_instance *in, void (*fn)(void *, int64_t, const uint8_t *, uint32_t), void *ctx)
+{
+    struct lv2_midi_out c;
+    struct lv2_midi_out_event e;
+
+    for (lv2_instance_midi_out_begin(in, &c); lv2_instance_midi_out_next(&c, &e);)
+        fn(ctx, e.frame, e.data, e.size);
+}
+
 static void collect(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
 {
     struct got *g = ctx;
@@ -1155,15 +1165,15 @@ static void t_midi_run(void)
     lv2_instance_midi_in_add(in, 17, rt, 1);
     lv2_instance_midi_in_add(in, 63, cc, 3);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(g.n == 5 && same_message(&g, 0, 0, note, 3) && same_message(&g, 1, 5, pc, 2) && same_message(&g, 2, 9, sysex, 6)
               && same_message(&g, 3, 17, rt, 1) && same_message(&g, 4, 63, cc, 3),
           "midi run: five messages in, the same five out at their frames: note, a 2-byte program change, sysex, a realtime byte, a CC (%u)", g.n);
 
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(g.n == 0, "midi run: a block with no input writes no output: nothing from the last block carries over (%u)", g.n);
 
     lv2_instance_counters(in, &before);
@@ -1171,8 +1181,8 @@ static void t_midi_run(void)
         lv2_instance_midi_in_add(in, i, note, 3);
     lv2_instance_counters(in, &after);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(g.n == MIDI_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
           "midi run: a block that does not fit keeps the first %u messages and counts the 8 it dropped (%u, %u)",
           MIDI_CAPACITY, g.n, after.midi_in_dropped - before.midi_in_dropped);
@@ -1187,8 +1197,8 @@ static void t_midi_run(void)
     CHECK(after.midi_in_dropped - before.midi_in_dropped == 1, "midi run: the oversize message is counted as dropped (%u)",
           after.midi_in_dropped - before.midi_in_dropped);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(g.n == 0, "midi run: nothing from the refused message reaches the next block (%u)", g.n);
     lv2_instance_deactivate(in);
     lv2_instance_free(in);
@@ -1299,8 +1309,8 @@ static void t_ll_midi_run(void)
     lv2_instance_midi_in_add(in, 17, cc, 3);
     lv2_instance_midi_in_add(in, 63, off, 3);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(seen->n == 5 && seen->frame[0] == 0 && seen->size[1] == 2 && seen->frame[2] == 9 && seen->size[2] == 6
               && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0 && seen->count_seen == 5 && seen->size_seen == 5u * 16u + 17u,
           "ll midi run: the plugin read five MIDI events at their frames and lengths, walking the buffer as zynadd does; the header's count and size agree (%u, %u, %u)",
@@ -1315,8 +1325,8 @@ static void t_ll_midi_run(void)
           "ll midi run: five out at their frames, the note on and off one key up, the rest byte for byte (%u)", g.n);
 
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(seen->n == 0 && g.n == 0, "ll midi run: a block with no input reads and writes nothing: nothing carries over (%u, %u)", seen->n, g.n);
 
     lv2_instance_counters(in, &before);
@@ -1324,8 +1334,8 @@ static void t_ll_midi_run(void)
         lv2_instance_midi_in_add(in, i < BLOCK ? i : BLOCK - 1u, on, 3);
     lv2_instance_counters(in, &after);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(seen->n == LL_CAPACITY && g.n == LL_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
           "ll midi run: a block that does not fit keeps the first %u events and counts the 8 it dropped (%u, %u, %u)", LL_CAPACITY,
           seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
@@ -1335,7 +1345,7 @@ static void t_ll_midi_run(void)
     lv2_instance_control_set(in, 0, 2.75f);
     lv2_instance_control_set(in, 1, 1.5f);
     lv2_instance_audio_in(in, 0)[0] = 0.25f;
-    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_run(in, BLOCK);
     CHECK(seen->trim_seen == 2.75f && seen->floor_seen == 1.5f && lv2_instance_control_get(in, 0) == 2.75f
               && lv2_instance_audio_out(in, 0)[0] == 0.25f + 2.75f + 1.5f,
           "ll midi run: 2.75 written to the unbounded control and 1.5 to the minimum-only one reach the plugin, the audio and read back (%g, %g, out %g)",
@@ -1352,8 +1362,8 @@ static void t_ll_midi_run(void)
     lv2_instance_midi_in_add(in, 61, pc, 2);
     lv2_instance_counters(in, &before);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     lv2_instance_counters(in, &after);
     CHECK(seen->size_seen == 1024u && seen->n == 54 && g.n == 54 && after.midi_in_dropped == before.midi_in_dropped,
           "ll midi run: a block filled to exactly the capacity (%u bytes) is read whole, 54 events, none dropped (%u, %u)", seen->size_seen, seen->n, g.n);
@@ -1381,8 +1391,8 @@ static void t_ll_midi_run(void)
             lv2_instance_midi_in_add(in, 3, on, 3);
             lv2_instance_midi_in_add(in, 7, off, 3);
             memset(&g, 0, sizeof(g));
-            lv2_instance_run(in, BLOCK, NULL, NULL);
-            lv2_instance_midi_out_each(in, collect, &g);
+            lv2_instance_run(in, BLOCK);
+            midi_out_each(in, collect, &g);
             CHECK(seen->n == 2 && g.n == bad[i].want, "ll midi run: %s (%u of 2)", bad[i].what, g.n);
         }
         seen->misbehave = LV2_LL_MIDI_FIXTURE_WELL;
@@ -1437,8 +1447,8 @@ static void t_event_run(void)
     lv2_instance_midi_in_add(in, 17, cc, 3);
     lv2_instance_midi_in_add(in, 63, off, 3);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(seen->n == 5 && seen->other == 0 && seen->frame[0] == 0 && seen->size[1] == 2 && seen->frame[2] == 9 && seen->size[2] == 6
               && seen->frame[4] == 63 && memcmp(seen->data[3], cc, 3) == 0,
           "event run: the plugin read five MIDI events of the MIDI type at their frames and lengths (%u, other %u)", seen->n, seen->other);
@@ -1447,8 +1457,8 @@ static void t_event_run(void)
           "event run: five out at their frames, the note on and off one key up, the rest byte for byte (%u)", g.n);
 
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(seen->n == 0 && g.n == 0, "event run: a block with no input reads and writes nothing: nothing carries over (%u, %u)", seen->n, g.n);
 
     lv2_instance_counters(in, &before);
@@ -1456,8 +1466,8 @@ static void t_event_run(void)
         lv2_instance_midi_in_add(in, i < BLOCK ? i : BLOCK - 1u, on, 3);
     lv2_instance_counters(in, &after);
     memset(&g, 0, sizeof(g));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, collect, &g);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, collect, &g);
     CHECK(seen->n == EV_CAPACITY && g.n == EV_CAPACITY && after.midi_in_dropped - before.midi_in_dropped == 8,
           "event run: a block that does not fit keeps the first %u events and counts the 8 it dropped (%u, %u, %u)", EV_CAPACITY,
           seen->n, g.n, after.midi_in_dropped - before.midi_in_dropped);
@@ -1480,15 +1490,15 @@ static void t_event_run(void)
             lv2_instance_midi_in_add(in, 1, on, 3);
             lv2_instance_midi_in_add(in, 2, cc, 3);
             memset(&g, 0, sizeof(g));
-            lv2_instance_run(in, BLOCK, NULL, NULL);
-            lv2_instance_midi_out_each(in, collect, &g);
+            lv2_instance_run(in, BLOCK);
+            midi_out_each(in, collect, &g);
             CHECK(seen->n == 2 && g.n == bad[i].want, "event run: %s (%u read of 2)", bad[i].what, g.n);
         }
         seen->misbehave = LV2_EVENT_FIXTURE_WELL;
         lv2_instance_midi_in_add(in, 1, on, 3);
         memset(&g, 0, sizeof(g));
-        lv2_instance_run(in, BLOCK, NULL, NULL);
-        lv2_instance_midi_out_each(in, collect, &g);
+        lv2_instance_run(in, BLOCK);
+        midi_out_each(in, collect, &g);
         CHECK(g.n == 1 && same_message(&g, 0, 1, on_up, 3), "event run: and the next well-formed block is read again (%u)", g.n);
     }
 
@@ -1511,8 +1521,8 @@ static void t_event_run(void)
     {
         lv2_instance_midi_in_add(in, 3, on, 3);
         memset(&g, 0, sizeof(g));
-        lv2_instance_run(in, BLOCK, NULL, NULL);
-        lv2_instance_midi_out_each(in, collect, &g);
+        lv2_instance_run(in, BLOCK);
+        midi_out_each(in, collect, &g);
         CHECK(seen->n == 1 && seen->b == 0 && seen->frame[0] == 3, "event run: #two's first input read the note, its second nothing (%u, %u)",
               seen->n, seen->b);
         CHECK(g.n == 1 && same_message(&g, 0, 3, on, 3), "event run: written to both outputs, read once from the first (%u)", g.n);
@@ -1555,8 +1565,8 @@ static void t_event_mixed(void)
         {
             lv2_instance_midi_in_add(in, 3, on, 3);
             memset(&g, 0, sizeof(g));
-            lv2_instance_run(in, BLOCK, NULL, NULL);
-            lv2_instance_midi_out_each(in, collect, &g);
+            lv2_instance_run(in, BLOCK);
+            midi_out_each(in, collect, &g);
             CHECK((ev ? seen->ev_in == 1 && seen->atom_in == 0 : seen->atom_in == 1 && seen->ev_in == 0),
                   "event mixed %s: the note reached the first input alone (atom %u, event %u)", twins[t].frag, seen->atom_in, seen->ev_in);
             CHECK(g.n == 1 && same_message(&g, 0, 3, on, 3),
@@ -1877,15 +1887,15 @@ static void event_big(void)
     lv2_instance_counters(in, &after);
     CHECK(after.midi_in_dropped - before.midi_in_dropped == 1, "event big: and counted as dropped (%u)", after.midi_in_dropped - before.midi_in_dropped);
     g_big_n = g_big_size = 0;
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, big_collect, NULL);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, big_collect, NULL);
     CHECK(seen->n == 1 && seen->size[0] == 65516u && g_big_n == 1 && g_big_size == 65516u,
           "event big: the plugin read one 65516-byte event and the host read it back whole (%u, %u, %u)", seen->n, g_big_n, g_big_size);
     seen->misbehave = LV2_EVENT_FIXTURE_OVERSIZE;
     lv2_instance_midi_in_add(in, 0, msg, 3u);
     g_big_n = 0;
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, big_collect, NULL);
+    lv2_instance_run(in, BLOCK);
+    midi_out_each(in, big_collect, NULL);
     CHECK(seen->n == 1 && g_big_n == 0, "event big: an output event of 65520 bytes inside the buffer is not read (%u)", g_big_n);
     seen->misbehave = LV2_EVENT_FIXTURE_WELL;
     lv2_instance_deactivate(in);
