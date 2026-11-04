@@ -162,9 +162,6 @@ jobs:
           pkg-config --modversion omxplugins
           command -v mod-host
 
-      - name: Install plugin-db's header, which the build reads
-        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
-
       - uses: actions/checkout@v4
 
       - name: Every source names its licence
@@ -179,6 +176,9 @@ jobs:
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
+
+      - name: Install plugin-db's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
 
       - name: Build
         run: make
@@ -565,9 +565,6 @@ jobs:
           pkg-config --modversion omxplugins
           command -v mod-host
 
-      - name: Install plugin-db's header, which the build reads
-        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
-
       - uses: actions/checkout@v4
 
       - name: Install plugin-hostd's headers and build its daemon
@@ -579,6 +576,9 @@ jobs:
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
+
+      - name: Install plugin-db's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
 
       - name: Build
         run: make
