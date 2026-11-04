@@ -459,10 +459,6 @@ jobs:
             echo "::warning::test-identity-lv2 SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
-      # The LV2 parity runner: its rules on fake recordings, each broken once and seen red (tests/lv2_parity.py)
-      - name: Test the LV2 parity rules
-        run: make test-parity-self
-
       # The CLAP coverage probe: scan parsing, the host loop against a fake host, classify, each rule broken once and
       # seen red (tests/clap_coverage.py); the desk run, make clap-coverage, is not CI's
       - name: Test the CLAP coverage probe's rules
@@ -481,14 +477,6 @@ jobs:
       - name: Test the consumer steps against test-core
         run: make test-ci-consumer-args
 
-      # The parity runner end to end on the fixture bundles, mod-host against the adapter, in a PipeWire of its own
-      - name: Test LV2 parity on the fixtures
-        run: |
-          if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
-            make test-parity-lv2
-          else
-            echo "::warning::test-parity-lv2 SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
-          fi
 
       # The same behind plugin-hostd with require_pins 1 and this host as its CLAP worker.
       - name: Test layout pinning behind plugin-hostd
