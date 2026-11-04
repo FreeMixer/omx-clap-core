@@ -672,11 +672,11 @@ tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADER
 # the core compiled into the test, so it holds the unoffered table's flag where it lives: the library exports nothing for it
 tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< src/abi_guard.S -ldl -lpthread -lm
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 tests/clap_state_busy_test: tests/clap_state_busy_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
 	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
-	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< src/abi_guard.S -ldl -lpthread -lm
+	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
@@ -792,11 +792,11 @@ tests/core_link_test: tests/core_link_test.c $(CORE_SO) omx-clap-core.pc.in
 
 # what one stage block costs, as the header is and with the six in_cycle stores relaxed (omx_clap_run's two,
 # omx_clap_run_ports' two and omx_clap_run_direct_status' two): a measurement
-bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/omx_clap_midi.h src/abi_guard.h src/abi_guard.S
+bench-stage: tests/stage_bench.c src/clap_stage.h src/hosted_stage.h src/hosted_stage_limits.h src/omx_clap_midi.h src/abi_guard.h src/abi_guard.S
 	mkdir -p build/bench-relaxed
 	sed -e 's/atomic_store(&s->in_cycle, \([01]\));/atomic_store_explicit(\&s->in_cycle, \1, memory_order_relaxed);/' src/clap_stage.h > build/bench-relaxed/clap_stage.h
 	test $$(grep -c 'in_cycle, [01], memory_order_relaxed' build/bench-relaxed/clap_stage.h) -eq 6
-	cp src/hosted_stage.h src/clap_host_limits.h src/omx_clap_midi.h src/abi_guard.h build/bench-relaxed/
+	cp src/hosted_stage.h src/hosted_stage_limits.h src/clap_host_limits.h src/omx_clap_midi.h src/abi_guard.h build/bench-relaxed/
 	$(CC) -Isrc $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"seq_cst"' -o build/stage_bench_seq_cst $< src/abi_guard.S -lm
 	$(CC) -Ibuild/bench-relaxed $(CLAP_CFLAGS) $(CFLAGS) -Werror -DBENCH_LABEL='"relaxed"' -o build/stage_bench_relaxed $< src/abi_guard.S -lm
 	for i in 1 2 3; do ./build/stage_bench_seq_cst; ./build/stage_bench_relaxed; done
@@ -1064,7 +1064,7 @@ build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2
 	mkdir -p build/tsan
 	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) src/abi_guard.S $(LV2_LIB) \
-	    $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
+	    $(CRYPTO_LIBS) $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
 
 test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
 	./tests/chain_host_tsan.sh $(abspath build/tsan/omx-clap-host) $(abspath build/tsan)
