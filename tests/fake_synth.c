@@ -766,14 +766,26 @@ typedef struct PROVIDER_T {
     const clap_preset_discovery_indexer_t *indexer;
 } provider_t;
 
+/* the provider's init: with FAKE_SYNTH_PRESET_PIDS set it appends the pid of the process listing to the file it names,
+ * so a test sees whether the host lists in its own process or another */
 static bool provider_init(const clap_preset_discovery_provider_t *provider)
 {
     const provider_t *p = provider->provider_data;
-    const char *dir = getenv("FAKE_SYNTH_PRESET_DIR");
+    const char *dir = getenv("FAKE_SYNTH_PRESET_DIR"), *pids = getenv("FAKE_SYNTH_PRESET_PIDS");
     const clap_preset_discovery_filetype_t type = { "fake preset", NULL, "fspreset" };
     const clap_preset_discovery_location_t built_in = { CLAP_PRESET_DISCOVERY_IS_FACTORY_CONTENT, "built in",
                                                         CLAP_PRESET_DISCOVERY_LOCATION_PLUGIN, NULL };
 
+    if (pids && pids[0])
+    {
+        FILE *f = fopen(pids, "a");
+
+        if (f)
+        {
+            fprintf(f, "%ld\n", (long)getpid());
+            fclose(f);
+        }
+    }
     if (!p->indexer->declare_filetype(p->indexer, &type) || !p->indexer->declare_location(p->indexer, &built_in))
         return false;
     if (dir && dir[0])

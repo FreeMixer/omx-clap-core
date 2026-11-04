@@ -50,6 +50,7 @@
 // plugin-hostd's verbs this host answers (preset_list, preset_get, pin_layout, chain): their words and formats are the
 // protocol library's declaration
 #include <plugin-hostd/plugin_hostd_protocol_host_verbs.h>
+#include <plugin-hostd/plugin_hostd_protocol_vocabulary.h>
 #include "clap_chain.h"
 #include "quiet_death.h"
 
@@ -388,6 +389,24 @@ static void preset_load_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
+/* preset_show <N> <key | file>: "resp 0 <json>", or one of the codes plugin-hostd's verbs file declares for it:
+ * PRESET_INVALID for a file that is no preset file, PRESET_NOT_OFFERED for a key the plugin does not list */
+static void preset_show_cb(proto_t *proto)
+{
+    char *reply = NULL;
+    const char *location = proto->list[2];
+    int resp = effects_preset_show(atoi(proto->list[1]), location, &reply);
+
+    if (resp == SUCCESS)
+        protocol_response(reply, proto);
+    else if (resp == ERR_LV2_INVALID_PRESET_URI)
+        protocol_response_int(location[0] == '/' ? OMX_REPLY_PLUGIN_HOSTD_PRESET_INVALID_RESP
+                                                 : OMX_REPLY_PLUGIN_HOSTD_PRESET_NOT_OFFERED_RESP, proto);
+    else
+        protocol_response_int(resp, proto);
+    free(reply);
+}
+
 static void preset_save_cb(proto_t *proto)
 {
     char reply[SOCKET_MSG_BUFFER_SIZE], name[SOCKET_MSG_BUFFER_SIZE];
@@ -488,8 +507,7 @@ static void term_signal(int sig)
 }
 
 /* preset_show in its instance form, preset_show <N> <load_key | file> (docs/presets.md), the one plugin-hostd's verbs file
- * declares of this host: mod-host's preset_show <uri> has one word, and a line of two under it would be refused as too
- * long instead of as a verb this host does not answer */
+ * declares of this host (preset_show_cb): mod-host's preset_show <uri> has one word and is not answered here */
 #define PRESET_SHOW_INSTANCE "preset_show %i %s"
 
 static int host_init(int socket_port, int feedback_port)
@@ -499,6 +517,7 @@ static int host_init(int socket_port, int feedback_port)
     // preset_load and preset_save as docs/presets.md has them, before the dispatch's and the unsupported list's
     protocol_add_command(EFFECT_PRESET_LOAD, preset_load_cb);
     protocol_add_command("preset_save %i %s ...", preset_save_cb);
+    protocol_add_command(PRESET_SHOW_INSTANCE, preset_show_cb);
     host_dispatch_register(&g_clap_backend);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
