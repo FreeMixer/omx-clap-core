@@ -149,7 +149,7 @@ clamped first, as it is today.
 
 ## Proof each item owes
 
-- Outputs bit-identical to before: the oracle suites (the LV2 and stage tests), and
+- Outputs bit-identical to before: the oracle and parity suites (`tests/lv2_parity.py`, the LV2 and stage tests), and
   `tests/lv2_direct_identity.sh` on every installed plugin for items that touch the LV2 path.
 - The sabotage of each new guard goes red.
 - Nanoseconds per sample before and after, 48000 Hz, 256 frames, a 24-plugin chain, CLAP, LV2 and mixed
