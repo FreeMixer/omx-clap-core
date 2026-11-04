@@ -849,7 +849,10 @@ tests/clap_scan_test: tests/clap_scan_test.c
 	$(CC) $(CFLAGS) -Werror -o $@ $<
 
 # the command socket's framing, in a PipeWire of its own: tests/socket_conformance.py against the host (#103)
+# first the readiness wait of the conformance script against stand-in daemons (#479): a daemon that starts slowly passes,
+# one that drops the next client after a partial disconnect fails, one that never answers is named
 test-socket: $(PROG)
+	python3 -I tests/socket_conformance_test.py
 	./tests/socket_e2e.sh
 
 # the host over jack, in a PipeWire of its own: every command on the wire and the ports it makes
