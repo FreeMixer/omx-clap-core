@@ -1,5 +1,5 @@
 Name: omx-clap-host
-Version:        0.28.0
+Version:        0.29.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -195,6 +195,20 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.29.0-1
+- omx-clap-host speaks the protocol through libplugin-hostd-protocol; plugin-hostd's
+  verbs and the mod-host verbs it refuses are that library's declaration and list
+- The parameter contract's fingerprint is libcrypto's SHA-256: the packages build
+  against OpenSSL
+- omx_clap_host_open_timed() takes a NULL id again, the factory's first
+  descriptor (#485)
+- The hosted stage's numbers are spelled once, OMX_HOSTED_STAGE_*
+- Tests: the socket conformance check waits for the first answer and its dropping
+  stand-in is deterministic (#483, #488); the xruns sabotage no longer reads the
+  wall clock (#489); the LV2 parity harness against mod-host is gone
+- The shared FreeMixer/.github checks replace the local copies (#477)
+- The packages install their licence and a short README and no other markdown
+
 * Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.28.0-1
 - preset_show answers what a load would apply, on one line of JSON: a listed preset's
   name, key and location, or a preset file's document; a key the plugin does not list
