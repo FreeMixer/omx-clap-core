@@ -199,6 +199,8 @@ static struct
     LilvWorld *world;
     LilvNode *node[N_COUNT];
     struct lv2_bundle *bundles;
+    char **data;        // the data bundles loaded into the world (lv2_world_load_data), kept as a plugin's bundle is
+    size_t ndata;
 } g;
 
 
@@ -371,6 +373,52 @@ struct lv2_bundle *lv2_bundle_ref(const char *path, char why[LV2_CORE_WHY_MAX])
     g.bundles = b;
     lv2_why_set(why, "");
     return b;
+}
+
+int lv2_world_load_data(const char *path)
+{
+    struct lv2_bundle *b;
+    LilvNode *node;
+    char **grown, *dir;
+    size_t n, i;
+
+    if (!path || path[0] != '/' || lilv_load() != 0)
+        return -1;
+    n = strlen(path);
+    if (!(dir = malloc(n + 2)))
+        return -1;
+    memcpy(dir, path, n + 1);
+    if (dir[n - 1] != '/')
+    {
+        dir[n] = '/';
+        dir[n + 1] = '\0';
+    }
+    // a bundle loaded already, as a plugin's or as data, is not loaded twice
+    for (b = g.bundles; b; b = b->next)
+        if (!strcmp(b->dir, dir))
+        {
+            free(dir);
+            return 0;
+        }
+    for (i = 0; i < g.ndata; i++)
+        if (!strcmp(g.data[i], dir))
+        {
+            free(dir);
+            return 0;
+        }
+    grown = realloc(g.data, (g.ndata + 1) * sizeof(*g.data));
+    node = grown ? L.lilv_new_file_uri(g.world, NULL, dir) : NULL;
+    if (grown)
+        g.data = grown;
+    if (!node)
+    {
+        free(dir);
+        return -1;
+    }
+    L.lilv_world_load_bundle(g.world, node);
+    L.lilv_node_free(node);
+    g.data[g.ndata++] = dir;
+    return 0;
 }
 
 void lv2_bundle_unref(struct lv2_bundle *b)
@@ -1907,7 +1955,18 @@ struct state_io
     const struct lv2_plugin *p;
     float *controls;
     LV2_URID float_type;
+    // the other number types a preset's pset:value may read as: an integer literal (pset:value 50) is an atom:Int
+    LV2_URID double_type, int_type, long_type, bool_type;
 };
+
+static void state_io_types(struct state_io *io, LV2_URID_Map *map)
+{
+    io->float_type = map->map(map->handle, LV2_ATOM__Float);
+    io->double_type = map->map(map->handle, LV2_ATOM__Double);
+    io->int_type = map->map(map->handle, LV2_ATOM__Int);
+    io->long_type = map->map(map->handle, LV2_ATOM__Long);
+    io->bool_type = map->map(map->handle, LV2_ATOM__Bool);
+}
 
 /* the value lilv saves for a port: an input control's, the bypass and the outputs are not in the state */
 static const void *state_get(const char *symbol, void *user, uint32_t *size, uint32_t *type)
@@ -1925,17 +1984,42 @@ static const void *state_get(const char *symbol, void *user, uint32_t *size, uin
     return NULL;
 }
 
-/* a port value the state carries, written to its input control: any other is ignored */
+/* a port value the state carries, written to its input control as a float: a float, a double, an int, a long or a bool,
+ * as lilv reads pset:value (an integer literal, mda Piano's pset:value 50, is an atom:Int); any other is ignored */
 static void state_set(const char *symbol, void *user, const void *value, uint32_t size, uint32_t type)
 {
     const struct state_io *io = user;
+    float f;
     uint32_t k;
 
-    if (size != sizeof(float) || type != io->float_type)
+    if (type == io->float_type && size == sizeof(float))
+        memcpy(&f, value, sizeof(f));
+    else if (type == io->double_type && size == sizeof(double))
+    {
+        double d;
+
+        memcpy(&d, value, sizeof(d));
+        f = (float)d;
+    }
+    else if ((type == io->int_type || type == io->bool_type) && size == sizeof(int32_t))
+    {
+        int32_t i;
+
+        memcpy(&i, value, sizeof(i));
+        f = (float)i;
+    }
+    else if (type == io->long_type && size == sizeof(int64_t))
+    {
+        int64_t l;
+
+        memcpy(&l, value, sizeof(l));
+        f = (float)l;
+    }
+    else
         return;
     for (k = 0; k < io->p->n_controls; k++)
         if (io->p->controls[k].kind == LV2_CONTROL_INPUT && strcmp(io->p->controls[k].symbol, symbol) == 0)
-            memcpy(&io->controls[k], value, sizeof(float));
+            io->controls[k] = f;
 }
 
 /* lilv_state_new_from_instance's eleven arguments in one, so the save goes through the guard as a one-argument call:
@@ -1974,7 +2058,7 @@ char *lv2_plugin_state_text(struct omx_abi_guard *ag, const struct lv2_plugin *p
     instance.pimpl = NULL;
     io.p = p;
     io.controls = (float *)controls;
-    io.float_type = map->map(map->handle, LV2_ATOM__Float);
+    state_io_types(&io, map);
     // the files the plugin made under its directory are copied out of it, so the state names what it held at the save
     save.plugin = p->lilv_plugin;
     save.instance = &instance;
@@ -2013,7 +2097,7 @@ int lv2_plugin_state_restore(struct omx_abi_guard *ag, const struct lv2_plugin *
     instance.pimpl = NULL;
     io.p = p;
     io.controls = controls;
-    io.float_type = map->map(map->handle, LV2_ATOM__Float);
+    state_io_types(&io, map);
     OMX_ABI_VCALL(ag, "state.restore", L.lilv_state_restore, state, &instance, state_set, &io, 0, features);
     L.lilv_state_free(state);
     return 0;
