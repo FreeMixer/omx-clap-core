@@ -16,9 +16,15 @@ Verbs
     preset_show <N> <load_key | file>  resp 0 <json>
 
 - `preset_list` counts the plugin's own presets: a CLAP plugin's through its file's `clap.preset-discovery-factory`
-  (every provider, every location, as `omx_clap_host_presets` reads them), an LV2 plugin's through the adapter's entry,
-  which lists the bundle's `pset:Preset` resources by lilv. Only presets that name the instance's plugin count. A
-  plugin that offers none answers `resp 0`.
+  (every provider, every location, as `omx_clap_host_presets` reads them), read by `omx-clap-scan --json <file>` in a
+  process of its own: the discovery runs the plugin's own code, and beside a live instance it can break it (Surge XT
+  1.4 rebuilds tables its processing reads, and the instance died on the audio thread). Without the scanner beside the
+  host (or `OMX_CLAP_SCAN`) it is read in process. An LV2 plugin's are listed through the adapter's entry, which lists
+  every `pset:Preset` that applies to it by lilv: its bundle's, and those of every bundle on the LV2 path that names
+  the plugin and holds no binary (the user's presets, a distribution's), loaded into the adapter's world at the add. An
+  LV2 preset's `file:` URI is given with its directory resolved, so a preset has one key whether its bundle is reached
+  through a link (plugin-hostd's narrowed world) or not, and `preset_load` takes either form. Only presets that name
+  the instance's plugin count. A plugin that offers none answers `resp 0`.
 - `preset_get` answers one of them, 0 to count - 1, in the listing's order: the key `preset_load` and `preset_show`
   take, and its name (the rest of the line). The key is the preset's URI for LV2, `file:<path>` for a CLAP `FILE`
   location holding one preset, `file:<path>#<key>` for one inside a container, `plugin:<key>` for a `PLUGIN` location;
@@ -37,7 +43,12 @@ Verbs
 - `preset_show` answers what a load would apply, on one line of JSON: for a file, the document with each state body's
   `bytes` replaced by its decoded `size`; for a listed preset, its `name`, `loadKey` and `location`.
 
-Not answered yet: `preset_show` (registered as unsupported, -902), and the feedback below after a load.
+  For a listed preset `loadKey` is the key inside its location and `location` names where it lives: `plugin` for a
+  `PLUGIN` location (a `plugin:<key>` key, or an LV2 preset's URI), `file://<path>` for a file, `loadKey` then the key
+  inside a container or null for a file of one preset. A key the last `preset_list` does not hold is looked for in a
+  listing read again; one the plugin does not list answers -523 (`PRESET_NOT_OFFERED`), and a file that is no preset
+  file -524 (`PRESET_INVALID`): the codes plugin-hostd's verbs file declares for `preset_show`, not `preset_load`'s
+  `resp -104 <code>`.
 
 After a load the host reports every parameter whose value the load moved as mod-host's `param_set <N> <symbol> <value>`
 feedback line, the same line a value the plugin moves by itself gives (plugin-hostd relays it as the parameter-feedback
