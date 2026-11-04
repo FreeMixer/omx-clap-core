@@ -47,11 +47,9 @@
 #include "protocol.h"
 #include "effects.h"
 #include "host_verbs.h"
-// preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from its
-// declaration, which plugin-hostd 0.13 and later install; a build against older headers answers none (omx-clap-core#383)
-#if __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
-#include <plugin-hostd/plugin_hostd_host_verbs.h>
-#endif
+// plugin-hostd's verbs this host answers (preset_list, preset_get, pin_layout, chain): their words and formats are the
+// protocol library's declaration
+#include <plugin-hostd/plugin_hostd_protocol_host_verbs.h>
 #include "clap_chain.h"
 #include "quiet_death.h"
 
@@ -69,8 +67,6 @@
 #endif
 #define VERSION         OMX_CLAP_VERSION
 #define IDLE_INTERVAL_MS 20
-/* plugin-hostd's chain line, which its package declares (FreeMixer/plugin-hostd#131) */
-#define VERB_CHAIN      "chain"
 
 
 /*
@@ -113,7 +109,7 @@ static const char g_help_msg[] =
     OMX_VERB_REMOTE_PAGES " <instance_number>\n"
     OMX_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     OMX_VERB_PARAM_INFO " <instance_number> <param_id>\n"
-    VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
+    OMX_VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
     OMX_VERB_AUDIO_PORTS " <instance_number>\n"
     "show_external_ui <instance_number>\n"
     OMX_VERB_HIDE_EXTERNAL_UI " <instance_number>\n"
@@ -347,7 +343,6 @@ static void remote_page_get_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
-#ifdef OMX_VERB_PIN_LAYOUT_FMT
 static void pin_layout_cb(proto_t *proto)
 {
     char reply[SOCKET_MSG_BUFFER_SIZE];
@@ -358,9 +353,7 @@ static void pin_layout_cb(proto_t *proto)
     else
         protocol_response_int(resp, proto);
 }
-#endif
 
-#ifdef OMX_VERB_PRESET_GET_FMT
 static void preset_list_cb(proto_t *proto)
 {
     protocol_response_int(effects_preset_list(atoi(proto->list[1])), proto);
@@ -380,7 +373,6 @@ static void preset_get_cb(proto_t *proto)
     else
         protocol_response_int(resp, proto);
 }
-#endif
 
 /* preset_load <N> <file | key> and preset_save <N> <file> <name>: a refusal answers "resp -104 <code>" */
 static void preset_load_cb(proto_t *proto)
@@ -536,14 +528,10 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(OMX_VERB_PARAM_INFO_FMT, param_info_cb);
-#ifdef OMX_VERB_PIN_LAYOUT_FMT
     protocol_add_command(OMX_VERB_PIN_LAYOUT_FMT, pin_layout_cb);
-#endif
-#ifdef OMX_VERB_PRESET_GET_FMT
     protocol_add_command(OMX_VERB_PRESET_LIST_FMT, preset_list_cb);
     protocol_add_command(OMX_VERB_PRESET_GET_FMT, preset_get_cb);
-#endif
-    protocol_add_command(VERB_CHAIN " ...", chain_cb);
+    protocol_add_command(OMX_VERB_CHAIN " ...", chain_cb);
     protocol_add_command(OMX_VERB_AUDIO_PORTS_FMT, audio_ports_cb);
     protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
     protocol_add_command(OMX_VERB_HIDE_EXTERNAL_UI_FMT, hide_external_ui_cb);
