@@ -42,9 +42,9 @@ PROTOCOL_CFLAGS = -I$(PROTOCOL_DIR)/include
 PROTOCOL_LIBS = -L$(PROTOCOL_DIR) -lplugin-hostd-protocol -Wl,-rpath,$(abspath $(PROTOCOL_DIR))
 endif
 
-# <plugin-pin/pin.h>, the layout fingerprint: all a build asks of the pin, with what its SHA-256 links
-PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-pin)
-PIN_LIBS = $(shell $(PKG_CONFIG) --libs plugin-pin)
+# <plugin-db/pin.h>, the layout fingerprint: all a build asks of the pin, with what its SHA-256 links
+PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-db)
+PIN_LIBS = $(shell $(PKG_CONFIG) --libs plugin-db)
 
 # a plugin-hostd checkout: the daemon and the clients the end-to-end tests run behind, at test time only. Nothing is
 # built from it (make test-no-hostd-build-dep)
@@ -411,7 +411,7 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	@$(call run_or_skip_clap_test_plugin,./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap))
 
 # the same without omx-delay.clap: only the fake plugin's checks
-# the pin is plugin-pin's: a build dependency on plugin-hostd would close the cycle this repository was cut out of
+# the pin is plugin-db's: a build dependency on plugin-hostd would close the cycle this repository was cut out of
 .PHONY: test-no-hostd-build-dep
 test-no-hostd-build-dep:
 	python3 tests/no_hostd_build_dep.py --self-test
@@ -1021,14 +1021,14 @@ test-host-verbs-sabotage: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(O
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_sabotage.sh
 
 # what the tests read of the verbs data/verbs.json declares, from the header over its renders (src/host_verbs.h) and
-# the layout scheme from plugin-pin's pin.h: a test names no code or verb of its own
+# the layout scheme from plugin-db's pin.h: a test names no code or verb of its own
 HASH := \#
-host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-pin/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PIN_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-db/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PIN_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 HOST_PIN_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
 HOST_INFO_DECLARED = $(foreach n,OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
 HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
 # what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
-phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-pin/pin.h>\n%s\n' $(1) | $(CC) $(PROTOCOL_CFLAGS) $(PIN_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-db/pin.h>\n%s\n' $(1) | $(CC) $(PROTOCOL_CFLAGS) $(PIN_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE OMX_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED OMX_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
 PHD_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_PLUGIN_HOSTD_PIN_BINARY_MISMATCH_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT OMX_VERB_PIN_SET OMX_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
 
