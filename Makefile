@@ -378,9 +378,11 @@ version-check:
 # clean rule
 # No tracked file points into a private repository, issue, branch or path (tools/private-refs-check.sh, with its --self-test).
 .PHONY: private-refs
+# FreeMixer/.github's private-refs check, from a checkout of it (FREEMIXER_DOTGITHUB, else ../freemixer-dotgithub)
+FREEMIXER_DOTGITHUB ?= ../freemixer-dotgithub
 private-refs:
-	tools/private-refs-check.sh
-	tools/private-refs-check.sh --self-test
+	$(FREEMIXER_DOTGITHUB)/.github/actions/private-refs-check/check.sh --self-test
+	$(FREEMIXER_DOTGITHUB)/.github/actions/private-refs-check/check.sh .
 
 .PHONY: docs
 # the C API reference by doxygen, from the installed headers' docstrings; build-time only
