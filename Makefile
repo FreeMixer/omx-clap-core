@@ -400,7 +400,7 @@ clean:
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
+test: test-unsupported-copy test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -853,6 +853,15 @@ tests/crash.clap: tests/crash_plugin.c
 
 tests/clap_scan_test: tests/clap_scan_test.c
 	$(CC) $(CFLAGS) -Werror -o $@ $<
+
+# no mod-host verb is refused by a list of this host's own: the protocol library's list does it (tests/unsupported_copy_check.sh,
+# with its self test), read from the protocol's mod-host.h
+PROTOCOL_MOD_HOST_H = $(firstword $(wildcard $(patsubst -I%,%/mod-host.h,$(filter -I%,$(PROTOCOL_CFLAGS)))))
+.PHONY: test-unsupported-copy
+test-unsupported-copy:
+	@test -n "$(PROTOCOL_MOD_HOST_H)" || { echo "test-unsupported-copy: no mod-host.h under the protocol's include path" >&2; exit 1; }
+	bash tests/unsupported_copy_check.sh --self-test $(PROTOCOL_MOD_HOST_H)
+	bash tests/unsupported_copy_check.sh $(PROTOCOL_MOD_HOST_H) src
 
 # the command socket's framing, in a PipeWire of its own: tests/socket_conformance.py against the host (#103)
 test-socket: $(PROG)
