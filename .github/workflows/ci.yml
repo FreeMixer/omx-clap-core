@@ -177,6 +177,9 @@ jobs:
           echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
+      - name: Install plugin-db's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
+
       - name: Build
         run: make
 
@@ -574,6 +577,9 @@ jobs:
           echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
+      - name: Install plugin-db's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
+
       - name: Build
         run: make
 
@@ -799,7 +805,8 @@ jobs:
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
           # plugin-hostd-protocol's verbs file names this host too (chain: required), and the check reads it
           rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd-protocol/verbs.json | grep -q '^plugin-hostd-protocol-contract-'
-          scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
+          dnf install -y --setopt=install_weak_deps=False plugin-db-devel
+          scheme=$(printf '#include <plugin-db/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-db) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
               ./tests/host_verbs_e2e.sh

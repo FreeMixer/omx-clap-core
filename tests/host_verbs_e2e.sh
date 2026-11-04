@@ -15,7 +15,7 @@
 # HOST_VERBS_PORT:        the socket port (default 5574)
 # HOST_VERBS_FIXTURES:    the directory of fake.clap and fake_synth.clap (default tests/)
 # HOST_VERBS_REGISTRATION: the registration table (default src/main.c)
-# PHD_PIN_LAYOUT_SCHEME:  the layout scheme plugin-hostd's pin.h declares, read from it by make test-host-verbs
+# PHD_PIN_LAYOUT_SCHEME:  the layout scheme plugin-db's pin.h declares, read from it by make test-host-verbs
 
 set -u
 
