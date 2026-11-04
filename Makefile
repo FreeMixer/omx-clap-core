@@ -44,10 +44,17 @@ endif
 
 # plugin-hostd's protocol and pin headers: pkg-config when plugin-hostd-devel is installed, a plugin-hostd checkout otherwise
 PLUGIN_HOSTD_DIR ?= ../plugin-hostd
+# pin.h is header-inline and digests through libcrypto (plugin-hostd 0.16): a program that includes it (through
+# src/layout_pin.h: effects.c, scan.c, tests/clap_layout_pin.c) links PLUGIN_HOSTD_LIBS, what plugin-hostd.pc names.
+# A checkout has no .pc installed: its protocol/plugin-hostd.pc.in is read for the same Requires, the protocol library
+# left to PROTOCOL_LIBS, which finds it in its own checkout.
 ifeq ($(shell $(PKG_CONFIG) --exists plugin-hostd && echo true), true)
 PLUGIN_HOSTD_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd)
+PLUGIN_HOSTD_LIBS = $(shell $(PKG_CONFIG) --libs plugin-hostd)
 else
 PLUGIN_HOSTD_CFLAGS = -I$(PLUGIN_HOSTD_DIR)/include
+PLUGIN_HOSTD_REQUIRES = $(shell sed -n 's/^Requires: *//p' $(PLUGIN_HOSTD_DIR)/protocol/plugin-hostd.pc.in 2>/dev/null | tr ',' '\n' | sed -n 's/^ *\([^ ]*\).*/\1/p' | grep -vx plugin-hostd-protocol)
+PLUGIN_HOSTD_LIBS = $(if $(strip $(PLUGIN_HOSTD_REQUIRES)),$(shell $(PKG_CONFIG) --libs $(PLUGIN_HOSTD_REQUIRES)))
 endif
 
 # plugin-hostd-tests' protocol clients (lib/protocol.sh, lib/plugin_hostd_client.py), which every e2e test and bench
@@ -180,7 +187,7 @@ $(CORE_SO): $(CORE_SONAME)
 
 # linking rule: the LV2 adapter is linked in, and lilv is not: the adapter dlopens it on the first LV2 add
 $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
+	$(CC) $(OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(PLUGIN_HOSTD_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
@@ -188,7 +195,7 @@ $(PROTOCOL_LIB):
 endif
 
 $(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
-	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(LDFLAGS) -ldl -lpthread -lm -o $@
+	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PLUGIN_HOSTD_LIBS) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # the preset census (tools/preset-census.c): every plugin's preset-discovery factory, preset-load and state, one TSV line
 # each; built on demand, never installed
@@ -238,7 +245,7 @@ build/nox11/window.o: src/window.c
 	@mkdir -p build/nox11
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 $(NOX11_PROG): $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(PLUGIN_HOSTD_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 # the adapter calls its plugins through its own copy of the guard (src/abi_guard.S), named apart by OMX_ABI_LV2
@@ -992,7 +999,7 @@ test-jack-params-ready-sabotage: tests/host_ready_wait.sh tests/jack_params_read
 	./tests/jack_params_ready_sabotage.sh
 
 tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h src/abi_guard.h src/abi_guard.S
-	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S -ldl
+	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S $(PLUGIN_HOSTD_LIBS) -ldl
 
 # the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
 # host answers the add. PLUGIN_HOSTD is the daemon, built in a plugin-hostd checkout by default.
@@ -1080,7 +1087,7 @@ build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2
 	mkdir -p build/tsan
 	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) src/abi_guard.S $(LV2_LIB) \
-	    $(CRYPTO_LIBS) $(PROTOCOL_LIBS) $(LIBS) $(X11_LIBS)
+	    $(CRYPTO_LIBS) $(PROTOCOL_LIBS) $(PLUGIN_HOSTD_LIBS) $(LIBS) $(X11_LIBS)
 
 test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
 	./tests/chain_host_tsan.sh $(abspath build/tsan/omx-clap-host) $(abspath build/tsan)
