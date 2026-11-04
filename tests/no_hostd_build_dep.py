@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # plugin-hostd builds on this repository, so this repository does not build on plugin-hostd. What a pin needs is
-# plugin-pin's, and the protocol is plugin-hostd-protocol's. The end-to-end tests may still run behind a plugin-hostd at
+# plugin-db's, and the protocol is plugin-hostd-protocol's. The end-to-end tests may still run behind a plugin-hostd at
 # test time: a checkout's daemon and clients, or a package a CI step installs. This holds the build:
 #   the spec's BuildRequires and debian/control's Build-Depends name no plugin-hostd package,
 #   the Makefile asks pkg-config nothing of plugin-hostd and adds no plugin-hostd checkout's headers to a build,
@@ -89,11 +89,11 @@ def self_test():
          "a package BuildRequires"),
         ("debian/control", "               pkgconf,\n", "               plugin-hostd-dev (>= 0.5.0~),\n               pkgconf,\n",
          "a Build-Depends"),
-        ("Makefile", "PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-pin)\n",
+        ("Makefile", "PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-db)\n",
          "PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd)\n", "the Makefile asking pkg-config"),
-        ("Makefile", "PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-pin)\n",
+        ("Makefile", "PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-db)\n",
          "PIN_CFLAGS = -I$(PLUGIN_HOSTD_DIR)/include\n", "a plugin-hostd checkout's headers"),
-        ("src/layout_pin.h", "#include <plugin-pin/pin.h>\n", "#include <plugin-hostd/pin.h>\n", "an include of its pin.h"),
+        ("src/layout_pin.h", "#include <plugin-db/pin.h>\n", "#include <plugin-hostd/pin.h>\n", "an include of its pin.h"),
     ]
     failed = 0
     if check(here):
@@ -140,7 +140,7 @@ def main():
         print("FAIL a build dependency on plugin-hostd: " + line)
     if found:
         sys.exit(1)
-    print("ok   nothing is built from plugin-hostd: the pin is plugin-pin's")
+    print("ok   nothing is built from plugin-hostd: the pin is plugin-db's")
 
 
 if __name__ == "__main__":

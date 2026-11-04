@@ -12,7 +12,7 @@ Build-Depends: debhelper-compat (= 13),
                libplugin-hostd-protocol-dev (>= 0.2.0),
                libomxdsp-dev (>= 0.18.0),
                libomx-contract-dev (>= 3.3.0),
-               plugin-pin-dev (>= 0.1.0~),
+               plugin-db-dev (>= 0.1.0~),
                pkgconf,
                python3
 Standards-Version: 4.6.2
