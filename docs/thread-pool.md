@@ -31,6 +31,14 @@ extension allows it, it is real-time safe, and it is what an instance gets unles
   (omx-clap-host reads it from JACK, `jack_client_real_time_priority`), or the normal class when the audio thread is not
   real-time. When the priority cannot be set (no `CAP_SYS_NICE`, an `RLIMIT_RTPRIO` below it) no pool is made and the
   instance runs serial, with one log line naming why: `thread pool: serial: SCHED_FIFO <p> refused (<errno>)`.
+  The priority the host is told at the grant is its guess; the audio thread's own is the fact (pipewire-jack answers
+  `jack_client_real_time_priority` with an unset value before its thread runs, and a JACK thread may run at another
+  priority than the one asked). The first request names the audio thread, and the control tick (`omx_clap_host_tick`)
+  sets the helpers to its policy and priority, with the log line `thread pool: helpers follow the audio thread: SCHED_FIFO
+  <p>` (or `the normal class`); a refusal is said once. A helper left in the normal class gets next to nothing on a busy
+  machine while the audio thread is real-time: eight 0.3 ms tasks a block, three helpers on a 4-core mask with six busy
+  loops on their cores, the audio thread ran 808 ms of the 3 s and the helpers 187 to 297 ms each; at the audio thread's
+  priority 313 ms and 299 to 301 ms each.
 - **Lifetime.** The pool is made by the first activate of an instance granted it and ended by the last deactivate; its
   threads are created and joined on the control thread only. Nothing is allocated after the activate.
 - **Parking.** Between requests a helper spins for a few microseconds, then sleeps on a futex. A request wakes the
