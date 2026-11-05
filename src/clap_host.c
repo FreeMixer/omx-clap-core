@@ -4180,6 +4180,14 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
         tail_read(in);
     timers_serve(in);
     fds_serve(in);
+    // the pool's helpers at the scheduling of the audio thread that asks for them
+    if (in->pool_held)
+    {
+        char follow[OMX_HOSTED_STAGE_LOG_BYTES];
+
+        if (thread_pool_follow(follow, sizeof(follow)) && follow[0])
+            log_to_ring(in, follow);
+    }
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         omx_abi_g(OMX_ABI_GUARD_OF(in), "on_main_thread", (const void *)in->plugin->on_main_thread, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     // an unoffered id has its turn ahead of the plugin's line, which waits in log_ring for the next free slot: the ids
