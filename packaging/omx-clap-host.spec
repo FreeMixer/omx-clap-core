@@ -208,6 +208,9 @@ make test-lv2
 - omx-clap-host answers hello (plugin-hostd-protocol 0.3.0): a session can be granted
   request tags, error words and event sequence numbers
 - add: a clap: uri whose path holds a space is one uri; it answered -101
+- preset_list: the scanner may take nine tenths of the rpc timeout, 4.5 s; Surge XT 1.4 needs up to 4.1 s and was refused at 3 s
+- The thread pool's helpers run at the scheduling of the audio thread, not at the priority the JACK client answered at add: on a busy machine
+  the helpers did next to nothing and the audio thread rendered the whole block
 - The unit code table and the JSON string writer are omx-contract 3.9.0's, and the pin
   is plugin-db's: nothing is built from plugin-hostd any more
 - lv2: the adapter's control writes and MIDI-out sink are direct calls on the audio path
