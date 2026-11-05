@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of the resource hints' guards (#323): each arm copies the sources
 # into build/sabotage-hints-<arm>, breaks one guard there with one sed, builds the

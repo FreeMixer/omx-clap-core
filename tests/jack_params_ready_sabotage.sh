@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of tests/host_ready_wait.sh's two causes (#191): a host that holds but never writes its "ready!"
 # line, and a port a listener already held before the host even started. Both must come back named, not just a
