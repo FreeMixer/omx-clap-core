@@ -21,7 +21,7 @@
 /*
 ************************************************************************************************************************
 *
-* The layout of a CLAP plugin as plugin-hostd's pin.h reads it: every parameter params.count() and get_info() give,
+* The layout of a CLAP plugin as plugin-db's pin.h reads it: every parameter params.count() and get_info() give,
 * hidden, read-only and bypass included, filled into pin.h's records. The bytes and the digest are pin.h's; nothing
 * here serialises. Called on the main thread of an instance that is initialised and not yet activated.
 *
@@ -46,7 +46,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <clap/clap.h>
-#include <plugin-hostd/pin.h>
+#include <plugin-db/pin.h>
 
 #include "abi_guard.h"
 #include "clap_host_limits.h"
