@@ -114,7 +114,7 @@ seed that shows it, in the form OSS Verify reads (docs/build-contract.md of oss-
 
 ```
 /* The tree is the one the file spells.
- * mutant: src/preset_file.c:151 `'\n'` -> `'\r'`
+ * mutant: src/preset_file.c:153 `'\n'` -> `'\r'`
  * input: escapes */
 if (rc == 0 && want != 0)
     abort();
