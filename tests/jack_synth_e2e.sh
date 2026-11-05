@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # an instrument in omx-clap-host over jack, end to end, in a PipeWire of its own: the script
 # re-runs itself in a private user, net, pid and mount namespace with its own

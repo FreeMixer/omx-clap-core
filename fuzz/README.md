@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # Fuzzing the readers
 
 The host reads bytes from disk that people and other programs write: preset files, the state bodies they carry, and
@@ -112,7 +114,7 @@ seed that shows it, in the form OSS Verify reads (docs/build-contract.md of oss-
 
 ```
 /* The tree is the one the file spells.
- * mutant: src/preset_file.c:151 `'\n'` -> `'\r'`
+ * mutant: src/preset_file.c:153 `'\n'` -> `'\r'`
  * input: escapes */
 if (rc == 0 && want != 0)
     abort();
