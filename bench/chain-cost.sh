@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # What a chain member costs (#104, docs/chain.md): N instances of one plugin in one omx-clap-host, one client each
 # ("own") and one chain declared by the chain line ("chain"), in a PipeWire of its own at COST_RATE / COST_QUANTUM

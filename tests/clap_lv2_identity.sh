@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # One LV2 plugin run four ways from the same cycles of one deterministic input,
 # the outputs compared bit for bit with the plugin run through omx-clap-host's

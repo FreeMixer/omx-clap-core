@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # The CLAP thread pool
 
 `clap.thread-pool` lets a plugin split one `process()` into tasks: inside `process()` it calls the host's
