@@ -9,7 +9,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, dedupe/all]
 
 permissions:
   contents: read
@@ -155,6 +155,11 @@ jobs:
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
+      - uses: actions/checkout@v4
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
+
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
@@ -164,8 +169,6 @@ jobs:
           pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
-
-      - uses: actions/checkout@v4
 
       - name: Every file a comment can be written in opens with its licence
         uses: FreeMixer/.github/.github/actions/spdx-check@c67b6d0e09fd9f7cf9a8dd24ff41ea30d99f893c
@@ -563,6 +566,11 @@ jobs:
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
+      - uses: actions/checkout@v4
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
+
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
@@ -614,13 +622,16 @@ jobs:
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
 
+      - uses: actions/checkout@v4
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
+
       - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
         run: |
           set -euo pipefail
           dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.9.0'
           pkg-config --modversion omxdsp
-
-      - uses: actions/checkout@v4
 
       - name: The sabotage of the no-copy LV2 adapter
         run: DIRECT_SABOTAGE_JOBS=$(nproc) make test-lv2-direct-sabotage
@@ -656,6 +667,9 @@ jobs:
       # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, come from the OpenMixer channel
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
 
       - name: Fetch plugin-hostd
         run: |
@@ -930,6 +944,9 @@ jobs:
       # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the OpenMixer channel
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
 
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
