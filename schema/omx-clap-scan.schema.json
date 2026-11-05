@@ -1,0 +1,688 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.openmixer.org/schema/omx-clap-scan-output.json",
+  "title": "omx-clap-scan --json",
+  "description": "What omx-clap-scan --json writes to stdout: one document, the files it was asked to read (or found on CLAP_PATH) and for each the plugins in it, or the reason the file gave no listing. docs/scan.md says what each field is.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scanner",
+    "version",
+    "files"
+  ],
+  "properties": {
+    "scanner": {
+      "const": "omx-clap-scan"
+    },
+    "version": {
+      "type": "string"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/file"
+      }
+    }
+  },
+  "$defs": {
+    "file": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/fileListed"
+        },
+        {
+          "$ref": "#/$defs/fileFailed"
+        }
+      ]
+    },
+    "fileListed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "plugins"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/plugin"
+          }
+        },
+        "presets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/preset"
+          }
+        }
+      }
+    },
+    "fileFailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "code",
+        "error"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^(timeout|dlopen|entry|unreadable|pipe|fork|no-result|crash:[0-9]+)$"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    },
+    "plugin": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/pluginListed"
+        },
+        {
+          "$ref": "#/$defs/pluginFailed"
+        }
+      ]
+    },
+    "pluginFailed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "vendor",
+        "version",
+        "description",
+        "url",
+        "features",
+        "error"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "vendor": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    },
+    "pluginListed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "vendor",
+        "version",
+        "description",
+        "url",
+        "features",
+        "params",
+        "remote_controls",
+        "audio_ports",
+        "note_ports",
+        "panel"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "vendor": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "params": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/param"
+          }
+        },
+        "remote_controls": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/remoteControlPage"
+          }
+        },
+        "audio_ports": {
+          "$ref": "#/$defs/audioPorts"
+        },
+        "note_ports": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inputs",
+            "outputs"
+          ],
+          "properties": {
+            "inputs": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "outputs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "note_names": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/noteName"
+          }
+        },
+        "latency": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "voice_info": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "count",
+            "capacity",
+            "overlapping_notes"
+          ],
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "capacity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "overlapping_notes": {
+              "type": "boolean"
+            }
+          }
+        },
+        "resource_hints": {
+          "$ref": "#/$defs/resourceHints"
+        },
+        "panel": {
+          "$ref": "#/$defs/panel"
+        }
+      }
+    },
+    "number": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "module",
+        "min",
+        "max",
+        "default",
+        "flags"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "min": {
+          "$ref": "#/$defs/number"
+        },
+        "max": {
+          "$ref": "#/$defs/number"
+        },
+        "default": {
+          "$ref": "#/$defs/number"
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "stepped",
+              "periodic",
+              "hidden",
+              "readonly",
+              "bypass",
+              "automatable",
+              "automatable_per_note_id",
+              "automatable_per_key",
+              "automatable_per_channel",
+              "automatable_per_port",
+              "modulatable",
+              "modulatable_per_note_id",
+              "modulatable_per_key",
+              "modulatable_per_channel",
+              "modulatable_per_port",
+              "requires_process",
+              "enum"
+            ]
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "value",
+              "label"
+            ],
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "remoteControlPage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "section",
+        "name",
+        "params",
+        "forPreset"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "section": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "params": {
+          "type": "array",
+          "minItems": 8,
+          "maxItems": 8,
+          "items": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "forPreset": {
+          "type": "boolean"
+        }
+      }
+    },
+    "audioPorts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputs",
+        "outputs"
+      ],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/audioPort"
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/audioPort"
+          }
+        },
+        "passthrough": {
+          "const": "host"
+        }
+      }
+    },
+    "audioPort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "role",
+        "channels",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "main",
+            "aux"
+          ]
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "mono",
+            "stereo",
+            "surround",
+            "ambisonic",
+            "unknown"
+          ]
+        },
+        "map": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "ordering": {
+          "enum": [
+            "fuma",
+            "acn",
+            "unknown"
+          ]
+        },
+        "normalization": {
+          "enum": [
+            "maxn",
+            "sn3d",
+            "n3d",
+            "sn2d",
+            "n2d",
+            "unknown"
+          ]
+        },
+        "assumed": {
+          "const": true
+        },
+        "jack": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "noteName": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "port",
+        "key",
+        "channel"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        },
+        "key": {
+          "type": "integer"
+        },
+        "channel": {
+          "type": "integer"
+        }
+      }
+    },
+    "resourceHints": {
+      "type": "object",
+      "required": [
+        "declared"
+      ],
+      "properties": {
+        "declared": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refused": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "unit",
+          "figure"
+        ],
+        "properties": {
+          "unit": {
+            "type": "string"
+          },
+          "figure": {
+            "type": [
+              "integer",
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "code": {
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    "tooMany": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "refused",
+        "count",
+        "max"
+      ],
+      "properties": {
+        "refused": {
+          "const": "too-many"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "table": {
+      "oneOf": [
+        {
+          "type": "array"
+        },
+        {
+          "$ref": "#/$defs/tooMany"
+        }
+      ]
+    },
+    "panel": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "family",
+            "fingerprint",
+            "sections",
+            "controls",
+            "roles",
+            "displays",
+            "placementDefaults"
+          ],
+          "properties": {
+            "family": {
+              "$ref": "#/$defs/code"
+            },
+            "fingerprint": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sections": {
+              "$ref": "#/$defs/table"
+            },
+            "controls": {
+              "$ref": "#/$defs/table"
+            },
+            "roles": {
+              "$ref": "#/$defs/table"
+            },
+            "displays": {
+              "$ref": "#/$defs/table"
+            },
+            "placementDefaults": {
+              "$ref": "#/$defs/table"
+            }
+          }
+        }
+      ]
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "location_kind",
+        "location",
+        "load_key",
+        "provider",
+        "plugins",
+        "flags"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "location_kind": {
+          "enum": [
+            "plugin",
+            "file"
+          ]
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "load_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "plugins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "flags": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "factory",
+              "user",
+              "demo",
+              "favorite"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
