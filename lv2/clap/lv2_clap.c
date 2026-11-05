@@ -768,9 +768,8 @@ static void midi_in_events(struct shim *s, const clap_input_events_t *events)
 
 /* [audio] one midi:MidiEvent the plugin wrote, as a CLAP event at its frame. A message of up to three bytes is a
  * CLAP_EVENT_MIDI, a sysex a CLAP_EVENT_MIDI_SYSEX, anything else is not a message a CLAP port carries and is not passed. */
-static void midi_out_event(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+static void midi_out_event(struct shim *s, int64_t frame, const uint8_t *data, uint32_t size)
 {
-    struct shim *s = ctx;
     const uint32_t time = frame < 0 ? 0u : frame_in(s, (uint32_t)(frame > UINT32_MAX ? UINT32_MAX : frame));
     clap_event_midi_t m;
     clap_event_midi_sysex_t x;
@@ -1042,10 +1041,9 @@ static void plugin_reset(const clap_plugin_t *plugin)
     }
 }
 
-static void write_controls(void *ctx)
+/* [audio] the block's control writes, between the two halves of the run: after the worker responses, before run() */
+static void write_controls(struct shim *s)
 {
-    struct shim *s = ctx;
-
     apply_events(s, s->events);
 }
 
@@ -1270,13 +1268,21 @@ static clap_process_status plugin_process(const clap_plugin_t *plugin, const cla
     s->frames = n;
     if (s->lv2->midi_in_port >= 0)
         midi_in_events(s, process->in_events);
-    lv2_instance_run(s->in, n, write_controls, s);
+    lv2_instance_run_begin(s->in);
+    write_controls(s);
+    lv2_instance_run_end(s->in, n);
     s->ran = 1;
     s->events = NULL;
     triggers_reset(s, process->out_events);
     emit_patch_changes(s, process->out_events);
     if (s->lv2->midi_out_port >= 0 && s->out_events)
-        lv2_instance_midi_out_each(s->in, midi_out_event, s);
+    {
+        struct lv2_midi_out c;
+        struct lv2_midi_out_event e;
+
+        for (lv2_instance_midi_out_begin(s->in, &c); lv2_instance_midi_out_next(&c, &e);)
+            midi_out_event(s, e.frame, e.data, e.size);
+    }
     s->out_events = NULL;
     if (process->audio_outputs_count && process->audio_outputs[0].data32 && s->lv2->passthrough)
     {

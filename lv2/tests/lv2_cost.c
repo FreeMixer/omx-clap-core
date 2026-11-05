@@ -143,7 +143,7 @@ int main(int argc, char **argv)
             face[round] = (now_ns() - t0) / per;
             t0 = now_ns();
             for (i = 0; i < per; i++)
-                lv2_instance_run(li, QUANTUM, NULL, NULL);
+                lv2_instance_run(li, QUANTUM);
             core[round] = (now_ns() - t0) / per;
         }
         qsort(face, ROUNDS, sizeof(double), cmp_double);

@@ -77,7 +77,7 @@ static struct lv2_plugin *open_fx(const char *uri, char why[LV2_CORE_WHY_MAX])
 static void run_block(struct lv2_instance *in, const float *x, float *y)
 {
     memcpy(lv2_instance_audio_in(in, 0), x, BLOCK * sizeof(float));
-    lv2_instance_run(in, BLOCK, NULL, NULL);
+    lv2_instance_run(in, BLOCK);
     memcpy(y, lv2_instance_audio_out(in, 0), BLOCK * sizeof(float));
 }
 
