@@ -38,6 +38,12 @@ int thread_pool_acquire(int32_t priority, char *line, size_t size);
 /* control thread: one instance fewer; the last ends the pool, its helpers joined */
 void thread_pool_release(void);
 
+/* control thread: the helpers set to the scheduling the audio thread that makes the requests runs at (SCHED_FIFO and its
+ * priority, or the normal class), when they are not: the priority a host was told at the grant is its guess, the audio
+ * thread's own is the fact (pipewire-jack answers jack_client_real_time_priority with garbage before its thread runs).
+ * 1 when it changed them or was refused, with `line` the log line saying which; 0 otherwise */
+int thread_pool_follow(char *line, size_t size);
+
 /* the audio thread of an instance holding the pool, inside its request_exec: tasks 0 to num - 1 of `in`, run by the
  * helpers and the calling thread, all ended when it returns 0; *late is 1 when the wait for the helpers ran past
  * `budget_ns`. -1: not run (another request holds the pool, or num is 1 or above the hand-out word's 65535), the caller
