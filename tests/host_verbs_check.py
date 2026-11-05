@@ -74,6 +74,11 @@ EXAMPLES = {
     'preset_get': (['{fx}', '0'], []),
     'preset_show': (['{fx}', 'preset.json'], []),
     'pin_layout': (['{fx}'], []),
+    # the protocol's own verbs (plugin-hostd-protocol 0.3.0): hello is answered by the library once the host registers it,
+    # the bulk verbs by the dispatch over the host's backend
+    'hello': (['1', 'tags'], []),
+    'param_get_many': (['{fx}', '0'], []),
+    'param_set_many': (['{fx}', '0', '0.5'], []),
 }
 
 # a verb a package declares of this host that the host answers in an open change, with that change: the check names it
