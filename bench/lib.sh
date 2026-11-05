@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # What bench/run-one.sh and bench/crash.sh share: the private graph, the probe, the five hosts behind one `send`, and
 # the plugin lines each path takes. Sourced, with `here`, `root`, `path`, `rate`, `quantum`, `out` and `raw` set, as

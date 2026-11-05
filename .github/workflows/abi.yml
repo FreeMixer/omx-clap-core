@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: abi
 
 # libomx-clap-core.so.1 compared with the baseline of its last release (abi/libomx-clap-core.so.1.abi): tests/abi-check.sh
@@ -18,7 +20,7 @@ jobs:
       image: fedora:44
     steps:
       - name: Install the build tools
-        run: dnf install -y --setopt=install_weak_deps=False git gcc make diffutils pkgconf-pkg-config clap-devel libabigail dwarves dnf5-plugins
+        run: dnf install -y --setopt=install_weak_deps=False git gcc make diffutils pkgconf-pkg-config clap-devel openssl-devel libabigail dwarves dnf5-plugins
 
       # omx-dsp's headers, which hosted_stage.h includes, and omx-contract's, which omx-dsp's name, from the OpenMixer
       # channel; clap_host.h's hosting codes are this tree's, src/omx_clap_core_vocabulary.h
@@ -28,7 +30,7 @@ jobs:
       - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0'
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0'
 
       - uses: actions/checkout@v4
 

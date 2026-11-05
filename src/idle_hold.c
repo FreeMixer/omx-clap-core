@@ -52,7 +52,7 @@
 */
 
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static int32_t g_target = CLAP_HOST_IDLE_HOLD_US;
+static int32_t g_target = OMX_HOSTED_STAGE_IDLE_HOLD_US;
 static int g_fd = -1;               // the one descriptor, -1 while nothing is held
 static uint32_t g_active;           // the instances active in this process
 static char g_code[OMX_CLAP_WHY_MAX];   // the last refusal, empty once a hold succeeded
@@ -127,7 +127,7 @@ static int32_t aggregate_read(void)
 
 int32_t idle_hold_target_default(void)
 {
-    return (int32_t)CLAP_HOST_IDLE_HOLD_US;
+    return (int32_t)OMX_HOSTED_STAGE_IDLE_HOLD_US;
 }
 
 void idle_hold_configure(int32_t target_us)

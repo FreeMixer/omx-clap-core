@@ -45,25 +45,16 @@
 #include "host-dispatch.h"
 #include "socket.h"
 #include "protocol.h"
+// hello, request tags and error words are the protocol library's from 0.3.0: protocol_add_hello() registers them
+#ifndef PROTOCOL_HELLO
+#error "plugin-hostd-protocol's hello (protocol_add_hello) not found: install plugin-hostd-protocol-devel >= 0.3.0 and < 0.4"
+#endif
 #include "effects.h"
 #include "host_verbs.h"
-// preset_list, preset_get and pin_layout are plugin-hostd's verbs, optional for this host: their formats from its
-// declaration, which libplugin-hostd-protocol installs from 0.2.0 (plugin-hostd 0.16.0) and plugin-hostd itself before
-// (0.13 to 0.15). A build that finds neither would answer no preset_list, and presets are a must: it does not build.
-#if __has_include(<plugin-hostd/plugin_hostd_protocol_host_verbs.h>)
+// plugin-hostd's verbs this host answers (preset_list, preset_get, pin_layout, chain): their words and formats are the
+// protocol library's declaration
 #include <plugin-hostd/plugin_hostd_protocol_host_verbs.h>
-#elif __has_include(<plugin-hostd/plugin_hostd_host_verbs.h>)
-#include <plugin-hostd/plugin_hostd_host_verbs.h>
-#endif
-#if __has_include(<plugin-hostd/plugin_hostd_protocol_vocabulary.h>)
 #include <plugin-hostd/plugin_hostd_protocol_vocabulary.h>
-#elif __has_include(<plugin-hostd/plugin_hostd_vocabulary.h>)
-#include <plugin-hostd/plugin_hostd_vocabulary.h>
-#endif
-#if !defined(OMX_VERB_PRESET_GET_FMT) || !defined(OMX_VERB_PRESET_LIST_FMT) || !defined(OMX_VERB_PIN_LAYOUT_FMT) || \
-    !defined(OMX_REPLY_PLUGIN_HOSTD_PRESET_NOT_OFFERED_RESP) || !defined(OMX_REPLY_PLUGIN_HOSTD_PRESET_INVALID_RESP)
-#error "plugin-hostd's host verbs (preset_list, preset_get, pin_layout) or its preset refusals not found: install plugin-hostd-protocol-devel >= 0.2.0"
-#endif
 #include "clap_chain.h"
 #include "quiet_death.h"
 
@@ -81,8 +72,6 @@
 #endif
 #define VERSION         OMX_CLAP_VERSION
 #define IDLE_INTERVAL_MS 20
-/* plugin-hostd's chain line, which its package declares (FreeMixer/plugin-hostd#131) */
-#define VERB_CHAIN      "chain"
 
 
 /*
@@ -125,7 +114,7 @@ static const char g_help_msg[] =
     OMX_VERB_REMOTE_PAGES " <instance_number>\n"
     OMX_VERB_REMOTE_PAGE_GET " <instance_number> <page>\n"
     OMX_VERB_PARAM_INFO " <instance_number> <param_id>\n"
-    VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
+    OMX_VERB_CHAIN " <chain> <instance_number> [<instance_number> ...]\n"
     OMX_VERB_AUDIO_PORTS " <instance_number>\n"
     "show_external_ui <instance_number>\n"
     OMX_VERB_HIDE_EXTERNAL_UI " <instance_number>\n"
@@ -152,12 +141,42 @@ static const char g_help_msg[] =
 ************************************************************************************************************************
 */
 
+/* The uri of an add, whole. The protocol library splits a line at every space, so a "clap:" uri whose path holds a space
+ * arrives as several words: the uri is the words up to the one holding the '#' of the plugin id, joined with one space
+ * (the library collapses a run of spaces, so a path with two in a row is written in quotation marks, which it removes).
+ * *next is the index of the word after the uri. Any other uri is its one word. */
+static const char *add_uri(const proto_t *proto, char *joined, size_t size, uint32_t *next)
+{
+    uint32_t i;
+    size_t used = 0;
+
+    *next = 2;
+    if (strncmp(proto->list[1], "clap:", 5) != 0 || strchr(proto->list[1], '#'))
+        return proto->list[1];
+    for (i = 1; i < proto->list_count; i++)
+    {
+        int n = snprintf(joined + used, size - used, "%s%s", i > 1 ? " " : "", proto->list[i]);
+
+        if (n < 0 || (size_t)n >= size - used)
+            return proto->list[1];
+        used += (size_t)n;
+        if (strchr(proto->list[i], '#'))
+        {
+            *next = i + 1;
+            return joined;
+        }
+    }
+    return proto->list[1];
+}
+
 /* add, as mod-host answers it, with the hosting.* code of a refusal after the error code: "resp -102 <code>" */
 static void add_cb(proto_t *proto)
 {
-    char reply[256];
-    const char *client_name = proto->list_count > 3 ? proto->list[3] : NULL;
-    int resp = effects_add(proto->list[1], atoi(proto->list[2]), client_name);
+    char reply[256], joined[PATH_MAX + 256];
+    uint32_t next;
+    const char *uri = add_uri(proto, joined, sizeof(joined), &next);
+    const char *client_name = proto->list_count > next + 1 ? proto->list[next + 1] : NULL;
+    int resp = proto->list_count > next ? effects_add(uri, atoi(proto->list[next]), client_name) : ERR_INVALID_OPERATION;
 
     if (resp < 0 && effects_add_reason()[0])
     {
@@ -359,7 +378,6 @@ static void remote_page_get_cb(proto_t *proto)
         protocol_response_int(resp, proto);
 }
 
-#ifdef OMX_VERB_PIN_LAYOUT_FMT
 static void pin_layout_cb(proto_t *proto)
 {
     char reply[SOCKET_MSG_BUFFER_SIZE];
@@ -370,9 +388,7 @@ static void pin_layout_cb(proto_t *proto)
     else
         protocol_response_int(resp, proto);
 }
-#endif
 
-#ifdef OMX_VERB_PRESET_GET_FMT
 static void preset_list_cb(proto_t *proto)
 {
     protocol_response_int(effects_preset_list(atoi(proto->list[1])), proto);
@@ -392,7 +408,6 @@ static void preset_get_cb(proto_t *proto)
     else
         protocol_response_int(resp, proto);
 }
-#endif
 
 /* preset_load <N> <file | key> and preset_save <N> <file> <name>: a refusal answers "resp -104 <code>" */
 static void preset_load_cb(proto_t *proto)
@@ -525,33 +540,14 @@ static void term_signal(int sig)
     return; (void)sig;
 }
 
-/* mod-host's verbs this host does not answer, -902 each. host_dispatch_register_unsupported registers these and also the
- * nine this host answers itself (set_bpm, set_bpb, transport, transport_sync, monitor_output, track_info, remote_pages,
- * remote_page_get, param_info): a second entry under a verb is dead, and the protocol library's table holds
- * PROTOCOL_MAX_COMMANDS entries and drops any past it in silence, which with the note verbs was quit itself, and with
- * pin_layout was quit again. preset_save is not here: this host answers it (preset_save_cb, registered first), so an
- * entry here would be a dead one, and the 64 a mod-host protocol library before FreeMixer/mod-host#6 holds are full. */
 /* preset_show in its instance form, preset_show <N> <load_key | file> (docs/presets.md), the one plugin-hostd's verbs file
  * declares of this host (preset_show_cb): mod-host's preset_show <uri> has one word and is not answered here */
 #define PRESET_SHOW_INSTANCE "preset_show %i %s"
 
-static void register_unsupported(void)
-{
-    static const char *const commands[] = {
-        EFFECT_PARAM_MON, EFFECT_PATCH_GET, EFFECT_PATCH_SET, EFFECT_LICENSEE,
-        MONITOR_ADDR_SET, MONITOR_MIDI_PROGRAM, MIDI_LEARN, MIDI_MAP, MIDI_UNMAP, CC_MAP, CC_VALUE_SET, CC_UNMAP, CV_MAP,
-        CV_UNMAP, HMI_MAP, HMI_UNMAP, LOAD_COMMANDS, SAVE_COMMANDS, BUNDLE_ADD, BUNDLE_REMOVE, STATE_TMPDIR,
-        FEATURE_ENABLE, OUTPUT_DATA_READY,
-        NULL
-    };
-    const char *const *command;
-
-    for (command = commands; *command; command++)
-        protocol_add_command(*command, host_dispatch_unsupported_cb);
-}
-
 static int host_init(int socket_port, int feedback_port)
 {
+    // hello: a client names its protocol version and the extensions it asks for; one that never sends it is answered as before
+    protocol_add_hello();
     // the first command registered under a verb is the one that answers it: this add, not the dispatch's
     protocol_add_command(EFFECT_ADD, add_cb);
     // preset_load and preset_save as docs/presets.md has them, before the dispatch's and the unsupported list's
@@ -566,14 +562,10 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(OMX_VERB_PARAM_INFO_FMT, param_info_cb);
-#ifdef OMX_VERB_PIN_LAYOUT_FMT
     protocol_add_command(OMX_VERB_PIN_LAYOUT_FMT, pin_layout_cb);
-#endif
-#ifdef OMX_VERB_PRESET_GET_FMT
     protocol_add_command(OMX_VERB_PRESET_LIST_FMT, preset_list_cb);
     protocol_add_command(OMX_VERB_PRESET_GET_FMT, preset_get_cb);
-#endif
-    protocol_add_command(VERB_CHAIN " ...", chain_cb);
+    protocol_add_command(OMX_VERB_CHAIN_FMT, chain_cb);
     protocol_add_command(OMX_VERB_AUDIO_PORTS_FMT, audio_ports_cb);
     protocol_add_command(SHOW_EXTERNAL_UI, show_external_ui_cb);
     protocol_add_command(OMX_VERB_HIDE_EXTERNAL_UI_FMT, hide_external_ui_cb);
@@ -581,7 +573,10 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(EFFECT_SET_BPB, set_bpb_cb);
     protocol_add_command(TRANSPORT, transport_cb);
     protocol_add_command(TRANSPORT_SYNC, transport_sync_cb);
-    register_unsupported();
+    // mod-host's verbs this host does not answer, -902 each: the protocol library's list, registered after every verb
+    // this host answers, so its entries under those are never reached; and preset_show's instance form beside them
+    protocol_add_command(PRESET_SHOW_INSTANCE, host_dispatch_unsupported_cb);
+    host_dispatch_register_unsupported();
     protocol_add_command(CPU_LOAD, cpu_load_cb);
     protocol_add_command(OMX_VERB_IDLE_HOLD_FMT, idle_hold_cb);
     protocol_add_command(OMX_VERB_NOTE_DROPS_FMT, note_drops_cb);

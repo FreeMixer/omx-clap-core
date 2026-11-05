@@ -116,8 +116,8 @@ int main(int argc, char **argv)
     setenv("OMX_CLAP_IDLE_HOLD_DEVICE", g_device, 1);
 
     omx_clap_host_config_default(&config);
-    CHECK(config.idle_hold_us == (int32_t)CLAP_HOST_IDLE_HOLD_US && CLAP_HOST_IDLE_HOLD_US == 10u,
-          "the default target is the declared CLAP_HOST_IDLE_HOLD_US, 10 us: C1 only");
+    CHECK(config.idle_hold_us == (int32_t)OMX_HOSTED_STAGE_IDLE_HOLD_US && OMX_HOSTED_STAGE_IDLE_HOLD_US == 10u,
+          "the default target is the declared OMX_HOSTED_STAGE_IDLE_HOLD_US, 10 us: C1 only");
     CHECK(omx_clap_host_configure(&config) == 0, "configured with the defaults");
 
     omx_clap_host_idle_hold(&hold);

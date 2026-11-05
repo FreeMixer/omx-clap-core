@@ -1,5 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.28.0
+Version:        0.29.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -10,15 +12,16 @@ Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
-# the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise; a floor only
-BuildRequires: mod-host-protocol-devel >= 0.10.6.f14a230-11.3
-# plugin-hostd's pin.h: the layout fingerprint pin_expect names, one implementation, plugin-hostd's
-BuildRequires: pkgconfig(plugin-hostd) >= 0.5.0
+# the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise
+BuildRequires: (plugin-hostd-protocol-devel >= 0.3.0 with plugin-hostd-protocol-devel < 0.4)
+# plugin-db's pin.h: the layout fingerprint pin_expect names, one implementation
+BuildRequires: (plugin-db-devel >= 0.1.0 with plugin-db-devel < 0.2)
 BuildRequires: clap-devel
-BuildRequires: omx-dsp-devel >= 0.18.0
+BuildRequires: pkgconfig(libcrypto)
+BuildRequires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
-# the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0)
-BuildRequires: omx-contract-devel >= 3.3.0
+# the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0); omx_clap_ext.h, preset_file.c and scan.c include omx_param_units.h and omx_json_write.h (3.9.0)
+BuildRequires: (omx-contract-devel >= 3.9.0 with omx-contract-devel < 4)
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -32,7 +35,7 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
-Requires: mod-host-protocol%{?_isa} >= 0.10.6.f14a230-11.3
+Requires: (plugin-hostd-protocol%{?_isa} >= 0.3.0 with plugin-hostd-protocol%{?_isa} < 0.4)
 # an LV2 plugin is a lilv instance, mapped by the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
 
@@ -46,6 +49,7 @@ wrapper process. The LV2 adapter linked into the host maps the host interface,
 presenting the plugin's ports and controls as CLAP ports and parameters. It
 comes with omx-clap-scan, which lists what is in a CLAP bundle and survives a
 plugin that crashes while loading.
+Its documentation is on openmixer.org.
 
 %package tests
 Summary: Fixtures to test a program that drives omx-clap-host
@@ -60,6 +64,7 @@ into up to six effects and records each of them from the same cycles. They are i
 directories CLAP hosts scan, and are of no use to anyone else.
 socket_conformance.py, beside them, checks how any server of the mod-host
 socket protocol splits what it receives into commands.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-core
 Summary: The engine that runs CLAP plugins for omx-clap-host, as a library
@@ -71,6 +76,7 @@ The library that loads and runs CLAP plugins: it checks a plugin before using
 it, activates and warms it up, keeps its parameters and saved state, and runs
 its audio on the thread of the program that hosts it. It knows nothing about
 JACK or sockets, so a program of your own can host CLAP plugins on it as well.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-core-devel
 Summary: Build a program that hosts CLAP plugins on omx-clap-core
@@ -78,9 +84,9 @@ License: GPL-3.0-or-later
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
-Requires: omx-dsp-devel >= 0.18.0
-# omxcontract/omx_resource_hints.h, which clap_host.h includes
-Requires: omx-contract-devel >= 3.3.0
+Requires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
+# omxcontract/omx_resource_hints.h, which clap_host.h includes, and omx_param_units.h, which omx_clap_ext.h includes (3.9.0)
+Requires: (omx-contract-devel >= 3.9.0 with omx-contract-devel < 4)
 Requires: omx-clap-core-contract = %{version}-%{release}
 Requires: pkgconfig
 
@@ -88,13 +94,14 @@ Requires: pkgconfig
 What you need to write a program that hosts CLAP plugins on omx-clap-core: the
 headers, the pkg-config file, and the list of functions the library promises
 to keep, with the baseline each release is checked against.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-core-contract
 Summary: omx-clap-core's definitions in omx-contract's contract directory
 License: GPL-3.0-or-later
 BuildArch: noarch
 # the contract directory, its schema and its reader's own package
-Requires: omx-contract-data >= 3.3.0
+Requires: (omx-contract-data >= 3.3.0 with omx-contract-data < 4)
 # the files lived in omx-clap-core-devel before this package
 Conflicts: omx-clap-core-devel < %{version}-%{release}
 
@@ -103,12 +110,15 @@ omx-clap-core's definitions as files in omx-contract's contract directory,
 for any program that reads them at run time: the hosting limits and refusal
 codes, and the verbs omx-clap-host and plugin-hostd answer, with their
 formats, replies, refusal codes and what each host owes each verb.
+Its documentation is on openmixer.org.
 
 %package -n omx-clap-lv2-devel
 Summary: The LV2 adapter of omx-clap-host, as a static library to link
 License: GPL-3.0-or-later
 Requires: omx-clap-core-devel%{?_isa} = %{version}-%{release}
 Requires: clap-devel
+# the parameter contract's fingerprint is libcrypto's SHA-256: a program that links the static adapter links it too
+Requires: pkgconfig(libcrypto)
 Requires: pkgconfig
 
 %description -n omx-clap-lv2-devel
@@ -121,6 +131,7 @@ with its header and pkg-config file, linked at build time, and it loads lilv
 when the first LV2 bundle is opened, so a program that never opens one never
 needs lilv. LV2 at run time is omx-clap-host with lilv-libs, which
 plugin-hostd also runs as the worker of an LV2 plugin.
+Its documentation is on openmixer.org.
 
 %prep
 %autosetup
@@ -154,15 +165,19 @@ make test-lv2
 
 %files tests
 %license COPYING
+%doc README.md
 %{_libexecdir}/omx-clap-host/tests/
 
 %files -n omx-clap-core
 %license COPYING
+%doc README.md
 %{_libdir}/libomx-clap-core.so.1
 %{_libdir}/libomx-clap-core.so.%{version}
 %{_datadir}/omx-clap-core/ts/
 
 %files -n omx-clap-core-devel
+%license COPYING
+%doc README.md
 %{_libdir}/libomx-clap-core.so
 %{_libdir}/pkgconfig/omx-clap-core.pc
 %{_includedir}/omx-clap-host/
@@ -171,15 +186,44 @@ make test-lv2
 
 %files -n omx-clap-core-contract
 %license COPYING
+%doc README.md
 %{_datadir}/omx-contract/contract.d/3/omx-clap-core/
 
 %files -n omx-clap-lv2-devel
 %license COPYING
+%doc README.md
 %{_libdir}/libomx-clap-lv2.a
 %{_libdir}/pkgconfig/omx-clap-lv2.pc
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.29.0-1
+- omx-clap-host speaks the protocol through libplugin-hostd-protocol; plugin-hostd's
+  verbs and the mod-host verbs it refuses are that library's declaration and list
+- The parameter contract's fingerprint is libcrypto's SHA-256: the packages build
+  against OpenSSL
+- omx_clap_host_open_timed() takes a NULL id again, the factory's first
+  descriptor (#485)
+- The hosted stage's numbers are spelled once, OMX_HOSTED_STAGE_*
+- omx-clap-host answers hello (plugin-hostd-protocol 0.3.0): a session can be granted
+  request tags, error words and event sequence numbers
+- add: a clap: uri whose path holds a space is one uri; it answered -101
+- preset_list: the scanner may take nine tenths of the rpc timeout, 4.5 s; Surge XT 1.4 needs up to 4.1 s and was refused at 3 s
+- The thread pool's helpers run at the scheduling of the audio thread, not at the priority the JACK client answered at add: on a busy machine
+  the helpers did next to nothing and the audio thread rendered the whole block
+- The unit code table and the JSON string writer are omx-contract 3.9.0's, and the pin
+  is plugin-db's: nothing is built from plugin-hostd any more
+- lv2: the adapter's control writes and MIDI-out sink are direct calls on the audio path
+- Floors and ceilings: omx-contract >= 3.9.0 and < 4, omx-dsp >= 0.30.0 and < 0.31,
+  plugin-hostd-protocol >= 0.3.0 and < 0.4, plugin-db >= 0.1.0 and < 0.2
+- Tests: the socket conformance check waits for the first answer and its dropping
+  stand-in is deterministic (#483, #488); the xruns sabotage no longer reads the
+  wall clock (#489); the LV2 parity harness against mod-host stays as a test, without
+  its list of known faults; no copy of omx-contract's units table or JSON writer or of
+  the protocol's tables is allowed in the tree
+- The shared FreeMixer/.github checks replace the local copies (#477)
+- The packages install their licence and a short README and no other markdown
+
 * Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.28.0-1
 - preset_show answers what a load would apply, on one line of JSON: a listed preset's
   name, key and location, or a preset file's document; a key the plugin does not list

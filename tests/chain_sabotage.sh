@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of the chain's guards (#311, docs/chain.md): each arm copies the
 # sources into build/sabotage-chain-<arm>, breaks one guard of src/clap_chain.c
@@ -88,7 +89,7 @@ arm abi-refusal 's/return abi >= OMX_CLAP_CHAIN_ABI_OLDEST/return 1 || abi >= OM
 
 # 10. a change waits for the cycle that may still read the old plan before the next change builds into it: without the
 # wait, the control thread writes the plan a cycle reads, a race ThreadSanitizer names in publish
-arm publish-wait '/^static void publish/,/^}/{/while (atomic_load(&chain->in_cycle) != 0u)/d; /usleep(CLAP_HOST_UNPUBLISH_POLL_US);/d}' \
+arm publish-wait '/^static void publish/,/^}/{/while (atomic_load(&chain->in_cycle) != 0u)/d; /usleep(OMX_HOSTED_STAGE_UNPUBLISH_POLL_US);/d}' \
     'data race .* in publish' clap_chain_tsan
 
 # 11. a new order is published: never, the cycles run the old one

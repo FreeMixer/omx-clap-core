@@ -62,8 +62,6 @@
 #define HOST_PRESET_KEY_FILE    "file:"
 /* the longest string word, in bytes: a CLAP name without its terminator */
 #define HOST_STRING_MAX         (CLAP_NAME_SIZE - 1)
-/* the slots of one remote page */
-#define HOST_REMOTE_PAGE_SLOTS  CLAP_REMOTE_CONTROLS_COUNT
 /* a note's words: MIDI's ranges */
 #define HOST_NOTE_CHANNEL_MAX   15
 #define HOST_NOTE_KEY_MAX       127

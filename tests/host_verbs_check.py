@@ -41,7 +41,7 @@ OWNER = 'omx-clap-core'
 # a verb this host answers whose declaration belongs to another package's lane, and the package (FreeMixer/plugin-hostd#131);
 # once any installed package declares it, the socket checks it as declared
 # (preset_save is registered in plugin-hostd#131's form, <N> <file> <name...>, not mod-host's four-word one)
-AWAITING = {'preset_list': 'plugin-hostd', 'preset_get': 'plugin-hostd', 'preset_save': 'plugin-hostd', 'preset_show': 'plugin-hostd'}
+AWAITING = {'preset_list': 'plugin-hostd-protocol', 'preset_get': 'plugin-hostd-protocol', 'preset_save': 'plugin-hostd-protocol', 'preset_show': 'plugin-hostd-protocol'}
 
 # per verb: the words after the verb of a well-formed line, and malformed lines with the code each must answer.
 # {fx} is the passthrough instance (no note input, two remote pages, a parameter contract), {synth} the synth.
@@ -68,13 +68,18 @@ EXAMPLES = {
     'idle_hold': ([], [(['a', 'b'], 'invalidOperation')]),
     'note_drops': (['{synth}'], [(['9'], 'instanceNonExists')]),
     'note_out_drops': (['{synth}'], [(['9'], 'instanceNonExists')]),
-    # the verbs of plugin-hostd's package that name this host, checked once that package is installed beside this one
+    # the verbs of plugin-hostd-protocol's package that name this host, checked once that package is installed beside this one
     'chain': (['1', '{fx}', '{fx2}'], [(['x', '{fx}'], 'invalidOperation'), (['1', '{fx}', '{fx}'], 'invalidOperation')]),
     'preset_list': (['{fx}'], []),
     'preset_get': (['{fx}', '0'], []),
     'preset_show': (['{fx}', '{preset}'], [(['{fx}', 'plugin:none'], 'presetNotOffered'), (['{fx}', '{missing}'], 'presetInvalid'),
                                          (['9', '{preset}'], 'instanceNonExists')]),
     'pin_layout': (['{fx}'], []),
+    # the protocol's own verbs (plugin-hostd-protocol 0.3.0): hello is answered by the library once the host registers it,
+    # the bulk verbs by the dispatch over the host's backend
+    'hello': (['1', 'tags'], []),
+    'param_get_many': (['{fx}', '0'], []),
+    'param_set_many': (['{fx}', '0', '0.5'], []),
 }
 
 # a verb a package declares of this host that the host answers in an open change, with that change: the check names it
@@ -216,6 +221,7 @@ def main():
     ap = argparse.ArgumentParser()
     for a in ('--port', '--contract-path', '--registration', '--header', '--fake', '--synth', '--layout-scheme'):
         ap.add_argument(a, required=True)
+    ap.add_argument('--spaced-fake', help='a copy of the fake plugin under a directory whose name holds spaces')
     o = ap.parse_args()
 
     verbs = declarations(o.contract_path)
@@ -224,7 +230,7 @@ def main():
         print('host_verbs_check: no verb of %s for %s under %s' % (OWNER, HOST, o.contract_path), file=sys.stderr)
         return 2
     # a package the host's registrations lean on must be installed, else its verbs are never driven (#361)
-    step('plugin-hostd' in packages(o.contract_path), "plugin-hostd's package is installed under %s: its verbs file declares chain of %s"
+    step('plugin-hostd-protocol' in packages(o.contract_path), "plugin-hostd-protocol's package is installed under %s: its verbs file declares chain of %s"
          % (o.contract_path, HOST))
     print('host_verbs_check: %d verbs name %s, %d of them %s\'s, from %s' % (len(verbs), HOST, len(mine), OWNER, o.contract_path))
 
@@ -256,6 +262,14 @@ def main():
                        ('add clap:%s#org.omx-clap-host.test.passthrough %s' % (o.fake, fx2), 'resp ' + fx2)):
         got = host.send(line)
         step(got == want, '%s -> %s' % (line, got))
+    if o.spaced_fake:
+        # a plugin path with spaces in it is one uri: the protocol splits the line at every space (clap uri with a space, answered -101)
+        for line, want in (('add clap:%s#org.omx-clap-host.test.passthrough 3' % o.spaced_fake, 'resp 3'),
+                           ('add clap:%s#org.omx-clap-host.test.passthrough 4 a client name' % o.spaced_fake, 'resp 4'),
+                           ('add "clap:%s#org.omx-clap-host.test.passthrough" 5' % o.spaced_fake, 'resp 5'),
+                           ('remove 3', 'resp 0'), ('remove 4', 'resp 0'), ('remove 5', 'resp 0')):
+            got = host.send(line)
+            step(got == want, '%s -> %s' % (line, got))
     # a preset file of the passthrough's, params only, for preset_show's file form
     preset = os.path.join(tempfile.mkdtemp(prefix='host-verbs-'), 'preset.json')
     with open(preset, 'w') as f:

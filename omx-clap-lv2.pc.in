@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 prefix=@PREFIX@
 libdir=@LIBDIR@
 includedir=@INCLUDEDIR@
@@ -6,6 +8,6 @@ Name: omx-clap-lv2
 Description: The LV2 adapter of omx-clap-host: one LV2 plugin presented as one CLAP plugin, as a static library; lilv is loaded at run time
 Version: @VERSION@
 Requires: clap
-Requires.private: omx-clap-core
-Libs: -L${libdir} -lomx-clap-lv2 -ldl -lpthread -lm
+Requires.private: omx-clap-core, libcrypto
+Libs: -L${libdir} -lomx-clap-lv2 -lcrypto -ldl -lpthread -lm
 Cflags: -I${includedir}/omx-clap-lv2

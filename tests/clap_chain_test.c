@@ -770,8 +770,8 @@ static void t_refusals(void)
     omx_clap_chain_config_init(&config);
     config.channels = 0;
     CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_ERR_WIDTH && !chain, "a chain of no channel is refused");
-    config.channels = CLAP_HOST_PORT_CHANNELS + 1u;
-    CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_ERR_WIDTH && !chain, "and one of %u", CLAP_HOST_PORT_CHANNELS + 1u);
+    config.channels = OMX_HOSTED_STAGE_PORT_CHANNELS + 1u;
+    CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_ERR_WIDTH && !chain, "and one of %u", OMX_HOSTED_STAGE_PORT_CHANNELS + 1u);
     config.channels = CH;
     CHECK(omx_clap_chain_create(&config, &chain) == OMX_CLAP_CHAIN_OK, "a chain of %u channels", CH);
 

@@ -5,7 +5,7 @@
  *
  *   ./tests/clap_untrusted_test
  *
- *  1. THE COUNT IS CAPPED at CLAP_HOST_PARAM_COUNT_MAX (2048): a plugin reporting exactly 2048 parameters serves them all;
+ *  1. THE COUNT IS CAPPED at OMX_HOSTED_STAGE_PARAM_COUNT_MAX (2048): a plugin reporting exactly 2048 parameters serves them all;
  *     one reporting 2049 or 10000000 serves the first 2048, an id past them is not a parameter of it, and the open
  *     leaves one log message saying so. The layout pin of a plugin past the cap is refused, never pinned short.
  *  2. A FAILED ALLOCATION REFUSES: the read-back table that open sizes from the count cannot be had, and the open is

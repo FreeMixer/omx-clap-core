@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # A chain of plugins in one JACK client against the same plugins in one client each, linked in series, bit for bit
 # (#302): three omx-clap-host processes from the same cycles of one deterministic input (tests/jack_identity), left

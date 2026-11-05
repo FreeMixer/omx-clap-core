@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # omx-clap-host's command socket against tests/socket_conformance.py, in a PipeWire of its own: the script re-runs
 # itself in a private user, net, pid and mount namespace, starts pipewire on a private runtime dir, starts the host
@@ -44,7 +45,7 @@ for _ in $(seq 50); do [ -S "$runtime/pipewire-0" ] && break; sleep 0.1; done
 "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pid=$!
 protocol_wait_ready "$runtime/host.log" || { echo "omx-clap-host did not come up" >&2; cat "$runtime/host.log" >&2; exit 2; }
-echo "omx-clap-host on port $port, protocol library: $(grep -o '/[^ ]*libmod-host-protocol[^ ]*' /proc/$pid/maps | sort -u)"
+echo "omx-clap-host on port $port, protocol library: $(grep -o '/[^ ]*libplugin-hostd-protocol[^ ]*' /proc/$pid/maps | sort -u)"
 
 # shellcheck disable=SC2086
 python3 -I "$here/socket_conformance.py" --port "$port" --pid "$pid" ${SOCKET_CONFORMANCE_ARGS:-}

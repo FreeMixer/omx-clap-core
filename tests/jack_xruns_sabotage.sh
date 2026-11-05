@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of the host's xruns line (#371): each arm copies the sources into build/sabotage-xruns-<arm>, breaks one
 # guard of src/effects.c there with one sed, builds and runs make test-jack-xruns in that copy. The arm holds when the
@@ -50,10 +51,11 @@ arm after-activate "on a client that was not yet active" \
     's/    if (jack_activate(g_jack_global_client) != 0)/    if (jack_activate(g_jack_global_client) != 0 || jack_set_xrun_callback(g_jack_global_client, xrun_cb, g_jack_global_client))/'
 arm callback-counts-nothing "the first xrun is written at once" \
     's|        xrun_report_note(&g_xruns);|        (void)0;|'
-# a clock whose seconds weigh a thousand times too much lets a line through at each turn of the wall clock's second, so the
-# arm is red on one of the two checks of the second between lines, which one by where the run falls in that second
+# a clock whose sub-second part counts microseconds as milliseconds runs a thousand times fast, so the second between
+# lines is over in about a millisecond and the lines that must wait are written: red on one of the two checks of the second,
+# whichever the run reaches first, wherever it falls in the wall clock's second
 arm clock-in-microseconds "(three more inside the second wait|the two lines are [0-9]+ ms apart)" \
-    's|(uint64_t)now.tv_sec \* 1000u|(uint64_t)now.tv_sec * 1000000u|'
+    's|(uint64_t)now.tv_nsec / 1000000u|(uint64_t)now.tv_nsec / 1000u|'
 arm no-tick "the first xrun is written at once" \
     's|^    xruns_feedback();|    (void)xruns_feedback;|'
 arm every-client-counts "counted twice, not four times" \

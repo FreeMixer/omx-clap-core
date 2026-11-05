@@ -15,7 +15,7 @@
 # HOST_VERBS_PORT:        the socket port (default 5574)
 # HOST_VERBS_FIXTURES:    the directory of fake.clap and fake_synth.clap (default tests/)
 # HOST_VERBS_REGISTRATION: the registration table (default src/main.c)
-# PHD_PIN_LAYOUT_SCHEME:  the layout scheme plugin-hostd's pin.h declares, read from it by make test-host-verbs
+# PHD_PIN_LAYOUT_SCHEME:  the layout scheme plugin-db's pin.h declares, read from it by make test-host-verbs
 
 set -u
 
@@ -57,9 +57,13 @@ FAKE_CONTRACT=good "$host" -n -p "$port" >"$runtime/host.log" 2>&1 &
 pid=$!
 protocol_wait_ready "$runtime/host.log" || { echo "omx-clap-host did not come up" >&2; cat "$runtime/host.log" >&2; exit 2; }
 
+# the same plugin under a directory with spaces in its name: one uri, whatever the protocol splits at
+mkdir -p "$runtime/a dir with spaces"
+cp "$fixtures/fake.clap" "$runtime/a dir with spaces/fake.clap"
+
 python3 -I "$here/host_verbs_check.py" --port "$port" --contract-path "$OMX_CONTRACT_PATH" \
     --registration "$registration" --header "$(dirname "$registration")/omx_clap_core_host_verbs.h" \
-    --fake "$fixtures/fake.clap" --synth "$fixtures/fake_synth.clap" --layout-scheme "$PHD_PIN_LAYOUT_SCHEME"
+    --fake "$fixtures/fake.clap" --spaced-fake "$runtime/a dir with spaces/fake.clap" --synth "$fixtures/fake_synth.clap" --layout-scheme "$PHD_PIN_LAYOUT_SCHEME"
 status=$?
 kill -0 "$pid" 2>/dev/null || { echo "FAIL omx-clap-host is gone:"; tail -5 "$runtime/host.log"; status=1; }
 exit $status

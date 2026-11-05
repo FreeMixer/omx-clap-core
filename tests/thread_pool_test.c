@@ -64,6 +64,7 @@ typedef struct {
 } pool_stats_t;
 
 static float g_l[BLK], g_r[BLK];
+static const char *log_taken;
 static pool_config_t *g_cfg;
 static pool_stats_t *g_st;
 
@@ -148,7 +149,7 @@ int main(int argc, char **argv)
 {
     struct omx_clap_instance *in = NULL;
     struct omx_clap_thread_pool_info info;
-    char why[OMX_CLAP_WHY_MAX], log[CLAP_HOST_LOG_BYTES];
+    char why[OMX_CLAP_WHY_MAX], log[OMX_HOSTED_STAGE_LOG_BYTES];
     const uint32_t n = cores();
     const uint32_t helpers = n > 1u ? (n - 1u < OMX_CLAP_THREAD_POOL_HELPERS_MAX ? n - 1u : OMX_CLAP_THREAD_POOL_HELPERS_MAX) : 0u;
 
@@ -299,6 +300,42 @@ int main(int argc, char **argv)
             CHECK(g_st->tasks_other == 0 && strstr(log, "thread pool: serial: SCHED_FIFO 1 refused") != NULL,
                   "this process may not set SCHED_FIFO: serial, and the log line names it (%s)", log);
         CHECK(g_st->incomplete == 0, "every task done before request_exec returned");
+        g_cfg->probe_sched = 0;
+        finish(in);
+    }
+
+    /* the helpers follow the audio thread: a grant that names no priority (what pipewire-jack's
+     * jack_client_real_time_priority answers before its thread runs) leaves them in the normal class, and the control
+     * tick sets them to the SCHED_FIFO priority the audio thread that asks for tasks really runs at (a busy machine
+     * gives a normal helper next to nothing, so the audio thread did the whole block) */
+    if (helpers && fifo_allowed(2))
+    {
+        struct sched_param fifo2 = { .sched_priority = 2 }, normal = { .sched_priority = 0 };
+
+        CHECK(omx_clap_host_thread_pool_use(in, 1, 0) == 0, "granted the pool with no priority");
+        CHECK(pthread_setschedparam(pthread_self(), SCHED_FIFO, &fifo2) == 0, "the audio thread runs at SCHED_FIFO 2");
+        g_cfg->probe_sched = 1;
+        CHECK(start(in, log, sizeof log) == 0, "activated (%s)", log[0] ? log : "no log line");
+        g_st->other_policy = -1;
+        blocks(in, 20, 32, 200);
+        CHECK(g_st->tasks_other > 0 && g_st->other_policy == SCHED_OTHER,
+              "the helpers start in the normal class (policy %d)", g_st->other_policy);
+        omx_clap_host_tick(in);
+        log_taken = omx_clap_host_log_take(in);
+        CHECK(log_taken && strstr(log_taken, "helpers follow the audio thread: SCHED_FIFO 2") != NULL, "the tick says so (%s)",
+              log_taken ? log_taken : "nothing");
+        g_st->other_policy = -1;
+        blocks(in, 20, 32, 200);
+        CHECK(g_st->tasks_other > 0 && g_st->other_policy == SCHED_FIFO && g_st->other_priority == 2,
+              "after the tick the helpers run at the audio thread's SCHED_FIFO 2 (policy %d, priority %d)", g_st->other_policy,
+              g_st->other_priority);
+        omx_clap_host_thread_pool(&info);
+        CHECK(info.priority == 2, "and the pool says priority %d", info.priority);
+        CHECK(pthread_setschedparam(pthread_self(), SCHED_OTHER, &normal) == 0, "the audio thread back in the normal class");
+        omx_clap_host_tick(in);
+        g_st->other_policy = -1;
+        blocks(in, 20, 32, 200);
+        CHECK(g_st->tasks_other > 0 && g_st->other_policy == SCHED_OTHER, "and the helpers with it (policy %d)", g_st->other_policy);
         g_cfg->probe_sched = 0;
         finish(in);
     }

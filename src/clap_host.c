@@ -129,7 +129,7 @@ static pthread_mutex_t g_binaries_lock = PTHREAD_MUTEX_INITIALIZER;
 /* the defaults until a host configures the process */
 static struct omx_clap_host_config g_config =
 {
-    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, CLAP_HOST_IDLE_HOLD_US
+    OMX_CLAP_CORE_ABI, sizeof(struct omx_clap_host_config), 1, 1, 1, 0, 0, "omx-clap-core", "Pau Aliagas", "https://github.com/FreeMixer/omx-clap-core", "0", 0, 0, 2, OMX_HOSTED_STAGE_IDLE_HOLD_US
 };
 static int g_configured;
 static _Atomic int g_sealed;    // a binary was opened: the configuration can no longer change
@@ -556,7 +556,7 @@ static int g_preset_failed;
 static void host_preset_on_error(const clap_host_t *host, uint32_t location_kind, const char *location, const char *load_key,
                                  int32_t os_error, const char *msg)
 {
-    char text[CLAP_HOST_LOG_BYTES];
+    char text[OMX_HOSTED_STAGE_LOG_BYTES];
 
     (void)location_kind;
     (void)load_key;
@@ -1075,7 +1075,7 @@ static const char *read_layout(const struct omx_clap_instance *in, struct omx_cl
                 port->map[c] = (uint8_t)c;
             return NULL;
         }
-        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "surround.get_channel_map", in->surround->get_channel_map, in->plugin, is_input, index, port->map, CLAP_HOST_PORT_CHANNELS) != port->channels)
+        if (OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "surround.get_channel_map", in->surround->get_channel_map, in->plugin, is_input, index, port->map, OMX_HOSTED_STAGE_PORT_CHANNELS) != port->channels)
             return CLAP_HOST_CODE_CHANNEL_MAP_UNKNOWN;
         for (c = 0; c < port->channels; c++)
             if (port->map[c] > CLAP_SURROUND_TSR)
@@ -1114,8 +1114,8 @@ static const char *aux_of(struct omx_clap_port *ports, uint32_t *base, uint32_t 
 
 /*
  * Every audio port the plugin declares, described: the main input and output (none of a side is channels 0) and each
- * auxiliary port, in the plugin's order, up to CLAP_HOST_AUX_INPUTS and CLAP_HOST_AUX_OUTPUTS of them. Each port is
- * judged as it is read: no channels refuses it (port-without-channels), more than CLAP_HOST_PORT_CHANNELS refuses it
+ * auxiliary port, in the plugin's order, up to OMX_HOSTED_STAGE_AUX_INPUTS and OMX_HOSTED_STAGE_AUX_OUTPUTS of them. Each port is
+ * judged as it is read: no channels refuses it (port-without-channels), more than OMX_HOSTED_STAGE_PORT_CHANNELS refuses it
  * (port-too-wide), a second main port on a side or one auxiliary port past the limit refuses it (too-many-ports), and a
  * surround or an ambisonic port is read through its extension (read_layout) and refused as that says. Then
  * the whole: no main output is nothing to carry (no-audio-output), the main pair may differ in width, no main input
@@ -1157,7 +1157,7 @@ static const char *describe_ports(struct omx_clap_instance *in)
                     continue;
                 if (info.channel_count == 0)
                     return CLAP_HOST_CODE_PORT_WITHOUT_CHANNELS;
-                if (info.channel_count > CLAP_HOST_PORT_CHANNELS)
+                if (info.channel_count > OMX_HOSTED_STAGE_PORT_CHANNELS)
                     return CLAP_HOST_CODE_PORT_TOO_WIDE;
                 if (info.flags & CLAP_AUDIO_PORT_IS_MAIN)
                 {
@@ -1169,8 +1169,8 @@ static const char *describe_ports(struct omx_clap_instance *in)
                         return code;
                     continue;
                 }
-                code = is_input ? aux_of(in->aux_in, in->aux_in_base, &in->aux_inputs, CLAP_HOST_AUX_INPUTS, &info)
-                                : aux_of(in->aux_out, in->aux_out_base, &in->aux_outputs, CLAP_HOST_AUX_OUTPUTS, &info);
+                code = is_input ? aux_of(in->aux_in, in->aux_in_base, &in->aux_inputs, OMX_HOSTED_STAGE_AUX_INPUTS, &info)
+                                : aux_of(in->aux_out, in->aux_out_base, &in->aux_outputs, OMX_HOSTED_STAGE_AUX_OUTPUTS, &info);
                 if (!code)
                     code = read_layout(in, is_input ? &in->aux_in[in->aux_inputs - 1] : &in->aux_out[in->aux_outputs - 1], is_input, i);
                 if (code)
@@ -1233,7 +1233,7 @@ static bool aux_kept(const struct omx_clap_port *ports, uint32_t now, uint32_t c
  */
 static const char *ports_describe_again(struct omx_clap_instance *in)
 {
-    uint32_t in_widths[CLAP_HOST_AUX_INPUTS], out_widths[CLAP_HOST_AUX_OUTPUTS];
+    uint32_t in_widths[OMX_HOSTED_STAGE_AUX_INPUTS], out_widths[OMX_HOSTED_STAGE_AUX_OUTPUTS];
     const uint32_t inputs = in->aux_inputs, outputs = in->aux_outputs;
     const char *code;
     uint32_t i;
@@ -1537,7 +1537,7 @@ int omx_clap_host_has_feature(const clap_plugin_descriptor_t *desc, const char *
     return 0;
 }
 
-/* params->count(), capped at CLAP_HOST_PARAM_COUNT_MAX: the count is the plugin's own answer, so it sizes no table and
+/* params->count(), capped at OMX_HOSTED_STAGE_PARAM_COUNT_MAX: the count is the plugin's own answer, so it sizes no table and
  * bounds no scan past the cap. Every read of the count goes through here; `raw`, when not NULL, gets the uncapped one. */
 static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
 {
@@ -1546,7 +1546,7 @@ static uint32_t param_count_of(struct omx_clap_instance *in, uint32_t *raw)
     n = in->params ? OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "params.count", in->params->count, in->plugin) : 0;
     if (raw)
         *raw = n;
-    return n > CLAP_HOST_PARAM_COUNT_MAX ? CLAP_HOST_PARAM_COUNT_MAX : n;
+    return n > OMX_HOSTED_STAGE_PARAM_COUNT_MAX ? OMX_HOSTED_STAGE_PARAM_COUNT_MAX : n;
 }
 
 /* At open, on the opening thread: the plugin's clap.meters/1 declarations, whole or not at all (docs/meters.md, In
@@ -1608,7 +1608,7 @@ static void contract_read(struct omx_clap_instance *in, uint32_t rows, uint32_t 
     snprintf(in->contract_why, sizeof(in->contract_why), "%s", c.entry ? "" : c.why);
     if (!c.entry && strcmp(c.why, "absent") != 0 && reported <= rows)
     {
-        char text[CLAP_HOST_LOG_BYTES];
+        char text[OMX_HOSTED_STAGE_LOG_BYTES];
 
         snprintf(text, sizeof(text), "the parameter contract is not trusted: %s", c.why);
         log_to_ring(in, text);
@@ -1622,7 +1622,7 @@ static void contract_recheck(struct omx_clap_instance *in)
 {
     struct pc_contract c;
     uint32_t rows, reported;
-    char text[CLAP_HOST_LOG_BYTES];
+    char text[OMX_HOSTED_STAGE_LOG_BYTES];
 
     if (!in->contract)
         return;
@@ -1710,7 +1710,7 @@ static int open_from(struct omx_clap_binary *bin, const char *id, struct omx_cla
     if (reported > rows)
     {
         // said once, at the open; every later read is capped the same, silently
-        char text[CLAP_HOST_LOG_BYTES];
+        char text[OMX_HOSTED_STAGE_LOG_BYTES];
 
         snprintf(text, sizeof(text), "the plugin reports %u parameters; the host serves the first %u", reported, rows);
         log_to_ring(in, text);
@@ -1822,8 +1822,8 @@ _Static_assert(sizeof(clap_event_param_mod_t) == sizeof(clap_event_param_value_t
                && sizeof(clap_event_param_gesture_t) <= sizeof(clap_event_param_value_t),
                "a modulation and a gesture take a value event's slot");
 // a tag is written again two laps of the ring later: by then the block that read it has ended, since one block drains
-// at most CLAP_HOST_EVENTS_PER_BLOCK records
-_Static_assert(CLAP_HOST_EVENTS_PER_BLOCK <= CLAP_HOST_PARAM_QUEUE_DEPTH, "a block drains at most one lap of the ring");
+// at most OMX_HOSTED_STAGE_EVENTS_PER_BLOCK records
+_Static_assert(OMX_HOSTED_STAGE_EVENTS_PER_BLOCK <= OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH, "a block drains at most one lap of the ring");
 
 /* The instance's input event list: the stage's, with a record whose cookie is one of the instance's tags turned, in its
  * slot of the block's array, into what the tag says (a modulation, its amount where the value was, or a gesture) and
@@ -1848,7 +1848,7 @@ static const clap_event_header_t *param_in_get(const struct clap_input_events *l
         return h;
     e = (clap_event_param_value_t *)h;
     tag = (const struct omx_clap_param_tag *)e->cookie;
-    if (tag < &p->tag[0] || tag >= &p->tag[2 * CLAP_HOST_PARAM_QUEUE_DEPTH])
+    if (tag < &p->tag[0] || tag >= &p->tag[2 * OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH])
         return h;
     e->cookie = tag->cookie;
     e->header.type = (uint16_t)tag->type;
@@ -1877,7 +1877,7 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     const size_t length = body + 2 * page;
     uint8_t *map = mmap(NULL, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     struct omx_hosted_bounce bounce;
-    float *wide_in[CLAP_HOST_PORT_CHANNELS], *wide_out[CLAP_HOST_PORT_CHANNELS];
+    float *wide_in[OMX_HOSTED_STAGE_PORT_CHANNELS], *wide_out[OMX_HOSTED_STAGE_PORT_CHANNELS];
     float **scratch;
     uint32_t k;
     float *b;
@@ -1890,7 +1890,7 @@ static int take_bounce(struct omx_clap_instance *in, uint32_t max_block)
     in->bounce_map_len = length;
     in->bounce_blocks = blocks;
     b = (float *)(map + page + (body - used));
-    in->rec_cap = CLAP_HOST_PARAM_QUEUE_DEPTH;
+    in->rec_cap = OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH;
     in->recs = calloc(in->rec_cap, sizeof(*in->recs));
     in->max_block = max_block;
     bounce.in_l = b + (size_t)(blocks - 4) * max_block;
@@ -1983,7 +1983,7 @@ static int wait_stopped(struct omx_clap_instance *in)
 
     while (atomic_load(&in->stage.state) == OMX_CLAP_STOPPING)
     {
-        if (waited >= CLAP_HOST_ROLE_TIMEOUT_US)
+        if (waited >= OMX_HOSTED_STAGE_ROLE_TIMEOUT_US)
         {
             struct omx_clap_role role;
 
@@ -1993,8 +1993,8 @@ static int wait_stopped(struct omx_clap_instance *in)
             omx_clap_host_release_role(in, &role, OMX_CLAP_STOPPED);
             return 0;
         }
-        usleep(CLAP_HOST_ROLE_POLL_US);
-        waited += CLAP_HOST_ROLE_POLL_US;
+        usleep(OMX_HOSTED_STAGE_ROLE_POLL_US);
+        waited += OMX_HOSTED_STAGE_ROLE_POLL_US;
     }
     return 0;
 }
@@ -2993,7 +2993,8 @@ int omx_clap_host_open_timed(const char *path, const char *id, unsigned timeout_
 
     if (out)
         *out = NULL;
-    if (!t || !path || !id || !out || !(t->path = strdup(path)) || !(t->id = strdup(id)))
+    // `id` may be NULL, as omx_clap_host_open takes it: the factory's first descriptor; only a given id is copied
+    if (!t || !path || !out || !(t->path = strdup(path)) || (id && !(t->id = strdup(id))))
     {
         if (t)
         {
@@ -3078,13 +3079,13 @@ void omx_clap_host_take_role(struct omx_clap_instance *in, struct omx_clap_role 
            && !atomic_compare_exchange_weak(&in->stage.state, &state, OMX_CLAP_HELD))
         ;
     // the cycle under way is waited out however long it runs: the plugin is never called from two threads at once. Past
-    // CLAP_HOST_ROLE_TIMEOUT_US the wait is said once, when it ends
+    // OMX_HOSTED_STAGE_ROLE_TIMEOUT_US the wait is said once, when it ends
     while (atomic_load(&in->stage.in_cycle))
     {
-        usleep(CLAP_HOST_ROLE_POLL_US);
-        waited += CLAP_HOST_ROLE_POLL_US;
+        usleep(OMX_HOSTED_STAGE_ROLE_POLL_US);
+        waited += OMX_HOSTED_STAGE_ROLE_POLL_US;
     }
-    if (waited >= CLAP_HOST_ROLE_TIMEOUT_US)
+    if (waited >= OMX_HOSTED_STAGE_ROLE_TIMEOUT_US)
     {
         char line[96];
 
@@ -3317,7 +3318,7 @@ int omx_clap_host_activate(struct omx_clap_instance *in, double rate, uint32_t m
     // granted the thread pool and asking for it: the process's pool counts it, or it runs serial and says why (#395)
     if (in->pool_use && in->thread_pool && in->thread_pool->exec)
     {
-        char why_serial[CLAP_HOST_LOG_BYTES], line[CLAP_HOST_LOG_BYTES + 128];
+        char why_serial[OMX_HOSTED_STAGE_LOG_BYTES], line[OMX_HOSTED_STAGE_LOG_BYTES + 128];
 
         if (thread_pool_acquire(in->pool_priority, why_serial, sizeof(why_serial)))
             in->pool_held = 1;
@@ -3804,8 +3805,8 @@ void omx_clap_host_settle(struct omx_clap_instance *in, unsigned timeout_us)
         return;
     while (omx_clap_queue_pending(&in->stage.queue) > 0 && waited < timeout_us)
     {
-        usleep(CLAP_HOST_ROLE_POLL_US);
-        waited += CLAP_HOST_ROLE_POLL_US;
+        usleep(OMX_HOSTED_STAGE_ROLE_POLL_US);
+        waited += OMX_HOSTED_STAGE_ROLE_POLL_US;
     }
     if (omx_clap_queue_pending(&in->stage.queue) > 0 && atomic_load(&in->stage.h.runs) == runs)
         omx_clap_host_param_deliver(in);
@@ -4034,7 +4035,7 @@ static int param_push_tagged(struct omx_clap_instance *in, clap_id id, uint32_t 
     if (info_of(in, id, &info) != 0 || !is_row(&info) || (info.flags & needs) != needs || !in->active)
         return -1;
     tail = atomic_load_explicit(&in->stage.queue.tail, memory_order_relaxed);
-    tag = &in->param_in.tag[tail & (2 * CLAP_HOST_PARAM_QUEUE_DEPTH - 1u)];
+    tag = &in->param_in.tag[tail & (2 * OMX_HOSTED_STAGE_PARAM_QUEUE_DEPTH - 1u)];
     tag->type = type;
     tag->cookie = info.cookie;
     return omx_clap_param_push(&in->stage, id, value, tag);
@@ -4179,6 +4180,14 @@ int omx_clap_host_tick(struct omx_clap_instance *in)
         tail_read(in);
     timers_serve(in);
     fds_serve(in);
+    // the pool's helpers at the scheduling of the audio thread that asks for them
+    if (in->pool_held)
+    {
+        char follow[OMX_HOSTED_STAGE_LOG_BYTES];
+
+        if (thread_pool_follow(follow, sizeof(follow)) && follow[0])
+            log_to_ring(in, follow);
+    }
     if (atomic_exchange_explicit(&in->callback_requested, 0u, memory_order_relaxed) && in->plugin->on_main_thread)
         omx_abi_g(OMX_ABI_GUARD_OF(in), "on_main_thread", (const void *)in->plugin->on_main_thread, OMX_ABI_A(in->plugin), 0, 0, 0, 0, 0);
     // an unoffered id has its turn ahead of the plugin's line, which waits in log_ring for the next free slot: the ids

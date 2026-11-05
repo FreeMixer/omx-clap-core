@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # The per-block fast path
 
 What a hosted plugin costs per block comes from the same few places in every format: audio copied into and out of the
@@ -10,7 +12,8 @@ chain that mixes both. It has four items, built in this order, each in its own c
 3. A block with no events does no event work.
 4. One clamp per chain.
 
-For where the cost sits today, see `docs/hosting-comparison.md`, and for the figures of what has landed, the last section.
+For where the cost sits today, see the technical note
+[The LV2 adapter against mod-host and jalv](https://openmixer.org/notes/the-lv2-adapter-against-mod-host-and-jalv).
 
 ## What the stage promises today, and what replaces it
 

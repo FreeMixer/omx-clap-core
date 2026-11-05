@@ -17,7 +17,7 @@ static float b[N], in[N];
 
 int main(void)
 {
-    const float c = omx_db_to_lin(CLAP_HOST_CLAMP_DBFS);
+    const float c = omx_db_to_lin(OMX_HOSTED_STAGE_CLAMP_DBFS);
     const float edge[] = {0.0f, -0.0f, c, -c, nextafterf(c, 0.0f), nextafterf(c, 10.0f), nextafterf(-c, 0.0f), nextafterf(-c, -10.0f),
                           1e-42f, -1e-42f, 1.0f, -1.0f, 1e30f, -1e30f, INFINITY, -INFINITY, NAN, -NAN};
     const uint32_t ne = sizeof edge / sizeof edge[0];

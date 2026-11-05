@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # omx-clap-host runs plugin-hostd's chain line in one JACK client (#104, docs/chain.md), in a PipeWire of its own: two
 # hosts from the same cycles of one deterministic input (tests/jack_identity),
@@ -438,7 +439,9 @@ unlink_all
 expect chain "chain 7 10 11 99" "resp -3"
 expect chain "chain 7 10 11 11" "resp -902"
 expect chain "chain 7 10 x" "resp -902"
-expect chain "chain 7" "resp -902"
+# a chain with no member: the declared line is "chain <chain> <instance> [<instance> ...]" (plugin-hostd-protocol), so the
+# library refuses it for its arity before the host's callback runs
+expect chain "chain 7" "few arguments"
 expect chain "add $pass 15" "resp 15"
 expect chain "add $widen 14" "resp 14"
 expect chain "add $notes 13" "resp 13"

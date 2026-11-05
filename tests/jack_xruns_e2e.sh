@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The xruns line over jack, end to end (#371), in a PipeWire of its own: the script re-runs itself in a private user,
 # net, pid and mount namespace, starts pipewire on a private runtime dir and runs the host, with a feedback port, under

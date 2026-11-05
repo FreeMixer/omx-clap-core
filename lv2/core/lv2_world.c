@@ -1078,7 +1078,7 @@ static void group_order(struct lv2_audio_port *a, const LilvPlugin *pl)
     LilvIter *it = grp ? L.lilv_nodes_begin(grp) : NULL;
     LilvNodes *types = it && !L.lilv_nodes_is_end(grp, it)
                        ? L.lilv_world_find_nodes(g.world, L.lilv_nodes_get(grp, it), g.node[N_RDF_TYPE], NULL) : NULL;
-    uint32_t kind = LV2_PORT_UNKNOWN, n = 0, port[LV2_CORE_PORT_CHANNELS], c, e;
+    uint32_t kind = LV2_PORT_UNKNOWN, n = 0, port[OMX_HOSTED_STAGE_PORT_CHANNELS], c, e;
     const uint8_t *order = NULL;
     int typed = 0, ok;
 
@@ -1149,13 +1149,13 @@ static uint32_t side_main_width(const LilvPlugin *pl, uint32_t n, int is_input)
     return in_declared ? in_declared : first ? in_first : plain;
 }
 
-/* One port of the description: its channels (the members, at most LV2_CORE_PORT_CHANNELS of them: one more is too wide),
+/* One port of the description: its channels (the members, at most OMX_HOSTED_STAGE_PORT_CHANNELS of them: one more is too wide),
  * its name, its kind and its map. A group is ordered by its type (group_order); an ungrouped port, and a group the
  * table leaves of no kind, keeps port index order. A port of one or two channels of no kind is mono or stereo by its
  * count, the CLAP port types for those widths. */
 static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, const char *group, const uint32_t *members, uint32_t n)
 {
-    if (n > LV2_CORE_PORT_CHANNELS)
+    if (n > OMX_HOSTED_STAGE_PORT_CHANNELS)
         return LV2_CODE_PORT_TOO_WIDE;
     memcpy(a->port, members, n * sizeof(*members));
     a->n = n;
@@ -1176,7 +1176,7 @@ static const char *describe(struct lv2_audio_port *a, const LilvPlugin *pl, cons
  *     never count) are one main port of that width, and otherwise the first two are the main port.
  * Every other audio port is auxiliary: the members of one pg:group one port, an ungrouped port one mono port, in the
  * order of their first member, up to LV2_CORE_AUX_PORTS of them with the side's CV ports (one more is too many ports).
- * A port of more than LV2_CORE_PORT_CHANNELS channels is too wide. Fills p->main_in and p->aux_in, or p->main_out and
+ * A port of more than OMX_HOSTED_STAGE_PORT_CHANNELS channels is too wide. Fills p->main_in and p->aux_in, or p->main_out and
  * p->aux_out; returns the refusal, or NULL.
  */
 static const char *read_side(struct lv2_plugin *p, const LilvPlugin *pl, int is_input)

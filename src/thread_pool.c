@@ -75,6 +75,7 @@
 struct pool_helper
 {
     _Atomic pthread_t self;         // the helper's own pthread_self, written by it before `started`
+    _Atomic int tid;                // its kernel thread id, for sched_setscheduler, written before `started`
     _Atomic uint32_t started;       // 1 once it runs at its scheduling on its core, 2 when it could not set them
     _Atomic(const struct omx_clap_instance *) running;  // the instance whose task it runs, NULL between tasks
     _Atomic uint64_t tasks;         // the tasks it ran
@@ -93,7 +94,7 @@ static pthread_mutex_t g_pool_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint32_t g_holders;          // the active instances holding the pool; the control thread's, under g_pool_lock
 static uint32_t g_cores;            // the cores of the mask when the pool was last asked for
 static int32_t g_priority;          // the helpers' priority
-static char g_state[CLAP_HOST_LOG_BYTES];   // why the last instance that asked runs serial
+static char g_state[OMX_HOSTED_STAGE_LOG_BYTES];   // why the last instance that asked runs serial
 static pthread_t g_join[OMX_CLAP_THREAD_POOL_HELPERS_MAX];  // what pthread_create answered, for the join
 static struct pool_helper g_helper[OMX_CLAP_THREAD_POOL_HELPERS_MAX];
 
@@ -107,6 +108,9 @@ static _Atomic(struct omx_clap_instance *) g_job;   // the instance whose tasks 
 static _Atomic uint32_t g_done;     // the tasks of the request ended; the futex the requesting thread sleeps on
 static _Atomic uint32_t g_owner_sleeping;   // 1 while the requesting thread sleeps on g_done
 static _Atomic uint64_t g_requests, g_busy, g_late, g_tasks_audio;
+static _Atomic pthread_t g_audio_self;  // the thread that made the last request, and its kernel id: what the helpers follow
+static _Atomic int g_audio_tid;
+static int g_follow_refused = -1;        // the priority the helpers were refused, so the refusal is said once
 
 
 /*
@@ -199,6 +203,7 @@ static void *helper_main(void *arg)
     snprintf(name, sizeof(name), "omx-pool-%d", self->core);
     pthread_setname_np(pthread_self(), name);
     atomic_store_explicit(&self->self, pthread_self(), memory_order_relaxed);
+    atomic_store_explicit(&self->tid, (int)syscall(SYS_gettid), memory_order_relaxed);
     atomic_store_explicit(&self->started, 1u, memory_order_release);
     while (!atomic_load_explicit(&g_stop, memory_order_acquire))
     {
@@ -335,6 +340,9 @@ int thread_pool_acquire(int32_t priority, char *line, size_t size)
             nanosleep(&ts, NULL);
         }
     g_priority = priority > 0 ? priority : 0;
+    g_follow_refused = -1;
+    atomic_store_explicit(&g_audio_tid, 0, memory_order_relaxed);
+    atomic_store_explicit(&g_audio_self, (pthread_t)0, memory_order_relaxed);   // the next request names its thread
     g_state[0] = '\0';
     g_holders = 1;
     atomic_store_explicit(&g_helpers, count, memory_order_release);
@@ -348,6 +356,53 @@ void thread_pool_release(void)
     if (g_holders && --g_holders == 0)
         end_helpers(atomic_load_explicit(&g_helpers, memory_order_relaxed));
     pthread_mutex_unlock(&g_pool_lock);
+}
+
+int thread_pool_follow(char *line, size_t size)
+{
+    struct sched_param param;
+    int tid, policy, want, changed = 0, err = 0;
+    uint32_t i, count;
+
+    if (line && size)
+        line[0] = '\0';
+    pthread_mutex_lock(&g_pool_lock);
+    tid = atomic_load_explicit(&g_audio_tid, memory_order_relaxed);
+    if (!g_holders || !tid || (policy = sched_getscheduler(tid)) < 0 || sched_getparam(tid, &param) != 0)
+    {
+        pthread_mutex_unlock(&g_pool_lock);
+        return 0;
+    }
+    want = (policy == SCHED_FIFO || policy == SCHED_RR) ? param.sched_priority : 0;
+    if (want == g_priority || want == g_follow_refused)
+    {
+        pthread_mutex_unlock(&g_pool_lock);
+        return 0;
+    }
+    count = atomic_load_explicit(&g_helpers, memory_order_relaxed);
+    param.sched_priority = want;
+    for (i = 0; i < count; i++)
+        if (sched_setscheduler(atomic_load_explicit(&g_helper[i].tid, memory_order_relaxed), want > 0 ? SCHED_FIFO : SCHED_OTHER,
+                               &param) != 0)
+            err = errno;
+        else
+            changed++;
+    if (err)
+    {
+        g_follow_refused = want;
+        if (line && size)
+            snprintf(line, size, "thread pool: helpers not at the audio thread's SCHED_FIFO %d (%s)", want, strerror(err));
+    }
+    else
+    {
+        g_priority = want;
+        g_follow_refused = -1;
+        if (line && size)
+            snprintf(line, size, want > 0 ? "thread pool: helpers follow the audio thread: SCHED_FIFO %d"
+                                          : "thread pool: helpers follow the audio thread: the normal class", want);
+    }
+    pthread_mutex_unlock(&g_pool_lock);
+    return changed || err ? 1 : 0;
 }
 
 int thread_pool_run(struct omx_clap_instance *in, uint32_t num, uint64_t budget_ns, int *late)
@@ -364,6 +419,12 @@ int thread_pool_run(struct omx_clap_instance *in, uint32_t num, uint64_t budget_
         return -1;
     }
     start = pool_now_ns();
+    // who asks, for thread_pool_follow: the kernel id is read once for each thread that makes a request
+    if (!pthread_equal(atomic_load_explicit(&g_audio_self, memory_order_relaxed), pthread_self()))
+    {
+        atomic_store_explicit(&g_audio_tid, (int)syscall(SYS_gettid), memory_order_relaxed);
+        atomic_store_explicit(&g_audio_self, pthread_self(), memory_order_relaxed);
+    }
     atomic_store_explicit(&g_job, in, memory_order_relaxed);
     atomic_store_explicit(&g_done, 0u, memory_order_relaxed);
     atomic_store_explicit(&g_claim, POOL_CLAIM((atomic_load_explicit(&g_claim, memory_order_relaxed) >> 32) + 1u, num, 0u),

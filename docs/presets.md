@@ -1,9 +1,11 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 Presets in the worker
 =====================
 
 What omx-clap-host does with presets, for CLAP plugins and for LV2 plugins through the adapter: list a plugin's own
-presets, load one, save the instance into a preset file and load that file again. The design is plugin-hostd#131's
-(presets in the host); this page is the worker's side of it (omx-clap-core#219). The host never
+presets, load one, save the instance into a preset file and load that file again. The design is plugin-hostd's
+(presets in the host); this page is the worker's side of it. The host never
 decides a path or a name: both arrive as arguments. Where files live, user banks, rename and delete are the consumer's.
 
 Verbs
@@ -36,7 +38,7 @@ Verbs
   state body is loaded with `clap.state-context` (`preset` context) or `clap.state`.
   A load is answered `resp 0` only when the plugin's `from_location` answered true and the plugin reported no error
   through the host's `clap.preset-load` `on_error` during the call (Surge XT answers true for a file it cannot open and
-  reports it there); either failure answers `-104`. A `%20` or `%25` in a bare path is decoded as in a key (#401).
+  reports it there); either failure answers `-104`. A `%20` or `%25` in a bare path is decoded as in a key.
 - `preset_save` writes the instance into the file at `<file>` with the display name `<name>` (the rest of the line, or
   one quoted word). An existing preset file at that path keeps its `id`, `createdAt` and every field this host does not
   write; anything else at that path is refused.
@@ -72,7 +74,7 @@ valid; a file with a state body is `org.openmixer.preset/2`. Any other version i
 
 - `plugin.id` is the CLAP id, or the LV2 plugin's URI. `plugin.version` is the descriptor's version (for LV2 the
   adapter's `<lv2:minorVersion>.<lv2:microVersion>`). `plugin.fingerprint` is the plugin's parameter layout digest,
-  the `omx-layout/1` digest of plugin-hostd's pin (`plugin-hostd/pin.h`): every parameter `clap.params` gives, its id,
+  the `omx-layout/1` digest of a plugin's pin (`plugin-db/pin.h`): every parameter `clap.params` gives, its id,
   name, range, default and flags. A file whose id, version or fingerprint differs from the instance's is refused with
   `PRESET_PLUGIN_CHANGED` and nothing of it is applied.
 - `id` is minted by the consumer; a save that finds none writes one (the plugin id and the save's time).

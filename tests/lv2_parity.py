@@ -193,41 +193,17 @@ def ports_of(rec):
     return out
 
 
-KNOWN_FILE = os.environ.get('LV2_PARITY_KNOWN', os.path.join(HERE, 'lv2_parity_known.tsv'))
-_KNOWN = {}
-# what a known cause may stand in for: a measurement that is not a pass, not a fault of the run, not a port difference
-_KNOWN_OVER = ('DIFFERS', 'NONDETERMINISTIC')
 _PORT_CAUSES = ('output count', 'MIDI input count')
-
-
-def known_causes():
-    """{uri: (cause, evidence)} from the known-causes file: plugins whose own fault explains what they do through any
-    host (data, not code; one row per plugin)."""
-    if 'k' not in _KNOWN:
-        _KNOWN['k'] = {}
-        if os.path.exists(KNOWN_FILE):
-            for r in read_tsv(KNOWN_FILE):
-                if r.get('uri') and not r['uri'].startswith('#'):
-                    _KNOWN['k'][r['uri']] = (r.get('cause', ''), r.get('evidence', ''))
-    return _KNOWN['k']
-
-
-def _known(rec, verdict):
-    cls, cause, detail = verdict
-    k = known_causes().get(rec.get('uri', ''))
-    if k and cls in _KNOWN_OVER and cause not in _PORT_CAUSES and SABOTAGE != 'known-blind':
-        return 'PLUGIN-FAULT', k[0], f"measured {cls}: {cause}; {detail}; evidence: {k[1]}"
-    return verdict
 
 
 def classify(rec):
     """(class, cause, detail) of one raw record."""
-    return _known(rec, _classify(rec, ports=True))
+    return _classify(rec, ports=True)
 
 
 def audio_verdict(rec):
     """(class, cause, detail) of the audio alone, the port layout aside: what a port-difference row would be without it."""
-    return _known(rec, _classify(rec, ports=False))
+    return _classify(rec, ports=False)
 
 
 def _classify(rec, ports):
@@ -968,7 +944,7 @@ def cmd_classify(a):
     return 0
 
 
-CLASSES = ['IDENTICAL', 'WITHIN-TOLERANCE', 'SILENT', 'DIFFERS', 'PLUGIN-FAULT', 'NONDETERMINISTIC', 'CRASH', 'HANG', 'REFUSED', 'ERROR']
+CLASSES = ['IDENTICAL', 'WITHIN-TOLERANCE', 'SILENT', 'DIFFERS', 'NONDETERMINISTIC', 'CRASH', 'HANG', 'REFUSED', 'ERROR']
 
 
 def report_text(rows, skipped, meta):
@@ -1069,7 +1045,6 @@ def report_text(rows, skipped, meta):
     table('DIFFERS', 'DIFFERS, by cause')
     table('WITHIN-TOLERANCE', 'WITHIN-TOLERANCE, by reason')
     table('NONDETERMINISTIC', 'NONDETERMINISTIC')
-    table('PLUGIN-FAULT', "PLUGIN-FAULT (a known fault of the plugin itself, from tests/lv2_parity_known.tsv)")
     table('CRASH', 'CRASH')
     table('HANG', 'HANG')
     table('REFUSED', 'REFUSED this time')
@@ -1275,22 +1250,6 @@ def self_test():
     t('... and its audio verdict, the port layout aside: IDENTICAL', audio_verdict(r)[0] == 'IDENTICAL')
     r = with_ports(rec_of(sig, other, sig, other), (2, 1), (2, 0))
     t('a MIDI-count row whose audio is random per instance: the audio verdict NONDETERMINISTIC', audio_verdict(r)[0] == 'NONDETERMINISTIC')
-    # the known causes, from a file of fake rows
-    kf = os.path.join(tempfile.mkdtemp(), 'known.tsv')
-    write_tsv(kf, ['uri', 'cause', 'evidence'], [dict(uri='urn:known', cause='plugin reads uninitialised memory (valgrind-confirmable)', evidence='fixture')])
-    global KNOWN_FILE
-    saved, KNOWN_FILE = KNOWN_FILE, kf
-    _KNOWN.clear()
-    r = dict(rec_of(sig, sig, sig, other), uri='urn:known')
-    c = classify(r)
-    t('a known plugin random through one host: PLUGIN-FAULT with the file\'s cause, the measured class kept in the detail',
-      c[0] == 'PLUGIN-FAULT' and c[1].startswith('plugin reads uninitialised memory') and 'measured DIFFERS: nondeterministic in omx-clap-host only' in c[2])
-    t('a plugin not in the file: the measured class', classify(dict(r, uri='urn:other'))[0] == 'DIFFERS')
-    t('a known plugin that came out IDENTICAL stays IDENTICAL', classify(dict(rec_of(sig, sig, sig, sig), uri='urn:known'))[0] == 'IDENTICAL')
-    t('a known plugin with a port difference keeps the port difference',
-      classify(with_ports(dict(r, uri='urn:known'), (2, 1), (2, 0)))[:2] == ('DIFFERS', 'MIDI input count'))
-    KNOWN_FILE = saved
-    _KNOWN.clear()
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (2, 2), (2, 1)))
     t('two MIDI inputs against one: DIFFERS, MIDI input count, both numbers named', c[:2] == ('DIFFERS', 'MIDI input count') and 'mod-host 2, omx-clap-host 1' in c[2])
     c = classify(with_ports(rec_of(sig, sig, sig, sig), (4, 0), (2, 0)))
@@ -1379,8 +1338,7 @@ def self_test_with_sabotage():
     if SABOTAGE:
         return rc
     red = 0
-    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind',
-                 'known-blind']
+    sabotages = ['lag-blind', 'tolerance', 'nondet-blind', 'silent-pass', 'one-host-nondet', 'midi-blind', 'silent-instance-blind']
     for s in sabotages:
         p = subprocess.run([sys.executable, os.path.abspath(__file__), '--self-test'], env=dict(os.environ, LV2_PARITY_SABOTAGE=s),
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

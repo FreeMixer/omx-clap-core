@@ -1,3 +1,45 @@
+omx-clap-host (0.29.0) unstable; urgency=medium
+
+  * omx-clap-host speaks the protocol through libplugin-hostd-protocol, and
+    plugin-hostd's verbs it answers are that library's declaration; the
+    mod-host verbs it refuses are the library's list, not one of its own. A
+    build that finds no protocol headers fails.
+  * The parameter contract's fingerprint is libcrypto's SHA-256: the packages
+    build against OpenSSL, and a program that links the static adapter links
+    libcrypto too.
+  * omx_clap_host_open_timed() takes a NULL id again, as omx_clap_host_open()
+    does: the factory's first descriptor. Since 0.27.0 a plugin opened that
+    way failed with hosting.clap.headless-failed (#485).
+  * The hosted stage's numbers are spelled once, as OMX_HOSTED_STAGE_*.
+  * omx-clap-host answers hello (plugin-hostd-protocol 0.3.0): a session can
+    be granted request tags, error words and event sequence numbers.
+  * add: a clap: uri whose path holds a space is one uri; it answered -101.
+  * preset_list: the scanner may take nine tenths of the rpc timeout, 4.5 s;
+    Surge XT 1.4 needs up to 4.1 s and was refused at 3 s.
+  * The thread pool's helpers run at the scheduling of the audio thread, not
+    at the priority the JACK client answered at add: on a busy machine the
+    helpers did next to nothing and the audio thread rendered the whole block.
+  * The unit code table and the JSON string writer are omx-contract 3.9.0's,
+    and the pin is plugin-db's: nothing is built from plugin-hostd any more.
+  * lv2: the adapter's control writes and MIDI-out sink are direct calls on
+    the audio path.
+  * Floors and ceilings: omx-contract >= 3.9.0 and < 4, omx-dsp >= 0.30.0 and
+    < 0.31, plugin-hostd-protocol >= 0.3.0 and < 0.4, plugin-db >= 0.1.0 and
+    < 0.2.
+  * Tests: the socket conformance check waits for the daemon's first answer
+    before its timed cases, and its dropping stand-in is deterministic (#483,
+    #488); the xruns sabotage no longer depends on the wall clock (#489); the
+    LV2 parity harness against mod-host stays as a test, without its list of
+    known faults; no copy of omx-contract's units table or JSON writer or of
+    the protocol's tables is allowed in the tree.
+  * The commit message, private reference and no-copy checks run from the
+    shared FreeMixer/.github workflow; the local copies are gone (#477).
+  * The packages install their licence and a short README and no other
+    markdown; their descriptions point to openmixer.org, where the
+    measurements and design notes now live.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Wed, 04 Nov 2026 18:00:00 +0100
+
 omx-clap-host (0.28.0) unstable; urgency=medium
 
   * preset_show answers what a load would apply, on one line of JSON: a
