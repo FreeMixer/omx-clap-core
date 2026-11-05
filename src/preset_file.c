@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <omxcontract/omx_json_write.h>
+
 #include "preset_file.h"
 
 /* ---------------------------------------------------------------- reading */
@@ -523,6 +525,8 @@ static void puts_(struct pj_out *o, const char *s)
     put(o, s, strlen(s));
 }
 
+/* a string as a JSON literal: the escapes are omx-contract's one writer's (omx_json_escape_byte), the runs between them
+ * copied whole */
 static void put_string(struct pj_out *o, const char *s)
 {
     const char *run = s;
@@ -530,23 +534,13 @@ static void put_string(struct pj_out *o, const char *s)
     put(o, "\"", 1);
     for (; *s; s++)
     {
-        const unsigned char c = (unsigned char)*s;
-        char esc[8];
+        char esc[OMX_JSON_ESCAPE_MAX];
+        const size_t n = omx_json_escape_byte((unsigned char)*s, esc);
 
-        if (c != '"' && c != '\\' && c >= 0x20)
+        if (n == 1)
             continue;
         put(o, run, (size_t)(s - run));
-        if (c == '"' || c == '\\')
-            snprintf(esc, sizeof(esc), "\\%c", c);
-        else if (c == '\n')
-            snprintf(esc, sizeof(esc), "\\n");
-        else if (c == '\t')
-            snprintf(esc, sizeof(esc), "\\t");
-        else if (c == '\r')
-            snprintf(esc, sizeof(esc), "\\r");
-        else
-            snprintf(esc, sizeof(esc), "\\u%04x", c);
-        puts_(o, esc);
+        put(o, esc, n);
         run = s + 1;
     }
     put(o, run, (size_t)(s - run));
