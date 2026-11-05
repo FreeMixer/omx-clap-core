@@ -1,2 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # published from a git tag, not uploaded to Debian: no bug to close
 omx-clap-host: initial-upload-closes-no-bugs
