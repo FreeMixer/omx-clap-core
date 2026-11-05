@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # Fuzzing the readers
 
 The host reads bytes from disk that people and other programs write: preset files, the state bodies they carry, and

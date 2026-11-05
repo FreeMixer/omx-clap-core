@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: release
 
 # A version tag builds the RPMs and the DEBs, for x86_64/amd64 and aarch64/arm64, signs them, publishes them
