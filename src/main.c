@@ -45,6 +45,10 @@
 #include "host-dispatch.h"
 #include "socket.h"
 #include "protocol.h"
+// hello, request tags and error words are the protocol library's from 0.3.0: protocol_add_hello() registers them
+#ifndef PROTOCOL_HELLO
+#error "plugin-hostd-protocol's hello (protocol_add_hello) not found: install plugin-hostd-protocol-devel >= 0.3.0 and < 0.4"
+#endif
 #include "effects.h"
 #include "host_verbs.h"
 // plugin-hostd's verbs this host answers (preset_list, preset_get, pin_layout, chain): their words and formats are the
@@ -524,6 +528,8 @@ static void term_signal(int sig)
 
 static int host_init(int socket_port, int feedback_port)
 {
+    // hello: a client names its protocol version and the extensions it asks for; one that never sends it is answered as before
+    protocol_add_hello();
     // the first command registered under a verb is the one that answers it: this add, not the dispatch's
     protocol_add_command(EFFECT_ADD, add_cb);
     // preset_load and preset_save as docs/presets.md has them, before the dispatch's and the unsupported list's
