@@ -159,6 +159,7 @@ make test-lv2
 %doc README.md
 %{_bindir}/omx-clap-host
 %{_bindir}/omx-clap-scan
+%{_datadir}/omx-clap-host/omx-clap-scan.schema.json
 %{_mandir}/man1/omx-clap-host.1*
 %{_mandir}/man1/omx-clap-scan.1*
 %{_udevrulesdir}/60-omx-clap-host.rules
