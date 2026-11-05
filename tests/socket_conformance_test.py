@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 """Self-test of tests/socket_conformance.py's readiness wait (#479), against stand-in daemons.
 
   slow     answers nothing for 5 s after start, then conforms: must pass (the 2 s bound is not paid for start-up)
