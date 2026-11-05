@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # The per-block fast path
 
 What a hosted plugin costs per block comes from the same few places in every format: audio copied into and out of the

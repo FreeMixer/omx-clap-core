@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> */
 /* the exports of libomx-clap-core.so.1: everything else is hidden */
 OMX_CLAP_CORE_0
 {

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # An LV2 plugin through omx-clap-host over jack, end to end, in a PipeWire of
 # its own: the host finds the fixture bundle on LV2_PATH, runs it through the

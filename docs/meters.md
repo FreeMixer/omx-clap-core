@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # Meters: one extension for one fact
 
 A plugin's meters (its gain reduction, its levels) are one fact, and two CLAP extensions carried it:

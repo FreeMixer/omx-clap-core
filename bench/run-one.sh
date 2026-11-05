@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # One run of the hosting bench: one path, one rate, one quantum, in a PipeWire of its own (a private user, network,
 # pid and mount namespace, the scaffolding of tests/clap_lv2_identity.sh). Every plugin of bench/plugins.tsv the
