@@ -43,20 +43,13 @@ PROTOCOL_CFLAGS = -I$(PROTOCOL_DIR)/include
 PROTOCOL_LIBS = -L$(PROTOCOL_DIR) -lplugin-hostd-protocol -Wl,-rpath,$(abspath $(PROTOCOL_DIR))
 endif
 
-# plugin-hostd's protocol and pin headers: pkg-config when plugin-hostd-devel is installed, a plugin-hostd checkout otherwise
+# <plugin-db/pin.h>, the layout fingerprint: all a build asks of the pin, with what its SHA-256 links
+PIN_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-db)
+PIN_LIBS = $(shell $(PKG_CONFIG) --libs plugin-db)
+
+# a plugin-hostd checkout: the daemon and the clients the end-to-end tests run behind, at test time only. Nothing is
+# built from it (make test-no-hostd-build-dep)
 PLUGIN_HOSTD_DIR ?= ../plugin-hostd
-# pin.h is header-inline and digests through libcrypto (plugin-hostd 0.16): a program that includes it (through
-# src/layout_pin.h: effects.c, scan.c, tests/clap_layout_pin.c) links PLUGIN_HOSTD_LIBS, what plugin-hostd.pc names.
-# A checkout has no .pc installed: its protocol/plugin-hostd.pc.in is read for the same Requires, the protocol library
-# left to PROTOCOL_LIBS, which finds it in its own checkout.
-ifeq ($(shell $(PKG_CONFIG) --exists plugin-hostd && echo true), true)
-PLUGIN_HOSTD_CFLAGS = $(shell $(PKG_CONFIG) --cflags plugin-hostd)
-PLUGIN_HOSTD_LIBS = $(shell $(PKG_CONFIG) --libs plugin-hostd)
-else
-PLUGIN_HOSTD_CFLAGS = -I$(PLUGIN_HOSTD_DIR)/include
-PLUGIN_HOSTD_REQUIRES = $(shell sed -n 's/^Requires: *//p' $(PLUGIN_HOSTD_DIR)/protocol/plugin-hostd.pc.in 2>/dev/null | tr ',' '\n' | sed -n 's/^ *\([^ ]*\).*/\1/p' | grep -vx plugin-hostd-protocol)
-PLUGIN_HOSTD_LIBS = $(if $(strip $(PLUGIN_HOSTD_REQUIRES)),$(shell $(PKG_CONFIG) --libs $(PLUGIN_HOSTD_REQUIRES)))
-endif
 
 # plugin-hostd-tests' protocol clients (lib/protocol.sh, lib/plugin_hostd_client.py), which every e2e test and bench
 # sources: the checkout's, else the installed package's
@@ -137,9 +130,9 @@ CRYPTO_LIBS := $(shell $(PKG_CONFIG) --libs libcrypto)
 LIBS = $(JACK_LIBS) -ldl -lpthread -lm
 
 # include paths
-INCS = $(CRYPTO_CFLAGS) $(PROTOCOL_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
+INCS = $(CRYPTO_CFLAGS) $(PROTOCOL_CFLAGS) $(PIN_CFLAGS) $(CLAP_CFLAGS) $(JACK_CFLAGS)
 # plugin-hostd's include tree searched after every other, for its verb declarations alone (preset_list and preset_get,
-# which plugin-hostd 0.13 and later install): a build whose pin.h comes from an older plugin-hostd still answers them
+# which plugin-hostd 0.13 and later install): a build behind an older plugin-hostd still answers them
 PLUGIN_HOSTD_VERBS_DIR ?=
 ifneq ($(PLUGIN_HOSTD_VERBS_DIR),)
 INCS += -idirafter $(PLUGIN_HOSTD_VERBS_DIR)
@@ -188,7 +181,7 @@ $(CORE_SO): $(CORE_SONAME)
 
 # linking rule: the LV2 adapter is linked in, and lilv is not: the adapter dlopens it on the first LV2 add
 $(PROG): $(OBJ) $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(PLUGIN_HOSTD_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
+	$(CC) $(OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(PIN_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS) -o $@
 
 ifneq ($(PROTOCOL_LIB),)
 $(PROTOCOL_LIB):
@@ -196,7 +189,7 @@ $(PROTOCOL_LIB):
 endif
 
 $(SCAN_PROG): $(SCAN_OBJ) $(LV2_LIB) $(CORE_SO)
-	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PLUGIN_HOSTD_LIBS) $(LDFLAGS) -ldl -lpthread -lm -o $@
+	$(CC) $(SCAN_OBJ) $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PIN_LIBS) $(LDFLAGS) -ldl -lpthread -lm -o $@
 
 # the preset census (tools/preset-census.c): every plugin's preset-discovery factory, preset-load and state, one TSV line
 # each; built on demand, never installed
@@ -246,7 +239,7 @@ build/nox11/window.o: src/window.c
 	@mkdir -p build/nox11
 	$(CC) $(INCS) $(CFLAGS) -c -o $@ $<
 $(NOX11_PROG): $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
-	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(PLUGIN_HOSTD_LIBS) $(LDFLAGS) $(LIBS) -o $@
+	$(CC) $(filter-out src/window.o,$(OBJ)) build/nox11/window.o $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) $(PIN_LIBS) $(LDFLAGS) $(LIBS) -o $@
 
 # lv2/core names no CLAP header: its include path holds no CLAP directory
 # the adapter calls its plugins through its own copy of the guard (src/abi_guard.S), named apart by OMX_ABI_LV2
@@ -419,6 +412,14 @@ test-scan: $(SCAN_PROG) tests/clap_scan_test tests/fake.clap tests/crash.clap te
 	@$(call run_or_skip_clap_test_plugin,./tests/clap_scan_test ./$(SCAN_PROG) $(abspath tests/fake.clap) $(abspath tests/crash.clap) $(CLAP_TEST_PLUGIN) $(abspath tests/fake_synth.clap) $(abspath $(LV2_FIXTURE_DIR)) $(abspath tests/fake_panel.clap))
 
 # the same without omx-delay.clap: only the fake plugin's checks
+# the pin is plugin-db's: a build dependency on plugin-hostd would close the cycle this repository was cut out of
+.PHONY: test-no-hostd-build-dep
+test-no-hostd-build-dep:
+	python3 tests/no_hostd_build_dep.py --self-test
+	python3 tests/no_hostd_build_dep.py .
+
+test: test-no-hostd-build-dep
+test-fake: test-no-hostd-build-dep
 test-fake: test-hosted-clamp test-codes tests/clap_state_busy_test tests/fake_state.clap tests/clap_host_test tests/idle_hold_test tests/fake.clap tests/fake_synth.clap tests/fake_mover.clap tests/fault-17.clap $(SCAN_PROG) tests/clap_scan_test tests/crash.clap test-core test-stage test-msgring test-transport test-raw test-quiet-death test-xrun-report test-lv2-locate test-param-contract test-preset-file test-host-transport test-chain tests/clap_ext_test tests/fake_ext.clap tests/clap_unoffered_test tests/resource_hints_test tests/fake_panel.clap test-thread-pool
 	./tests/clap_ext_test $(abspath tests/fake_ext.clap)
 	./tests/resource_hints_test $(abspath tests/fake_ext.clap)
@@ -480,7 +481,7 @@ test-transport: tests/transport_seqlock_test
 # omx_clap_host_open_timed after its timeout (tests/open_timed_test.c), under ThreadSanitizer: the caller's strings freed
 # and the list of binaries changed on its thread while the abandoned open runs on; the orphan it makes closed
 tests/open_timed_tsan: tests/open_timed_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 .PHONY: test-open-timed
@@ -492,7 +493,7 @@ test-transport-tsan: tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/fa
 	TSAN_OPTIONS=halt_on_error=1 ./tests/cycle_gate_tsan $(abspath tests/fake.clap)
 
 tests/cycle_gate_tsan: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $(CORE_HEADERS)
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 # the chain's test under ThreadSanitizer, the core built into it: its cycles on a thread of their own read the plan the
@@ -516,7 +517,7 @@ test-cycle-gate-sabotage: tests/cycle_gate_test.c src/cycle_gate.h $(CORE_SRC) $
 	mkdir -p build/cycle-gate-sabotage
 	sed -e 's|    return atomic_load(&g->closed) == 0u;|    return 1;|' src/cycle_gate.h > build/cycle-gate-sabotage/cycle_gate.h
 	! cmp -s src/cycle_gate.h build/cycle-gate-sabotage/cycle_gate.h
-	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
+	$(CC) -Ibuild/cycle-gate-sabotage -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall \
 	    -Wextra -Werror -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u \
 	    -o build/cycle-gate-sabotage/test $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 	! TSAN_OPTIONS=halt_on_error=1 ./build/cycle-gate-sabotage/test $(abspath tests/fake.clap) > build/cycle-gate-sabotage/log 2>&1
@@ -671,23 +672,23 @@ tests/clap_core_test: tests/clap_core_test.c $(CORE_SO)
 
 # defines calloc to fail one size on demand, which the core links from it: no --wrap, no link-time optimisation, no builtin
 tests/clap_untrusted_test: tests/clap_untrusted_test.c src/layout_pin.h $(CORE_SO)
-	$(CC) $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(CFLAGS) -Werror -fno-lto -fno-builtin-calloc -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+	$(CC) $(CLAP_CFLAGS) $(PIN_CFLAGS) $(CFLAGS) -Werror -fno-lto -fno-builtin-calloc -o $@ $< $(CORE_LINK_TEST) $(PIN_LIBS) -lpthread -lm
 
 tests/clap_untrusted_asan: tests/clap_untrusted_test.c $(CORE_SRC) $(CORE_HEADERS)
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror -fno-omit-frame-pointer \
 	    -fsanitize=address,undefined -fno-sanitize-recover=all -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -DOMX_UNTRUSTED_ASAN -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 # the core compiled into the test, so it holds the unoffered table's flag where it lives: the library exports nothing for it
 tests/clap_unoffered_test: tests/clap_unoffered_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 tests/clap_state_busy_test: tests/clap_state_busy_test.c $(CORE_SRC) $(CORE_HEADERS) src/abi_guard.S
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 tests/clap_host_test: tests/clap_host_test.c $(CORE_SO)
-	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
+	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) $(PIN_LIBS) -lpthread -lm
 
 tests/clap_chain_test: tests/clap_chain_test.c src/clap_chain.h tests/test_util.h $(CORE_SO)
 	$(CC) $(INCS) $(CFLAGS) -Werror -o $@ $< $(CORE_LINK_TEST) -lpthread -lm
@@ -728,7 +729,7 @@ bench-chain: tests/chain_bench tests/fake.clap tests/fake_compressor.clap
 # the same under ThreadSanitizer, the core and the fixture both built with it: the helpers' tasks, the hand-out word, the
 # completion count and the pool's start and end against the audio thread and the control thread (needs libtsan)
 tests/thread_pool_tsan: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC) $(CORE_HEADERS)
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -Wno-tsan -fsanitize=thread -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $< $(CORE_SRC) $(CRYPTO_LIBS) src/abi_guard.S -ldl -lpthread -lm
 
 tests/fake_pool_tsan.clap: tests/fake_pool.c
@@ -743,7 +744,7 @@ test-thread-pool-sabotage: tests/thread_pool_test.c tests/test_util.h $(CORE_SRC
 	mkdir -p build/thread-pool-sabotage
 	sed -e 's|^    while (atomic_load_explicit(&g_done, memory_order_acquire) < num)$$|    while (0)|' src/thread_pool.c > build/thread-pool-sabotage/thread_pool.c
 	! cmp -s src/thread_pool.c build/thread-pool-sabotage/thread_pool.c
-	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
+	$(CC) -Isrc $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Wall -Wextra -Werror \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o build/thread-pool-sabotage/test $< \
 	    $(filter-out src/thread_pool.c,$(CORE_SRC) $(CRYPTO_LIBS)) build/thread-pool-sabotage/thread_pool.c src/abi_guard.S -ldl -lpthread -lm
 	! ./build/thread-pool-sabotage/test $(abspath tests/fake_pool.clap) > build/thread-pool-sabotage/log 2>&1
@@ -1000,7 +1001,7 @@ test-jack-params-ready-sabotage: tests/host_ready_wait.sh tests/jack_params_read
 	./tests/jack_params_ready_sabotage.sh
 
 tests/clap_layout_pin: tests/clap_layout_pin.c src/layout_pin.h src/omx_clap_raw.h src/abi_guard.h src/abi_guard.S
-	$(CC) -Isrc $(PLUGIN_HOSTD_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S $(PLUGIN_HOSTD_LIBS) -ldl
+	$(CC) -Isrc $(PIN_CFLAGS) $(CLAP_CFLAGS) $(CFLAGS) -Werror -o $@ $< src/abi_guard.S $(PIN_LIBS) -ldl
 
 # the same behind plugin-hostd: the daemon hashes the .clap, sends pin_expect with the layout pin_set gave it, and this
 # host answers the add. PLUGIN_HOSTD is the daemon, built in a plugin-hostd checkout by default.
@@ -1037,14 +1038,14 @@ test-host-verbs-sabotage: $(PROG) tests/fake.clap tests/fake_synth.clap $(if $(O
 	OMX_CONTRACT_PATH=$(or $(OMX_CONTRACT_PATH),$(HOST_VERBS_CONTRACT)) $(HOST_VERBS_DECLARED) ./tests/host_verbs_sabotage.sh
 
 # what the tests read of the verbs data/verbs.json declares, from the header over its renders (src/host_verbs.h) and
-# the layout scheme from plugin-hostd's pin.h: a test names no code or verb of its own
+# the layout scheme from plugin-db's pin.h: a test names no code or verb of its own
 HASH := \#
-host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+host_declared = $(shell printf '$(HASH)include "host_verbs.h"\n$(HASH)include <plugin-db/pin.h>\n%s\n' $(1) | $(CC) -Isrc $(CLAP_CFLAGS) $(PIN_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 HOST_PIN_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT PHD_PIN_LAYOUT_SCHEME,$(n)='$(call host_declared,$(n))')
 HOST_INFO_DECLARED = $(foreach n,OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP OMX_HOST_EVENTS_REMOTE_PAGES_CHANGED,$(n)='$(call host_declared,$(n))')
 HOST_VERBS_DECLARED = PHD_PIN_LAYOUT_SCHEME='$(call host_declared,PHD_PIN_LAYOUT_SCHEME)'
 # what the tests behind plugin-hostd read of the daemon's protocol, from the header of the checkout they run
-phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-hostd/pin.h>\n%s\n' $(1) | $(CC) $(PLUGIN_HOSTD_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
+phd_declared = $(shell printf '$(HASH)include <plugin-hostd/protocol.h>\n$(HASH)include <plugin-db/pin.h>\n%s\n' $(1) | $(CC) $(PROTOCOL_CFLAGS) $(PIN_CFLAGS) -E -P - | tail -n 1 | sed -e 's/^[("]//' -e 's/[)"]$$//')
 PHD_CHAIN_DECLARED = $(foreach n,PHD_READY_LINE OMX_VERB_CHAIN PHD_EVENT_CHAIN_FORMED PHD_EVENT_INSTANCE_QUARANTINED OMX_VERB_WORKER_LIST PHD_PLACE_CHAIN_PREFIX,$(n)='$(call phd_declared,$(n))')
 PHD_DECLARED = $(foreach n,OMX_REPLY_HOST_PIN_ABSENT_RESP OMX_REPLY_PLUGIN_HOSTD_PIN_BINARY_MISMATCH_RESP OMX_REPLY_HOST_PIN_LAYOUT_MISMATCH_RESP OMX_VERB_PIN_EXPECT OMX_VERB_PIN_SET OMX_VERB_PIN_CLEAR PHD_PIN_LAYOUT_SCHEME PHD_READY_LINE OMX_REPLY_HOST_NO_PARAM_CONTRACT_RESP PHD_EVENT_REMOTE_PAGES_CHANGED PHD_PIN_MODE_STRICT,$(n)='$(call phd_declared,$(n))')
 
@@ -1088,7 +1089,7 @@ build/tsan/omx-clap-host: $(SRC) $(CORE_SRC) $(CORE_HEADERS) src/effects.h $(LV2
 	mkdir -p build/tsan
 	$(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(X11_CFLAGS) $(DSP_CFLAGS) -O1 -g -std=gnu99 -D_GNU_SOURCE -pthread -fsanitize=thread -Wno-tsan \
 	    -DOMX_CLAP_VERSION='"$(VERSION)"' -DOMX_CLAP_VERSION_NUM=$(VERSION_NUM)u -o $@ $(SRC) $(CORE_SRC) src/abi_guard.S $(LV2_LIB) \
-	    $(CRYPTO_LIBS) $(PROTOCOL_LIBS) $(PLUGIN_HOSTD_LIBS) $(LIBS) $(X11_LIBS)
+	    $(CRYPTO_LIBS) $(PROTOCOL_LIBS) $(PIN_LIBS) $(LIBS) $(X11_LIBS)
 
 test-chain-host-tsan: build/tsan/omx-clap-host tests/jack_identity tests/jack_latency_probe tests/fake.clap tests/fake_compressor.clap tests/fault-14.clap
 	./tests/chain_host_tsan.sh $(abspath build/tsan/omx-clap-host) $(abspath build/tsan)
@@ -1526,11 +1527,11 @@ tests/abi_guard_bench: tests/abi_guard_bench.c src/abi_guard.S src/abi_guard.h
 # what the host adds per call and per sample on an empty plugin, split by guard (tests/hosted_cost_bench.c, not a gate:
 # it prints); -O2, the level an engine compiles the inline body at
 tests/hosted_cost_bench: tests/hosted_cost_bench.c $(CORE_SO)
-	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -o $@ $< $(CORE_LINK_TEST) -lm
+	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -o $@ $< $(CORE_LINK_TEST) -lm
 
 # the same bench with its LV2 and mixed chains: a binary of its own, as test-hosted-clamp holds the plain one to no libm
 tests/hosted_cost_bench_lv2: tests/hosted_cost_bench.c $(CORE_SO) $(LV2_LIB) src/clap_chain.h
-	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PLUGIN_HOSTD_CFLAGS) $(LV2_CFLAGS) -DHOSTED_COST_LV2 -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -Ilv2/core -Ilv2/clap -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK_TEST) -ldl -lm
+	$(CC) $(CLAP_CFLAGS) $(DSP_CFLAGS) $(PIN_CFLAGS) $(LV2_CFLAGS) -DHOSTED_COST_LV2 -O2 -g -std=gnu99 -D_GNU_SOURCE -pthread -Isrc -Ilv2/core -Ilv2/clap -o $@ $< $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK_TEST) -ldl -lm
 
 # every plugin of an LV2 directory through the adapter: one line per plugin, tests/lv2_direct_identity.sh compares two trees'
 lv2/tests/lv2_direct_identity: lv2/tests/lv2_direct_identity.c $(LV2_LIB) src/omx_clap_raw.h
