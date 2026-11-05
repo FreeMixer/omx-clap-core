@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # The library exports what its version script lists and what the header declares OMX_CLAP_EXPORT, and nothing else, and it
 # names no library of the jack or the protocol kind.
 #   exports.sh <libomx-clap-core.so.X.Y.Z> <omx-clap-core.map> <clap_host.h> [<header>...]

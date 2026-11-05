@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The auxiliary ports of omx-clap-host over jack (#92), against the fake plugins alone, in a PipeWire of its own: the
 # script re-runs itself in a private user, net, pid and mount namespace with its own /proc, starts pipewire on a

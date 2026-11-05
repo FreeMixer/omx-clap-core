@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 usr/bin/omx-clap-host
 usr/bin/omx-clap-scan
 usr/share/man/man1/*
