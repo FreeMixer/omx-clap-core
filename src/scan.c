@@ -45,6 +45,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <omxcontract/omx_json_write.h>
 #include <omxcontract/omx_vocabulary.h>
 
 #include "clap_host.h"
@@ -145,10 +146,12 @@ static int utf8_length(const unsigned char *s)
     return 0;
 }
 
-/* a string as a JSON string, or bare in the text listing; a byte that is no UTF-8 becomes ? */
+/* a string as a JSON string (the escapes omx-contract's one writer's, omx_json_escape_byte), or bare in the text
+ * listing, a control byte a ?; a byte that is no UTF-8 becomes ? either way */
 static void put_string(FILE *out, const char *s)
 {
     const unsigned char *p = (const unsigned char *)(s ? s : "");
+    char esc[OMX_JSON_ESCAPE_MAX];
     int n;
 
     if (g_json)
@@ -168,17 +171,10 @@ static void put_string(FILE *out, const char *s)
         }
         else
         {
-            if (*p < 0x20 || *p == 0x7F)
-            {
-                if (g_json)
-                    fprintf(out, "\\u%04x", *p);
-                else
-                    fputc('?', out);
-            }
-            else if (g_json && (*p == '"' || *p == '\\'))
-                fprintf(out, "\\%c", *p);
+            if (g_json)
+                fwrite(esc, 1, omx_json_escape_byte(*p, esc), out);
             else
-                fputc(*p, out);
+                fputc(*p < 0x20 || *p == 0x7F ? '?' : *p, out);
             p++;
         }
     }
