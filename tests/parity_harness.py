@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
-"""The harness of clap_coverage.py: the TSV helpers, a host process behind its command socket, a private PipeWire, and
-the private user, net, pid and mount namespace it runs its hosts in.
+"""The test harness lv2_parity.py and clap_coverage.py share: the TSV helpers, a host process behind its command
+socket, a private PipeWire, and the private user, net, pid and mount namespace both run their hosts in.
 
-It runs hosts over plugins it does not own (every plugin installed on the machine) and must reach nothing of the live
-graph; the namespace and the PipeWire here are what keep it from it."""
+Each of the two runs hosts it does not own (the desk's plugins, the desk's mod-host) and must reach nothing of the
+live graph; the namespace and the PipeWire here are what keep them from it, so they are written once."""
 import os
 import signal
 import socket

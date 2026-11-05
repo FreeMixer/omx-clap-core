@@ -14,7 +14,7 @@
 # OMX_CLAP_HOST:    the binary (default ./omx-clap-host)
 # JACK_E2E_PORT:    the socket port (default 5564)
 # HOST_*, OMX_VERB_*: what data/verbs.json declares, read from src/host_verbs.h by make test-jack-pin
-# PHD_PIN_LAYOUT_SCHEME: the scheme plugin-hostd's pin.h declares
+# PHD_PIN_LAYOUT_SCHEME: the scheme plugin-db's pin.h declares
 
 set -u
 
