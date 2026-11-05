@@ -86,7 +86,7 @@ Description: build a program that hosts CLAP plugins on libomx-clap-core
 Package: omx-clap-core-contract
 Architecture: all
 Multi-Arch: foreign
-Depends: ${misc:Depends}
+Depends: omx-contract-data (>= 3.3.0~), omx-contract-data (<< 4~), ${misc:Depends}
 Breaks: libomx-clap-core-dev (<< ${source:Version})
 Replaces: libomx-clap-core-dev (<< ${source:Version})
 Description: omx-clap-core's definitions in omx-contract's contract directory
