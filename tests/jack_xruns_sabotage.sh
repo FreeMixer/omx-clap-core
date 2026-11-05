@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of the host's xruns line (#371): each arm copies the sources into build/sabotage-xruns-<arm>, breaks one
 # guard of src/effects.c there with one sed, builds and runs make test-jack-xruns in that copy. The arm holds when the

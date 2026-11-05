@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The control thread's CPU while the host idles with N plugins (and, when asked, one tool instance): the thread that runs
 # effects_idle every 20 ms, read from /proc/<pid>/task/<pid>/schedstat (ns of run time) over a window, in a PipeWire of its own, median of several repeats.

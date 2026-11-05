@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The sabotage of the audio layouts (#92): each arm copies the sources into
 # build/sabotage-<arm>, breaks one rule there with one sed, builds the test that

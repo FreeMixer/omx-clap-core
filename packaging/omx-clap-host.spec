@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
 Version:        0.27.0
 Release: 1%{?dist}
@@ -18,8 +20,8 @@ BuildRequires: clap-devel
 BuildRequires: pkgconfig(libcrypto)
 BuildRequires: omx-dsp-devel >= 0.18.0
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
-# the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0)
-BuildRequires: omx-contract-devel >= 3.3.0
+# the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0); omx_clap_ext.h, preset_file.c and scan.c include omx_param_units.h and omx_json_write.h (3.9.0)
+BuildRequires: omx-contract-devel >= 3.9.0
 BuildRequires: lv2-devel
 BuildRequires: lilv-devel
 # make test-lv2 runs the MIDI output path under AddressSanitizer
@@ -83,8 +85,8 @@ Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
 Requires: omx-dsp-devel >= 0.18.0
-# omxcontract/omx_resource_hints.h, which clap_host.h includes
-Requires: omx-contract-devel >= 3.3.0
+# omxcontract/omx_resource_hints.h, which clap_host.h includes, and omx_param_units.h, which omx_clap_ext.h includes (3.9.0)
+Requires: omx-contract-devel >= 3.9.0
 Requires: omx-clap-core-contract = %{version}-%{release}
 Requires: pkgconfig
 

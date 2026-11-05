@@ -38,9 +38,10 @@
  *
  * The writer's format: compact, no whitespace; pretty, each item on a line of its own indented two spaces for each
  * level, ": " after a member name, the closing bracket on a line of its own under its opener unless the container is
- * empty, and a newline at the end. A string escapes '"' and '\\' with a backslash, a newline, tab and carriage return as
- * \n, \t and \r, and every other byte under 0x20 as \u00xx in lower case; a number is written as its own text, which
- * the reader took only when it is one RFC 8259 number.
+ * empty, and a newline at the end. A string escapes '"' and '\\' with a backslash, a backspace, tab, newline, form feed
+ * and carriage return as \b, \t, \n, \f and \r, and every other byte under 0x20 as \u00xx in lower case (omx-contract's
+ * one writer, <omxcontract/omx_json_write.h>); a number is written as its own text, which the reader took only when it
+ * is one RFC 8259 number.
  */
 
 #include <math.h>
@@ -447,8 +448,8 @@ static void tx_string(struct text *t, const char *s)
     for (; *s; s++)
     {
         const unsigned char c = (unsigned char)*s;
-        const char esc[6] = { '\\', c == 0x0A ? 'n' : c == 0x09 ? 't' : c == 0x0D ? 'r' : 'u', '0', '0', hex[c >> 4],
-                              hex[c & 15] };
+        const char esc[6] = { '\\', c == 0x0A ? 'n' : c == 0x09 ? 't' : c == 0x0D ? 'r' : c == 0x08 ? 'b' : c == 0x0C ? 'f' : 'u',
+                              '0', '0', hex[c >> 4], hex[c & 15] };
 
         if (c == '"' || c == '\\')
         {
@@ -583,12 +584,12 @@ static __attribute__((noinline)) int check_no_overread(const uint8_t *data, size
      * ran out; the call then ends.
      * The same tree, whatever follows the file: a number that runs on into the bytes past it reads differently after a
      * 1 and after a 2.
-     * mutant: src/preset_file.c:298 `text + len,` -> `text + len + 1,`
+     * mutant: src/preset_file.c:300 `text + len,` -> `text + len + 1,`
      * input: number-alone */
     if (!ran_out && r1 == 0 && ((r2 == 0 && !same(&a1, &a2)) || (r0 == 0 && !same(&a1, &a0))))
         abort();
     /* One answer, whatever follows the file.
-     * mutant: src/preset_file.c:193 `s + 1 < in->end` -> `s + 1 <= in->end`
+     * mutant: src/preset_file.c:195 `s + 1 < in->end` -> `s + 1 <= in->end`
      * input: zero-alone */
     if (!ran_out && (r1 != r0 || r2 != r0))
         abort();
@@ -603,7 +604,7 @@ static __attribute__((noinline)) int check_no_overread(const uint8_t *data, size
 
 static __attribute__((noinline)) void check_bounded_alloc(size_t held, size_t size)
 {
-    /* mutant: src/preset_file.c:50 `: 8;` -> `: 512;`
+    /* mutant: src/preset_file.c:52 `: 8;` -> `: 512;`
      * input: many-small-containers */
     if (held > PJ_ALLOC_BOUND(size))
         abort();
@@ -617,7 +618,7 @@ static __attribute__((noinline)) int check_as_written(const uint8_t *data, size_
     if (out_of_memory())
         return 1;
     /* The reader refuses a file the grammar reads, or reads one it refuses.
-     * mutant: src/preset_file.c:155 `cp == 0` -> `cp == 1`
+     * mutant: src/preset_file.c:157 `cp == 0` -> `cp == 1`
      * input: refuse-u0000
      * mutant: src/preset_file.h:63 `32` -> `31`
      * input: deepest */
@@ -625,7 +626,7 @@ static __attribute__((noinline)) int check_as_written(const uint8_t *data, size_
         abort();
     /* The tree is the one the file spells. A reader that reads an escape wrong and a writer that writes it back the
      * same way make a round trip that holds; the harness's own reading does not.
-     * mutant: src/preset_file.c:151 `'\n'` -> `'\r'`
+     * mutant: src/preset_file.c:153 `'\n'` -> `'\r'`
      * input: escapes */
     if (rc == 0 && want != 0)
         abort();
@@ -637,15 +638,15 @@ static __attribute__((noinline)) void check_reject_clean(int rc, const struct pj
     static const struct pj empty;
 
     /* A reading that loses an allocation is refused: one that takes another instead reads on.
-     * mutant: src/preset_file.c:127 `out = malloc((size_t)(o - p) + 1);` -> `out = malloc((size_t)(o - p) + 1) ?: malloc((size_t)(o - p) + 1);`
+     * mutant: src/preset_file.c:129 `out = malloc((size_t)(o - p) + 1);` -> `out = malloc((size_t)(o - p) + 1) ?: malloc((size_t)(o - p) + 1);`
      * input: string-alone */
     if (rc == 0)
         abort();
-    /* mutant: src/preset_file.c:307 `pj_free(out);` -> ``
+    /* mutant: src/preset_file.c:309 `pj_free(out);` -> ``
      * input: refuse-array-cut */
     if (memcmp(doc, &empty, sizeof(empty)) != 0)
         abort();
-    /* mutant: src/preset_file.c:246 `v->n++;` -> ``
+    /* mutant: src/preset_file.c:248 `v->n++;` -> ``
      * input: refuse-array-cut */
     if (fuzz_alloc_live() != live_before)
         abort();
@@ -683,7 +684,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
         fuzz_free(text);
         return;
     }
-    /* mutant: src/preset_file.c:507 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
+    /* mutant: src/preset_file.c:509 `buf = realloc(o->buf, cap);` -> `buf = realloc(o->buf, cap) ?: realloc(o->buf, cap);`
      * input: string-alone */
     if (text || fuzz_alloc_live() != live)
         abort();
@@ -701,7 +702,7 @@ static __attribute__((noinline)) void check_reject_clean_starved(const uint8_t *
         fuzz_free(text);
         return;
     }
-    /* mutant: src/preset_file.c:617 `if (o.failed)` -> `if (o.failed && pretty)`
+    /* mutant: src/preset_file.c:611 `if (o.failed)` -> `if (o.failed && pretty)`
      * input: compact-second-allocation */
     if (text || fuzz_alloc_live() != live)
         abort();
@@ -722,12 +723,12 @@ static int round_trip_text(const struct pj *doc, int pretty, struct pj *copy)
         return 1;
     }
     /* A tree is written while memory lasts.
-     * mutant: src/preset_file.c:617 `if (o.failed)` -> `if (!o.failed)`
+     * mutant: src/preset_file.c:611 `if (o.failed)` -> `if (!o.failed)`
      * input: string-alone */
     if (!text)
         abort();
     /* The text is the writer's format, byte for byte.
-     * mutant: src/preset_file.c:564 `put(o, "  ", 2);` -> `put(o, "   ", 3);`
+     * mutant: src/preset_file.c:558 `put(o, "  ", 2);` -> `put(o, "   ", 3);`
      * input: no-modified-at */
     if (strcmp(text, want) != 0)
         abort();
@@ -737,12 +738,12 @@ static int round_trip_text(const struct pj *doc, int pretty, struct pj *copy)
     if (out_of_memory())
         return 1;
     /* The reader reads what the writer writes: a pretty text has the newlines a compact file need not.
-     * mutant: src/preset_file.c:38 `*in->p == '\n'` -> `*in->p == '\v'`
+     * mutant: src/preset_file.c:40 `*in->p == '\n'` -> `*in->p == '\v'`
      * input: string-alone */
     if (rc != 0)
         abort();
     /* And reads it to the same tree: an escape the writer uses that the file did not.
-     * mutant: src/preset_file.c:153 `'\t'` -> `'x'`
+     * mutant: src/preset_file.c:155 `'\t'` -> `'x'`
      * input: escape-tab-as-u */
     if (!same(doc, &back))
         abort();
@@ -766,7 +767,7 @@ static int round_trip_rewrite(const struct pj *doc, struct pj *copy)
     if (out_of_memory())
         return 1;
     /* A member is set while memory lasts.
-     * mutant: src/preset_file.c:384 `grow(obj) != 0` -> `grow(obj) == 0`
+     * mutant: src/preset_file.c:386 `grow(obj) != 0` -> `grow(obj) == 0`
      * input: no-modified-at */
     if (!set)
         abort();
@@ -778,7 +779,7 @@ static int round_trip_rewrite(const struct pj *doc, struct pj *copy)
         return 1;
     }
     /* The rewrite is written and read back: a file of no strings has written none until the save adds one.
-     * mutant: src/preset_file.c:553 `put(o, "\"", 1);` -> ``
+     * mutant: src/preset_file.c:547 `put(o, "\"", 1);` -> ``
      * input: empty-object */
     if (!saved || rc != 0)
         abort();
@@ -786,23 +787,23 @@ static int round_trip_rewrite(const struct pj *doc, struct pj *copy)
         if (strcmp(doc->keys[i], REWRITTEN) == 0)
             at = i;
     /* A member the file has is set in place, not added again.
-     * mutant: src/preset_file.c:377 `if (old)` -> `if (0)`
+     * mutant: src/preset_file.c:379 `if (old)` -> `if (0)`
      * input: docs-presets-example */
     if (back.n != doc->n + (at == doc->n ? 1u : 0u))
         abort();
     for (i = 0; i < doc->n; i++)
         /* Every other member keeps its name, its value and its place.
-         * mutant: src/preset_file.c:380 `*old = *val;` -> `obj->kids[0] = *val;`
+         * mutant: src/preset_file.c:382 `*old = *val;` -> `obj->kids[0] = *val;`
          * input: docs-presets-example */
         if (strcmp(back.keys[i], doc->keys[i]) != 0 || (i != at && !same(&back.kids[i], &doc->kids[i])))
             abort();
     /* The member set is the one named, with its value.
-     * mutant: src/preset_file.c:384 `strdup(key)` -> `strdup("x")`
+     * mutant: src/preset_file.c:386 `strdup(key)` -> `strdup("x")`
      * input: no-modified-at */
     if (strcmp(back.keys[at], REWRITTEN) != 0 || back.kids[at].type != PJ_STRING)
         abort();
     /* The member set holds the value that the rewrite set.
-     * mutant: src/preset_file.c:380 `*old = *val;` -> `old->type = val->type;`
+     * mutant: src/preset_file.c:382 `*old = *val;` -> `old->type = val->type;`
      * input: docs-presets-example */
     if (strcmp(back.kids[at].str, "2026-10-25T00:00:00Z") != 0)
         abort();

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The crash drill of the hosting bench, one private PipeWire per path at CRASH_RATE / CRASH_QUANTUM (48000 / 128):
 #
