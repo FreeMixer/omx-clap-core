@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 usr/include/omx-clap-lv2
 usr/lib/*/libomx-clap-lv2.a
 usr/lib/*/pkgconfig/omx-clap-lv2.pc

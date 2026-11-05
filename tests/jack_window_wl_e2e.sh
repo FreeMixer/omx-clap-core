@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # A plugin's own window in omx-clap-host over clap.gui with Wayland first (#329), against tests/fake_gui_wl.clap, a
 # plugin that offers a Wayland window and an X11 one, in a PipeWire, a headless weston and an Xvfb of their own: the

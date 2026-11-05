@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: ci
 
 # The tests that need no audio server run on every push and pull request, then the RPMs are built as
@@ -165,8 +167,8 @@ jobs:
 
       - uses: actions/checkout@v4
 
-      - name: Every source names its licence
-        run: bash tests/spdx-check.sh
+      - name: Every file a comment can be written in opens with its licence
+        uses: FreeMixer/.github/.github/actions/spdx-check@c67b6d0e09fd9f7cf9a8dd24ff41ea30d99f893c
 
       # the units table and the JSON string writer are omx-contract's, the protocol plugin-hostd-protocol's: no copy of
       # either is in this tree (tests/no_contract_copy.py, tests/no_protocol_copy.py, each with its self test)
@@ -702,7 +704,7 @@ jobs:
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libplugin-hostd-protocol.so.0' requires.txt
-            grep -qx 'plugin-hostd-protocol(.*) >= 0.2.0' requires.txt
+            grep -qx 'plugin-hostd-protocol(.*) >= 0\.[23]\.0' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
             # the window links libxcb, so the package requires it (#180)
@@ -1080,7 +1082,7 @@ jobs:
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
             ./proto-debs/libplugin-hostd-protocol0_*.deb
           dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
-          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libplugin-hostd-protocol0 (>= 0.2.0)'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qE 'libplugin-hostd-protocol0 \(>= 0\.[23]\.0'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'

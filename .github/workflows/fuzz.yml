@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: fuzz
 
 # The libFuzzer harnesses of fuzz/ (fuzz/README.md), on every push and pull request: the preset file reader, the state
