@@ -39,12 +39,16 @@
 #define BLOCK 128u
 #define EXTRA_OVERSIZE 5
 
-static void count_out(void *ctx, int64_t frame, const uint8_t *data, uint32_t size)
+/* the events of the last run's MIDI output, counted: the walk reads each one, as the adapter's does */
+static uint32_t count_out(const struct lv2_instance *in)
 {
-    (void)frame;
-    (void)data;
-    (void)size;
-    (*(uint32_t *)ctx)++;
+    struct lv2_midi_out c;
+    struct lv2_midi_out_event e;
+    uint32_t n = 0;
+
+    for (lv2_instance_midi_out_begin(in, &c); lv2_instance_midi_out_next(&c, &e);)
+        n++;
+    return n;
 }
 
 int main(int argc, char **argv)
@@ -102,8 +106,8 @@ int main(int argc, char **argv)
     }
 
     extra(EXTRA_OVERSIZE);
-    lv2_instance_run(in, BLOCK, NULL, NULL);
-    lv2_instance_midi_out_each(in, count_out, &out);
+    lv2_instance_run(in, BLOCK);
+    out = count_out(in);
     if (out == 0)
         printf("ok   an output sequence declared past its buffer passes nothing\n");
     else

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 Building omx-clap-host
 ======================
 
@@ -10,9 +12,8 @@ plugin-hostd-protocol` when it is installed (the plugin-hostd-protocol-devel
 package), otherwise from `PROTOCOL_DIR` (default `../plugin-hostd-protocol`), a
 checkout where the library is built if missing and whose path becomes the
 binary's rpath. The layout pin's
-serialisation is plugin-hostd's header `plugin-hostd/pin.h`: from `pkg-config
-plugin-hostd` (the plugin-hostd-devel package) or from
-`PLUGIN_HOSTD_DIR/include`. The verbs the host answers past mod-host's are this
+serialisation is plugin-db's header `plugin-db/pin.h`: from `pkg-config
+plugin-db` (the plugin-db-devel package). The verbs the host answers past mod-host's are this
 tree's own, declared in `data/verbs.json` (below). The CLAP
 headers come from `pkg-config --cflags clap` (Fedora `clap-devel`) or `CLAP_CFLAGS`.
 JACK's headers and library come from `pkg-config jack` (the

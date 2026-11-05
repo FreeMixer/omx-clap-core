@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 prefix=@PREFIX@
 libdir=@LIBDIR@
 includedir=@INCLUDEDIR@
@@ -12,6 +14,6 @@ Requires: clap
 # hosted_stage.h takes its DSP words from omx-dsp's headers, which name omx-contract's; clap_host.h its hosting codes
 # from omx_clap_core_vocabulary.h, installed beside it, and the resource hints from omx-contract's
 # omxcontract/omx_resource_hints.h (3.1.0); nothing of either is linked
-Requires.private: omxdsp >= 0.18.0, omx-contract >= 3.1.0, libcrypto
+Requires.private: omxdsp >= 0.30.0, omxdsp < 0.31, omx-contract >= 3.9.0, omx-contract < 4, libcrypto
 Libs: -L${libdir} -lomx-clap-core
 Cflags: -I${includedir}

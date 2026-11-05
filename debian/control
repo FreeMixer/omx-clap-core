@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Source: omx-clap-host
 Section: sound
 Priority: optional
@@ -9,10 +11,10 @@ Build-Depends: debhelper-compat (= 13),
                libjack-jackd2-dev | libjack-dev,
                libxcb1-dev,
                libssl-dev,
-               libplugin-hostd-protocol-dev (>= 0.2.0),
-               libomxdsp-dev (>= 0.18.0),
-               libomx-contract-dev (>= 3.3.0),
-               plugin-hostd-dev (>= 0.5.0~),
+               libplugin-hostd-protocol-dev (>= 0.3.0~), libplugin-hostd-protocol-dev (<< 0.4~),
+               libomxdsp-dev (>= 0.30.0~), libomxdsp-dev (<< 0.31~),
+               libomx-contract-dev (>= 3.9.0~), libomx-contract-dev (<< 4~),
+               plugin-db-dev (>= 0.1.0~), plugin-db-dev (<< 0.2~),
                pkgconf,
                python3
 Standards-Version: 4.6.2
@@ -21,7 +23,7 @@ Rules-Requires-Root: no
 
 Package: omx-clap-host
 Architecture: any
-Depends: libplugin-hostd-protocol0 (>= 0.2.0), ${shlibs:Depends}, ${misc:Depends}
+Depends: libplugin-hostd-protocol0 (>= 0.3.0~), libplugin-hostd-protocol0 (<< 0.4~), ${shlibs:Depends}, ${misc:Depends}
 Recommends: liblilv-0-0
 Description: use CLAP and LV2 plugins on a JACK rig, driven like mod-host
  omx-clap-host hosts CLAP and LV2 plugins in a live JACK or PipeWire rig.
@@ -73,7 +75,7 @@ Package: libomx-clap-core-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libomx-contract-dev (>= 3.3.0), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
+Depends: libomx-contract-dev (>= 3.9.0~), libomx-contract-dev (<< 4~), libomxdsp-dev (>= 0.30.0~), libomxdsp-dev (<< 0.31~), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
 Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, and the list of functions the library

@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # The chain object of libomx-clap-core
 
 `clap_chain.h` installs beside `clap_host.h` under `include/omx-clap-host/`: an ordered list of stages that one audio
@@ -306,8 +308,8 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   the slot is none of them, so nothing they give back covers a named thread. Round three's lock (the thread-init
   callback trying `g_chain_members` and, when the control thread held it, its client passing dry until the control
   thread applied the name) let a client lose its first cycles: two clients whose first cycles start together collide on
-  the lock, and a repeated run of the host fixture against mod-host read its two instances 0.33 apart at 96 kHz on 7
-  runs of 20, every one of them with dry cycles logged (1 to 188), none on the 13 identical runs; 0 of 20 since. A head's
+  the lock, and `make test-parity-lv2` read the host fixture's two instances 0.33 apart at 96 kHz on 7 runs of 20,
+  every one of them with dry cycles logged (1 to 188), none on the 13 identical runs; 0 of 20 since. A head's
   buffer-size callback still tries `g_chain_members` to walk its members (a size it cannot record then waits for
   `chain_members_reconcile`). The process callback takes no lock.
 - `make test-hostd-chain` (`tests/hostd_chain_e2e.sh`, plugin-hostd as the daemon and this host its CLAP worker): the
@@ -336,9 +338,9 @@ quarantined member that is not the head takes none of them, and the chain rejoin
   left out not activated): the member runs again with its links, which `jack_deactivate` drops and the rollback makes
   again. One hold keeps the test green: every add holds `g_chain_members` across its client's `jack_activate` until that
   client's thread-init callback has returned, so a callback that waits on the lock fails the add.
-- The repeated run that caught that race compared the fixture with mod-host, which this tree no longer drives: a
-  client cycle that passes dry where it should have run the plugin, which shows only on the runs where JACK's threads
-  collide, has no repeated test now. The guard is the hold above and `test-identity-lv2`'s single run.
+- `make test-parity-lv2` (`tests/lv2_parity_fixture.sh`) runs the host fixture at 96 kHz `LV2_PARITY_REPEATS` times (10
+  by default), a fresh pair of hosts each time, and wants it IDENTICAL to mod-host every time: a client cycle that
+  passes dry where it should have run the plugin shows only on the runs where JACK's threads collide.
 
 ### What a member costs
 

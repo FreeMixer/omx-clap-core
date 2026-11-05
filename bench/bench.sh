@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The hosting bench: bench/run-one.sh over every path, rate, quantum and repetition, then bench/crash.sh, the results
 # under one directory: plugins.csv (one row per plugin per run), runs.csv (one row per run), crash.csv, machine.txt and

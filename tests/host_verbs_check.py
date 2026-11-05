@@ -75,6 +75,11 @@ EXAMPLES = {
     'preset_show': (['{fx}', '{preset}'], [(['{fx}', 'plugin:none'], 'presetNotOffered'), (['{fx}', '{missing}'], 'presetInvalid'),
                                          (['9', '{preset}'], 'instanceNonExists')]),
     'pin_layout': (['{fx}'], []),
+    # the protocol's own verbs (plugin-hostd-protocol 0.3.0): hello is answered by the library once the host registers it,
+    # the bulk verbs by the dispatch over the host's backend
+    'hello': (['1', 'tags'], []),
+    'param_get_many': (['{fx}', '0'], []),
+    'param_set_many': (['{fx}', '0', '0.5'], []),
 }
 
 # a verb a package declares of this host that the host answers in an open change, with that change: the check names it
@@ -216,6 +221,7 @@ def main():
     ap = argparse.ArgumentParser()
     for a in ('--port', '--contract-path', '--registration', '--header', '--fake', '--synth', '--layout-scheme'):
         ap.add_argument(a, required=True)
+    ap.add_argument('--spaced-fake', help='a copy of the fake plugin under a directory whose name holds spaces')
     o = ap.parse_args()
 
     verbs = declarations(o.contract_path)
@@ -256,6 +262,14 @@ def main():
                        ('add clap:%s#org.omx-clap-host.test.passthrough %s' % (o.fake, fx2), 'resp ' + fx2)):
         got = host.send(line)
         step(got == want, '%s -> %s' % (line, got))
+    if o.spaced_fake:
+        # a plugin path with spaces in it is one uri: the protocol splits the line at every space (clap uri with a space, answered -101)
+        for line, want in (('add clap:%s#org.omx-clap-host.test.passthrough 3' % o.spaced_fake, 'resp 3'),
+                           ('add clap:%s#org.omx-clap-host.test.passthrough 4 a client name' % o.spaced_fake, 'resp 4'),
+                           ('add "clap:%s#org.omx-clap-host.test.passthrough" 5' % o.spaced_fake, 'resp 5'),
+                           ('remove 3', 'resp 0'), ('remove 4', 'resp 0'), ('remove 5', 'resp 0')):
+            got = host.send(line)
+            step(got == want, '%s -> %s' % (line, got))
     # a preset file of the passthrough's, params only, for preset_show's file form
     preset = os.path.join(tempfile.mkdtemp(prefix='host-verbs-'), 'preset.json')
     with open(preset, 'w') as f:

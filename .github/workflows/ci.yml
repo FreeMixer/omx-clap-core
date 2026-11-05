@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 name: ci
 
 # The tests that need no audio server run on every push and pull request, then the RPMs are built as
@@ -19,8 +21,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # plugin-hostd from the release we ship: its protocol and pin headers, the daemon the pin test runs behind, the verbs
-  # file the host verbs test reads and the tests' lib/ (protocol.sh, plugin_hostd_client.py) all come from this one tag
+  # plugin-hostd from the release we ship (.github/plugin-hostd.sh): its pin header and vocabulary (pkg-config
+  # plugin-hostd), the daemon the pin and chain tests run behind and the tests' lib/ (protocol.sh,
+  # plugin_hostd_client.py) all come from this one tag; the protocol itself is plugin-hostd-protocol's, PROTOCOL_REF
   PLUGIN_HOSTD_REF: v0.16.0
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
@@ -155,17 +158,28 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
-          pkg-config --modversion plugin-hostd-protocol
-          pkg-config --modversion omxdsp
-          pkg-config --atleast-version=3.3.0 omx-contract
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.3.0' mod-host omx-plugins-devel
+          pkg-config --atleast-version=0.3.0 plugin-hostd-protocol
+          pkg-config --atleast-version=0.30.0 omxdsp
+          pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
 
       - uses: actions/checkout@v4
 
-      - name: Every source names its licence
-        run: bash tests/spdx-check.sh
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
+
+      - name: Every file a comment can be written in opens with its licence
+        uses: FreeMixer/.github/.github/actions/spdx-check@c67b6d0e09fd9f7cf9a8dd24ff41ea30d99f893c
+
+      # the units table and the JSON string writer are omx-contract's, the protocol plugin-hostd-protocol's: no copy of
+      # either is in this tree (tests/no_contract_copy.py, tests/no_protocol_copy.py, each with its self test)
+      - name: No copy of omx-contract's units table or JSON writer
+        run: make test-no-contract-copy
+
+      - name: No copy of plugin-hostd-protocol's tables, headers or rendered verbs
+        run: make check-no-protocol-copy
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -176,6 +190,9 @@ jobs:
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
+
+      - name: Install plugin-db's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
 
       - name: Build
         run: make
@@ -459,6 +476,10 @@ jobs:
             echo "::warning::test-identity-lv2 SKIPPED: this runner refuses a private user and pid namespace with its own /proc"
           fi
 
+      # The LV2 parity runner: its rules on fake recordings, each broken once and seen red (tests/lv2_parity.py)
+      - name: Test the LV2 parity rules
+        run: make test-parity-self
+
       # The CLAP coverage probe: scan parsing, the host loop against a fake host, classify, each rule broken once and
       # seen red (tests/clap_coverage.py); the desk run, make clap-coverage, is not CI's
       - name: Test the CLAP coverage probe's rules
@@ -477,6 +498,9 @@ jobs:
       - name: Test the consumer steps against test-core
         run: make test-ci-consumer-args
 
+      # The parity runner end to end on the fixture bundles, mod-host against the adapter, in a PipeWire of its own
+      - name: Test LV2 parity on the fixtures
+        run: make test-parity-lv2
 
       # The same behind plugin-hostd with require_pins 1 and this host as its CLAP worker.
       - name: Test layout pinning behind plugin-hostd
@@ -555,14 +579,17 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0' 'plugin-hostd-protocol-devel >= 0.2.0' mod-host omx-plugins-devel
-          pkg-config --modversion plugin-hostd-protocol
-          pkg-config --modversion omxdsp
-          pkg-config --atleast-version=3.3.0 omx-contract
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.3.0' mod-host omx-plugins-devel
+          pkg-config --atleast-version=0.3.0 plugin-hostd-protocol
+          pkg-config --atleast-version=0.30.0 omxdsp
+          pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
 
       - uses: actions/checkout@v4
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
 
       - name: Install plugin-hostd's headers and build its daemon
         run: |
@@ -573,6 +600,9 @@ jobs:
           echo "PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
           echo "PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib" >> "$GITHUB_ENV"
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
+
+      - name: Install plugin-db's header, which the build reads
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
 
       - name: Build
         run: make
@@ -606,8 +636,8 @@ jobs:
       - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False omx-dsp-devel 'omx-contract-devel >= 3.3.0'
-          pkg-config --modversion omxdsp
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0'
+          pkg-config --atleast-version=0.30.0 omxdsp
 
       - uses: actions/checkout@v4
 
@@ -645,6 +675,9 @@ jobs:
       # the spec's BuildRequires: omx-dsp-devel, and omx-contract-devel under it, come from the OpenMixer channel
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
 
       - name: Fetch plugin-hostd
         run: |
@@ -687,7 +720,7 @@ jobs:
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libplugin-hostd-protocol.so.0' requires.txt
-            grep -qx 'plugin-hostd-protocol(.*) >= 0.2.0' requires.txt
+            grep -qx '(plugin-hostd-protocol(.*) >= 0.3.0 with plugin-hostd-protocol(.*) < 0.4)' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
             # the window links libxcb, so the package requires it (#180)
@@ -799,7 +832,8 @@ jobs:
           rpm -qf /usr/share/omx-contract/contract.d/3/omx-clap-core/verbs.json | grep -q '^omx-clap-core-contract-'
           # plugin-hostd-protocol's verbs file names this host too (chain: required), and the check reads it
           rpm -qf /usr/share/omx-contract/contract.d/3/plugin-hostd-protocol/verbs.json | grep -q '^plugin-hostd-protocol-contract-'
-          scheme=$(printf '#include <plugin-hostd/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-hostd) -E -P - | tail -n 1 | tr -d '"')
+          dnf install -y --setopt=install_weak_deps=False plugin-db-devel
+          scheme=$(printf '#include <plugin-db/pin.h>\nPHD_PIN_LAYOUT_SCHEME\n' | gcc $(pkg-config --cflags plugin-db) -E -P - | tail -n 1 | tr -d '"')
           if unshare --user --map-root-user --net --pid --fork --mount-proc true; then
             PLUGIN_HOSTD_TESTS_LIB=/tmp/plugin-hostd/tests/lib OMX_CONTRACT_PATH=/usr/share/omx-contract/contract.d OMX_CLAP_HOST=/usr/bin/omx-clap-host PHD_PIN_LAYOUT_SCHEME=$scheme \
               ./tests/host_verbs_e2e.sh
@@ -919,6 +953,9 @@ jobs:
       # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the OpenMixer channel
       - name: Add the OpenMixer repository
         uses: FreeMixer/.github/.github/actions/add-openmixer@v1
+
+      # a dedupe/all run builds on its siblings' dedupe/all (.github/wave-deps); @main until FreeMixer/.github moves v1 past it
+      - uses: FreeMixer/.github/.github/actions/wave-deps@main
 
       - name: Fetch plugin-hostd
         run: .github/plugin-hostd.sh /tmp/plugin-hostd
@@ -1064,7 +1101,7 @@ jobs:
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
             ./proto-debs/libplugin-hostd-protocol0_*.deb
           dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
-          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libplugin-hostd-protocol0 (>= 0.2.0)'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -qF 'libplugin-hostd-protocol0 (>= 0.3.0~), libplugin-hostd-protocol0 (<< 0.4~)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'

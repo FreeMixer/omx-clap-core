@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 # The per-block fast path
 
 What a hosted plugin costs per block comes from the same few places in every format: audio copied into and out of the
@@ -149,7 +151,7 @@ clamped first, as it is today.
 
 ## Proof each item owes
 
-- Outputs bit-identical to before: the oracle suites (the LV2 and stage tests), and
+- Outputs bit-identical to before: the oracle and parity suites (`tests/lv2_parity.py`, the LV2 and stage tests), and
   `tests/lv2_direct_identity.sh` on every installed plugin for items that touch the LV2 path.
 - The sabotage of each new guard goes red.
 - Nanoseconds per sample before and after, 48000 Hz, 256 frames, a 24-plugin chain, CLAP, LV2 and mixed

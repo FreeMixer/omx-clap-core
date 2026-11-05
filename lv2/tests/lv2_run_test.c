@@ -110,7 +110,7 @@ static void run_rt(struct rig *g, float *l, float *r, uint32_t n)
     if (legs == 2)
         memcpy(lv2_instance_audio_in(g->in, 1), r ? r : l, n * sizeof(float));
     in_rt = 1;
-    lv2_instance_run(g->in, n, NULL, NULL);
+    lv2_instance_run(g->in, n);
     in_rt = 0;
     memcpy(l, lv2_instance_audio_out(g->in, 0), n * sizeof(float));
     if (r)

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # A chain behind plugin-hostd, its crash drill, end to end (#104, docs/chain.md), in a PipeWire of its own: the daemon
 # with this host as its CLAP worker declares a chain of three, comp (tests/fake_compressor.clap: -6 dB on a block

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # tests/chain_host_e2e.sh against a chain host that stops answering mid-run: the host is stopped (CHAIN_HOST_STALL) just
 # before the line `chain 9 15 16 17`, as a host that deadlocks, or crashes with a core dump that is slow to finish, would

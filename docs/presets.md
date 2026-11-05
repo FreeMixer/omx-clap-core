@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 Presets in the worker
 =====================
 
@@ -72,7 +74,7 @@ valid; a file with a state body is `org.openmixer.preset/2`. Any other version i
 
 - `plugin.id` is the CLAP id, or the LV2 plugin's URI. `plugin.version` is the descriptor's version (for LV2 the
   adapter's `<lv2:minorVersion>.<lv2:microVersion>`). `plugin.fingerprint` is the plugin's parameter layout digest,
-  the `omx-layout/1` digest of plugin-hostd's pin (`plugin-hostd/pin.h`): every parameter `clap.params` gives, its id,
+  the `omx-layout/1` digest of a plugin's pin (`plugin-db/pin.h`): every parameter `clap.params` gives, its id,
   name, range, default and flags. A file whose id, version or fingerprint differs from the instance's is refused with
   `PRESET_PLUGIN_CHANGED` and nothing of it is applied.
 - `id` is minted by the consumer; a save that finds none writes one (the plugin id and the save's time).

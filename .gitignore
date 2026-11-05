@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 *.o
 omx-clap-host
 tests/abi_guard_test
@@ -16,6 +18,7 @@ omx-clap-scan
 tests/fake.clap
 tests/jack_latency_probe
 tests/jack_identity
+tests/jack_parity
 tests/fake_synth.clap
 tests/fake_ext.clap
 tests/fake_pool.clap

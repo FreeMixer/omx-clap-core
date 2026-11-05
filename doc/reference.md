@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com> -->
 omx-clap-host reference
 =======================
 
@@ -1006,7 +1008,7 @@ Layout pin
 just before the `add` of instance `N` with the layout pin of the plugin. That
 `add` computes the plugin's layout after `init()` and before `activate()`,
 every parameter `params.get_info()` gives in the `omx-layout/1` serialisation of
-plugin-hostd's `pin.h`, and when it differs destroys the instance and answers
+plugin-db's `pin.h`, and when it differs destroys the instance and answers
 `resp -510` (`reply.host.pin-layout-mismatch`): the plugin is never activated and
 processes nothing. A pin is spent by the `add` it was sent for. A scheme the
 host does not know answers `resp -508` (`reply.host.pin-absent`) and pins nothing.
