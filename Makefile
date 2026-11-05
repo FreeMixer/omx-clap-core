@@ -873,6 +873,22 @@ test-no-sha256-copy:
 	bash tests/no_sha256_copy.sh --self-test
 	bash tests/no_sha256_copy.sh .
 
+# the parameter units and the JSON string writer are omx-contract's (<omxcontract/omx_param_units.h>,
+# <omxcontract/omx_json_write.h>): no source under src/, lv2/ or tools/ spells a units row or an escape loop of its own
+# (tests/no_contract_copy.py, with its self test)
+.PHONY: test-no-contract-copy
+test-no-contract-copy:
+	python3 tests/no_contract_copy.py --self-test
+	python3 tests/no_contract_copy.py .
+
+# the protocol is plugin-hostd-protocol's: none of its tables or headers is back here under any name, nothing declares
+# what protocol.h declares, and the one rendered verb table is src/omx_clap_core_host_verbs.h (tests/no_protocol_copy.py,
+# with its self test)
+.PHONY: check-no-protocol-copy
+check-no-protocol-copy:
+	python3 tests/no_protocol_copy.py --self-test
+	python3 tests/no_protocol_copy.py .
+
 .PHONY: test-unsupported-copy
 test-unsupported-copy:
 	@test -n "$(PROTOCOL_MOD_HOST_H)" || { echo "test-unsupported-copy: no mod-host.h under the protocol's include path" >&2; exit 1; }
