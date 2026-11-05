@@ -968,12 +968,12 @@ jobs:
 
       - uses: FreeMixer/.github/.github/actions/build-deb@v1
 
-      # the protocol library the package depends on, from the channel, for the smoke test's container, which has only
+      # the protocol library and omx-contract's data the package depends on, from the channel, for the smoke test's container, which has only
       # the distribution
       - name: Fetch libplugin-hostd-protocol0 for the smoke test
         run: |
           set -euo pipefail
-          mkdir -p proto-debs && cd proto-debs && apt-get download libplugin-hostd-protocol0
+          mkdir -p proto-debs && cd proto-debs && apt-get download libplugin-hostd-protocol0 omx-contract-data
 
       # what the smoke test runs the installed package against, built here for the architecture
       - name: Build the smoke test fixtures
@@ -1058,6 +1058,7 @@ jobs:
           path: |
             debs/*.deb
             proto-debs/libplugin-hostd-protocol0_*.deb
+            proto-debs/omx-contract-data_*.deb
             smoke
           if-no-files-found: error
           retention-days: 1
@@ -1088,7 +1089,7 @@ jobs:
           set -euo pipefail
           apt-get update -qq
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
-            ./proto-debs/libplugin-hostd-protocol0_*.deb
+            ./proto-debs/libplugin-hostd-protocol0_*.deb ./proto-debs/omx-contract-data_*.deb
           dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
           dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -F 'libplugin-hostd-protocol0 (>= 0.3.0' | grep -qF 'libplugin-hostd-protocol0 (<< 0.4~)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
