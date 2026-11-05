@@ -129,7 +129,10 @@ static void pool_exec(const clap_plugin_t *plugin, uint32_t task)
         struct sched_param p;
         int policy;
 
-        if (pthread_getschedparam(self, &policy, &p) == 0)
+        // the kernel's answer for this thread, not pthread_getschedparam's: glibc keeps the policy a thread was made with
+        // and answers that after the thread has been set to another
+        policy = sched_getscheduler(0);
+        if (policy >= 0 && sched_getparam(0, &p) == 0)
         {
             __atomic_store_n(&g_stats.other_policy, policy, __ATOMIC_RELAXED);
             __atomic_store_n(&g_stats.other_priority, p.sched_priority, __ATOMIC_RELAXED);
