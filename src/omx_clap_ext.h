@@ -49,6 +49,7 @@
 
 #include <clap/plugin.h>
 #include <clap/string-sizes.h>
+#include <omxcontract/omx_param_units.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -109,12 +110,10 @@ static const char OMX_CLAP_EXT_PARAM_CONTRACT[] = "org.openmixer.param-contract/
 #define OMX_CLAP_PARAM_CONTRACT_SYMBOL_SIZE 64
 
 /** The units, X(code, name): 1..24 are LV2's units one to one, named by their local name in units.ttl; 0x100 on is the
- * vendor block, append only. The name is the word the canonical serialisation and plugin-hostd's param_info write. */
-#define OMX_CLAP_PARAM_UNITS(X) \
-    X(0, "none") X(1, "s") X(2, "ms") X(3, "min") X(4, "bar") X(5, "beat") X(6, "frame") X(7, "m") X(8, "cm") \
-    X(9, "mm") X(10, "km") X(11, "inch") X(12, "mile") X(13, "db") X(14, "pc") X(15, "coef") X(16, "hz") X(17, "khz") \
-    X(18, "mhz") X(19, "bpm") X(20, "oct") X(21, "cent") X(22, "semitone12TET") X(23, "degree") X(24, "midiNote") \
-    X(0x100, "dbfs") X(0x101, "dbu") X(0x102, "ratio") X(0x103, "lufs")
+ * vendor block, append only. The name is the word the canonical serialisation and plugin-hostd's param_info write. The
+ * table is omx-contract's OMX_PARAM_UNITS (<omxcontract/omx_param_units.h>, the render of its PARAM_CONTRACT_UNITS
+ * sheet, the codes unsigned); this header names it and spells no row of its own. */
+#define OMX_CLAP_PARAM_UNITS(X) OMX_PARAM_UNITS(X)
 
 /** The scales, X(code, name): linear (the value is linear in position), log (geometric in position, both bounds
  * positive), stepped (the whole numbers from min to max, CLAP_PARAM_IS_STEPPED, step 1). */
