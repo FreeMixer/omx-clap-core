@@ -374,8 +374,25 @@ struct lv2_counters
                                     // audio role, or a directory that could not be made
 };
 
-/* What lv2_instance_midi_out_each passes for each event the plugin wrote: its frame, as written, and the bytes. */
-typedef void (*lv2_midi_out_fn)(void *ctx, int64_t frame, const uint8_t *data, uint32_t size);
+/* One event the plugin wrote to its MIDI output: its frame, as written, and the bytes, which stay in the plugin's output
+ * buffer until the next run writes over them. */
+struct lv2_midi_out_event
+{
+    int64_t frame;
+    const uint8_t *data;
+    uint32_t size;
+};
+
+/* A walk over the last run's MIDI output, the caller's memory: lv2_instance_midi_out_begin sets it at the first event,
+ * lv2_instance_midi_out_next reads one. Its fields are the walk's own. */
+struct lv2_midi_out
+{
+    const struct lv2_instance *in;
+    uint32_t limit;                 // the bytes of the output that may be read: the plugin's size, bounded by the buffer
+    uint32_t off;                   // the next event's offset
+    uint32_t k;                     // events read so far: an event buffer and an llext buffer carry a count
+    uint8_t kind;                   // how the output is laid out; 0 once there is nothing left to read
+};
 
 
 /*
@@ -555,10 +572,18 @@ struct lv2_time
  * from the last block's (its frame aside). Does nothing for a plugin with neither. */
 void lv2_instance_time(struct lv2_instance *in, const struct lv2_time *t);
 
-/* [audio] The plugin's half of a block: worker responses drained through work_response, then `before` (the caller's
- * control writes, NULL for none), run, end_run, the flush-to-zero bits re-asserted, the latency port and the outputs
- * read. */
-void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *ctx), void *ctx);
+/* [audio] The plugin's half of a block, in two steps the caller's control writes go between, so that no function pointer
+ * is on the audio path:
+ *
+ *     lv2_instance_run_begin(in);     // worker responses drained through work_response, every output offered empty
+ *     ...                             // the caller's control writes
+ *     lv2_instance_run_end(in, n);    // the patch:Set events forged, run, end_run, the flush-to-zero bits re-asserted,
+ *                                     // the latency port and the outputs read
+ *
+ * lv2_instance_run is the two with nothing between. */
+void lv2_instance_run_begin(struct lv2_instance *in);
+void lv2_instance_run_end(struct lv2_instance *in, uint32_t n);
+void lv2_instance_run(struct lv2_instance *in, uint32_t n);
 
 /* [audio] One MIDI message for the next run, at `frame` of its block: `size` bytes at `data`. Between runs, on the audio
  * role: the input is cleared when the instance has run, so a block's messages are added before its run. 0, or -1 when the
@@ -566,9 +591,19 @@ void lv2_instance_run(struct lv2_instance *in, uint32_t n, void (*before)(void *
  * for. */
 int lv2_instance_midi_in_add(struct lv2_instance *in, uint32_t frame, const uint8_t *data, uint32_t size);
 
-/* [audio] Each event the plugin wrote to its MIDI output in the last run, in order, to fn. A sequence in beats, and an
- * event whose type is not midi:MidiEvent, is not passed. The frames are the plugin's, not clamped. */
-void lv2_instance_midi_out_each(const struct lv2_instance *in, lv2_midi_out_fn fn, void *ctx);
+/* [audio] The events the plugin wrote to its MIDI output in the last run, in order, one per lv2_instance_midi_out_next
+ * (1 with *e filled, 0 when there is none left):
+ *
+ *     struct lv2_midi_out c;
+ *     struct lv2_midi_out_event e;
+ *     for (lv2_instance_midi_out_begin(in, &c); lv2_instance_midi_out_next(&c, &e);)
+ *         ...
+ *
+ * A sequence in beats, and an event whose type is not midi:MidiEvent, is not passed. The frames are the plugin's, not
+ * clamped. The plugin's sizes and counts are read and bounded by the buffer it was given: an event past it is not read,
+ * and the walk ends there. */
+void lv2_instance_midi_out_begin(const struct lv2_instance *in, struct lv2_midi_out *c);
+int lv2_instance_midi_out_next(struct lv2_midi_out *c, struct lv2_midi_out_event *e);
 
 /* [thread-safe] The latency port's last valid reading in frames (0 without one, or before the first run). */
 uint32_t lv2_instance_latency(const struct lv2_instance *in);
