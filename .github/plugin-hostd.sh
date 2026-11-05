@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 # plugin-hostd at the release tag PLUGIN_HOSTD_REF names, fetched into a directory: its protocol and pin headers are what
 # this host builds against, and its daemon is what the pin test runs behind.
 #

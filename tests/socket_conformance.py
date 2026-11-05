@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 """Command framing conformance of a mod-host protocol socket.
 
 Every command a client sends ends with a NUL byte, and so does every answer. A conforming server answers each

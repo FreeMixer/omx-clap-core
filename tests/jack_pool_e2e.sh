@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # omx-clap-host's --thread-pool over jack, end to end, in a PipeWire of its own (#395): the script re-runs itself in a
 # private user, net, pid and mount namespace with its own /proc, starts pipewire on a private runtime dir, then starts
@@ -88,6 +89,15 @@ helpers_ran() {
     echo "$n"
 }
 
+# the host's threads as "<name> <policy> <rt priority> <on-cpu ns>", from /proc: stat (fields 41 and 40, after the name) and schedstat
+threads() {
+    local t
+    for t in /proc/"$1"/task/*; do
+        [ -r "$t/stat" ] || continue
+        echo "$(cat "$t/comm" | tr ' ' _) $(sed 's/^.*) //' "$t/stat" | awk '{ print $39, $38 }') $(cut -d' ' -f1 "$t/schedstat")"
+    done
+}
+
 for mode in on qualified off; do
     case $mode in
         qualified) opt=() ;;
@@ -119,6 +129,14 @@ for mode in on qualified off; do
         step $? "on: $n helper threads for $cores cores (want $want)"
         [ "$want" -eq 0 ] || [ "$ran" -ge 1 ]
         step $? "on: $ran of them ran the plugin's tasks"
+        # the helpers run at the scheduling of the thread that asks for the tasks (the host's thread that has run most that is
+        # no helper), whatever priority jack_client_real_time_priority answered when the instance was added: pipewire-jack
+        # answers garbage before its thread runs, and a helper in the normal class gets next to nothing on a busy machine
+        threads "$hpid" >"$runtime/threads-$mode"
+        audio=$(grep -v '^omx-pool-' "$runtime/threads-$mode" | sort -k4 -n | tail -1)
+        helper_kinds=$(grep '^omx-pool-' "$runtime/threads-$mode" | awk '{ print $2, $3 }' | sort -u)
+        [ "$(echo "$helper_kinds" | wc -l)" -eq 1 ] && [ "$helper_kinds" = "$(echo "$audio" | awk '{ print $2, $3 }')" ]
+        step $? "on: the helpers' policy and priority (${helper_kinds//$'\n'/ and }) are the audio thread's (${audio%% *}: $(echo "$audio" | awk '{ print $2, $3 }'))"
     else
         [ "$n" -eq 0 ]
         step $? "$mode: no helper thread ($n)"

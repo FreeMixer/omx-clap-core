@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 #
 # The host walks the live instances, not the table: effects_idle, the state, remove-all, port-name and carrier walks go
 # through LIVE_EACH_INSTANCE, and a slot's client is set in one place (effect_client_set) so the list cannot drift from
