@@ -17,7 +17,7 @@ The schema
 ----------
 
 The document is described by `omx-clap-scan.schema.json` (JSON Schema, 2020-12), installed by the omx-clap-host package
-as `/usr/share/omx-clap-host/omx-clap-scan.schema.json` and kept in this tree as `data/omx-clap-scan.schema.json`.
+as `/usr/share/omx-clap-host/omx-clap-scan.schema.json` and kept in this tree as `schema/omx-clap-scan.schema.json`.
 The schema declares every field the scanner writes and no other: a field added to the scanner without the schema is a
 failure of `make test-scan-json`, and a consumer may validate with it. The version of the document is the scanner's:
 `version` holds the omx-clap-host version, and a field is added in a release and never changes meaning inside it.

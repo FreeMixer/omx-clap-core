@@ -4,7 +4,7 @@
 #
 # scan-json-check.py: omx-clap-scan --json held to what docs/scan.md says of it. For each given path the scanner is run
 # twice, as text and as JSON, and
-#   - the JSON validates against data/omx-clap-scan.schema.json (the file the package installs);
+#   - the JSON validates against schema/omx-clap-scan.schema.json (the file the package installs);
 #   - the JSON holds the same data as the text: every plugin, parameter, port, note name, latency, voice figure, resource
 #     hint, panel count, preset and file failure the text lists, each with the same value.
 # The fields only the JSON carries (description, url, remote controls, enum labels, the panel's tables, ports' ids) are

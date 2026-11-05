@@ -327,12 +327,12 @@ install-contract:
 # every field a dump writes to a row of its table; and omx-clap-scan --json's resource hints held to omx-contract's
 # RESOURCE_HINTS, words, order and units, over fake_ext's declaration (tests/resource-hints-check.py, with its sabotage arms)
 PLUGIN_HOSTD_TABLES ?=
-# omx-clap-scan --json is the program interface (docs/scan.md): it validates against data/omx-clap-scan.schema.json, the file
+# omx-clap-scan --json is the program interface (docs/scan.md): it validates against schema/omx-clap-scan.schema.json, the file
 # the package installs, and holds the data the text lists, on the fixtures that between them list every kind of line
 SCAN_JSON_FIXTURES = tests/fake.clap tests/fake_synth.clap tests/fake_ext.clap tests/fake_panel.clap tests/fake_tool.clap tests/crash.clap
 .PHONY: test-scan-json
 test-scan-json: $(SCAN_PROG) $(SCAN_JSON_FIXTURES)
-	python3 -I tests/scan-json-check.py --self-test ./$(SCAN_PROG) data/$(SCAN_PROG).schema.json $(SCAN_JSON_FIXTURES)
+	python3 -I tests/scan-json-check.py --self-test ./$(SCAN_PROG) schema/$(SCAN_PROG).schema.json $(SCAN_JSON_FIXTURES)
 
 .PHONY: test-fields
 test-fields: $(SCAN_PROG) tests/fake.clap tests/fake_synth.clap tests/fake_ext.clap
@@ -352,7 +352,7 @@ install: install-lib install-lv2 install-tests install_man install-contract
 	install -d $(DESTDIR)$(BINDIR) $(DESTDIR)$(UDEVDIR)
 	install -m 755 $(PROG) $(SCAN_PROG) $(DESTDIR)$(BINDIR)
 	install -d $(DESTDIR)$(DATADIR)/omx-clap-host
-	install -m 644 data/$(SCAN_PROG).schema.json $(DESTDIR)$(DATADIR)/omx-clap-host/
+	install -m 644 schema/$(SCAN_PROG).schema.json $(DESTDIR)$(DATADIR)/omx-clap-host/
 	install -m 644 packaging/udev/60-omx-clap-host.rules $(DESTDIR)$(UDEVDIR)/
 
 install_man:
