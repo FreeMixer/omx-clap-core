@@ -55,6 +55,7 @@ cat >"$runtime/scan-standin.sh" <<SH
 #!/bin/sh
 case "\$(cat "$runtime/scan-mode" 2>/dev/null)" in
 slow) exec sleep 30 ;;
+surge) sleep 4.1; exec "$root/omx-clap-scan" "\$@" ;;
 crash) kill -SEGV \$\$ ;;
 junk) echo 'not json' ;;
 *) exec "$root/omx-clap-scan" "\$@" ;;
@@ -144,9 +145,15 @@ for mode, what in (('slow', 'outlives the deadline'), ('crash', 'crashes'), ('ju
         pids = open(runtime + '/listing-pids.txt').read().split()
     except OSError:
         pids = []
-    check(r == 'resp -515' and took < 4.5 and host_pid not in pids,
+    check(r == 'resp -515' and took < 4.9 and host_pid not in pids,
           'a scanner that %s: the listing is refused in %.1f s, under the rpc timeout, and not made in process (%s, %s)'
           % (what, took, r, pids))
+# a plugin whose discovery takes 4.1 s (Surge XT 1.4: 3.6 to 4.1 s) is listed, inside plugin-hostd's 5 s rpc timeout
+open(runtime + '/scan-mode', 'w').write('surge')
+t = time.time()
+r = ask('preset_list 1')
+took = time.time() - t
+check(r == count and 4.0 < took < 4.9, 'a scanner that needs 4.1 s still lists, in %.1f s, under the rpc timeout (%s, want %s)' % (took, r, count))
 open(runtime + '/scan-mode', 'w').write('real')
 check(ask('preset_list 1') == count, 'the real scanner lists again: %s' % count)
 # preset_show of a key the listing lacks reads the listing made; it does not run the scanner again
