@@ -168,7 +168,7 @@ jobs:
           command -v mod-host
 
       - name: Every file a comment can be written in opens with its licence
-        uses: FreeMixer/.github/.github/actions/spdx-check@c67b6d0e09fd9f7cf9a8dd24ff41ea30d99f893c
+        uses: FreeMixer/.github/.github/actions/spdx-check@e20d1b7fdc40770ca6f3256b8ca9c975674fe055 # until v1 carries spdx-check
 
       # the units table and the JSON string writer are omx-contract's, the protocol plugin-hostd-protocol's: no copy of
       # either is in this tree (tests/no_contract_copy.py, tests/no_protocol_copy.py, each with its self test)
@@ -940,8 +940,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # at this commit until FreeMixer/.github moves v1 past #98: the protocol library that takes a bind address
-      - uses: FreeMixer/.github/.github/actions/deb-deps@f462c98d0b84167b7a3838fe55abfa01ac0c2fd7
+      - uses: FreeMixer/.github/.github/actions/deb-deps@v1
 
       # the Build-Depends on libomxdsp-dev (and libomx-contract-dev under it) come from the OpenMixer channel
       - name: Add the OpenMixer repository
