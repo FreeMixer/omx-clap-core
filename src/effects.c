@@ -3493,9 +3493,10 @@ struct preset_listing
 
 /* the largest output of omx-clap-scan --json read for a preset listing: some thousands of presets, each a line */
 #define PRESET_SCAN_MAX_BYTES (32u * 1024u * 1024u)
-/* how long omx-clap-scan has to list a plugin's presets: three fifths of plugin-hostd's rpc timeout, the time a worker
- * has to answer before the daemon kills it with every instance it holds, so the refusal reaches the daemon first */
-#define PRESET_SCAN_DEADLINE_MS (PHD_DEFAULT_RPC_TIMEOUT_MS * 3 / 5)
+/* how long omx-clap-scan has to list a plugin's presets: nine tenths of plugin-hostd's rpc timeout, the time a worker
+ * has to answer before the daemon kills it with every instance it holds, so the refusal reaches the daemon first (the
+ * scanner is killed and reaped in a few milliseconds). Surge XT 1.4 needs 3.6 to 4.1 s; three fifths, 3 s, refused it */
+#define PRESET_SCAN_DEADLINE_MS (PHD_DEFAULT_RPC_TIMEOUT_MS * 9 / 10)
 
 extern char **environ;
 
