@@ -1092,7 +1092,7 @@ jobs:
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
             ./proto-debs/libplugin-hostd-protocol0_*.deb ./proto-debs/omx-contract-data_*.deb
           dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
-          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -F 'libplugin-hostd-protocol0 (>= 0.4.0' | grep -qF 'libplugin-hostd-protocol0 (<< 0.5~)'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -E 'libplugin-hostd-protocol0 \(>= 0\.4\.[0-9]+' | grep -qF 'libplugin-hostd-protocol0 (<< 0.5~)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'
