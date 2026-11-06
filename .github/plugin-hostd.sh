@@ -9,8 +9,14 @@ set -eu
 
 dir=${1:?usage: plugin-hostd.sh <dir>}
 ref=${PLUGIN_HOSTD_REF:?}
-case $ref in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "PLUGIN_HOSTD_REF is $ref: pin a release tag (vX.Y.Z), not a branch or a commit" >&2; exit 1 ;; esac
+# A release tag (vX.Y.Z), or, while plugin-hostd and this host move to a new protocol together, the full commit the
+# release PR of plugin-hostd is at: the two cannot be built against each other from released tags.
+case $ref in
+  v[0-9]*.[0-9]*.[0-9]*) want=refs/tags/$ref ;;
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) want=$ref ;;
+  *) echo "PLUGIN_HOSTD_REF is $ref: pin a release tag (vX.Y.Z) or a full commit, not a branch" >&2; exit 1 ;;
+esac
 git init -q "$dir"
-git -C "$dir" fetch -q --depth 1 https://github.com/FreeMixer/plugin-hostd "refs/tags/$ref"
+git -C "$dir" fetch -q --depth 1 https://github.com/FreeMixer/plugin-hostd "$want"
 git -C "$dir" checkout -q FETCH_HEAD
 git config --global --add safe.directory "$(readlink -f "$dir")"
