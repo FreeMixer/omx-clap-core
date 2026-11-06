@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.30.2
+Version:        0.30.3
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -198,6 +198,12 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.3-1
+- A bundle directory with a space: the scanner's field dump writes each file
+  of the bundle by its path in it, the file URI decoded once with the
+  protocol's phd_pin_path_decode before the match
+- An LV2 preset's file: URI is decoded with the same codec: the host's own
+  decoder (it took %00 and kept a stray %) is gone
 * Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.2-1
 - With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
   offscreen platform before a plugin loads, unless the user set
