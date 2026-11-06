@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.29.0
+Version:        0.30.0
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -15,7 +15,7 @@ BuildRequires: pkgconfig
 # the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise
 BuildRequires: (plugin-hostd-protocol-devel >= 0.3.0 with plugin-hostd-protocol-devel < 0.4)
 # plugin-db's pin.h: the layout fingerprint pin_expect names, one implementation
-BuildRequires: (plugin-db-devel >= 0.1.0 with plugin-db-devel < 0.2)
+BuildRequires: (plugin-db-devel >= 0.2.0 with plugin-db-devel < 0.3)
 BuildRequires: clap-devel
 BuildRequires: pkgconfig(libcrypto)
 BuildRequires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
@@ -198,6 +198,13 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.0-1
+- omx-clap-scan --json has a schema (schema/omx-clap-scan.schema.json, installed with
+  the host) and a test that the JSON holds the data the text lists; docs/scan.md
+  describes the output
+- debian: omx-clap-core-contract depends on omx-contract-data with a floor and a ceiling,
+  as the rpm does
+- Floors and ceilings: plugin-db >= 0.2.0 and < 0.3
 * Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.29.0-1
 - omx-clap-host speaks the protocol through libplugin-hostd-protocol; plugin-hostd's
   verbs and the mod-host verbs it refuses are that library's declaration and list

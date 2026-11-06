@@ -1,3 +1,14 @@
+omx-clap-host (0.30.0) unstable; urgency=medium
+
+  * omx-clap-scan --json has a schema, installed with the host, and a test
+    that the JSON holds the data the text lists; docs/scan.md describes the
+    output.
+  * omx-clap-core-contract depends on omx-contract-data with a floor and a
+    ceiling, as the rpm does.
+  * plugin-db floor 0.2.0, ceiling below 0.3.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 06 Nov 2026 03:00:00 +0100
+
 omx-clap-host (0.29.0) unstable; urgency=medium
 
   * omx-clap-host speaks the protocol through libplugin-hostd-protocol, and
