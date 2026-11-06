@@ -24,7 +24,7 @@ env:
   # plugin-hostd from the release we ship (.github/plugin-hostd.sh): its pin header and vocabulary (pkg-config
   # plugin-hostd), the daemon the pin and chain tests run behind and the tests' lib/ (protocol.sh,
   # plugin_hostd_client.py) all come from this one tag; the protocol itself is plugin-hostd-protocol's, PROTOCOL_REF
-  PLUGIN_HOSTD_REF: 2246de7acaed02a34efc5b183188df57303419a6
+  PLUGIN_HOSTD_REF: 0873fc6a63a5d0116821dcbc0b2565bfb6bd8c87
   # omx-contract's reader, render and install script, which data/ is read back through, from this release tag
   OMX_CONTRACT_REF: v3.4.0
   # plugin-hostd-protocol's verbs file (plugin-hostd's verbs, chain of omx-clap-host among them), from this release tag
