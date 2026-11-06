@@ -47,6 +47,8 @@
 #include "lv2_core.h"
 #include "lv2_locate.h"
 #include "scan_fields.h"
+
+#include <plugin-hostd/protocol.h>
 #include "scan_panel.h"
 
 
@@ -782,9 +784,13 @@ static void lv2_uri_text(const char *uri, char *buf, size_t size)
 {
     size_t i, n;
 
-    if (g_bundle_dir && strncmp(uri, "file://", 7) == 0)
+    /* the world writes a file's URI percent-encoded ("my amp.lv2" is my%20amp.lv2): decoded once with the protocol's
+     * phd_pin_path_decode before it is matched against the bundle's directory */
+    char decoded[PATH_MAX * 3];
+
+    if (g_bundle_dir && strncmp(uri, "file://", 7) == 0 && phd_pin_path_decode(uri + 7, decoded, sizeof(decoded)) == 0)
     {
-        const char *path = uri + 7, *base;
+        const char *path = decoded, *base;
 
         n = strlen(g_bundle_dir);
         if (strncmp(path, g_bundle_dir, n) == 0 && path[n] == '/')

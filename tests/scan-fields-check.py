@@ -86,6 +86,19 @@ for m, u in uris:
     if not any(r[:2] == ['plugin', 'rdfs:seeAlso'] and r[2].startswith(os.path.basename(os.path.dirname(m)) + '/') for r in recs):
         bad.append(f'lv2:{u}: no rdfs:seeAlso record in its bundle')
     dumps.append(('lv2', recs))
+# a bundle directory with a space: the world writes its files' URIs with the space %20, and the dump still writes each
+# by its path from the bundle's parent, the directory as it is named
+import shutil, tempfile
+with tempfile.TemporaryDirectory() as spaced_root:
+    for m, u in uris:
+        if glob.glob(os.path.join(os.path.dirname(m), '*.so')): continue
+        name = os.path.basename(os.path.dirname(m))[:-len('.lv2')] + ' spaced.lv2'
+        shutil.copytree(os.path.dirname(m), os.path.join(spaced_root, name))
+        recs = dump(f'lv2:{u}', dict(os.environ, LV2_PATH=spaced_root))
+        if not any(r[:2] == ['plugin', 'rdfs:seeAlso'] and r[2].startswith(name + '/') for r in recs):
+            bad.append(f'lv2:{u} in "{name}": no rdfs:seeAlso record by its path in the bundle: '
+                       f'{[r[2] for r in recs if r[1] == "rdfs:seeAlso"]}')
+        break
 if tables:
     for fmt in ('clap', 'lv2'):
         rows = next(v for v in json.load(open(os.path.join(tables, f'{fmt}.json'))).values() if isinstance(v, dict) and 'rows' in v)['rows']

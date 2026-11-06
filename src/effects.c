@@ -3512,7 +3512,7 @@ static int uri_path_char(unsigned char c)
  * directory that does not resolve, or one that does not fit. */
 static int lv2_uri_canonical(const char *uri, char *out, size_t size)
 {
-    char path[PATH_MAX], dir[PATH_MAX], whole[2 * PATH_MAX], *slash, *o = path;
+    char encoded[PATH_MAX], path[PATH_MAX], dir[PATH_MAX], whole[2 * PATH_MAX], *slash;
     const char *p, *frag;
     size_t n;
 
@@ -3520,21 +3520,13 @@ static int lv2_uri_canonical(const char *uri, char *out, size_t size)
     if (strncmp(uri, "file:///", 8))
         return -1;
     frag = strchr(uri + 7, '#');
-    // the path, decoded
-    for (p = uri + 7; *p && p != frag && o < path + sizeof(path) - 1; p++)
-    {
-        unsigned int c;
-
-        if (p[0] == '%' && isxdigit((unsigned char)p[1]) && isxdigit((unsigned char)p[2]) && sscanf(p + 1, "%2x", &c) == 1)
-        {
-            *o++ = (char)c;
-            p += 2;
-        }
-        else
-            *o++ = *p;
-    }
-    *o = '\0';
-    if ((p != frag && *p) || !(slash = strrchr(path, '/')) || slash == path)
+    n = frag ? (size_t)(frag - (uri + 7)) : strlen(uri + 7);
+    // the path, decoded with the protocol's codec: a stray % or an escaped NUL is no path
+    if (n >= sizeof(encoded))
+        return -1;
+    memcpy(encoded, uri + 7, n);
+    encoded[n] = '\0';
+    if (phd_pin_path_decode(encoded, path, sizeof(path)) != 0 || !(slash = strrchr(path, '/')) || slash == path)
         return -1;
     *slash = '\0';
     if (!realpath(path, dir) || (size_t)snprintf(whole, sizeof(whole), "%s/%s", dir, slash + 1) >= sizeof(whole))
