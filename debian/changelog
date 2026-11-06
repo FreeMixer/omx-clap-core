@@ -1,3 +1,13 @@
+omx-clap-host (0.30.3) unstable; urgency=medium
+
+  * A bundle directory with a space: the scanner's field dump writes each
+    file of the bundle by its path in it, the file URI decoded once with the
+    protocol's phd_pin_path_decode before the match.
+  * An LV2 preset's file: URI is decoded with the same codec: the host's own
+    decoder (it took %00 and kept a stray %) is gone.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 06 Nov 2026 23:00:00 +0100
+
 omx-clap-host (0.30.2) unstable; urgency=medium
 
   * With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
