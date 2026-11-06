@@ -12,7 +12,7 @@ Build-Depends: debhelper-compat (= 13),
                libxcb1-dev,
                libssl-dev,
                libplugin-hostd-protocol-dev (>= 0.5.0~), libplugin-hostd-protocol-dev (<< 0.6~),
-               libomxdsp-dev (>= 0.30.0~), libomxdsp-dev (<< 0.31~),
+               libomxdsp-dev (>= 0.31.0~), libomxdsp-dev (<< 0.32~),
                libomx-contract-dev (>= 3.9.0~), libomx-contract-dev (<< 4~),
                plugin-db-dev (>= 0.2.0~), plugin-db-dev (<< 0.3~),
                pkgconf,
@@ -75,7 +75,7 @@ Package: libomx-clap-core-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libomx-contract-dev (>= 3.9.0~), libomx-contract-dev (<< 4~), libomxdsp-dev (>= 0.30.0~), libomxdsp-dev (<< 0.31~), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
+Depends: libomx-contract-dev (>= 3.9.0~), libomx-contract-dev (<< 4~), libomxdsp-dev (>= 0.31.0~), libomxdsp-dev (<< 0.32~), omx-clap-core-contract (= ${source:Version}), ${misc:Depends}
 Description: build a program that hosts CLAP plugins on libomx-clap-core
  What you need to write a program that hosts CLAP plugins on libomx-clap-core:
  the headers, the pkg-config file, and the list of functions the library

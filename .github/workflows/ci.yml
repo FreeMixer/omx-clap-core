@@ -160,9 +160,9 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.5.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.5.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
           pkg-config --atleast-version=0.4.0 plugin-hostd-protocol
-          pkg-config --atleast-version=0.30.0 omxdsp
+          pkg-config --atleast-version=0.31.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
@@ -578,9 +578,9 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.5.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.5.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
           pkg-config --atleast-version=0.4.0 plugin-hostd-protocol
-          pkg-config --atleast-version=0.30.0 omxdsp
+          pkg-config --atleast-version=0.31.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
           pkg-config --modversion omxplugins
           command -v mod-host
@@ -634,8 +634,8 @@ jobs:
       - name: Install omx-dsp-devel and omx-contract-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0'
-          pkg-config --atleast-version=0.30.0 omxdsp
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0'
+          pkg-config --atleast-version=0.31.0 omxdsp
 
       - name: The sabotage of the no-copy LV2 adapter
         run: DIRECT_SABOTAGE_JOBS=$(nproc) make test-lv2-direct-sabotage
@@ -1092,7 +1092,7 @@ jobs:
           apt-get install -y --no-install-recommends ./debs/omx-clap-host_*.deb ./debs/libomx-clap-core1_*.deb ./debs/omx-clap-core-contract_*_all.deb \
             ./proto-debs/libplugin-hostd-protocol0_*.deb ./proto-debs/omx-contract-data_*.deb
           dpkg -s libplugin-hostd-protocol0 | grep '^Status: install ok installed'
-          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -F 'libplugin-hostd-protocol0 (>= 0.5.0' | grep -qF 'libplugin-hostd-protocol0 (<< 0.6~)'
+          dpkg-deb -f debs/omx-clap-host_*.deb Depends | grep -E 'libplugin-hostd-protocol0 \(>= 0\.5\.[0-9]+' | grep -qF 'libplugin-hostd-protocol0 (<< 0.6~)'
           dpkg -s libomx-clap-core1 | grep '^Status: install ok installed'
           # the contract directory's files come with the runtime library, no -dev installed
           dpkg -s omx-clap-core-contract | grep '^Status: install ok installed'

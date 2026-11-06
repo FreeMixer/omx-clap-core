@@ -59,6 +59,8 @@
 // protocol library's declaration
 #include <plugin-hostd/plugin_hostd_protocol_host_verbs.h>
 #include <plugin-hostd/plugin_hostd_protocol_vocabulary.h>
+#include <plugin-hostd/protocol.h>
+#include "utils.h"
 #include "clap_chain.h"
 #include "quiet_death.h"
 
@@ -151,40 +153,13 @@ static const char g_help_msg[] =
 ************************************************************************************************************************
 */
 
-/* The uri of an add, whole. The protocol library splits a line at every space, so a "clap:" uri whose path holds a space
- * arrives as several words: the uri is the words up to the one holding the '#' of the plugin id, joined with one space
- * (the library collapses a run of spaces, so a path with two in a row is written in quotation marks, which it removes).
- * *next is the index of the word after the uri. Any other uri is its one word. */
-static const char *add_uri(const proto_t *proto, char *joined, size_t size, uint32_t *next)
-{
-    uint32_t i;
-    size_t used = 0;
-
-    *next = 2;
-    if (strncmp(proto->list[1], "clap:", 5) != 0 || strchr(proto->list[1], '#'))
-        return proto->list[1];
-    for (i = 1; i < proto->list_count; i++)
-    {
-        int n = snprintf(joined + used, size - used, "%s%s", i > 1 ? " " : "", proto->list[i]);
-
-        if (n < 0 || (size_t)n >= size - used)
-            return proto->list[1];
-        used += (size_t)n;
-        if (strchr(proto->list[i], '#'))
-        {
-            *next = i + 1;
-            return joined;
-        }
-    }
-    return proto->list[1];
-}
-
 /* add, as mod-host answers it, with the hosting.* code of a refusal after the error code: "resp -102 <code>" */
 static void add_cb(proto_t *proto)
 {
     char reply[256], joined[PATH_MAX + 256];
-    uint32_t next;
-    const char *uri = add_uri(proto, joined, sizeof(joined), &next);
+    unsigned next;
+    /* the uri whole: a bare clap: uri whose path holds a space is joined again, as the protocol reads it */
+    const char *uri = phd_add_uri(proto->list, proto->list_count, joined, sizeof(joined), &next);
     const char *client_name = proto->list_count > next + 1 ? proto->list[next + 1] : NULL;
     int resp = proto->list_count > next ? effects_add(uri, atoi(proto->list[next]), client_name) : ERR_INVALID_OPERATION;
 
@@ -642,6 +617,9 @@ int main(int argc, char **argv)
     int socket_port = SOCKET_DEFAULT_PORT, feedback_port = 0;
     struct sigaction sig;
 
+    /* no plugin is loaded before this: with no display, Qt is given one that needs none, so a Qt-linked plugin
+     * (synthv1) does not abort as it is instantiated; a platform the user set is kept */
+    phd_headless_qt();
     while ((opt = getopt_long(argc, argv, "nvp:f:s:tc:i:SVh", long_options, &opt_index)) != -1)
     {
         switch (opt)
