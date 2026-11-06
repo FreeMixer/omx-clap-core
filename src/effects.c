@@ -4970,6 +4970,14 @@ int effects_audio_ports(int effect_id, char **reply)
 }
 
 /* monitor_output: 0 once `symbol` is monitored, its first value going out with the next idle call */
+int effects_sample_rate(int effect_id, double *rate)
+{
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    *rate = atomic_load_explicit(&g_effects[effect_id].rate, memory_order_relaxed);
+    return SUCCESS;
+}
+
 int effects_monitor_output(int effect_id, const char *symbol)
 {
     effect_t *effect;

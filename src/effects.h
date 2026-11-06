@@ -88,6 +88,9 @@ int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);
 int effects_disconnect(const char *portA, const char *portB);
 int effects_monitor_output(int effect_id, const char *symbol);
+/* the rate the instance runs at, Hz, for the curve verbs: the graph's at the add, then at each change it applied;
+ * ERR_INSTANCE_NON_EXISTS */
+int effects_sample_rate(int effect_id, double *rate);
 int effects_track_info(int effect_id, const char *name, const char *color, const char *kind);
 int effects_chain(int id, const int *instances, int n);
 int effects_remote_pages(int effect_id);

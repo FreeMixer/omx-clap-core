@@ -80,6 +80,10 @@ EXAMPLES = {
     'hello': (['1', 'tags'], []),
     'param_get_many': (['{fx}', '0'], []),
     'param_set_many': (['{fx}', '0', '0.5'], []),
+    # the curve verbs (plugin-hostd-protocol 0.5.0), answered by the library over the backend and the host's rate: a
+    # transfer curve bound to the passthrough's parameter 0, then drawn
+    'curve_bind': (['{fx}', '0', 'transfer_curve', 'dynamics', 'threshold=0:db', 'ratio=0:ratio'], []),
+    'curve_points': (['{fx}', '0', '9'], []),
 }
 
 # a verb a package declares of this host that the host answers in an open change, with that change: the check names it

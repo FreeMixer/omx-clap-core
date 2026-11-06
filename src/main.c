@@ -47,7 +47,11 @@
 #include "protocol.h"
 // hello, request tags and error words are the protocol library's from 0.3.0: protocol_add_hello() registers them
 #ifndef PROTOCOL_HELLO
-#error "plugin-hostd-protocol's hello (protocol_add_hello) not found: install plugin-hostd-protocol-devel >= 0.4.0 and < 0.5"
+#error "plugin-hostd-protocol's hello (protocol_add_hello) not found: install plugin-hostd-protocol-devel >= 0.5.0 and < 0.6"
+#endif
+// curve_bind and curve_points are the protocol library's from 0.5.0: host_dispatch_register_curve() answers them
+#ifndef HOST_DISPATCH_HAS_CURVE
+#error "plugin-hostd-protocol's curve verbs (host_dispatch_register_curve) not found: install plugin-hostd-protocol-devel >= 0.5.0 and < 0.6"
 #endif
 #include "effects.h"
 #include "host_verbs.h"
@@ -98,6 +102,12 @@ static const host_backend_t g_clap_backend = {
     effects_state_load,
     effects_connect,
     effects_disconnect,
+};
+
+/* the curve verbs (plugin-hostd-protocol, doc/protocol.md, Curves): the library keeps each display's binding, reads its
+ * values through g_clap_backend's param_get and draws them with omx_curve_points at the rate the instance runs at */
+static const host_curve_t g_clap_curve = {
+    .sample_rate = effects_sample_rate,
 };
 
 static const char g_help_msg[] =
@@ -555,6 +565,7 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command("preset_save %i %s ...", preset_save_cb);
     protocol_add_command(PRESET_SHOW_INSTANCE, preset_show_cb);
     host_dispatch_register(&g_clap_backend);
+    host_dispatch_register_curve(&g_clap_curve);
     host_dispatch_register_monitor_output(effects_monitor_output);
     protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
     protocol_add_command(OMX_VERB_CHAIN_EXPECT_FMT, chain_expect_cb);
