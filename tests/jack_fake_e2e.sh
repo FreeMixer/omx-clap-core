@@ -240,6 +240,30 @@ expect "chain 3 1" "resp 0"
 for i in 2 1 0; do expect "remove $i" "resp 0"; done
 expect "quit" "resp 0"
 
+# ---- a plugin that dies as a Qt-linked one does with no display (FAKE_AS_QT): with no DISPLAY and no WAYLAND_DISPLAY
+# the host gives Qt the offscreen platform before it loads a plugin, so the add stands; a platform the user set is
+# kept, and with a display the plugin is left to Qt's own choice ----
+qt_case() { # <what> <the platform the plugin must see> <env...>
+    local what=$1 want=$2; shift 2
+    port=$((port + 1))
+    : >"$runtime/fake.log"
+    env -u DISPLAY -u WAYLAND_DISPLAY -u QT_QPA_PLATFORM "$@" FAKE_AS_QT=1 FAKE_LOG=$runtime/fake.log \
+        "$host" -n -p "$port" >"$runtime/host-qt.log" 2>&1 &
+    pids+=($!)
+    host_pid=$!
+    protocol_wait_ready "$runtime/host-qt.log"; step $? "omx-clap-host ready on port $port, $what"
+    exec 3>&-
+    exec 3<>"/dev/tcp/127.0.0.1/$port"
+    expect "add clap:$fake#org.omx-clap-host.test.passthrough 0" "resp 0"
+    kill -0 "$host_pid" 2>/dev/null; step $? "the host is alive after the add ($(grep -c 'qt.qpa' "$runtime/host-qt.log") Qt aborts in its log)"
+    grep -q -x -F "org.omx-clap-host.test.passthrough $want" "$runtime/fake.log"
+    step $? "the plugin saw the Qt platform $want ($(grep -c -x -F "org.omx-clap-host.test.passthrough $want" "$runtime/fake.log") times)"
+    expect "quit" "resp 0"
+}
+qt_case "no display" offscreen
+qt_case "no display, the user's platform" minimal QT_QPA_PLATFORM=minimal
+qt_case "a display" qt-platform-default DISPLAY=:77
+
 if [ "$failures" -eq 0 ]; then
     echo "jack fake e2e ok"
     exit 0
