@@ -160,7 +160,7 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.0' mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
           pkg-config --atleast-version=0.4.0 plugin-hostd-protocol
           pkg-config --atleast-version=0.30.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
@@ -189,7 +189,7 @@ jobs:
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
       - name: Install plugin-db's header, which the build reads
-        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.2.0'
 
       - name: Build
         run: make
@@ -578,7 +578,7 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.0' mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.30.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
           pkg-config --atleast-version=0.4.0 plugin-hostd-protocol
           pkg-config --atleast-version=0.30.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
@@ -598,7 +598,7 @@ jobs:
           PKG_CONFIG_PATH=/opt/plugin-hostd/share/pkgconfig pkg-config --modversion plugin-hostd
 
       - name: Install plugin-db's header, which the build reads
-        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.1.0'
+        run: dnf install -y --setopt=install_weak_deps=False 'plugin-db-devel >= 0.2.0'
 
       - name: Build
         run: make
