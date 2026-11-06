@@ -49,10 +49,10 @@ jobs:
       arch-matrix: ${{ (github.event_name != 'push' && inputs.arm == false) && '["x86_64"]' || '["x86_64", "aarch64"]' }}
     secrets: inherit
 
-  # after the RPMs: both publish into one tree, and a push that loses a race is refused
+  # after the RPMs: both publish into one tree, and a push that loses a race is refused. A release is one wave: a red
+  # or skipped RPM job skips this one, so no DEB is published after a failed RPM.
   deb:
     needs: rpm
-    if: ${{ !cancelled() }}
     uses: FreeMixer/.github/.github/workflows/build-deb.yml@v1
     with:
       package-name: omx-clap-host
