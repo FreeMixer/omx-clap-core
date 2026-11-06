@@ -5,7 +5,7 @@ omx-clap-host (0.30.0) unstable; urgency=medium
     output.
   * omx-clap-core-contract depends on omx-contract-data with a floor and a
     ceiling, as the rpm does.
-  * plugin-db floor 0.2.0, ceiling below 0.3.
+  * plugin-hostd-protocol floor 0.4.0, ceiling below 0.5; plugin-db floor 0.2.0, ceiling below 0.3.
 
  -- Pau Aliagas <linuxnow@gmail.com>  Fri, 06 Nov 2026 03:00:00 +0100
 

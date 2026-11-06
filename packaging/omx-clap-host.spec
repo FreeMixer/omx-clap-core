@@ -13,7 +13,7 @@ BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
 # the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise
-BuildRequires: (plugin-hostd-protocol-devel >= 0.3.0 with plugin-hostd-protocol-devel < 0.4)
+BuildRequires: (plugin-hostd-protocol-devel >= 0.4.0 with plugin-hostd-protocol-devel < 0.5)
 # plugin-db's pin.h: the layout fingerprint pin_expect names, one implementation
 BuildRequires: (plugin-db-devel >= 0.2.0 with plugin-db-devel < 0.3)
 BuildRequires: clap-devel
@@ -35,7 +35,7 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
-Requires: (plugin-hostd-protocol%{?_isa} >= 0.3.0 with plugin-hostd-protocol%{?_isa} < 0.4)
+Requires: (plugin-hostd-protocol%{?_isa} >= 0.4.0 with plugin-hostd-protocol%{?_isa} < 0.5)
 # an LV2 plugin is a lilv instance, mapped by the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
 
@@ -204,7 +204,7 @@ make test-lv2
   describes the output
 - debian: omx-clap-core-contract depends on omx-contract-data with a floor and a ceiling,
   as the rpm does
-- Floors and ceilings: plugin-db >= 0.2.0 and < 0.3
+- Floors and ceilings: plugin-hostd-protocol >= 0.4.0 and < 0.5, plugin-db >= 0.2.0 and < 0.3
 * Wed Nov 04 2026 Pau Aliagas <linuxnow@gmail.com> - 0.29.0-1
 - omx-clap-host speaks the protocol through libplugin-hostd-protocol; plugin-hostd's
   verbs and the mod-host verbs it refuses are that library's declaration and list
@@ -223,7 +223,7 @@ make test-lv2
   is plugin-db's: nothing is built from plugin-hostd any more
 - lv2: the adapter's control writes and MIDI-out sink are direct calls on the audio path
 - Floors and ceilings: omx-contract >= 3.9.0 and < 4, omx-dsp >= 0.30.0 and < 0.31,
-  plugin-hostd-protocol >= 0.3.0 and < 0.4, plugin-db >= 0.1.0 and < 0.2
+  plugin-hostd-protocol >= 0.4.0 and < 0.5, plugin-db >= 0.2.0 and < 0.3
 - Tests: the socket conformance check waits for the first answer and its dropping
   stand-in is deterministic (#483, #488); the xruns sabotage no longer reads the
   wall clock (#489); the LV2 parity harness against mod-host stays as a test, without

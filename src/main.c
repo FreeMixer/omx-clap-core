@@ -47,7 +47,7 @@
 #include "protocol.h"
 // hello, request tags and error words are the protocol library's from 0.3.0: protocol_add_hello() registers them
 #ifndef PROTOCOL_HELLO
-#error "plugin-hostd-protocol's hello (protocol_add_hello) not found: install plugin-hostd-protocol-devel >= 0.3.0 and < 0.4"
+#error "plugin-hostd-protocol's hello (protocol_add_hello) not found: install plugin-hostd-protocol-devel >= 0.4.0 and < 0.5"
 #endif
 #include "effects.h"
 #include "host_verbs.h"
