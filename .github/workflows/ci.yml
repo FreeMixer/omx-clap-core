@@ -160,7 +160,7 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.1' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
           pkg-config --atleast-version=0.4.0 plugin-hostd-protocol
           pkg-config --atleast-version=0.31.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
@@ -578,7 +578,7 @@ jobs:
       - name: Install omx-dsp-devel, omx-contract-devel, plugin-hostd-protocol-devel, mod-host and omx-plugins-devel from the OpenMixer channel
         run: |
           set -euo pipefail
-          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.0' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
+          dnf install -y --setopt=install_weak_deps=False 'omx-dsp-devel >= 0.31.0' 'omx-contract-devel >= 3.9.0' 'plugin-hostd-protocol-devel >= 0.4.1' 'plugin-db-devel >= 0.2.0' cjson-devel mod-host omx-plugins-devel
           pkg-config --atleast-version=0.4.0 plugin-hostd-protocol
           pkg-config --atleast-version=0.31.0 omxdsp
           pkg-config --atleast-version=3.9.0 omx-contract
@@ -714,7 +714,7 @@ jobs:
             diff -u expected.txt files.txt
             rpm -qp --requires "$rpm" | tee requires.txt
             grep -q 'libplugin-hostd-protocol.so.0' requires.txt
-            grep -qx '(plugin-hostd-protocol(.*) >= 0.4.0 with plugin-hostd-protocol(.*) < 0.5)' requires.txt
+            grep -qx '(plugin-hostd-protocol(.*) >= 0.4.1 with plugin-hostd-protocol(.*) < 0.5)' requires.txt
             grep -q 'libomx-clap-core.so.1' requires.txt
             grep -q 'omx-clap-core.* = ' requires.txt
             # the window links libxcb, so the package requires it (#180)

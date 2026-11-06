@@ -1,3 +1,15 @@
+omx-clap-host (0.30.2) unstable; urgency=medium
+
+  * With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
+    offscreen platform before a plugin loads, unless the user set
+    QT_QPA_PLATFORM: synthv1 and other Qt-linked LV2 plugins aborted with
+    SIGABRT as they were instantiated.
+  * add reads a bare clap: uri whose path holds a space with the protocol's
+    phd_add_uri(), not a copy of its own.
+  * plugin-hostd-protocol floor 0.4.1, ceiling below 0.5.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 06 Nov 2026 21:30:00 +0100
+
 omx-clap-host (0.30.1) unstable; urgency=medium
 
   * omx-dsp is taken at 0.31: libomxdsp-dev >= 0.31.0 and << 0.32, so the

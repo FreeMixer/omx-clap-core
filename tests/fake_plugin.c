@@ -786,6 +786,15 @@ static bool plugin_init(const clap_plugin_t *plugin)
     fake->init_thread = pthread_self();
     fake->thread_check = fake->host->get_extension(fake->host, CLAP_EXT_THREAD_CHECK);
     fake_log(plugin, "init");
+    // FAKE_AS_QT=1: the plugin dies as a Qt-linked one does when it makes its QApplication with no platform that can
+    // open (synthv1: "Could not load the Qt platform plugin xcb", SIGABRT): no QT_QPA_PLATFORM and no display
+    if (getenv("FAKE_AS_QT") && !getenv("QT_QPA_PLATFORM") && !getenv("DISPLAY") && !getenv("WAYLAND_DISPLAY"))
+    {
+        fprintf(stderr, "qt.qpa.plugin: Could not load the Qt platform plugin \"xcb\" (the fake, as Qt)\n");
+        abort();
+    }
+    if (getenv("FAKE_AS_QT"))
+        fake_log(plugin, getenv("QT_QPA_PLATFORM") ? getenv("QT_QPA_PLATFORM") : "qt-platform-default");
     // FAKE_ASK_EXTENSION=<id>: the plugin asks the host for that extension twice, as a plugin polling it would
     if (ask)
     {

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.30.1
+Version:        0.30.2
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -13,7 +13,7 @@ BuildRequires: gcc
 BuildRequires: make
 BuildRequires: pkgconfig
 # the protocol library at the release whose ports listen on 127.0.0.1 unless told otherwise
-BuildRequires: (plugin-hostd-protocol-devel >= 0.4.0 with plugin-hostd-protocol-devel < 0.5)
+BuildRequires: (plugin-hostd-protocol-devel >= 0.4.1 with plugin-hostd-protocol-devel < 0.5)
 # plugin-db's pin.h: the layout fingerprint pin_expect names, one implementation
 BuildRequires: (plugin-db-devel >= 0.2.0 with plugin-db-devel < 0.3)
 BuildRequires: clap-devel
@@ -35,7 +35,7 @@ BuildRequires: pipewire-jack-audio-connection-kit-devel
 BuildRequires: pkgconfig(xcb)
 BuildRequires: systemd-rpm-macros
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
-Requires: (plugin-hostd-protocol%{?_isa} >= 0.4.0 with plugin-hostd-protocol%{?_isa} < 0.5)
+Requires: (plugin-hostd-protocol%{?_isa} >= 0.4.1 with plugin-hostd-protocol%{?_isa} < 0.5)
 # an LV2 plugin is a lilv instance, mapped by the adapter linked into the host, which loads lilv on the first LV2 add
 Recommends: lilv-libs
 
@@ -198,6 +198,14 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.2-1
+- With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
+  offscreen platform before a plugin loads, unless the user set
+  QT_QPA_PLATFORM: synthv1 and other Qt-linked LV2 plugins aborted with
+  SIGABRT as they were instantiated
+- add reads a bare clap: uri whose path holds a space with the protocol's
+  phd_add_uri(), not a copy of its own
+- plugin-hostd-protocol floor 0.4.1, ceiling below 0.5
 * Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.1-1
 - omx-dsp is taken at 0.31: >= 0.31.0 and < 0.32, so the channel's omx-dsp 0.31.0
   resolves beside this release; nothing else changes
