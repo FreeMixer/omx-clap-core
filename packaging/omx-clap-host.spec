@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.30.0
+Version:        0.30.1
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -18,7 +18,7 @@ BuildRequires: (plugin-hostd-protocol-devel >= 0.4.0 with plugin-hostd-protocol-
 BuildRequires: (plugin-db-devel >= 0.2.0 with plugin-db-devel < 0.3)
 BuildRequires: clap-devel
 BuildRequires: pkgconfig(libcrypto)
-BuildRequires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
+BuildRequires: (omx-dsp-devel >= 0.31.0 with omx-dsp-devel < 0.32)
 # make install puts data/ into omx-contract's contract directory with omx-contract's install script, and the sources
 # the codes under contract.d/3 (3.0.0, the hosting codes moved here); data/verbs.json is a verbs item (3.3.0); omx_clap_ext.h, preset_file.c and scan.c include omx_param_units.h and omx_json_write.h (3.9.0)
 BuildRequires: (omx-contract-devel >= 3.9.0 with omx-contract-devel < 4)
@@ -84,7 +84,7 @@ License: GPL-3.0-or-later
 Requires: omx-clap-core%{?_isa} = %{version}-%{release}
 Requires: clap-devel
 # hosted_stage.h includes omx-dsp's headers
-Requires: (omx-dsp-devel >= 0.30.0 with omx-dsp-devel < 0.31)
+Requires: (omx-dsp-devel >= 0.31.0 with omx-dsp-devel < 0.32)
 # omxcontract/omx_resource_hints.h, which clap_host.h includes, and omx_param_units.h, which omx_clap_ext.h includes (3.9.0)
 Requires: (omx-contract-devel >= 3.9.0 with omx-contract-devel < 4)
 Requires: omx-clap-core-contract = %{version}-%{release}
@@ -198,6 +198,10 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.1-1
+- omx-dsp is taken at 0.31: >= 0.31.0 and < 0.32, so the channel's omx-dsp 0.31.0
+  resolves beside this release; nothing else changes
+
 * Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.0-1
 - omx-clap-scan --json has a schema (schema/omx-clap-scan.schema.json, installed with
   the host) and a test that the JSON holds the data the text lists; docs/scan.md

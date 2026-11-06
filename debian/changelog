@@ -1,3 +1,11 @@
+omx-clap-host (0.30.1) unstable; urgency=medium
+
+  * omx-dsp is taken at 0.31: libomxdsp-dev >= 0.31.0 and << 0.32, so the
+    channel's omx-dsp 0.31.0 resolves beside this release; nothing else
+    changes.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Fri, 06 Nov 2026 20:10:00 +0100
+
 omx-clap-host (0.30.0) unstable; urgency=medium
 
   * omx-clap-scan --json has a schema, installed with the host, and a test
