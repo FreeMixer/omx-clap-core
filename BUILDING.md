@@ -90,6 +90,23 @@ the `output_set` lines of the feedback socket against the values the input
 makes, the standard gain adjustment alone and bypassed, and the plugin whose
 meters clash refused.
 
+    make test-xrun-report test-xrun-report-sabotage
+
+runs `tests/xrun_report_test.c`, the values of when the `xruns <count>` line is
+due (a first xrun at once, a second's wait, the lines folded, the count of four
+threads whole), and each of three guards broken on purpose and seen red;
+
+    make test-jack-xruns
+
+runs `tests/jack_xruns_e2e.sh` in the same kind of namespace, with the host
+under `tests/jack_xrun_shim.so`, which calls the xrun callback the host
+registered (PipeWire's libjack calls it only when the driver reports an xrun,
+and a private daemon with no sound card never does): the callback registered
+before its client is active, no line without an xrun, `xruns 1` at once, two
+lines a second or more apart carrying the count so far; `make
+test-jack-xruns-sabotage` breaks each guard of `src/effects.c` in a copy and
+requires the check that names it to go red;
+
     make test-jack-info
 
 runs `tests/jack_info_e2e.sh` in the same kind of namespace: `track_info`

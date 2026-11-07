@@ -358,7 +358,7 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
@@ -542,13 +542,13 @@ test-xrun-report: tests/xrun_report_test
 tests/xrun_report_test: tests/xrun_report_test.c src/xrun_report.h
 	$(CC) -Isrc $(CFLAGS) -Werror -pthread -o $@ $<
 
-# the sabotage of each guard: a report that writes every change, one that writes at most once a second but a count
-# already written again, one that loses a count to a plain increment: each reds the test
+# the sabotage of each guard: a report with no once-a-second limit, one that writes a count already written, one that
+# loses a count to a plain increment: each reds the test
 test-xrun-report-sabotage: tests/xrun_report_test.c src/xrun_report.h
 	mkdir -p build/xrun-report-sabotage
 	for arm in rate repeat atomic; do \
 	    case $$arm in \
-	    rate) sed -e 's|now_ms - report->written_at_ms < XRUN_REPORT_MIN_INTERVAL_MS|0|' src/xrun_report.h ;; \
+	    rate) sed -e 's|now_ms - report->written_at_ms < XRUN_REPORT_MIN_INTERVAL_MS|now_ms == (uint64_t)-1|' src/xrun_report.h ;; \
 	    repeat) sed -e 's|if (seen == report->written)|if (0)|' src/xrun_report.h ;; \
 	    atomic) sed -e 's|atomic_fetch_add_explicit(&report->count, 1, memory_order_relaxed);|atomic_store_explicit(\&report->count, atomic_load_explicit(\&report->count, memory_order_relaxed) + 1, memory_order_relaxed);|' src/xrun_report.h ;; \
 	    esac > build/xrun-report-sabotage/xrun_report.h; \
@@ -776,6 +776,20 @@ test-jack-pin: $(PROG) tests/fake.clap tests/clap_layout_pin
 # reads, its two remote pages, remote_pages_changed on the feedback socket, every call on the thread that ran init
 test-jack-info: $(PROG) tests/fake.clap
 	$(HOST_INFO_DECLARED) ./tests/jack_info_e2e.sh
+
+# the xruns line over jack in the same kind of namespace (#371): the xrun callback the host registered, called by a
+# preloaded test double (PipeWire's libjack calls it only when the driver reports an xrun, which a private daemon with no
+# sound card never does), and the line on the feedback port: its grammar, its count, its once a second
+test-jack-xruns: $(PROG) tests/jack_xrun_shim.so
+	OMX_HOST_EVENTS_XRUNS='$(call host_declared,OMX_HOST_EVENTS_XRUNS)' ./tests/jack_xruns_e2e.sh
+
+# the sabotage of the host's side of it: each guard of src/effects.c broken in a copy of the tree, the test red on the check
+# that names it
+test-jack-xruns-sabotage: $(PROG) tests/jack_xrun_shim.so
+	./tests/jack_xruns_sabotage.sh
+
+tests/jack_xrun_shim.so: tests/jack_xrun_shim.c
+	$(CC) $(shell $(PKG_CONFIG) --cflags jack) $(CFLAGS) -Werror -shared -o $@ $< $(shell $(PKG_CONFIG) --libs jack) -ldl -pthread
 
 # a plugin that moves its own parameter over jack in the same kind of namespace: param_gesture and param_set on the
 # feedback port, in order, and the values read again when there were more than the ring holds

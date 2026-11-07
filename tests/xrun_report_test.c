@@ -42,8 +42,8 @@ static int g_failed;
         printf("\n");                                                                                                 \
     } while (0)
 
-#define THREAD_NOTES 4
-#define NOTES_EACH 25000
+#define THREAD_NOTES 8
+#define NOTES_EACH 200000
 
 static void *noter(void *arg)
 {
@@ -85,7 +85,7 @@ int main(void)
     for (int i = 0; i < THREAD_NOTES; i++)
         pthread_join(t[i], NULL);
     CHECK(xrun_report_due(&r, 1, &count) && count == (uint64_t)THREAD_NOTES * NOTES_EACH,
-          "four threads noting %d each give the count %d, none lost", NOTES_EACH, THREAD_NOTES * NOTES_EACH);
+          "%d threads noting %d each give the count %d, none lost", THREAD_NOTES, NOTES_EACH, THREAD_NOTES * NOTES_EACH);
 
     return g_failed ? 1 : 0;
 }
