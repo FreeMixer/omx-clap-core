@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.30.5
+Version:        0.30.6
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -198,6 +198,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Nov 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.6-1
+- The LV2 adapter no longer drops the worker's queue at deactivate and reset: after
+  the worker thread is joined, every queued request goes through work(), every
+  response through work_response and end_run is called once, on the control thread,
+  before the plugin's deactivate (worker.h: what returned SUCCESS is delivered)
 * Sat Nov 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.5-1
 - data/verbs.json declares hide_external_ui as optional of plugin-hostd (and
   mod-host as not offering it): the daemon relays show_external_ui and

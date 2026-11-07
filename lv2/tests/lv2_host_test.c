@@ -1711,6 +1711,48 @@ static void t_worker(double rate)
     lv2_plugin_close(p);
 }
 
+/* a request scheduled in the last run() before deactivate (or reset) is not dropped: work() runs, work_response is told,
+ * before the plugin's deactivate. One block, then the call; no block follows to drain the queue. The counts are
+ * the plugin's own, read after the call and again at cleanup */
+static void t_worker_drain(int via_reset)
+{
+    char why[LV2_CORE_WHY_MAX] = "";
+    const char *what = via_reset ? "reset" : "deactivate";
+    struct lv2_plugin *p = open_plugin(g_wg, LV2_WORKER_GAIN_URI, why);
+    struct lv2_worker_gain_probe *pr;
+    struct lv2_instance *in;
+    float x[BLOCK], y[BLOCK];
+    int gain;
+
+    CHECK(p && lv2_plugin_load(p, why) == 0, "worker drain (%s): open and load (%s)", what, why);
+    pr = p ? probe() : NULL;
+    if (!pr)
+    {
+        lv2_plugin_close(p);
+        return;
+    }
+    memset(pr, 0, sizeof(*pr));
+    gain = control_of(p, "gain_db");
+    in = lv2_instance_new(p);
+    CHECK(lv2_instance_activate(in, 48000.0, 1, BLOCK, why) == 0, "worker drain (%s): activates (%s)", what, why);
+    lv2_instance_control_set(in, (uint32_t)gain, -6.0f);
+    tone(x, BLOCK, 0.5f, 0);
+    run_block(in, x, y);
+    CHECK(atomic_load(&pr->scheduled) == 1, "worker drain (%s): the last run() scheduled one request (%u)", what, atomic_load(&pr->scheduled));
+    if (via_reset)
+        CHECK(lv2_instance_reset(in) == 0, "worker drain (%s): reset succeeds", what);
+    else
+        lv2_instance_deactivate(in);
+    CHECK(atomic_load(&pr->works) == atomic_load(&pr->scheduled),
+          "worker drain (%s): every scheduled request went through work() (%u of %u)", what, atomic_load(&pr->works), atomic_load(&pr->scheduled));
+    CHECK(atomic_load(&pr->responses) == atomic_load(&pr->works),
+          "worker drain (%s): every response was delivered to work_response (%u of %u)", what, atomic_load(&pr->responses), atomic_load(&pr->works));
+    lv2_instance_free(in);
+    CHECK(atomic_load(&pr->cleaned_up) == 1 && atomic_load(&pr->responses) == atomic_load(&pr->scheduled),
+          "worker drain (%s): at cleanup the counts match (scheduled %u, work %u, response %u)", what, atomic_load(&pr->scheduled), atomic_load(&pr->works), atomic_load(&pr->responses));
+    lv2_plugin_close(p);
+}
+
 /* ---- lv2_instance_keep: the block lengths the plugin was told, not the buffers' ---- */
 
 static void t_keep(void)
@@ -2176,6 +2218,8 @@ int main(int argc, char **argv)
     {
         t_cv_run(RATES[r]);
         t_worker(RATES[r]);
+        t_worker_drain(0);
+        t_worker_drain(1);
     }
     t_options();
     t_keep();
