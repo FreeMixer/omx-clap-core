@@ -31,13 +31,47 @@ keeping it beside the standard one leaves two answers to one question with the h
 For each plugin, at load, in this order:
 
 1. `clap.meters/1`: every channel of every meter is an output symbol (the naming rule in `doc/reference.md` is
-   unchanged). At the idle rate the host calls `get_values()` once per monitored meter and sends the channels it
-   wrote; a call that writes none (the plugin has not processed since it was activated) sends nothing.
+   unchanged). At the host read rate (below) the host calls `get_values()` once per monitored meter and sends the
+   channels it wrote; a call that writes none (the plugin has not processed since it was activated) sends nothing.
 2. Only when the plugin has no `clap.meters/1`: `clap.gain-adjustment-metering/0`, as before.
 
 `get_values()` returns doubles; `output_set` carries the value as a float, as it carries every output. The display
 range and the flags are the plugin's to declare and the console's to draw: mod-host's `output_set` has no field
 for them, so the host does not forward them.
+
+## Held meters: the plugin holds, the reader recovers
+
+A meter is read between blocks, so what it shows depends on who keeps the value until the read. Two halves, and each
+has one owner:
+
+- **The plugin holds.** A meter whose `flags` carry `OMX_CLAP_METER_IS_HELD` (bit 8, `src/clap_host.h`) keeps the block
+  value until the host reads it: the largest level of the blocks since the last read, the deepest gain reduction,
+  and any clip. `get_values()` hands that over and starts again. It may be called from any thread but the audio role,
+  and the plugin has one reader. A burst of 10 ms between two reads is in the next read. The audio thread does the
+  keeping with one compare per block and nothing else; the host adds no work to it.
+- **The reader recovers.** The host reads at the rate omx-dsp declares for it, `hostReadHz` in
+  `data/primitives/meter.json`, taken from the installed omx-dsp definitions when the host is built (`src/meter_reader.h`,
+  `src/main.c` has no number of its own for it): 50 Hz, an idle interval of 20 ms. A gain reduction is stepped by
+  `omx_meter_gr_step` over the time elapsed since the last read, on the deepest value since then: a deeper one is taken
+  at once, a shallower one waits out the hold and then lands. A level is sent as it was read.
+- **A plugin that holds nothing** gives what it publishes: the last block it processed. Its meter is `unheld`
+  (`effects_meter_held` answers 0): a burst between two reads is not in what it gives, and the host does not pretend
+  otherwise. A foreign plugin's gain reduction is stepped the same way, on the one value it gives.
+- **The clip word.** A level meter with `OMX_CLAP_METER_HAS_CLIP` (bit 9) writes one value after its channels: 1 when a
+  clip ran since the last read (the plugin holds it like the peak), 0 otherwise. The host sends it as the output
+  `<meter name> clip` (`level_clip` for a meter called `level`) and latches it as the strip's clip is: lit by a clip,
+  lit until `effects_meter_clip_clear`, which the next read follows with a 0. It is a digital clip, not a measure of
+  anything analogue.
+
+### Monitors stop
+
+`monitor_output_off <instance> <symbol>` ends a monitor: the output is not read again and nothing is sent for it. An
+output not monitored stays so, and a symbol the instance does not have is refused as `monitor_output` refuses it. A
+monitor also ends with the connection that set it: the host keeps the connection of every command (the socket's
+cookie, so a later connection that takes the same descriptor number is another one), and an idle tick that finds a
+monitor's connection gone stops it before reading. With nothing monitored the plugin is read zero times
+(`effects_meter_reads` counts the values read, and stays where it was). A controller that reconnects monitors again;
+plugin-hostd replays its ledger of monitors on a new connection.
 
 ## In process
 
@@ -67,6 +101,14 @@ the host builds against either. If the extension's id or layout changes before i
 SDK's header, and `src/clap_meters.h` is removed once the oldest SDK the host builds against ships it.
 
 ## Tests
+
+`tests/effects_meter_test.c` includes the host's `effects.c` and runs `outputs_notify` against the real core and omx-dsp:
+two plugins process the same blocks (one holds, one is foreign), and a 10 ms burst between two reads reaches `output_set`
+for the first and is missed, and named unheld, for the second; the reduction is held 300 ms and lands, at 20 ms ticks and at
+4 ms ticks alike; the clip word stays lit until cleared; a stopped monitor and one whose connection ended are read zero
+times, also when the new connection has the old descriptor number. `make test-effects-meter-sabotage` breaks each of
+those guards in a copy and wants the test red. `tests/jack_meters_e2e.sh` repeats the connection end over the real socket.
+
 
 `tests/fake_compressor.c` serves `clap.meters/1`, and one of its plugins serves only `org.openmixer.meters/1`.
 `tests/jack_meters_e2e.sh` holds the host to the order above over jack: every meter of `clap.meters/1` answers
