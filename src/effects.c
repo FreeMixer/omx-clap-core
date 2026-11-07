@@ -3520,11 +3520,11 @@ int effects_patch_set(int effect_id, const char *uri, const char *value)
     {
         if (omx_clap_lv2_patch_text_set(plugin, uri, value, g_patch_why) == 0)
             return SUCCESS;
-        if (strcmp(g_patch_why, "hosting.patch.busy") != 0 || waited >= PATCH_BUSY_WAIT_MS)
+        if (strcmp(g_patch_why, OMX_HOSTING_PATCH_BUSY) != 0 || waited >= PATCH_BUSY_WAIT_MS)
             break;
         nanosleep(&ms, NULL);
     }
-    return strcmp(g_patch_why, "hosting.patch.not-writable") == 0 ? ERR_LV2_INVALID_PARAM_SYMBOL : ERR_INVALID_OPERATION;
+    return strcmp(g_patch_why, OMX_HOSTING_PATCH_NOT_WRITABLE) == 0 ? ERR_LV2_INVALID_PARAM_SYMBOL : ERR_INVALID_OPERATION;
 }
 
 int effects_patch_get(int effect_id, const char *uri, char *buf, size_t size)
@@ -3551,7 +3551,7 @@ int effects_patch_get(int effect_id, const char *uri, char *buf, size_t size)
     }
     if (!patch_is_text(plugin, uri))
     {
-        snprintf(g_patch_why, sizeof(g_patch_why), "%s", "hosting.patch.not-writable");
+        snprintf(g_patch_why, sizeof(g_patch_why), "%s", OMX_HOSTING_PATCH_NOT_WRITABLE);
         return ERR_LV2_INVALID_PARAM_SYMBOL;
     }
     // what the plugin last reported, else what the host last wrote
