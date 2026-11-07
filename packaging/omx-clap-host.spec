@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.30.2
+Version:        0.30.5
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -198,6 +198,11 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Nov 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.5-1
+- data/verbs.json declares hide_external_ui as optional of plugin-hostd (and
+  mod-host as not offering it): the daemon relays show_external_ui and
+  hide_external_ui to the worker, and its verb check found the second declared
+  for omx-clap-host alone; the host itself is unchanged
 * Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.2-1
 - With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
   offscreen platform before a plugin loads, unless the user set
