@@ -1147,8 +1147,12 @@ static void t_reset_off_rt(void) {
 /* ---- 9. the meters, in process ---- */
 /* A stereo pass-through declaring clap.meters/1: meter 7 "gain reduction" of one channel, -6 dB while the input's peak
  * reaches 0.5 and 0 otherwise, and meter 9 "input level" of two channels, each channel's peak. g_mt_shape breaks the
- * declarations: 1 a meter of no channel, 2 a meter with no info, 3 more meters than the library reads. */
+ * declarations: 1 a meter of no channel, 2 a meter with no info, 3 more meters than the library reads. g_mt_clip makes
+ * meter 9 carry OMX_CLAP_METER_HAS_CLIP: a clip word after its two channels, 1 once a block's peak reached 1 since the
+ * last read (the plugin holds it until it is read). */
 static int g_mt_shape = 0;
+static int g_mt_clip = 0;
+static _Atomic int g_mt_clipped = 0;
 static _Atomic int g_mt_processed = 0;
 static _Atomic uint64_t g_mt_bits[3];
 static uint32_t g_mt_capacity_asked = 0;
@@ -1168,6 +1172,7 @@ static clap_process_status mt_process(const clap_plugin_t *p, const clap_process
   mt_publish(0, (peak[0] >= 0.5f || peak[1] >= 0.5f) ? -6.0 : 0.0);
   mt_publish(1, peak[0] > 0.0f ? 20.0 * log10(peak[0]) : -120.0);
   mt_publish(2, peak[1] > 0.0f ? 20.0 * log10(peak[1]) : -120.0);
+  if (peak[0] >= 1.0f || peak[1] >= 1.0f) atomic_store(&g_mt_clipped, 1);
   atomic_store(&g_mt_processed, 1);
   return CLAP_PROCESS_CONTINUE;
 }
@@ -1179,7 +1184,7 @@ static bool mt_meters_info(const clap_plugin_t *p, uint32_t index, clap_meter_in
   info->id = index == 0 ? 7 : index == 1 ? 9 : 100 + index;
   snprintf(info->name, sizeof info->name, "%s", index == 0 ? "gain reduction" : "input level");
   info->kind = index == 0 ? CLAP_METER_KIND_GAIN_REDUCTION : CLAP_METER_KIND_LEVEL;
-  info->flags = CLAP_METER_IS_COHERENT;
+  info->flags = CLAP_METER_IS_COHERENT | (g_mt_clip && index == 1 ? OMX_CLAP_METER_HAS_CLIP : 0u);
   info->channel_count = index == 0 ? 1 : (g_mt_shape == 1 ? 0 : 2);
   info->min_value = index == 0 ? -24.0 : -60.0;
   info->max_value = 0.0;
@@ -1194,7 +1199,9 @@ static uint32_t mt_meters_values(const clap_plugin_t *p, clap_id id, double *val
   values[0] = mt_read(1);
   if (capacity < 2) return 1;
   values[1] = mt_read(2);
-  return 2;
+  if (!g_mt_clip || capacity < 3) return 2;
+  values[2] = atomic_exchange(&g_mt_clipped, 0) ? 1.0 : 0.0;
+  return 3;
 }
 static const clap_plugin_meters_t MT_METERS = {mt_meters_count, mt_meters_info, mt_meters_values};
 static const void *mt_ext(const clap_plugin_t *p, const char *id) {
@@ -1357,6 +1364,32 @@ static void t_meters(void) {
   CHECK(omx_clap_host_meter_values(in, 7, v, 1) == 1 && v[0] == 0.0, "the reduction follows the plugin's report (%g)", v[0]);
   sc_stop(in);
   omx_clap_host_close(in);
+
+  /* the clip word: a meter flagged OMX_CLAP_METER_HAS_CLIP is asked for one value past its channels, and that value
+   * travels: 1 after a block at full scale, held by the plugin until read, 0 on the read after */
+  g_mt_clip = 1;
+  atomic_store(&g_mt_processed, 0);
+  atomic_store(&g_mt_clipped, 0);
+  in = NULL;
+  CHECK(omx_clap_host_open_entry(&MT_ENTRY, MT_DESC.id, &in, why) == 0 && in, "the metering plugin opens with a clip word (%s)", why);
+  if (in) {
+    CHECK(omx_clap_host_meter_info(in, 1, &m) == 0 && (m.flags & OMX_CLAP_METER_HAS_CLIP) && m.channel_count == 2,
+          "the level declares the clip bit and still two channels (%#x, %u)", m.flags, m.channel_count);
+    CHECK(omx_clap_host_activate(in, 48000.0, 64, why) == 0, "activate it (%s)", why);
+    omx_clap_host_publish(in, pthread_self());
+    sc_prime(in, 1.0f, -0.25f);
+    sc_expect(in, 1.0f, -0.25f, 1.0f, -0.25f, "a block at full scale passes through");
+    for (int i = 0; i < 4; i++) v[i] = 99.0;
+    CHECK(omx_clap_host_meter_values(in, 9, v, 4) == 3 && g_mt_capacity_asked == 3 && v[2] == 1.0 && fabs(v[0]) < 1e-9 && v[3] == 99.0,
+          "the read asks channels + 1 and the clip word arrives lit after it (%u asked; %g, %g, %g)", g_mt_capacity_asked, v[0], v[1], v[2]);
+    sc_expect(in, 0.125f, 0.125f, 0.125f, 0.125f, "a quiet block");
+    CHECK(omx_clap_host_meter_values(in, 9, v, 4) == 3 && v[2] == 0.0, "the read after finds the word cleared (%g)", v[2]);
+    v[2] = 99.0;
+    CHECK(omx_clap_host_meter_values(in, 9, v, 2) == 2 && v[2] == 99.0, "a capacity of two writes the channels and no word");
+    sc_stop(in);
+    omx_clap_host_close(in);
+  }
+  g_mt_clip = 0;
 
   for (int shape = 1; shape <= 3; shape++) {
     g_mt_shape = shape;

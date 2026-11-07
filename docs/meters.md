@@ -84,8 +84,9 @@ library, never through the plugin itself:
   display range. The declarations are fixed for the instance's life, so any thread may read them.
 - `omx_clap_host_meter_values(in, id, values, capacity)` calls the plugin's `get_values()`, which the extension
   declares thread-safe, lock-free and wait-free: a telemetry thread reads it at its own rate, never the audio thread.
-  It answers how many channels it wrote, at most `capacity` and the meter's channel count, and 0 for an id the
-  instance did not declare, or a plugin that has not processed since it was activated.
+  It answers how many values it wrote, at most `capacity` and the meter's channel count (one more for a level meter
+  flagged `OMX_CLAP_METER_HAS_CLIP`: its clip word, after the channels, reported as `<meter name> clip`), and 0 for an
+  id the instance did not declare, or a plugin that has not processed since it was activated.
 
 The order is the one above, without the second step: in process only `clap.meters/1` is read. A plugin that serves
 none, or whose declarations cannot be read whole (a meter with no info, no name, no channel or more than

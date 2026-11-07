@@ -955,8 +955,9 @@ OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_count(const struct omx_clap_instanc
 OMX_CLAP_EXPORT int omx_clap_host_meter_info(const struct omx_clap_instance *in, uint32_t index, struct omx_clap_meter *meter);
 
 /** The latest values of meter `id`, one per channel, into `values`: how many were written, at most `capacity` and the
- * meter's channel count; 0 for an id the plugin did not declare, or a plugin that has not processed since it was
- * activated. Calls the plugin's thread-safe get_values(), so any thread but the audio role reads it: a telemetry
+ * meter's channel count, plus one for a level meter flagged OMX_CLAP_METER_HAS_CLIP (its clip word, after the channels,
+ * the one a host reports as "<meter name> clip"); 0 for an id the plugin did not declare, or a plugin that has not
+ * processed since it was activated. Calls the plugin's thread-safe get_values(), so any thread but the audio role reads it: a telemetry
  * thread, at its own rate. The caller keeps the instance open while it reads. */
 OMX_CLAP_EXPORT uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity);
 
