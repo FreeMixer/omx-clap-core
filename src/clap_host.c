@@ -2449,7 +2449,7 @@ int omx_clap_param_number(double value, char *out, size_t size)
 
 uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, double *values, uint32_t capacity)
 {
-    double read[OMX_CLAP_METER_CHANNELS_MAX];
+    double read[OMX_CLAP_METER_CHANNELS_MAX + 1];
     uint32_t i, n, channels = 0;
 
     if (!in || !in->meters || !values || capacity == 0)
@@ -2458,11 +2458,14 @@ uint32_t omx_clap_host_meter_values(struct omx_clap_instance *in, clap_id id, do
         if (in->meter[i].id == id)
         {
             channels = in->meter[i].channel_count;
+            // a level meter flagged OMX_CLAP_METER_HAS_CLIP writes its clip word after the channels: one value more
+            if ((in->meter[i].flags & OMX_CLAP_METER_HAS_CLIP) && in->meter[i].kind == OMX_CLAP_METER_KIND_LEVEL)
+                channels++;
             break;
         }
     if (channels == 0)
         return 0;
-    // the plugin writes into the library's own array, never past the meter's declared channels into the caller's
+    // the plugin writes into the library's own array, never past the meter's declared values into the caller's
     n = OMX_ABI_CALL(OMX_ABI_GUARD_OF(in), "meters.get_values", in->meters->get_values, in->plugin, id, read, channels);
     if (n > channels)
         n = channels;
