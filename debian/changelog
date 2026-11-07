@@ -1,3 +1,11 @@
+omx-clap-host (0.30.5) unstable; urgency=medium
+
+  * data/verbs.json declares hide_external_ui as optional of plugin-hostd
+    (and mod-host as not offering it): the daemon relays show_external_ui
+    and hide_external_ui to the worker, and its verb check found the second
+    declared for omx-clap-host alone. The host itself is unchanged.
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 07 Nov 2026 15:00:00 +0100
 omx-clap-host (0.30.4) unstable; urgency=medium
 
   * patch_set and patch_get reach an LV2 plugin's patch:writable properties:

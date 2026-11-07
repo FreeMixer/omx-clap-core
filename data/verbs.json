@@ -396,10 +396,15 @@
         "codes": [
           {
             "ref": "HOST_REPLY_CODES.instanceNonExists"
+          },
+          {
+            "ref": "HOST_REPLY_CODES.invalidOperation"
           }
         ],
         "implementedBy": {
-          "omx-clap-host": "required"
+          "plugin-hostd": "optional",
+          "omx-clap-host": "required",
+          "mod-host": "unsupported"
         },
         "since": "0.22.0",
         "doc": "Hide the plugin's own window that show_external_ui showed."
