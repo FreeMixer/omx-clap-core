@@ -24,6 +24,7 @@ tests/fake_ext.clap
 tests/fake_pool.clap
 tests/fake_pool_tsan.clap
 tests/thread_pool_test
+tests/effects_meter_test
 tests/thread_pool_tsan
 tests/thread_pool_bench
 tests/chain_bench

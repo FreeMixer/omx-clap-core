@@ -88,6 +88,16 @@ int effects_state_load(const char *dir);
 int effects_connect(const char *portA, const char *portB);
 int effects_disconnect(const char *portA, const char *portB);
 int effects_monitor_output(int effect_id, const char *symbol);
+/* monitor_output_off: the output is no longer read; a monitor also ends with the connection that set it */
+int effects_monitor_output_off(int effect_id, const char *symbol);
+/* the descriptor of the connection the command being run came in on, given before each command */
+void effects_connection(int fd);
+/* the values read for monitors of an instance so far (zero while nothing is monitored); -1 for no such instance */
+int64_t effects_meter_reads(int effect_id);
+/* 1: the plugin holds the output's meter until it is read; 0: unheld; -1: no such output */
+int effects_meter_held(int effect_id, const char *symbol);
+/* clears a meter's clip word, which the reader keeps lit until then */
+int effects_meter_clip_clear(int effect_id, const char *symbol);
 int effects_track_info(int effect_id, const char *name, const char *color, const char *kind);
 int effects_chain(int id, const int *instances, int n);
 int effects_remote_pages(int effect_id);

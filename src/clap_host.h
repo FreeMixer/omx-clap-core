@@ -107,6 +107,12 @@
 #define OMX_CLAP_METER_KIND_GAIN_REDUCTION  1u  ///< a gain reduction in dB, 0 none and negative a reduction
 #define OMX_CLAP_METER_KIND_LEVEL           2u  ///< a level in dBFS
 
+/** clap.meters/1's flag bits as struct omx_clap_meter's `flags` carries them. Bit 0 is the draft's. The two above it are
+ * this project's, beyond the draft's, and a host that does not know them ignores them (docs/meters.md). */
+#define OMX_CLAP_METER_IS_COHERENT          (1u << 0)  ///< every value of one read comes from the same block
+#define OMX_CLAP_METER_IS_HELD              (1u << 8)  ///< the plugin keeps the deepest (the peak) of the blocks since the last read
+#define OMX_CLAP_METER_HAS_CLIP             (1u << 9)  ///< a level meter: get_values writes one value after its channels, 1 once a clip ran since the last read
+
 /** How many bytes a refusal's hosting code needs, with its NUL. */
 #define OMX_CLAP_WHY_MAX                64
 

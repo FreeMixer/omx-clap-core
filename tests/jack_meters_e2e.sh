@@ -82,6 +82,7 @@ exec 3<>"/dev/tcp/127.0.0.1/$port"
 exec 4<>"/dev/tcp/127.0.0.1/$fbport"
 : >"$feedback"
 while IFS= read -r -d '' line <&4; do echo "$line" >>"$feedback"; done &
+reader_pid=$!
 pids+=($!)
 
 PROTOCOL_TIMEOUT=5
@@ -189,6 +190,32 @@ value 1 gain_adjustment_metering 0 0
 
 echo "the output_set lines, in order:"
 sed 's/^/     /' "$feedback"
+
+# a monitor ends with the connection that set it: the controller reconnects, the input plays again, and the outputs it
+# had monitored say nothing until it monitors them again
+# (the reader and the source hold copies of the descriptors: both stop first, or the host never sees the connection end)
+kill "$reader_pid" 2>/dev/null
+wait "$reader_pid" 2>/dev/null
+exec 3>&- 4>&-
+sleep 0.5
+exec 3<>"/dev/tcp/127.0.0.1/$port"
+exec 4<>"/dev/tcp/127.0.0.1/$fbport"
+while IFS= read -r -d '' line <&4; do echo "$line" >>"$feedback"; done &
+pids+=($!)
+gr_lines=$(lines 0 gain_reduction)
+second_lines=$(lines 0 _2nd_stage_GR)
+adjust_lines=$(lines 1 gain_adjustment_metering)
+"$source" effect_0:in_1 effect_0:in_2 effect_1:in_1 effect_1:in_2 >"$runtime/source2.log" 2>&1 &
+source_pid=$!
+pids+=($source_pid)
+for _ in $(seq 50); do grep -q playing "$runtime/source2.log" && break; sleep 0.1; done
+grep -q playing "$runtime/source2.log"; step $? "the source plays again, on a new connection"
+# the output monitored again says when the input flows, and the ones that were not monitored again have said nothing by then
+expect "monitor_output 0 input_level_0" "resp 1"
+value 0 input_level_0 -6.0206 0.0001
+sleep 0.3
+[ "$(lines 0 gain_reduction)" -eq "$gr_lines" ] && [ "$(lines 0 _2nd_stage_GR)" -eq "$second_lines" ] && [ "$(lines 1 gain_adjustment_metering)" -eq "$adjust_lines" ]
+step $? "the outputs the first connection monitored say nothing on the second until they are monitored again"
 
 expect "remove 0" "resp 0"
 expect "monitor_output 0 gain_reduction" "resp 0"

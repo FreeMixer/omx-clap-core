@@ -60,6 +60,7 @@
 #include "clap_host.h"
 #include "clap_chain.h"
 #include "clap_meters.h"
+#include "meter_reader.h"
 #include "cycle_gate.h"
 #include "hosted_stage_limits.h"
 #include "host_transport.h"
@@ -133,9 +134,11 @@ typedef struct OUTPUT_T {
     clap_id meter;
     uint32_t channel;
     uint32_t channels;          // the meter's: what get_values fills
+    uint32_t capacity;          // what a read asks get_values for: the channels, and the clip word after them
     int monitored;
     int notified;               // a value went out since monitor_output
     float value;                // the last value that went out
+    meter_tap_t tap;            // what the reader keeps of the value between two reads (meter_reader.h)
 } output_t;
 
 /* an LV2 plugin's control port, as param_set, param_get and monitor_output name it: its lv2:symbol, its CLAP id (the port
@@ -201,6 +204,7 @@ typedef struct EFFECT_T {
     _Atomic uint32_t gain_adjustment_bits;  // the float the audio thread published after its last cycle
     output_t *outputs;
     uint32_t outputs_count;
+    _Atomic uint64_t meter_reads;           // values the control thread read for a monitor, since the instance was added
     const clap_plugin_entry_t *lv2_entry;   // an LV2 plugin: the adapter's entry of its bundle; NULL for a CLAP plugin
     char *clap_path;                        // a CLAP plugin: its file, the one omx-clap-scan lists the presets of
     lv2_param_t *lv2_params;
@@ -1615,7 +1619,8 @@ static int symbol_owner(const effect_t *effect, const char *symbol, char *owner,
     return 0;
 }
 
-static int output_add(effect_t *effect, const char *name, int gain_adjustment, clap_id meter, uint32_t channel, uint32_t channels)
+static int output_add(effect_t *effect, const char *name, int gain_adjustment, clap_id meter, uint32_t channel, uint32_t channels,
+                      const meter_tap_t *tap)
 {
     char symbol[OUTPUT_SYMBOL_SIZE], owner[CLAP_NAME_SIZE + 64];
     output_t *outputs, *output;
@@ -1647,6 +1652,8 @@ static int output_add(effect_t *effect, const char *name, int gain_adjustment, c
     output->meter = meter;
     output->channel = channel;
     output->channels = channels;
+    if (tap)
+        output->tap = *tap;
     return 0;
 }
 
@@ -1697,9 +1704,29 @@ static int outputs_build(effect_t *effect)
                 fprintf(stderr, "%s: meter %u \"%s\" has %u channels\n", effect->clap->desc->id, info.id, info.name, info.channel_count);
                 return -1;
             }
-            for (c = 0; c < info.channel_count; c++)
-                if (output_add(effect, info.name, 0, info.id, c, info.channel_count) != 0)
-                    return -1;
+            {
+                meter_tap_t tap;
+
+                memset(&tap, 0, sizeof(tap));
+                tap.gain_reduction = info.kind == CLAP_METER_KIND_GAIN_REDUCTION;
+                tap.held = (info.flags & OMX_CLAP_METER_IS_HELD) != 0;
+                for (c = 0; c < info.channel_count; c++)
+                    if (output_add(effect, info.name, 0, info.id, c, info.channel_count, &tap) != 0)
+                        return -1;
+                // the plugin's clip word, one more value of the read after the channels: an output of its own, lit until cleared
+                if ((info.flags & OMX_CLAP_METER_HAS_CLIP) && info.kind == CLAP_METER_KIND_LEVEL)
+                {
+                    char clip_name[CLAP_NAME_SIZE + 8];
+
+                    snprintf(clip_name, sizeof(clip_name), "%s clip", info.name);
+                    tap.clip_word = 1;
+                    if (output_add(effect, clip_name, 0, info.id, info.channel_count, 1, &tap) != 0)
+                        return -1;
+                }
+                for (c = 0; c < effect->outputs_count; c++)
+                    if (!effect->outputs[c].gain_adjustment && !effect->outputs[c].param && effect->outputs[c].meter == info.id)
+                        effect->outputs[c].capacity = info.channel_count + (tap.clip_word ? 1u : 0u);
+            }
         }
         return 0;
     }
@@ -1716,12 +1743,15 @@ static int outputs_build(effect_t *effect)
     gain_adjustment = OMX_ABI_CALL(NULL, "get_extension", plugin->get_extension, plugin, CLAP_EXT_GAIN_ADJUSTMENT_METERING);
     if (gain_adjustment && gain_adjustment->get)
     {
-        if (output_add(effect, GAIN_ADJUSTMENT_SYMBOL, 1, CLAP_INVALID_ID, 0, 1) != 0)
+        if (output_add(effect, GAIN_ADJUSTMENT_SYMBOL, 1, CLAP_INVALID_ID, 0, 1, NULL) != 0)
             return -1;
         effect->gain_adjustment = gain_adjustment;
     }
     return 0;
 }
+
+/* the connection the command being run came in on (effects_connection) */
+static meter_conn_t g_connection = { -1, 0 };
 
 static int floats_differ(float a, float b)
 {
@@ -1855,15 +1885,28 @@ static void param_events_notify(effect_t *effect)
     }
 }
 
-/* control thread, at the idle rate: each monitored output whose value moved, and the first value of one just monitored,
- * goes out as output_set on the feedback socket; a move is mod-host's for an output port, FLT_EPSILON or more */
-static void outputs_notify(effect_t *effect)
+/* control thread: a monitor that ends. Nothing reads it again, and what the reader kept of it (a held reduction, a lit clip
+ * word) starts again if it is ever set */
+static void output_stop(output_t *output)
 {
-    double values[METER_CHANNELS_MAX];
+    output->monitored = 0;
+    output->notified = 0;
+    meter_tap_reset(&output->tap);
+}
+
+/* control thread, at the idle rate: each monitored output whose value moved, and the first value of one just monitored,
+ * goes out as output_set on the feedback socket; a move is mod-host's for an output port, FLT_EPSILON or more.
+ * Only a monitored output is read, once per tick (METER_READ_HZ, omx-dsp's declared host read rate): the plugin holds
+ * its meter between two reads and the reader steps and latches what it got (meter_reader.h). A monitor whose
+ * connection has ended is stopped before it is read. */
+static void outputs_notify_at(effect_t *effect, double now_s)
+{
+    double values[METER_CHANNELS_MAX + 1];
     clap_id read_meter = CLAP_INVALID_ID;
     uint32_t have = 0;
     int read = 0;
     uint32_t i;
+    const double rate = atomic_load_explicit(&effect->rate, memory_order_relaxed);
 
     for (i = 0; i < effect->outputs_count; i++)
     {
@@ -1872,16 +1915,23 @@ static void outputs_notify(effect_t *effect)
 
         if (!output->monitored)
             continue;
+        if (!meter_conn_alive(&output->tap.owner))
+        {
+            output_stop(output);
+            continue;
+        }
         if (output->gain_adjustment)
         {
             const uint32_t bits = atomic_load_explicit(&effect->gain_adjustment_bits, memory_order_relaxed);
 
+            atomic_fetch_add_explicit(&effect->meter_reads, 1, memory_order_relaxed);
             memcpy(&value, &bits, sizeof(value));
         }
         else if (output->param)
         {
             double v;
 
+            atomic_fetch_add_explicit(&effect->meter_reads, 1, memory_order_relaxed);
             if (omx_clap_host_param_read(effect->clap, output->meter, &v) != 0)
                 continue;
             value = (float)v;
@@ -1890,14 +1940,15 @@ static void outputs_notify(effect_t *effect)
         {
             if (!read || output->meter != read_meter)
             {
+                atomic_fetch_add_explicit(&effect->meter_reads, 1, memory_order_relaxed);
                 read = 1;
                 read_meter = output->meter;
                 have = OMX_ABI_CALL(OMX_ABI_GUARD_OF(effect->clap), "meters.get_values", effect->meters->get_values,
-                                    effect->clap->plugin, output->meter, values, output->channels);
+                                    effect->clap->plugin, output->meter, values, output->capacity);
             }
             if (output->channel >= have)
                 continue;
-            value = (float)values[output->channel];
+            value = meter_tap_value(&output->tap, values[output->channel], now_s, rate);
         }
         if (output->notified && !floats_differ(output->value, value))
             continue;
@@ -1906,6 +1957,11 @@ static void outputs_notify(effect_t *effect)
         output->value = value;
         output->notified = 1;
     }
+}
+
+static void outputs_notify(effect_t *effect)
+{
+    outputs_notify_at(effect, meter_reader_now_s());
 }
 
 static void state_filename(char *buffer, size_t size, const char *dir, int instance)
@@ -4984,11 +5040,86 @@ int effects_monitor_output(int effect_id, const char *symbol)
 
         if (strcmp(output->symbol, symbol) != 0)
             continue;
-        if (!output->monitored)
+        // set again on a connection that is still open it changes nothing; set on a new one it starts again
+        if (!output->monitored || !meter_conn_alive(&output->tap.owner))
         {
             output->monitored = 1;
             output->notified = 0;
+            meter_tap_watch(&output->tap, g_connection);
         }
+        return SUCCESS;
+    }
+    return ERR_LV2_INVALID_PARAM_SYMBOL;
+}
+
+/* monitor_output_off: 0 once `symbol` is no longer monitored, whoever set it; nothing reads it from then on. An output
+ * that was not monitored stays so, and an unknown symbol is refused as monitor_output refuses it */
+int effects_monitor_output_off(int effect_id, const char *symbol)
+{
+    effect_t *effect;
+    uint32_t i;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    for (i = 0; i < effect->outputs_count; i++)
+    {
+        if (strcmp(effect->outputs[i].symbol, symbol) != 0)
+            continue;
+        output_stop(&effect->outputs[i]);
+        return SUCCESS;
+    }
+    return ERR_LV2_INVALID_PARAM_SYMBOL;
+}
+
+/* the connection the command being run came in on: a monitor it sets ends with it (docs/meters.md) */
+void effects_connection(int fd)
+{
+    g_connection = meter_conn_of(fd);
+}
+
+/* the values the control thread has read for monitors of the instance since it was added; -1 for no such instance. A
+ * monitor that is stopped, or whose connection ended, adds none */
+int64_t effects_meter_reads(int effect_id)
+{
+    if (!instance_exist(effect_id))
+        return -1;
+    return (int64_t)atomic_load_explicit(&g_effects[effect_id].meter_reads, memory_order_relaxed);
+}
+
+/* whether the plugin holds the output's meter until it is read: 1 held, 0 unheld (it gives what it publishes, and the
+ * reader cannot know a burst between two reads), -1 for an instance or symbol that is none */
+int effects_meter_held(int effect_id, const char *symbol)
+{
+    const effect_t *effect;
+    uint32_t i;
+
+    if (!instance_exist(effect_id))
+        return -1;
+    effect = &g_effects[effect_id];
+    for (i = 0; i < effect->outputs_count; i++)
+        if (strcmp(effect->outputs[i].symbol, symbol) == 0)
+            return effect->outputs[i].tap.held;
+    return -1;
+}
+
+/* the clear of a clip word the reader holds lit: 0 once cleared, ERR_LV2_INVALID_PARAM_SYMBOL for a symbol that is no
+ * meter's clip word */
+int effects_meter_clip_clear(int effect_id, const char *symbol)
+{
+    effect_t *effect;
+    uint32_t i;
+
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    effect = &g_effects[effect_id];
+    for (i = 0; i < effect->outputs_count; i++)
+    {
+        output_t *output = &effect->outputs[i];
+
+        if (strcmp(output->symbol, symbol) != 0 || !output->tap.clip_word)
+            continue;
+        meter_tap_clip_clear(&output->tap);
         return SUCCESS;
     }
     return ERR_LV2_INVALID_PARAM_SYMBOL;

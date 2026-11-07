@@ -400,12 +400,12 @@ docs: $(CORE_HEADERS) Doxyfile
 	doxygen Doxyfile
 
 clean:
-	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) tests/clap_state_busy_test lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/live_list_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test tests/thread_pool_test tests/thread_pool_tsan tests/thread_pool_bench tests/chain_bench tests/fake_tool.clap tests/fake_pool.clap tests/fake_pool_tsan.clap tests/open_timed_tsan
+	@rm -rf src/*.o src/*.d tests/*.d lv2/*/*.o lv2/*/*.d $(LV2_LIB) tests/clap_state_busy_test lv2/tests/lv2_run_test lv2/tests/lv2_host_test lv2/tests/lv2_patch_test lv2/tests/lv2_features_test lv2/tests/lv2_clap_test lv2/tests/lv2_cost lv2/tests/lv2_link_test $(PROG) $(SCAN_PROG) $(CORE_SO)* build tests/clap_host_test tests/core_link_test tests/clap_scan_test tests/clap_stage_test tests/clap_core_test tests/clap_untrusted_test tests/clap_untrusted_asan tests/msgring_test tests/transport_seqlock_test tests/transport_seqlock_tsan tests/cycle_gate_tsan tests/host_transport_test tests/quiet_death_test tests/xrun_report_test tests/live_list_test tests/jack_xrun_shim.so tests/fault-*.clap tests/fake.clap tests/fake_synth.clap tests/fake_compressor.clap tests/fake_gui.clap tests/fake_panel.clap tests/crash.clap tests/jack_latency_probe tests/jack_synth_probe tests/jack_notes_out_probe tests/jack_transport_ctl tests/fake_transport.clap tests/jack_meter_source tests/jack_identity tests/jack_parity tests/clap_layout_pin tests/clap_raw_test tests/lv2_locate_test tests/param_contract_test tests/panel_abi_test tests/fake_mover.clap tests/clap_unoffered_test tests/preset_file_test tools/preset-census tests/resource_hints_test tests/thread_pool_test tests/thread_pool_tsan tests/thread_pool_bench tests/chain_bench tests/fake_tool.clap tests/fake_pool.clap tests/fake_pool_tsan.clap tests/open_timed_tsan tests/effects_meter_test
 
 -include $(wildcard src/*.d lv2/*/*.d)
 
 # the CLAP lifecycle against a plugin, no jack needed; the layouts the host refuses come from a fake .clap
-test: test-scan-json test-no-sha256-copy test-unsupported-copy test-no-contract-copy check-no-protocol-copy test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-live-list test-live-list-sabotage test-parity-self test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
+test: test-scan-json test-no-sha256-copy test-unsupported-copy test-no-contract-copy check-no-protocol-copy test-codes test-abi-guard test-abi-sabotage tests/clap_host_test tests/fake.clap tests/fake_synth.clap test-scan test-core test-socket test-layouts-sabotage test-cycle-gate-sabotage test-xrun-report-sabotage test-effects-meter test-effects-meter-sabotage test-meter-rate-source test-live-list test-live-list-sabotage test-parity-self test-clap-coverage-self test-clap-doc-check test-thread-pool test-thread-pool-sabotage test-jack-params-ready-sabotage
 	./tests/clap_host_test $(CLAP_TEST_PLUGIN) $(abspath tests/fake.clap) $(abspath tests/fake_synth.clap)
 
 # the scanner against the fake plugin, one that crashes, a broken file, a directory walk, omx-delay.clap and the fake synth
@@ -654,6 +654,52 @@ test-xrun-report-sabotage: tests/xrun_report_test.c src/xrun_report.h
 	    grep -q '^FAIL' build/xrun-report-sabotage/$$arm.log || { echo "sabotage $$arm: no FAIL line"; exit 1; }; \
 	    echo "sabotage $$arm: red as it should"; \
 	done
+
+# the host's read of a plugin's held meters (docs/meters.md), through the host's own effects.c, which the test includes: a
+# burst between two reads reaches output_set for a plugin that holds and is missed, and named unheld, for one that does
+# not; a reduction recovers by elapsed time; the clip word stays lit until cleared; a stopped monitor, and one whose
+# connection ended, is read zero times
+EFFECTS_METER_LINK = src/lv2_locate.o src/preset_file.o src/window.o $(LV2_LIB) $(CRYPTO_LIBS) $(CORE_LINK) $(PROTOCOL_LIBS) \
+    $(PIN_LIBS) $(LDFLAGS) $(LIBS) $(X11_LIBS)
+EFFECTS_METER_CC = $(CC) -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(CFLAGS) -Werror
+
+test-effects-meter: tests/effects_meter_test
+	./tests/effects_meter_test
+
+tests/effects_meter_test: tests/effects_meter_test.c src/effects.c src/effects.h src/meter_reader.h src/clap_host.h tests/test_util.h src/lv2_locate.o src/preset_file.o src/window.o $(LV2_LIB) $(CORE_SO) $(PROTOCOL_LIB)
+	$(EFFECTS_METER_CC) -o $@ $< $(EFFECTS_METER_LINK)
+
+# the sabotage of each guard, in a copy of the sources: a reduction that is not stepped by elapsed time, a clip word that
+# is not latched, a clear that clears nothing, a stopped monitor that is still read, a monitor that outlives its
+# connection, a read that is not once per tick: each reds the test
+test-effects-meter-sabotage: tests/effects_meter_test.c src/effects.c src/meter_reader.h $(CORE_SO) $(LV2_LIB) src/lv2_locate.o src/preset_file.o src/window.o $(PROTOCOL_LIB)
+	rm -rf build/effects-meter-sabotage
+	for arm in step latch clear stop connection tick; do \
+	    mkdir -p build/effects-meter-sabotage/$$arm/src build/effects-meter-sabotage/$$arm/tests; \
+	    cp src/*.h src/effects.c build/effects-meter-sabotage/$$arm/src/; cp tests/effects_meter_test.c tests/test_util.h build/effects-meter-sabotage/$$arm/tests/; \
+	    dir=build/effects-meter-sabotage/$$arm; \
+	    case $$arm in \
+	    step) sed -i -e 's|return omx_meter_view_gr(&tap->gr, deepest, dt, sr, METER_GR_RELEASE_POLE);|(void)dt; (void)sr; return deepest;|' $$dir/src/meter_reader.h ;; \
+	    latch) sed -i -e 's|return tap->clip_latched ? 1.0f : 0.0f;|return raw >= 0.5 ? 1.0f : 0.0f;|' $$dir/src/meter_reader.h ;; \
+	    clear) sed -i -e '/static inline void meter_tap_clip_clear/,/^}/ s|tap->clip_latched = 0;|(void)tap;|' $$dir/src/meter_reader.h ;; \
+	    stop) sed -i -e '/^static void output_stop/,/^}/ s|output->monitored = 0;|output->monitored = 1;|' $$dir/src/effects.c ;; \
+	    connection) sed -i -e 's|return conn->fd >= 0 \&\& now.fd == conn->fd \&\& now.cookie == conn->cookie;|return conn->fd >= 0 \&\& now.fd == conn->fd;|' $$dir/src/meter_reader.h ;; \
+	    tick) sed -i -e 's|#define METER_READ_INTERVAL_MS  (1000 / METER_READ_HZ)|#define METER_READ_INTERVAL_MS  (1000 / METER_READ_HZ + 1)|' $$dir/src/meter_reader.h ;; \
+	    esac; \
+	    if cmp -s src/meter_reader.h $$dir/src/meter_reader.h && cmp -s src/effects.c $$dir/src/effects.c; then echo "sabotage $$arm changed nothing"; exit 1; fi; \
+	    $(CC) -I$$dir/src -Isrc -Ilv2/core -Ilv2/clap $(LV2_CFLAGS) $(INCS) $(CFLAGS) -Werror -o $$dir/test $$dir/tests/effects_meter_test.c $(EFFECTS_METER_LINK) || exit 1; \
+	    if ./$$dir/test > $$dir/out.log 2>&1; then echo "sabotage $$arm: test stayed green"; exit 1; fi; \
+	    grep -q '^FAIL' $$dir/out.log || { echo "sabotage $$arm: no FAIL line"; exit 1; }; \
+	    echo "sabotage $$arm: red as it should"; \
+	done
+
+# the idle tick of the host is omx-dsp's declared host read rate, read from its installed definitions: src/main.c names no
+# number of its own for it
+test-meter-rate-source:
+	@grep -q '^#define IDLE_INTERVAL_MS METER_READ_INTERVAL_MS$$' src/main.c || { echo "FAIL src/main.c does not take its idle interval from meter_reader.h"; false; }
+	@grep -q 'OMX_METER_VIEW_HOST_READ_HZ' src/meter_reader.h || { echo "FAIL meter_reader.h does not read omx-dsp's hostReadHz"; false; }
+	@! grep -n -E '^#define (METER_READ_HZ|METER_READ_INTERVAL_MS) +[0-9]' src/meter_reader.h || { echo "FAIL the host read rate is a number of our own"; false; }
+	@echo "ok   the idle interval is omx-dsp's hostReadHz"
 
 # a host that crashes dies of the same signal and writes no core (checked where the machine writes cores at all)
 test-quiet-death: tests/quiet_death_test
