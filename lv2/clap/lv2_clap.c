@@ -1964,6 +1964,20 @@ static int32_t text_of_uri(const struct shim *s, const char *uri)
     return -1;
 }
 
+bool omx_clap_lv2_patch_param_id(const clap_plugin_t *plugin, const char *uri, clap_id *id)
+{
+    const struct shim *s = shim_of_any(plugin);
+    uint32_t j;
+
+    for (j = 0; s && uri && id && j < s->lv2->n_patches; j++)
+        if (strcmp(s->lv2->patches[j].uri, uri) == 0)
+        {
+            *id = s->lv2->patches[j].id;
+            return true;
+        }
+    return false;
+}
+
 uint32_t omx_clap_lv2_patch_text_count(const clap_plugin_t *plugin)
 {
     const struct shim *s = shim_of_any(plugin);

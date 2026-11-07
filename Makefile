@@ -1344,6 +1344,11 @@ test-jack-lv2: $(PROG) $(LV2_BUNDLES) tests/fake.clap tests/jack_meter_source te
 	@! readelf -d $(PROG) | grep -q 'liblilv' && echo "ok   $(PROG) does not link lilv: the adapter dlopens it"
 	./tests/jack_lv2_e2e.sh
 
+# patch_set and patch_get, sabotaged: the verbs unregistered and the numeric property's parameter path dropped, each
+# arm red on the check that names it, the tree's own test-jack-lv2 green first
+test-jack-lv2-patch-sabotage:
+	bash tests/patch_verbs_sabotage.sh
+
 # the fixture bundle three ways, bit for bit, in a PipeWire of its own: through mod-host, through this host's adapter
 # (add lv2:<uri>) and through the adapter in process; IDENTITY_ARMS="lv2 inproc" where mod-host is not installed
 test-identity-lv2: $(PROG) tests/jack_identity build/bench/inproc $(LV2_BUNDLES)
