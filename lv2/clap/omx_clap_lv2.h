@@ -101,6 +101,11 @@ int omx_clap_lv2_abi_clobber(const clap_plugin_t *plugin, struct omx_abi_clobber
  * configured state root (a symbolic link included), or with no state root. A link inside is removed, never followed. */
 int omx_clap_lv2_saved_drop(const char *saved_dir, char why[OMX_CLAP_LV2_WHY_MAX]);
 
+/* [main-thread] The CLAP parameter that is the numeric patch:writable property `uri` of a plugin this adapter created (an
+ * id above the port indices): true and *id filled; false for a URI no numeric patch property has, or for a plugin the
+ * adapter did not create. A host that names a property by its URI (patch_set, patch_get) writes it as that parameter. */
+bool omx_clap_lv2_patch_param_id(const clap_plugin_t *plugin, const char *uri, clap_id *id);
+
 /* A string or path property of the plugin: an LV2 patch:writable property whose rdfs:range is atom:String or atom:Path.
  * CLAP has no text parameter, so the adapter carries these through the plugin's own patch port, with the functions
  * below. */

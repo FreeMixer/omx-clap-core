@@ -3466,6 +3466,99 @@ int effects_get_parameter(int effect_id, const char *control_symbol, float *valu
     return ret;
 }
 
+/* the hosting code of the last patch_set or patch_get refused, "" when the last one was not */
+static char g_patch_why[OMX_CLAP_LV2_WHY_MAX];
+
+const char *effects_patch_why(void)
+{
+    return g_patch_why;
+}
+
+/* is `uri` a string or path property of the plugin (a patch:writable atom:String or atom:Path)? */
+static int patch_is_text(const clap_plugin_t *plugin, const char *uri)
+{
+    omx_clap_lv2_text_info_t info;
+    uint32_t i, n = omx_clap_lv2_patch_text_count(plugin);
+
+    for (i = 0; i < n; i++)
+        if (omx_clap_lv2_patch_text_info(plugin, i, &info) && strcmp(info.uri, uri) == 0)
+            return 1;
+    return 0;
+}
+
+/* how long a patch_set of a text waits for the block that takes the previous write: 1 ms steps */
+#define PATCH_BUSY_WAIT_MS 200
+
+int effects_patch_set(int effect_id, const char *uri, const char *value)
+{
+    const struct timespec ms = { 0, 1000000L };
+    const clap_plugin_t *plugin;
+    unsigned waited;
+    clap_id id;
+    char *end;
+    double v;
+
+    g_patch_why[0] = '\0';
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    // a CLAP plugin has no patch property: the verb is not one it answers
+    if (!g_effects[effect_id].lv2_entry)
+        return ERR_INVALID_OPERATION;
+    plugin = g_effects[effect_id].clap->plugin;
+    // a number keeps the parameter path: the adapter's parameter above the port indices
+    if (omx_clap_lv2_patch_param_id(plugin, uri, &id))
+    {
+        errno = 0;
+        v = strtod(value, &end);
+        if (end == value || *end != '\0' || errno == ERANGE || v != v)
+            return ERR_INVALID_OPERATION;
+        return clap_param_set(g_effects[effect_id].clap, id, v);
+    }
+    // a path or a string goes through the plugin's own patch port. A write while the previous one still waits for its
+    // block is held for that block, up to PATCH_BUSY_WAIT_MS, as a client sends its writes one after another
+    for (waited = 0;; waited++)
+    {
+        if (omx_clap_lv2_patch_text_set(plugin, uri, value, g_patch_why) == 0)
+            return SUCCESS;
+        if (strcmp(g_patch_why, OMX_HOSTING_PATCH_BUSY) != 0 || waited >= PATCH_BUSY_WAIT_MS)
+            break;
+        nanosleep(&ms, NULL);
+    }
+    return strcmp(g_patch_why, OMX_HOSTING_PATCH_NOT_WRITABLE) == 0 ? ERR_LV2_INVALID_PARAM_SYMBOL : ERR_INVALID_OPERATION;
+}
+
+int effects_patch_get(int effect_id, const char *uri, char *buf, size_t size)
+{
+    const clap_plugin_t *plugin;
+    clap_id id;
+    double v;
+    int ret;
+
+    g_patch_why[0] = '\0';
+    if (size)
+        buf[0] = '\0';
+    if (!instance_exist(effect_id))
+        return ERR_INSTANCE_NON_EXISTS;
+    if (!g_effects[effect_id].lv2_entry)
+        return ERR_INVALID_OPERATION;
+    plugin = g_effects[effect_id].clap->plugin;
+    if (omx_clap_lv2_patch_param_id(plugin, uri, &id))
+    {
+        ret = clap_param_get(g_effects[effect_id].clap, id, &v);
+        if (ret == SUCCESS)
+            snprintf(buf, size, "%.4f", v);
+        return ret;
+    }
+    if (!patch_is_text(plugin, uri))
+    {
+        snprintf(g_patch_why, sizeof(g_patch_why), "%s", OMX_HOSTING_PATCH_NOT_WRITABLE);
+        return ERR_LV2_INVALID_PARAM_SYMBOL;
+    }
+    // what the plugin last reported, else what the host last wrote
+    omx_clap_lv2_patch_text_get(plugin, uri, buf, (uint32_t)size);
+    return SUCCESS;
+}
+
 /* the rows of the last preset_list, gone */
 static void presets_forget(effect_t *effect)
 {

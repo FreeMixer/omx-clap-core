@@ -89,6 +89,17 @@ int effects_connect(const char *portA, const char *portB);
 int effects_disconnect(const char *portA, const char *portB);
 int effects_monitor_output(int effect_id, const char *symbol);
 int effects_track_info(int effect_id, const char *name, const char *color, const char *kind);
+/* patch_set and patch_get of an LV2 plugin's patch:writable property, by its URI: a numeric one as the adapter's
+ * parameter above the port indices, a string or path one through the plugin's patch port (omx_clap_lv2_patch_text_*).
+ * patch_get writes the value the plugin last reported, else the host's last write, into `buf` (a number as %.4f). A text
+ * write while the previous one waits for its block waits for that block, up to 200 ms. ERR_INSTANCE_NON_EXISTS,
+ * ERR_INVALID_OPERATION for a CLAP plugin or a value that is no number, ERR_LV2_INVALID_PARAM_SYMBOL for a URI the
+ * plugin does not list; effects_patch_why() is then the hosting code, "" when there is none. */
+/* the longest patch value, without its NUL: the adapter's 4095 */
+#define OMX_PATCH_VALUE_MAX 4095
+int effects_patch_set(int effect_id, const char *uri, const char *value);
+int effects_patch_get(int effect_id, const char *uri, char *buf, size_t size);
+const char *effects_patch_why(void);
 int effects_chain(int id, const int *instances, int n);
 int effects_remote_pages(int effect_id);
 int effects_remote_page_get(int effect_id, int page, char *reply, size_t size);
