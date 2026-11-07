@@ -6,6 +6,18 @@ omx-clap-host (0.30.5) unstable; urgency=medium
     declared for omx-clap-host alone. The host itself is unchanged.
 
  -- Pau Aliagas <linuxnow@gmail.com>  Sat, 07 Nov 2026 15:00:00 +0100
+omx-clap-host (0.30.4) unstable; urgency=medium
+
+  * patch_set and patch_get reach an LV2 plugin's patch:writable properties:
+    a number as the parameter above the port indices, a path or a string
+    through the plugin's patch port (omx_clap_lv2_patch_text_*); patch_get
+    answers the value the plugin last reported. A path with spaces arrives
+    double-quoted. They answered -902, so samplv1's sample file could not
+    be set over the socket, by this host or through plugin-hostd.
+  * The LV2 adapter gives the parameter of a numeric patch property by its
+    URI (omx_clap_lv2_patch_param_id).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 07 Nov 2026 14:00:00 +0100
 
 omx-clap-host (0.30.2) unstable; urgency=medium
 

@@ -351,6 +351,38 @@ expect "remove 4" "resp 0"
 [ -e "$copy" ]; step $? "the save's copy stays: the saved state names it"
 expect "remove 5" "resp 0"
 
+# ---- patch_set and patch_get: the atom fixture's patch:writable properties, path, string and number, over the socket ----
+# a path or a string goes through the plugin's own patch port (the adapter's omx_clap_lv2_patch_text_*), a number keeps the
+# parameter path; patch_get answers what the plugin last reported: the fixture echoes the file as the same atom:Path, the
+# name as "got:<name>", and the gain as a patch:Set. A path with spaces arrives double-quoted, as mod-host takes it.
+atomfix=urn:openmixer:test:atom-fixture
+fxp="urn:openmixer:test:atom-fixture#"
+# patch_get of a property settles on `want` in up to 3 s: the write lands at the next block, the echo the block after
+patch_reads() {
+    local instance=$1 uri=$2 want=$3 reply
+    for _ in $(seq 30); do
+        reply=$(send "patch_get $instance $uri")
+        [ "$reply" = "resp 0 $want" ] && break
+        sleep 0.1
+    done
+    [ "$reply" = "resp 0 $want" ]
+    step $? "patch_get $instance $uri reads $want ($reply)"
+}
+expect "add lv2:$atomfix 6" "resp 6"
+pw-link effect_3:out_1 effect_6:in_1; step $? "effect_3:out_1 -> effect_6:in_1: the fixture runs its blocks"
+expect "patch_set 6 ${fxp}file $runtime/take.wav" "resp 0"
+patch_reads 6 "${fxp}file" "$runtime/take.wav"
+expect "patch_set 6 ${fxp}file \"$runtime/two words/take one.wav\"" "resp 0"
+patch_reads 6 "${fxp}file" "$runtime/two words/take one.wav"
+expect "patch_set 6 ${fxp}name hello" "resp 0"
+patch_reads 6 "${fxp}name" "got:hello"
+expect "patch_set 6 ${fxp}gain 1.5" "resp 0"
+patch_reads 6 "${fxp}gain" "1.5000"
+expect "patch_set 6 urn:openmixer:test:none 1" "resp -103 hosting.patch.not-writable"
+expect "patch_get 6 urn:openmixer:test:none" "resp -103 hosting.patch.not-writable"
+expect "patch_set 9 ${fxp}file $runtime/take.wav" "resp -3"
+expect "remove 6" "resp 0"
+
 # ---- remove ----
 expect "remove 0" "resp 0"
 [ -z "$(ports effect_0 i)$(ports effect_0 o)" ]; step $? "remove leaves no effect_0 port"

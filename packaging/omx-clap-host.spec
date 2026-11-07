@@ -203,6 +203,15 @@ make test-lv2
   mod-host as not offering it): the daemon relays show_external_ui and
   hide_external_ui to the worker, and its verb check found the second declared
   for omx-clap-host alone; the host itself is unchanged
+* Sat Nov 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.4-1
+- patch_set and patch_get reach an LV2 plugin's patch:writable properties: a
+  number as the parameter above the port indices, a path or a string through
+  the plugin's patch port (omx_clap_lv2_patch_text_*); patch_get answers the
+  value the plugin last reported. A path with spaces arrives double-quoted.
+  They answered -902, so samplv1's sample file could not be set over the
+  socket, by this host or through plugin-hostd
+- The LV2 adapter gives the parameter of a numeric patch property by its URI
+  (omx_clap_lv2_patch_param_id)
 * Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.2-1
 - With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
   offscreen platform before a plugin loads, unless the user set

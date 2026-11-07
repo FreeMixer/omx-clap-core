@@ -109,6 +109,8 @@ static const char g_help_msg[] =
     "bypass <instance_number> <bypass_value>\n"
     "param_set <instance_number> <param_id> <param_value>\n"
     "param_get <instance_number> <param_id>\n"
+    "patch_set <instance_number> <property_uri> <value>\n"
+    "patch_get <instance_number> <property_uri>\n"
     "monitor_output <instance_number> <output_symbol>\n"
     OMX_VERB_PIN_EXPECT " <instance_number> <scheme>:<sha256>\n"
     OMX_VERB_CHAIN_EXPECT " <instance_number> <chain>\n"
@@ -275,6 +277,39 @@ static void note_cb(proto_t *proto)
 static void pin_expect_cb(proto_t *proto)
 {
     protocol_response_int(effects_pin_expect(atoi(proto->list[1]), proto->list[2]), proto);
+}
+
+/* patch_set <N> <property_uri> <value> and patch_get <N> <property_uri> of an LV2 plugin: a refusal with its hosting code
+ * when there is one; patch_get answers "resp 0 <value>", the value the plugin last reported, a path whole whatever spaces
+ * it holds (the protocol reads a double-quoted word as one) */
+static void patch_reply(int resp, const char *value, proto_t *proto)
+{
+    static char reply[OMX_PATCH_VALUE_MAX + 32];
+
+    if (resp < 0 && effects_patch_why()[0])
+        snprintf(reply, sizeof(reply), "resp %i %s", resp, effects_patch_why());
+    else if (resp == 0 && value && value[0])
+        snprintf(reply, sizeof(reply), "resp 0 %s", value);
+    else
+    {
+        protocol_response_int(resp, proto);
+        return;
+    }
+    protocol_response(reply, proto);
+}
+
+static void patch_set_cb(proto_t *proto)
+{
+    patch_reply(proto->list_count == 4 ? effects_patch_set(atoi(proto->list[1]), proto->list[2], proto->list[3]) : ERR_INVALID_OPERATION,
+                NULL, proto);
+}
+
+static void patch_get_cb(proto_t *proto)
+{
+    static char value[OMX_PATCH_VALUE_MAX + 1];
+
+    patch_reply(proto->list_count == 3 ? effects_patch_get(atoi(proto->list[1]), proto->list[2], value, sizeof(value)) : ERR_INVALID_OPERATION,
+                value, proto);
 }
 
 static void track_info_cb(proto_t *proto)
@@ -534,6 +569,9 @@ static int host_init(int socket_port, int feedback_port)
     protocol_add_command(OMX_VERB_PIN_EXPECT_FMT, pin_expect_cb);
     protocol_add_command(OMX_VERB_CHAIN_EXPECT_FMT, chain_expect_cb);
     protocol_add_command(OMX_VERB_TRACK_INFO_FMT, track_info_cb);
+    // ahead of the unsupported list, which answers them -902 for a host that has no patch property
+    protocol_add_command(EFFECT_PATCH_SET, patch_set_cb);
+    protocol_add_command(EFFECT_PATCH_GET, patch_get_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGES_FMT, remote_pages_cb);
     protocol_add_command(OMX_VERB_REMOTE_PAGE_GET_FMT, remote_page_get_cb);
     protocol_add_command(OMX_VERB_PARAM_INFO_FMT, param_info_cb);
