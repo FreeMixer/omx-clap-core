@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Pau Aliagas <linuxnow@gmail.com>
 Name: omx-clap-host
-Version:        0.30.2
+Version:        0.30.4
 Release: 1%{?dist}
 License: GPL-3.0-or-later
 Summary: Use CLAP and LV2 plugins on a JACK or PipeWire rig, driven like mod-host
@@ -198,6 +198,15 @@ make test-lv2
 %{_includedir}/omx-clap-lv2/
 
 %changelog
+* Sat Nov 07 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.4-1
+- patch_set and patch_get reach an LV2 plugin's patch:writable properties: a
+  number as the parameter above the port indices, a path or a string through
+  the plugin's patch port (omx_clap_lv2_patch_text_*); patch_get answers the
+  value the plugin last reported. A path with spaces arrives double-quoted.
+  They answered -902, so samplv1's sample file could not be set over the
+  socket, by this host or through plugin-hostd
+- The LV2 adapter gives the parameter of a numeric patch property by its URI
+  (omx_clap_lv2_patch_param_id)
 * Fri Nov 06 2026 Pau Aliagas <linuxnow@gmail.com> - 0.30.2-1
 - With no display (neither DISPLAY nor WAYLAND_DISPLAY), Qt is given the
   offscreen platform before a plugin loads, unless the user set
