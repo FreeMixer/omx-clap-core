@@ -116,6 +116,7 @@ _Static_assert(EVENT_HEADER_BYTES % 8u == 0 && EVENT_HEADER_BYTES >= sizeof(LV2_
 
 // how often a quiesce looks at the request ring
 #define QUIESCE_POLL_US                 50u
+#define WORKER_DRAIN_ROUNDS            1024u
 
 // the atom sequence header: the atom's own 8 bytes, and the sequence body's unit and pad
 #define SEQ_HEADER_BYTES                16u
@@ -757,6 +758,47 @@ static void *worker_main(void *arg)
             ;
     }
     return NULL;
+}
+
+/* [audio, or the control thread at deactivate] every queued response through work_response; how many */
+static uint32_t worker_deliver(struct lv2_instance *in)
+{
+    uint32_t size, done = 0;
+    const void *msg;
+
+    if (!in->worker || !in->worker->work_response)
+        return 0;
+    while ((msg = omx_msgring_peek(&in->responses, &size)) != NULL)
+    {
+        omx_abi_g(&in->abi, "work_response", (const void *)in->worker->work_response, OMX_ABI_A(in->handle), OMX_ABI_A(size),
+                  OMX_ABI_A(msg), 0, 0, 0);
+        omx_msgring_pop(&in->responses);
+        done++;
+    }
+    return done;
+}
+
+/* [control] every request and response that returned SUCCESS is delivered (worker.h): at deactivate and reset the
+ * worker thread is already joined, so its last work() has finished and no run() can be in progress (CLAP's deactivate
+ * rule). The queue is therefore drained synchronously on the control thread, which is the only thread left: the
+ * requests through work(), the responses through work_response, then end_run once, before the plugin's deactivate.
+ * A response may schedule more work, so it loops; the cap bounds a plugin that schedules without end */
+static void worker_drain(struct lv2_instance *in)
+{
+    uint32_t round, delivered = 0;
+
+    if (!in->worker || !in->ring_mem || in->worker_running)
+        return;
+    for (round = 0; round < WORKER_DRAIN_ROUNDS; round++)
+    {
+        uint32_t worked = worker_service(in), told = worker_deliver(in);
+
+        delivered += told;
+        if (worked == 0 && told == 0)
+            break;
+    }
+    if (delivered != 0 && in->worker->end_run)
+        omx_abi_g(&in->abi, "end_run", (const void *)in->worker->end_run, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
 }
 
 static int worker_start(struct lv2_instance *in)
@@ -1776,6 +1818,7 @@ void lv2_instance_deactivate(struct lv2_instance *in)
     if (!in || !in->lv2_active)
         return;
     worker_stop(in);
+    worker_drain(in);
     ports_home(in);
     if (in->plugin->desc->deactivate)
         omx_abi_g(&in->abi, "deactivate", (const void *)in->plugin->desc->deactivate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
@@ -1791,9 +1834,10 @@ int lv2_instance_reset(struct lv2_instance *in)
         return 0;
     d = in->plugin->desc;
     // deactivate and activate are LV2 instantiation-class calls: no work() may run beside them, so the worker is
-    // stopped and joined first. A request or a response from before the reset belongs to the state it clears: both
-    // rings start empty, as at activate
+    // stopped and joined first, then the queue is drained (nothing that returned SUCCESS is dropped); the rings start
+    // empty, as at activate
     worker_stop(in);
+    worker_drain(in);
     ports_home(in);
     if (d->deactivate)
         omx_abi_g(&in->abi, "deactivate", (const void *)d->deactivate, OMX_ABI_A(in->handle), 0, 0, 0, 0, 0);
@@ -2117,18 +2161,7 @@ void lv2_instance_run_begin(struct lv2_instance *in)
     const struct lv2_plugin *p = in->plugin;
     uint32_t k;
 
-    if (in->worker && in->worker->work_response)
-    {
-        uint32_t size;
-        const void *msg;
-
-        while ((msg = omx_msgring_peek(&in->responses, &size)) != NULL)
-        {
-            omx_abi_g(&in->abi, "work_response", (const void *)in->worker->work_response, OMX_ABI_A(in->handle), OMX_ABI_A(size),
-                      OMX_ABI_A(msg), 0, 0, 0);
-            omx_msgring_pop(&in->responses);
-        }
-    }
+    worker_deliver(in);
     memset(in->patch_out_flag, 0, p->n_patches);
     // the output is offered with its capacity: the plugin reads that, clears the sequence and appends to it; an event
     // buffer, or an llext:MidiPort's, is offered empty, its capacity in its header

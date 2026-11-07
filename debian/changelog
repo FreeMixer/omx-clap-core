@@ -1,3 +1,13 @@
+omx-clap-host (0.30.6) unstable; urgency=medium
+
+  * The LV2 adapter no longer drops the worker's queue at deactivate and
+    reset: after the worker thread is joined, every queued request goes
+    through work(), every response through work_response and end_run is
+    called once, on the control thread, before the plugin's deactivate
+    (worker.h: what returned SUCCESS is delivered).
+
+ -- Pau Aliagas <linuxnow@gmail.com>  Sat, 07 Nov 2026 16:00:00 +0100
+
 omx-clap-host (0.30.5) unstable; urgency=medium
 
   * data/verbs.json declares hide_external_ui as optional of plugin-hostd
